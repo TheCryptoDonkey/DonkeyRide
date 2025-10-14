@@ -1,4 +1,4 @@
-# DonkeyRide Relay Market Dynamics
+so whats # DonkeyRide Relay Market Dynamics
 
 ## The Free Market for Relay Operators
 
@@ -30,15 +30,16 @@ Users can see all available relays and their fees:
 
 ```javascript
 // Relay discovery shows competitive options
-Available Relays:
+Available
+Relays:
 ┌─────────────────┬──────┬─────────┬──────────────────┐
 │ Relay           │ Fee  │ Rating  │ Features         │
 ├─────────────────┼──────┼─────────┼──────────────────┤
-│ QuickRelay      │ 0.2% │ ⭐⭐⭐⭐⭐ │ Fast, reliable   │
-│ BudgetRide      │ 0.1% │ ⭐⭐⭐   │ Basic service    │
-│ PremiumTransit  │ 1.0% │ ⭐⭐⭐⭐⭐ │ Insurance, support│
-│ CommunityRelay  │ 0%   │ ⭐⭐⭐⭐  │ Donation-funded  │
-└─────────────────┴──────┴─────────┴──────────────────┘
+│ QuickRelay      │ 0.2 % │ ⭐⭐⭐⭐⭐ │ Fast, reliable   │
+│ BudgetRide      │ 0.1 % │ ⭐⭐⭐   │ Basic service    │
+│ PremiumTransit  │ 1.0 % │ ⭐⭐⭐⭐⭐ │ Insurance, support│
+│ CommunityRelay  │ 0 %   │ ⭐⭐⭐⭐  │ Donation - funded  │
+└─────────────────┴───────┴───────────┴──────────────────┘
 ```
 
 ### 3. Natural Competition Emerges

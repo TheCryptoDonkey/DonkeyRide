@@ -14,7 +14,11 @@
     "cors": "^2.8.5",
     "ws": "^8.14.2",
     "dotenv": "^16.3.1",
-    "nostr-tools": "^1.17.0"
+    "nostr-tools": "^1.17.0",
+    "ln-service": "^56.0.0",
+    "clightning-client": "^0.1.0",
+    "axios": "^1.6.0",
+    "node-fetch": "^2.7.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

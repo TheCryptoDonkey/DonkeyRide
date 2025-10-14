@@ -4,10 +4,20 @@
 // Operators earn 0.5% of ride value for providing infrastructure
 // ==========================================
 
+// Load environment variables
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const WebSocket = require('ws');
-const { StrikeStakeManager } = require('./strike-stake-implementation');
+const { PaymentProviderFactory } = require('./payment-providers/factory');
+const { validateNIP98Auth } = require('./middleware/nip98-auth');
+const {
+    publicRateLimiter,
+    authenticatedRateLimiter,
+    rideCreationLimiter,
+    stakeLimiter
+} = require('./middleware/rate-limit');
 
 const app = express();
 app.use(cors());
@@ -40,10 +50,28 @@ const config = {
 };
 
 // ==========================================
-// STAKE MANAGER INITIALIZATION
+// PAYMENT PROVIDER INITIALIZATION
 // ==========================================
 
-const stakeManager = new StrikeStakeManager(config.strikeApiKey);
+// Initialize payment provider with automatic fallbacks
+let paymentProvider;
+
+async function initializePaymentProvider() {
+    try {
+        paymentProvider = await PaymentProviderFactory.fromEnv();
+        console.log(`✅ Payment provider initialized: ${paymentProvider.providerName}`);
+
+        // Display capabilities
+        const caps = paymentProvider.getCapabilities();
+        console.log(`   Trust model: ${caps.trustModel}`);
+        console.log(`   Features: ${Object.keys(caps.features).filter(f => caps.features[f]).join(', ')}`);
+    } catch (error) {
+        console.error('❌ Failed to initialize payment provider:', error.message);
+        console.error('   Make sure to configure at least one provider in .env');
+        process.exit(1);
+    }
+}
+
 const activeRides = new Map();
 const stakeBalances = new Map();
 
@@ -86,8 +114,10 @@ function broadcastToRide(rideId, message) {
 // REST API ENDPOINTS
 // ==========================================
 
-// Get relay operator info
-app.get('/info', (req, res) => {
+// Get relay operator info (public endpoint)
+app.get('/info', publicRateLimiter, (req, res) => {
+    const caps = paymentProvider.getCapabilities();
+
     res.json({
         operator: config.operatorPubkey,
         lightning: config.operatorLightningAddress,
@@ -97,14 +127,28 @@ app.get('/info', (req, res) => {
         activeRides: activeRides.size,
         uptime: process.uptime(),
         version: '1.0.0',
-        mechanisms: ['custodial_strike'], // Will add more later
+        paymentProvider: {
+            name: paymentProvider.providerName,
+            type: caps.type,
+            trustModel: caps.trustModel,
+            features: caps.features
+        },
+        mechanisms: [caps.type]
     });
 });
 
 // Create ride session with stakes
-app.post('/rides/create', async (req, res) => {
+app.post('/rides/create', validateNIP98Auth, rideCreationLimiter, async (req, res) => {
     try {
         const { rideId, riderId, fareAmount } = req.body;
+
+        // Verify authenticated user matches riderId
+        if (req.user.pubkey !== riderId) {
+            return res.status(403).json({
+                error: 'Forbidden',
+                details: 'Authenticated pubkey must match riderId'
+            });
+        }
         
         // Calculate stakes
         const riderStake = Math.max(config.minStakeAmount, Math.floor(fareAmount * 0.1));
@@ -413,21 +457,39 @@ async function payOperatorFee(amount) {
 // SERVER STARTUP
 // ==========================================
 
-app.listen(config.port, () => {
-    console.log(`
+async function startServer() {
+    // Initialize payment provider first
+    await initializePaymentProvider();
+
+    // Start HTTP server
+    app.listen(config.port, () => {
+        console.log(`
     ========================================
-    DonkeyRide Relay Operator Server
+    DonkeyRide Operator Server
     ========================================
     Operator: ${config.operatorPubkey}
     Lightning: ${config.operatorLightningAddress}
     Fee: ${config.operatorFeePercent * 100}%
+    Payment Provider: ${paymentProvider.providerName} (${paymentProvider.type})
     API Port: ${config.port}
     WebSocket Port: ${config.wsPort}
     ========================================
     Server running at http://localhost:${config.port}
     WebSocket at ws://localhost:${config.wsPort}
     ========================================
-    `);
+
+    🔐 NIP-98 authentication enabled
+    🛡️  Rate limiting active
+    ⚡ Multiple payment providers supported
+    ========================================
+        `);
+    });
+}
+
+// Start the server
+startServer().catch(error => {
+    console.error('Failed to start server:', error);
+    process.exit(1);
 });
 
 // Graceful shutdown

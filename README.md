@@ -31,69 +31,109 @@ DonkeyRide is a **complete rideshare/delivery protocol** that replicates 100% of
 
 ## 🚀 Quick Start
 
-### For Riders & Drivers (Just Use It)
+### For Operators (Easiest - Strike)
 ```bash
-# Just open the app in your browser
-open index.html  # macOS
-xdg-open index.html  # Linux  
-start index.html  # Windows
-
-# That's it! You're now using decentralized rideshare
-```
-
-### For Taxi Drivers (Run Your Own Platform)
-```bash
-# You can be your own Uber in 5 minutes
 git clone https://github.com/donkeyride/donkeyride
 cd donkeyride
+npm install
 
-# Configure your relay (set 0% fee for yourself!)
+# Configure with Strike (easiest)
 cp .env.example .env
-nano .env  # Set OPERATOR_FEE_PERCENT=0
+# Edit .env:
+# PAYMENT_PROVIDER=strike
+# STRIKE_API_KEY=sk_live_...
+# OPERATOR_PUBKEY=npub1...
 
-# Start your relay
-npm install && npm start
-
-# Now use the app connected to YOUR relay - 100% earnings!
+npm start
 ```
 
-### For Developers (See How Simple It Is)
+### For Operators (Trustless - LND)
 ```bash
-# The entire protocol is just a few files
-cat NIP-XX-ridesharing.md  # Protocol spec
-cat index.html  # Complete implementation
-cat server.js  # Relay operator server
+# Same setup, but use LND for trustless staking
+# Edit .env:
+# PAYMENT_PROVIDER=lnd
+# LND_HOST=localhost:10009
+# LND_CERT_PATH=~/.lnd/tls.cert
+# LND_MACAROON_PATH=~/.lnd/data/chain/bitcoin/mainnet/admin.macaroon
+
+npm start
+
+# Operator can no longer steal funds! ✅
 ```
+
+### For Operators (Resilient - Multi-provider)
+```bash
+# Configure fallback providers for maximum uptime
+# Edit .env:
+# PAYMENT_PROVIDER=lnd
+# PAYMENT_FALLBACKS=btcpay,strike,alby
+# [Configure credentials for all]
+
+npm start
+
+# If LND fails → BTCPay → Strike → Alby
+```
+
+### For Taxi Drivers (100% Earnings)
+```bash
+# You can be your own Uber
+cp .env.example .env
+# Set: OPERATOR_FEE_PERCENT=0  ← Keep 100% of fares!
+
+npm start
+# Now use the app connected to YOUR operator
+```
+
+### For Developers
+See `QUICK-START.md` for detailed setup guide.
+See `PRESENTATION.md` for full technical overview.
+See `DEMO-SCRIPT.md` for live demo walkthrough.
 
 ## 📁 Project Structure
 
 ```
 donkeyride/
 ├── Core Implementation
-│   ├── index.html                      # Complete rideshare app
-│   ├── server.js                        # Relay operator server
-│   ├── reference-implementation.js     # Protocol logic
-│   ├── commitment-stakes.js            # Stake management
-│   ├── streaming-payments.js           # Pay-while-moving
-│   └── relay-mesh.js                   # Multi-relay coordination
+│   ├── server.js                        # Operator server with NIP-98 auth
+│   ├── index.html                       # Complete rideshare app
+│   ├── reference-implementation.js      # Protocol logic
+│   ├── commitment-stakes.js             # Stake management
+│   ├── streaming-payments.js            # Pay-while-moving
+│   └── relay-mesh.js                    # Multi-relay coordination
+│
+├── Payment Providers (NEW! ✨)
+│   ├── base.js                          # PaymentProvider interface
+│   ├── factory.js                       # Factory with fallbacks
+│   ├── strike.js                        # Strike implementation
+│   ├── lnd.js                          # LND hodl invoices (trustless!)
+│   ├── btcpay.js                       # BTCPay Server (self-hosted)
+│   ├── alby.js                         # Alby integration
+│   └── core-lightning.js               # Core Lightning (trustless!)
+│
+├── Security Middleware (NEW! 🔐)
+│   ├── nip98-auth.js                   # NIP-98 authentication
+│   └── rate-limit.js                   # Rate limiting
 │
 ├── Protocol Specification
-│   ├── NIP-XX-ridesharing.md          # Full protocol spec (57 events)
-│   ├── STAKING-EXPLAINED.md           # How stakes work
-│   └── STAKING-MIGRATION-PATH.md      # Decentralization roadmap
+│   ├── NIP-XX-ridesharing.md          # Full protocol spec (30+ events)
+│   ├── NIP-XX-RELAY-STAKE-EXTENSION.md # Relay integration (optional)
+│   ├── OPERATOR-MISBEHAVIOR-PROTOCOL.md # Theft detection/punishment
+│   ├── TRUST-MECHANISMS.md            # 6 layers of security
+│   └── WATCHDOG-INCENTIVES.md         # Game theory
 │
 ├── Documentation
 │   ├── README.md                       # You are here
-│   ├── SETUP.md                        # Installation guide
+│   ├── QUICK-START.md                 # 5-minute setup guide (NEW!)
+│   ├── IMPLEMENTATION-SUMMARY.md      # What we built (NEW!)
+│   ├── OPERATOR-DEPLOYMENT.md         # Deployment guide
 │   ├── UBER-FEATURE-PARITY.md         # 100% feature comparison
-│   ├── TAXI-DRIVER-LIBERATION.md      # Driver independence guide
-│   ├── RELAY-MARKET-DYNAMICS.md       # Fee competition explained
-│   └── 200-BILLION-DOLLAR-JOKE.md     # Why Uber is overvalued
+│   └── TAXI-DRIVER-LIBERATION.md      # Driver independence
 │
-└── Demo Files
-    ├── demo-start.html                 # Live coding template
-    ├── demo-steps.js                   # Code snippets
-    └── assets/demo-script.md           # Presentation notes
+└── Presentation (NEW! 🎤)
+    ├── PRESENTATION.md                 # 20-minute slide deck
+    ├── DEMO-SCRIPT.md                  # 5-minute live demo
+    ├── .env.example                    # Configuration template
+    └── demo-steps.js                   # Code snippets
 ```
 
 ## 🎬 Demo Flow (15 minutes)
@@ -169,32 +209,38 @@ const rideEvent = {
 - Demonstrate rider/driver interaction
 - **The money shot**: "Uber: $130B and 14 years. NostrRide: 15 minutes, no company needed"
 
-## ⚡ Key Technical Concepts
+## ⚡ Key Technical Innovations
 
-### Nostr Events Used
-- **Kind 30500**: Ride requests with location tags
-- **Kind 30501**: Ride acceptances with Lightning addresses
+### Payment Provider Abstraction ✨ NEW!
+**No more vendor lock-in!** Choose from 5 providers:
 
-### Event Structure
-```json
-{
-  "kind": 30500,
-  "pubkey": "rider_pubkey",
-  "tags": [
-    ["from", "53.4794,-2.2453", "Pendulum Hotel"],
-    ["to", "53.4773,-2.2309", "Piccadilly Station"], 
-    ["price", "750"]
-  ],
-  "content": "Need ride description"
-}
-```
+| Provider | Type | Trustless? | Self-hosted? |
+|----------|------|------------|--------------|
+| **LND** | Hodl Invoice | ✅ Yes | Optional |
+| **Core Lightning** | Hodl Invoice | ✅ Yes | Optional |
+| **BTCPay Server** | Self-hosted | ⚠️ Partial | ✅ Yes |
+| **Strike** | Custodial | ❌ No | ❌ No |
+| **Alby** | Custodial | ❌ No | ❌ No |
+
+**Trustless = Operator physically cannot steal funds!**
+
+### Security Features 🔐 NEW!
+- **NIP-98 Authentication**: Cryptographic proof on every API call
+- **Rate Limiting**: 4-tier protection against spam
+- **Multi-provider Fallbacks**: Automatic failover
+- **Progressive Limits**: New operators start with low limits
+
+### Nostr Event Types (30500-30571)
+- **30500-30512**: Core ride events (request, accept, payment, status)
+- **30540**: Operator bond announcements
+- **30550-30571**: Trust & enforcement (theft reports, verification, slashing)
 
 ### Tech Stack
 - **Nostr Tools**: Event creation and signing
-- **WebSockets**: Relay connection
-- **Leaflet**: OpenStreetMap integration
-- **QRious**: Lightning QR generation
-- **Lightning Network**: Instant payments
+- **Lightning Network**: Instant micropayments
+- **LN Service**: LND integration for hodl invoices
+- **Express**: REST API with NIP-98 auth
+- **WebSockets**: Real-time updates
 
 ## 💡 Demo Tips for WebStorm
 
@@ -280,24 +326,28 @@ Audience will understand:
 
 ## 🏆 What We Achieved
 
-### Built During a Single Train Journey
-- **Protocol Design**: Complete 57-event specification
-- **Implementation**: Working rideshare app
+### Phase 1: Train Journey → Production Ready
+- **Protocol Design**: Complete 30+ event specification (30500-30571)
+- **Payment Providers**: 5 implementations (3 trustless!)
+- **Security**: NIP-98 auth + 4-tier rate limiting
+- **Trustless Staking**: Hodl invoices (operator can't steal!)
 - **Feature Parity**: 100% of Uber's features
 - **Economics**: 99-100% driver earnings (vs 70-75%)
-- **Innovation**: Streaming payments, commitment stakes
-- **Documentation**: Complete guides for users, drivers, operators
+- **Documentation**: Complete operator deployment guides
+- **Presentation**: 20-min slide deck + 5-min live demo
 
 ### The Disruption
 | Metric | Uber | DonkeyRide |
 |--------|------|------------|
-| Build Time | 15 years | 3 hours |
+| Build Time | 15 years | 3 hours → Production |
 | Build Cost | $31 billion | £0 |
 | Employees | 32,000 | 0 |
 | Driver Earnings | 70-75% | 99-100% |
 | Platform Fees | 25-30% | 0-1% |
-| Can Be Banned | Yes | No |
 | Can Deplatform | Yes | No |
+| Can Steal Funds | N/A | **Impossible** (trustless!) |
+| Authentication | Passwords | Cryptography |
+| Vendor Lock-in | Yes | No (5 providers!) |
 | Market Cap | $200 billion | Priceless |
 
 ### For UK Taxi/PHV Drivers
