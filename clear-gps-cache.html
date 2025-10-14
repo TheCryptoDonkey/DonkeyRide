@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear GPS Cache</title>
+</head>
+<body>
+    <h1>Clear GPS Cache</h1>
+    <button onclick="clearCache()">Clear GPS Cache</button>
+    <div id="result"></div>
+    
+    <script>
+        function clearCache() {
+            localStorage.removeItem('riderGPSLocation');
+            document.getElementById('result').innerHTML = '<p>GPS cache cleared! <a href="index.html">Go back to DonkeyRide</a></p>';
+        }
+        
+        // Show current cache
+        const cached = localStorage.getItem('riderGPSLocation');
+        if (cached) {
+            try {
+                const data = JSON.parse(cached);
+                document.body.innerHTML += `<p>Current cached location: ${data.lat.toFixed(6)}, ${data.lng.toFixed(6)} (${new Date(data.timestamp).toLocaleString()})</p>` + document.body.innerHTML;
+            } catch (e) {
+                document.body.innerHTML += '<p>Corrupted cache data found</p>' + document.body.innerHTML;
+            }
+        } else {
+            document.body.innerHTML += '<p>No cached location</p>' + document.body.innerHTML;
+        }
+    </script>
+</body>
+</html>

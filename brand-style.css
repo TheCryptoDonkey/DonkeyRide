@@ -1,0 +1,275 @@
+/* DonkeyRide Brand Style Guide */
+
+:root {
+    /* Brand Colors - Based on Logo */
+    --donkey-primary: #b24cf3;      /* Main purple from logo */
+    --donkey-secondary: #ff6ec7;    /* Pink accent from logo */
+    --donkey-gradient: linear-gradient(135deg, #b24cf3 0%, #ff6ec7 100%);
+    --donkey-dark: #1a1a1a;         /* Dark background like logo */
+    --donkey-light: #ffffff;        /* White text */
+    
+    /* Gradient variations */
+    --donkey-gradient-reverse: linear-gradient(135deg, #ff6ec7 0%, #b24cf3 100%);
+    --donkey-gradient-horizontal: linear-gradient(90deg, #b24cf3 0%, #ff6ec7 100%);
+    
+    /* UI Colors */
+    --success: #4caf50;
+    --warning: #ff9800;
+    --danger: #f44336;
+    --info: #2196f3;
+    
+    /* Shadows */
+    --shadow-sm: 0 2px 4px rgba(178, 76, 243, 0.1);
+    --shadow-md: 0 4px 8px rgba(178, 76, 243, 0.15);
+    --shadow-lg: 0 8px 16px rgba(178, 76, 243, 0.2);
+    --shadow-glow: 0 0 20px rgba(178, 76, 243, 0.4);
+}
+
+/* Typography */
+.brand-font {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    font-weight: 700;
+}
+
+/* Logo Styles */
+.logo-container {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.logo-text {
+    font-size: 2.5em;
+    font-weight: 900;
+    letter-spacing: -1px;
+}
+
+.logo-text-donkey {
+    color: var(--donkey-primary);
+    background: var(--donkey-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.logo-text-ride {
+    color: var(--donkey-light);
+}
+
+/* Buttons */
+.btn-primary {
+    background: var(--donkey-gradient);
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: var(--shadow-md);
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+}
+
+.btn-primary:active {
+    transform: translateY(0);
+}
+
+/* Cards with brand gradient border */
+.brand-card {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+    overflow: hidden;
+}
+
+.brand-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: var(--donkey-gradient);
+}
+
+/* Geometric patterns like logo */
+.geometric-bg {
+    background-color: var(--donkey-dark);
+    background-image: 
+        repeating-linear-gradient(45deg, transparent, transparent 35px, rgba(178, 76, 243, 0.05) 35px, rgba(178, 76, 243, 0.05) 70px),
+        repeating-linear-gradient(-45deg, transparent, transparent 35px, rgba(255, 110, 199, 0.05) 35px, rgba(255, 110, 199, 0.05) 70px);
+}
+
+/* Map markers in brand colors */
+.marker-rider {
+    background: var(--donkey-primary);
+    color: white;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 3px solid white;
+    box-shadow: 0 2px 8px rgba(178, 76, 243, 0.4);
+    font-size: 20px;
+}
+
+.marker-driver {
+    background: var(--donkey-secondary);
+    color: white;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 3px solid white;
+    box-shadow: 0 2px 8px rgba(255, 110, 199, 0.4);
+    font-size: 20px;
+}
+
+.marker-driver.offline {
+    background: #9e9e9e;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Status badges */
+.badge-online {
+    background: var(--success);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.85em;
+    font-weight: 600;
+}
+
+.badge-busy {
+    background: var(--donkey-gradient);
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.85em;
+    font-weight: 600;
+}
+
+/* Loading animation */
+@keyframes pulse-gradient {
+    0% {
+        background-position: 0% 50%;
+    }
+    50% {
+        background-position: 100% 50%;
+    }
+    100% {
+        background-position: 0% 50%;
+    }
+}
+
+.loading-gradient {
+    background: linear-gradient(90deg, var(--donkey-primary), var(--donkey-secondary), var(--donkey-primary));
+    background-size: 200% 100%;
+    animation: pulse-gradient 2s ease infinite;
+}
+
+/* Glow effects */
+.glow-purple {
+    box-shadow: var(--shadow-glow);
+}
+
+.text-glow {
+    text-shadow: 0 0 10px rgba(178, 76, 243, 0.5);
+}
+
+/* Input focus states */
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    border-color: var(--donkey-primary);
+    box-shadow: 0 0 0 3px rgba(178, 76, 243, 0.1);
+}
+
+/* Toggle switch in brand colors */
+.toggle-switch {
+    width: 50px;
+    height: 24px;
+    background: #ccc;
+    border-radius: 12px;
+    position: relative;
+    cursor: pointer;
+    transition: background 0.3s;
+}
+
+.toggle-switch.active {
+    background: var(--donkey-gradient);
+}
+
+.toggle-slider {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.3s;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.toggle-switch.active .toggle-slider {
+    transform: translateX(26px);
+}
+
+/* Event type colors */
+.event-ride-request {
+    border-left: 4px solid var(--donkey-primary);
+}
+
+.event-acceptance {
+    border-left: 4px solid var(--donkey-secondary);
+}
+
+.event-payment {
+    border-left: 4px solid var(--success);
+}
+
+.event-cancellation {
+    border-left: 4px solid var(--danger);
+}
+
+/* Animations */
+@keyframes slideInFromRight {
+    from {
+        opacity: 0;
+        transform: translateX(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.animate-slide-in {
+    animation: slideInFromRight 0.4s ease;
+}
+
+.animate-fade-in {
+    animation: fadeIn 0.3s ease;
+}

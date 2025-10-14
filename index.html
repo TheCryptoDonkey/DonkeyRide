@@ -1,0 +1,2254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DonkeyRide - Decentralized Ridesharing Protocol</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/nostr-tools/lib/nostr.bundle.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+            background: #1a1a1a;
+            color: #00ff00;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #b24cf3 0%, #ff6ec7 100%);
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.5);
+        }
+        
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .logo-img {
+            height: 40px;
+            width: auto;
+        }
+        
+        .header h1 {
+            font-size: 1.8em;
+            font-weight: 900;
+            letter-spacing: -1px;
+            margin: 0;
+        }
+        
+        .relay-status {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px 15px;
+            border-radius: 20px;
+        }
+        
+        .relay-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #00ff00;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        /* Main layout */
+        .main-container {
+            flex: 1;
+            display: flex;
+            gap: 20px;
+            padding: 20px;
+            overflow: hidden;
+        }
+        
+        /* Left panel */
+        .left-panel {
+            width: 350px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .user-card {
+            background: #0a0a0a;
+            border: 2px solid #333;
+            border-radius: 10px;
+            padding: 15px;
+            transition: all 0.3s ease;
+        }
+        
+        .user-card.active {
+            border-color: #00ff00;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.3);
+        }
+        
+        .user-card.driver-card.active {
+            border-color: #ff6ec7;
+            box-shadow: 0 0 20px rgba(255, 110, 199, 0.3);
+        }
+        
+        .user-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .user-title {
+            font-size: 1.2em;
+            font-weight: bold;
+        }
+        
+        .reputation-badge {
+            background: linear-gradient(135deg, #ffd700, #ffed4e);
+            color: #000;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        
+        .balance {
+            background: #0f0f0f;
+            padding: 8px;
+            border-radius: 5px;
+            margin: 10px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .stake-info {
+            background: #1a1a00;
+            border: 1px solid #ffff00;
+            padding: 8px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-size: 0.9em;
+        }
+        
+        /* Map */
+        .map-container {
+            flex: 1;
+            border: 2px solid #333;
+            border-radius: 10px;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+        
+        /* Right panel */
+        .right-panel {
+            width: 350px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        /* Request/Trip panels */
+        .request-panel, .trip-panel {
+            background: #0a0a0a;
+            border: 2px solid #333;
+            border-radius: 10px;
+            padding: 15px;
+            flex: 1;
+            overflow-y: auto;
+        }
+        
+        .section-title {
+            font-size: 1.1em;
+            margin-bottom: 15px;
+            color: #ff6ec7;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        /* GPS Status Indicator */
+        .gps-status {
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s ease;
+        }
+        
+        .gps-status.active {
+            background: rgba(0, 255, 0, 0.2);
+            border: 1px solid #00ff00;
+        }
+        
+        .gps-status.updating {
+            background: rgba(255, 193, 7, 0.2);
+            border: 1px solid #ffc107;
+        }
+        
+        .gps-status.error {
+            background: rgba(255, 0, 0, 0.2);
+            border: 1px solid #ff0000;
+        }
+        
+        .gps-pulse {
+            width: 8px;
+            height: 8px;
+            background: #00ff00;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.5); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+        
+        /* Buttons */
+        .btn {
+            background: linear-gradient(135deg, #00ff00, #00cc00);
+            color: #000;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 1em;
+            width: 100%;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 255, 0, 0.4);
+        }
+        
+        .btn:disabled {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn.accept {
+            background: linear-gradient(135deg, #ff6ec7, #b24cf3);
+            color: white;
+        }
+        
+        .btn.cancel {
+            background: linear-gradient(135deg, #ff3333, #cc0000);
+            color: white;
+        }
+        
+        /* Ride request card */
+        .ride-request {
+            background: #0f0f0f;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            transition: all 0.3s ease;
+        }
+        
+        .ride-request:hover {
+            border-color: #ff6ec7;
+            box-shadow: 0 0 10px rgba(255, 110, 199, 0.2);
+        }
+        
+        .ride-details {
+            margin: 5px 0;
+            font-size: 0.9em;
+        }
+        
+        .price {
+            color: #ffd700;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+        
+        /* Status messages */
+        .status-message {
+            background: #0f0f0f;
+            border-left: 4px solid #00ff00;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+            animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes slideIn {
+            from {
+                transform: translateX(-20px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        .payment-stream {
+            background: linear-gradient(90deg, #00ff00, #00cc00);
+            height: 4px;
+            border-radius: 2px;
+            margin: 10px 0;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .payment-stream::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+            animation: stream 2s linear infinite;
+        }
+        
+        @keyframes stream {
+            to {
+                left: 100%;
+            }
+        }
+        
+        /* Relay mesh indicator */
+        .relay-mesh-panel {
+            background: #0a0a0a;
+            border: 2px solid #333;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .relay-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        
+        .relay-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 5px 10px;
+            background: #0f0f0f;
+            border-radius: 5px;
+            font-size: 0.9em;
+        }
+        
+        .relay-fee {
+            color: #ffd700;
+            font-weight: bold;
+        }
+        
+        .relay-status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #00ff00;
+        }
+        
+        .relay-status-dot.offline {
+            background: #ff3333;
+        }
+        
+        /* Lightning animation */
+        .lightning-bolt {
+            position: absolute;
+            color: #ffd700;
+            font-size: 20px;
+            animation: lightning 0.5s ease;
+            pointer-events: none;
+        }
+        
+        @keyframes lightning {
+            from {
+                transform: translateY(0) scale(1);
+                opacity: 1;
+            }
+            to {
+                transform: translateY(-30px) scale(0.5);
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- GPS Status Indicator -->
+    <div id="gpsStatus" class="gps-status" style="display: none;">
+        <div class="gps-pulse"></div>
+        <span id="gpsStatusText">GPS Initializing...</span>
+    </div>
+    
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            <img src="assets/donkeyride-logo.png" alt="DonkeyRide" class="logo-img">
+            <h1>DonkeyRide</h1>
+        </div>
+        <div class="relay-status" onclick="toggleRelayPopup()" style="cursor: pointer;">
+            <div class="relay-indicator"></div>
+            <span id="relayCount">Relay Network ▼</span>
+        </div>
+    </div>
+
+    <!-- Relay Network Popup -->
+    <div id="relayPopup" style="display: none; position: fixed; top: 60px; right: 20px; 
+                                background: rgba(0, 0, 0, 0.95); border: 1px solid #00ff00; 
+                                border-radius: 10px; padding: 15px; z-index: 1000; width: 250px;">
+        <div class="section-title">🌐 Relay Network</div>
+        <div id="relayList" class="relay-list">
+            <div class="relay-item">
+                <span>Local Relay</span>
+                <span class="relay-fee">0.5%</span>
+                <div class="relay-status-dot"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Main Container -->
+    <div class="main-container">
+        <!-- Left Panel -->
+        <div class="left-panel">
+            <!-- Rider Card -->
+            <div class="user-card" id="riderCard">
+                <div class="user-header">
+                    <div class="user-title">🚶 Rider</div>
+                    <div class="reputation-badge">Rep: 85</div>
+                </div>
+                <div class="balance">
+                    <span>Balance:</span>
+                    <span id="riderBalance">50,000 sats</span>
+                </div>
+                <div class="stake-info" id="riderStake" style="display: none;">
+                    <div>Stake Locked: <span id="riderStakeAmount">0</span> sats</div>
+                </div>
+                <input type="text" id="fromLocation" placeholder="Pickup location..." 
+                       style="width: 100%; padding: 8px; margin: 5px 0; background: #0f0f0f; 
+                              border: 1px solid #333; color: #00ff00; border-radius: 5px;">
+                <input type="text" id="toLocation" placeholder="Destination..." 
+                       style="width: 100%; padding: 8px; margin: 5px 0; background: #0f0f0f; 
+                              border: 1px solid #333; color: #00ff00; border-radius: 5px;">
+                <input type="number" id="maxPrice" placeholder="Max price (sats)" value="1000"
+                       style="width: 100%; padding: 8px; margin: 5px 0; background: #0f0f0f; 
+                              border: 1px solid #333; color: #00ff00; border-radius: 5px;">
+                <button class="btn" id="requestRide" onclick="requestRide()">Request Ride</button>
+                <button class="btn cancel" id="cancelRequest" onclick="cancelRideRequest()" 
+                        style="display: none; margin-top: 10px;">Cancel Request</button>
+            </div>
+
+            <!-- Driver Card -->
+            <div class="user-card driver-card" id="driverCard">
+                <div class="user-header">
+                    <div class="user-title">🚗 Driver</div>
+                    <div class="reputation-badge">Rep: 92</div>
+                </div>
+                <div class="balance">
+                    <span>Balance:</span>
+                    <span id="driverBalance">100,000 sats</span>
+                </div>
+                <div class="stake-info" id="driverStake" style="display: none;">
+                    <div>Stake Locked: <span id="driverStakeAmount">0</span> sats</div>
+                </div>
+                <input type="text" id="lightningAddress" placeholder="Lightning address..." 
+                       value="driver@getalby.com"
+                       style="width: 100%; padding: 8px; margin: 5px 0; background: #0f0f0f; 
+                              border: 1px solid #333; color: #00ff00; border-radius: 5px;">
+                <button class="btn" id="goOnline" onclick="toggleDriverStatus()">Go Online</button>
+            </div>
+        </div>
+
+        <!-- Map -->
+        <div class="map-container">
+            <div id="map"></div>
+        </div>
+
+        <!-- Right Panel -->
+        <div class="right-panel">
+            <!-- Available Rides (for driver) -->
+            <div class="request-panel">
+                <div class="section-title">📍 Available Rides</div>
+                <div id="requestsList"></div>
+            </div>
+
+            <!-- Active Trip (for rider) -->
+            <div class="trip-panel">
+                <div class="section-title">🚀 Active Trip</div>
+                <div id="riderTrip"></div>
+                <div id="driverEarnings"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Include JavaScript modules -->
+    <script src="reference-implementation.js"></script>
+    <script src="commitment-stakes.js"></script>
+    <script src="streaming-payments.js"></script>
+    <script>
+        // ==========================================
+        // RELAY MESH INTEGRATION
+        // ==========================================
+        
+        class RelayMeshClient {
+            constructor() {
+                this.relays = [];
+                this.primaryRelay = null;
+                this.rides = new Map();
+            }
+            
+            async discoverRelays(location) {
+                // Generate location-appropriate relay names
+                const cityName = await this.getCityName(location.lat, location.lon);
+                
+                // Simulate relay discovery based on actual location
+                const mockRelays = [
+                    { url: 'wss://relay1.donkeyride.com', fee: 0.3, name: `${cityName} Fast`, status: 'online' },
+                    { url: 'wss://relay2.donkeyride.com', fee: 0.5, name: `${cityName} Reliable`, status: 'online' },
+                    { url: 'wss://relay3.donkeyride.com', fee: 0.4, name: `${cityName} Local`, status: 'online' }
+                ];
+                
+                // Add a community relay if in certain regions
+                if (location.lat > 40 && location.lat < 60 && location.lon > -10 && location.lon < 30) {
+                    // Europe
+                    mockRelays.push({ url: 'wss://relay4.donkeyride.eu', fee: 0.25, name: 'EU Community', status: 'online' });
+                } else if (location.lat > 25 && location.lat < 50 && location.lon > -130 && location.lon < -60) {
+                    // North America
+                    mockRelays.push({ url: 'wss://relay4.donkeyride.us', fee: 0.35, name: 'NA Network', status: 'online' });
+                }
+                
+                this.relays = mockRelays;
+                this.updateRelayUI();
+                
+                // Select primary relay (lowest fee)
+                this.primaryRelay = mockRelays.sort((a, b) => a.fee - b.fee)[0];
+                
+                document.getElementById('relayCount').textContent = 
+                    `Connected to ${this.relays.length} relays (${this.primaryRelay.name} primary)`;
+                
+                return this.relays;
+            }
+            
+            async getCityName(lat, lon) {
+                try {
+                    const response = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`);
+                    const data = await response.json();
+                    return data.address?.city || data.address?.town || data.address?.village || 'Local';
+                } catch {
+                    return 'Local';
+                }
+            }
+            
+            updateRelayUI() {
+                const relayList = document.getElementById('relayList');
+                relayList.innerHTML = this.relays.map(relay => `
+                    <div class="relay-item">
+                        <span>${relay.name}</span>
+                        <span class="relay-fee">${relay.fee}%</span>
+                        <div class="relay-status-dot ${relay.status === 'offline' ? 'offline' : ''}"></div>
+                    </div>
+                `).join('');
+            }
+            
+            async broadcastRide(rideRequest) {
+                // Broadcast to all connected relays
+                console.log(`Broadcasting ride to ${this.relays.length} relays`);
+                
+                // Add relay hints to the request
+                rideRequest.relayHints = this.relays.map(r => r.url);
+                rideRequest.preferredRelay = this.primaryRelay.url;
+                
+                return rideRequest;
+            }
+            
+            selectBestRelay() {
+                // Return relay with lowest total fee
+                return this.relays.sort((a, b) => a.fee - b.fee)[0];
+            }
+        }
+        
+        // Initialize relay mesh
+        const relayMesh = new RelayMeshClient();
+        
+        // ==========================================
+        // INITIALIZE MAP
+        // ==========================================
+        
+        let map, riderMarker, driverMarker, routeLine;
+        let isDriverOnline = false;
+        let currentRide = null;
+        let driverLocation = null;
+        let riderLocation = null;
+        let watchId = null; // For tracking GPS updates
+        let driverMovementInterval = null; // For simulating driver movement
+        
+        function initMap() {
+            // Check for saved GPS location first
+            const savedLocation = localStorage.getItem('riderGPSLocation');
+            let initialView = [52.5, -1.5]; // UK center fallback
+            let initialZoom = 6;
+            
+            if (savedLocation) {
+                try {
+                    const saved = JSON.parse(savedLocation);
+                    // Only use if less than 5 minutes old
+                    if (Date.now() - saved.timestamp < 5 * 60 * 1000) {
+                        initialView = [saved.lat, saved.lng];
+                        initialZoom = 14;
+                        riderLocation = initialView;
+                        console.log('📍 Restored saved GPS location:', saved.lat.toFixed(6), saved.lng.toFixed(6));
+                        console.log('🗺️ Initial map will center on saved location');
+                    } else {
+                        console.log('⏰ Saved location is too old, using fallback');
+                        localStorage.removeItem('riderGPSLocation'); // Clean up old data
+                    }
+                } catch (e) {
+                    console.log('Could not parse saved location');
+                    localStorage.removeItem('riderGPSLocation'); // Clean up corrupted data
+                }
+            } else {
+                console.log('📍 No saved location found, will wait for GPS');
+            }
+            
+            // Initialize map with saved or default view
+            map = L.map('map', {
+                zoomControl: true,
+                attributionControl: true
+            }).setView(initialView, initialZoom);
+            
+            // Use a better tile layer with proper API
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19,
+                subdomains: ['a', 'b', 'c']
+            }).addTo(map);
+            
+            // Custom icon for rider - bigger and more visible
+            const riderIcon = L.divIcon({
+                html: '<div style="background: #00ff00; width: 45px; height: 45px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid white; box-shadow: 0 2px 15px rgba(0,255,0,0.8); font-size: 28px; cursor: pointer; animation: pulse 2s infinite;">🙋</div>',
+                iconSize: [45, 45],
+                iconAnchor: [22, 22],
+                className: 'rider-marker'
+            });
+            
+            // Custom icon for driver - bigger and more visible
+            const driverIcon = L.divIcon({
+                html: '<div style="background: #ff6ec7; width: 45px; height: 45px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid white; box-shadow: 0 2px 15px rgba(255,110,199,0.8); font-size: 28px; cursor: pointer;">🚗</div>',
+                iconSize: [45, 45],
+                iconAnchor: [22, 22],
+                className: 'driver-marker'
+            });
+            
+            // If we restored a saved location, show the marker immediately
+            if (riderLocation) {
+                riderMarker = L.marker(riderLocation, {icon: riderIcon})
+                    .bindPopup('📍 Your last known location')
+                    .addTo(map);
+                
+                // Also update the form fields
+                const fromInput = document.getElementById('fromLocation');
+                if (fromInput) {
+                    fromInput.value = '📍 Current Location (saved)';
+                }
+                
+                // Set nearest station as destination
+                const nearestStation = getNearestStation(riderLocation[0], riderLocation[1]);
+                const toInput = document.getElementById('toLocation');
+                if (toInput) {
+                    toInput.value = nearestStation.name + ' Station';
+                    toInput.dataset.lat = nearestStation.lat;
+                    toInput.dataset.lng = nearestStation.lng;
+                }
+                
+                // Start tracking immediately with saved location
+                setTimeout(() => {
+                    startRiderTracking();
+                    startDriverSimulation();
+                    addFakeActivity(riderLocation[0], riderLocation[1]);
+                }, 100);
+            }
+            
+            // Show loading message and GPS status
+            console.log('📡 Requesting GPS location...');
+            console.log('📡 Please allow location access when prompted');
+            updateGPSStatus('updating', '📡 Requesting GPS permission...');
+            
+            // Get user's real location
+            if (navigator.geolocation) {
+                // Show user we're getting location
+                const fromInput = document.getElementById('fromLocation');
+                if (fromInput) {
+                    fromInput.placeholder = '📡 Getting GPS location...';
+                }
+                
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        // Success - use real location
+                        const lat = position.coords.latitude;
+                        const lng = position.coords.longitude;
+                        
+                        const accuracy = position.coords.accuracy;
+                        console.log(`✅ Got real GPS location: ${lat.toFixed(6)}, ${lng.toFixed(6)} (accuracy: ±${Math.round(accuracy)}m)`);
+                        
+                        // Update rider location
+                        riderLocation = [lat, lng];
+                        console.log(`🎯 Set riderLocation to: [${lat.toFixed(6)}, ${lng.toFixed(6)}]`);
+                        
+                        // Center map on user's actual GPS location (NOT the station)
+                        map.setView(riderLocation, 14);
+                        console.log(`🗺️ Map centered on RIDER GPS location: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+                        
+                        // Set destination to nearest station (but don't center map on it!)
+                        const destinationInput = document.getElementById('toLocation');
+                        const nearestStation = getNearestStation(lat, lng);
+                        destinationInput.value = nearestStation.name + ' Station';
+                        destinationInput.dataset.lat = nearestStation.lat;
+                        destinationInput.dataset.lng = nearestStation.lng;
+                        console.log(`🚉 Nearest station: ${nearestStation.name} at ${nearestStation.lat}, ${nearestStation.lng}`);
+                        console.log(`⚠️ NOTE: Map shows RIDER location, destination is just ${nearestStation.name} Station`);
+                        
+                        // Place rider marker at real location
+                        if (riderMarker) {
+                            riderMarker.setLatLng(riderLocation);
+                        } else {
+                            riderMarker = L.marker(riderLocation, {icon: riderIcon}).addTo(map);
+                        }
+                        
+                        // Start continuous tracking (use the dedicated function)
+                        startRiderTracking();
+                        
+                        // Place driver marker nearby (simulate driver in area)
+                        driverLocation = [
+                            lat + (Math.random() - 0.5) * 0.02,  // Random offset ~1-2km
+                            lng + (Math.random() - 0.5) * 0.02
+                        ];
+                        
+                        if (driverMarker) {
+                            driverMarker.setLatLng(driverLocation);
+                        } else {
+                            driverMarker = L.marker(driverLocation, {icon: driverIcon});
+                            // Don't add to map initially - wait for driver to go online
+                        }
+                        
+                        // Start real-time tracking and driver simulation
+                        startRiderTracking();
+                        startDriverSimulation();
+                        
+                        // Update relay discovery with real location
+                        relayMesh.discoverRelays({ lat: lat, lon: lng });
+                        
+                        // Show location in UI
+                        document.getElementById('fromLocation').placeholder = `Current location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+                        
+                        // Reverse geocode to get address
+                        reverseGeocode(lat, lng);
+                        
+                        // Add some fake activity to show the network is active
+                        addFakeActivity(lat, lng);
+                    },
+                    (error) => {
+                        // Error or denied - show specific error and fall back
+                        let errorMsg = 'Location error: ';
+                        switch(error.code) {
+                            case error.PERMISSION_DENIED:
+                                errorMsg += 'Permission denied. Please allow location access and reload.';
+                                alert('📡 Please allow location access for the best experience.\n\nOn iOS: Settings > Privacy > Location Services\nOn Android: Settings > Location\nOn Desktop: Click the location icon in the address bar');
+                                break;
+                            case error.POSITION_UNAVAILABLE:
+                                errorMsg += 'Position unavailable.';
+                                break;
+                            case error.TIMEOUT:
+                                errorMsg += 'Location request timed out.';
+                                break;
+                            default:
+                                errorMsg += 'Unknown error.';
+                        }
+                        console.log('⚠️ ' + errorMsg);
+                        console.log('🌐 Falling back to IP geolocation...');
+                        
+                        // Update UI to show fallback
+                        const fromInput = document.getElementById('fromLocation');
+                        if (fromInput) {
+                            fromInput.placeholder = 'Using approximate location...';
+                        }
+                        
+                        getFallbackLocation();
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 10000, // Give more time for GPS
+                        maximumAge: 0
+                    }
+                );
+            } else {
+                // Browser doesn't support geolocation
+                console.log('⚠️ Browser does not support geolocation');
+                alert('Your browser does not support GPS location. Using approximate location instead.');
+                getFallbackLocation();
+            }
+        }
+        
+        function getFallbackLocation() {
+            // Try IP-based geolocation as fallback
+            fetch('https://ipapi.co/json/')
+                .then(response => response.json())
+                .then(data => {
+                    // Don't default to Manchester - use actual IP location
+                    if (!data.latitude || !data.longitude) {
+                        throw new Error('No location in IP response');
+                    }
+                    const lat = data.latitude;
+                    const lng = data.longitude;
+                    
+                    console.log(`📍 Using IP location: ${data.city}, ${data.country}`);
+                    console.log(`🌐 IP coordinates: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+                    
+                    riderLocation = [lat, lng];
+                    map.setView(riderLocation, 13);
+                    console.log(`🗺️ Map centered on IP location: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+                    
+                    // Set destination to nearest station
+                    const destinationInput = document.getElementById('toLocation');
+                    const nearestStation = getNearestStation(lat, lng);
+                    destinationInput.value = nearestStation.name + ' Station';
+                    destinationInput.dataset.lat = nearestStation.lat;
+                    destinationInput.dataset.lng = nearestStation.lng;
+                    console.log(`🚉 Nearest station to IP location: ${nearestStation.name} at ${nearestStation.lat}, ${nearestStation.lng}`);
+                    console.log(`⚠️ IMPORTANT: Map shows YOUR location at ${lat.toFixed(6)}, ${lng.toFixed(6)} - destination is ${nearestStation.name}`);
+                    
+                    // Place markers
+                    riderMarker = L.marker(riderLocation, {icon: riderIcon}).addTo(map);
+                    driverLocation = [lat + 0.01, lng + 0.01];
+                    driverMarker = L.marker(driverLocation, {icon: driverIcon}).addTo(map);
+                    
+                    // Start real-time tracking and driver simulation
+                    startRiderTracking();
+                    startDriverSimulation();
+                    
+                    // Update UI
+                    document.getElementById('fromLocation').placeholder = `${data.city}, ${data.country}`;
+                    
+                    // Add fake activity
+                    addFakeActivity(lat, lng);
+                })
+                .catch(error => {
+                    // Don't default to Manchester - keep trying for real location
+                    console.log('⚠️ IP geolocation failed:', error);
+                    console.log('📍 Waiting for GPS location...');
+                    
+                    // Show center of UK while waiting
+                    const ukCenter = [52.5, -1.5];
+                    map.setView(ukCenter, 6); // Zoomed out
+                    
+                    // Keep trying to get real GPS
+                    const retryGPS = () => {
+                        if (navigator.geolocation) {
+                            navigator.geolocation.getCurrentPosition(
+                                (position) => {
+                                    const lat = position.coords.latitude;
+                                    const lng = position.coords.longitude;
+                                    console.log(`✅ Got GPS: ${lat.toFixed(6)}, ${lng.toFixed(6)}`);
+                                    
+                                    riderLocation = [lat, lng];
+                                    map.setView(riderLocation, 14);
+                                    
+                                    // Place markers
+                                    if (!riderMarker) {
+                                        riderMarker = L.marker(riderLocation, {icon: riderIcon}).addTo(map);
+                                    } else {
+                                        riderMarker.setLatLng(riderLocation);
+                                    }
+                                    
+                                    driverLocation = [lat + 0.01, lng + 0.01];
+                                    if (!driverMarker) {
+                                        driverMarker = L.marker(driverLocation, {icon: driverIcon});
+                                    }
+                                    
+                                    // Set station
+                                    const destinationInput = document.getElementById('toLocation');
+                                    const nearestStation = getNearestStation(lat, lng);
+                                    destinationInput.value = nearestStation.name + ' Station';
+                                    destinationInput.dataset.lat = nearestStation.lat;
+                                    destinationInput.dataset.lng = nearestStation.lng;
+                                    
+                                    // Start tracking
+                                    startRiderTracking();
+                                    startDriverSimulation();
+                                    addFakeActivity(lat, lng);
+                                },
+                                (error) => {
+                                    console.log('Retry failed, trying again in 3s...');
+                                    setTimeout(retryGPS, 3000);
+                                }
+                            );
+                        }
+                    };
+                    
+                    // Start retrying
+                    setTimeout(retryGPS, 1000);
+                });
+        }
+        
+        function reverseGeocode(lat, lng) {
+            // Get human-readable address from coordinates
+            fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.display_name) {
+                        // Extract relevant parts of address
+                        const parts = data.display_name.split(',');
+                        const shortAddress = parts.slice(0, 3).join(',').trim();
+                        document.getElementById('fromLocation').value = shortAddress;
+                        
+                        console.log(`📍 Address: ${shortAddress}`);
+                    }
+                })
+                .catch(error => {
+                    console.log('Could not reverse geocode:', error);
+                });
+        }
+        
+        function addFakeActivity(centerLat, centerLng) {
+            // Add some other drivers and riders to show network activity
+            const otherDriverIcon = L.divIcon({
+                html: '<div style="background: #666; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid white; opacity: 0.7;">🚗</div>',
+                iconSize: [20, 20],
+                className: ''
+            });
+            
+            const otherRiderIcon = L.divIcon({
+                html: '<div style="background: #444; width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 1px solid white; opacity: 0.7;">👤</div>',
+                iconSize: [20, 20],
+                className: ''
+            });
+            
+            // Add 3-5 other drivers
+            for (let i = 0; i < Math.floor(Math.random() * 3) + 3; i++) {
+                const dLat = centerLat + (Math.random() - 0.5) * 0.03;
+                const dLng = centerLng + (Math.random() - 0.5) * 0.03;
+                const marker = L.marker([dLat, dLng], {icon: otherDriverIcon}).addTo(map);
+                marker.bindPopup('Driver (available)');
+                
+                // Animate movement occasionally
+                if (Math.random() > 0.5) {
+                    animateRandomMovement(marker, dLat, dLng);
+                }
+            }
+            
+            // Add 2-4 other riders
+            for (let i = 0; i < Math.floor(Math.random() * 3) + 2; i++) {
+                const rLat = centerLat + (Math.random() - 0.5) * 0.025;
+                const rLng = centerLng + (Math.random() - 0.5) * 0.025;
+                const marker = L.marker([rLat, rLng], {icon: otherRiderIcon}).addTo(map);
+                marker.bindPopup('Rider (requesting)');
+            }
+            
+            // Add some active ride lines
+            for (let i = 0; i < 2; i++) {
+                const startLat = centerLat + (Math.random() - 0.5) * 0.02;
+                const startLng = centerLng + (Math.random() - 0.5) * 0.02;
+                const endLat = centerLat + (Math.random() - 0.5) * 0.02;
+                const endLng = centerLng + (Math.random() - 0.5) * 0.02;
+                
+                L.polyline([[startLat, startLng], [endLat, endLng]], {
+                    color: '#666',
+                    weight: 2,
+                    opacity: 0.4,
+                    dashArray: '5, 10'
+                }).addTo(map).bindPopup('Active ride');
+            }
+        }
+        
+        function animateRandomMovement(marker, baseLat, baseLng) {
+            setInterval(() => {
+                const newLat = baseLat + (Math.random() - 0.5) * 0.005;
+                const newLng = baseLng + (Math.random() - 0.5) * 0.005;
+                marker.setLatLng([newLat, newLng]);
+            }, 5000 + Math.random() * 5000);
+        }
+        
+        // ==========================================
+        // MAIN FUNCTIONS
+        // ==========================================
+        
+        // List of UK railway stations with coordinates for demo
+        const railwayStations = [
+            // Manchester stations
+            { name: 'Manchester Piccadilly', lat: 53.4774, lng: -2.2309 },
+            { name: 'Manchester Victoria', lat: 53.4878, lng: -2.2426 },
+            { name: 'Manchester Oxford Road', lat: 53.4741, lng: -2.2416 },
+            { name: 'Deansgate', lat: 53.4742, lng: -2.2507 },
+            { name: 'Salford Central', lat: 53.4831, lng: -2.2548 },
+            { name: 'Manchester Airport', lat: 53.3650, lng: -2.2730 },
+            // London stations
+            { name: 'Kings Cross', lat: 51.5308, lng: -0.1238 },
+            { name: 'Euston', lat: 51.5284, lng: -0.1331 },
+            { name: 'Paddington', lat: 51.5154, lng: -0.1755 },
+            { name: 'Victoria', lat: 51.4952, lng: -0.1439 },
+            { name: 'Waterloo', lat: 51.5031, lng: -0.1132 },
+            { name: 'Liverpool Street', lat: 51.5178, lng: -0.0823 },
+            // Birmingham stations
+            { name: 'Birmingham New Street', lat: 52.4778, lng: -1.9003 },
+            { name: 'Birmingham Snow Hill', lat: 52.4830, lng: -1.8991 },
+            // Leeds stations
+            { name: 'Leeds', lat: 53.7959, lng: -1.5491 },
+            // Liverpool stations  
+            { name: 'Liverpool Lime Street', lat: 53.4075, lng: -2.9771 },
+            // Edinburgh stations
+            { name: 'Edinburgh Waverley', lat: 55.9521, lng: -3.1896 },
+            // Glasgow stations
+            { name: 'Glasgow Central', lat: 55.8585, lng: -4.2576 },
+            // Cardiff stations
+            { name: 'Cardiff Central', lat: 51.4761, lng: -3.1789 },
+            // Bristol stations
+            { name: 'Bristol Temple Meads', lat: 51.4491, lng: -2.5813 },
+            // Newcastle stations
+            { name: 'Newcastle Central', lat: 54.9682, lng: -1.6168 },
+            // York station
+            { name: 'York', lat: 53.9579, lng: -1.0927 },
+            // Sheffield station
+            { name: 'Sheffield', lat: 53.3781, lng: -1.4621 },
+            // Nottingham station
+            { name: 'Nottingham', lat: 52.9471, lng: -1.1461 },
+            // Leicester station
+            { name: 'Leicester', lat: 52.6313, lng: -1.1251 },
+            // Cambridge station
+            { name: 'Cambridge', lat: 52.1941, lng: 0.1375 },
+            // Oxford station
+            { name: 'Oxford', lat: 51.7534, lng: -1.2697 },
+            // Brighton station
+            { name: 'Brighton', lat: 50.8289, lng: -0.1412 },
+            // Southampton station
+            { name: 'Southampton Central', lat: 50.9075, lng: -1.4133 },
+            // Additional major UK stations
+            // Scotland
+            { name: 'Aberdeen', lat: 57.1437, lng: -2.0986 },
+            { name: 'Dundee', lat: 56.4565, lng: -2.9707 },
+            { name: 'Perth', lat: 56.3921, lng: -3.4408 },
+            { name: 'Inverness', lat: 57.4800, lng: -4.2231 },
+            { name: 'Stirling', lat: 56.1199, lng: -3.9358 },
+            // Wales
+            { name: 'Swansea', lat: 51.6255, lng: -3.9415 },
+            { name: 'Newport', lat: 51.5889, lng: -2.9988 },
+            { name: 'Wrexham General', lat: 53.0502, lng: -3.0056 },
+            { name: 'Bangor (Wales)', lat: 53.2223, lng: -4.1359 },
+            { name: 'Holyhead', lat: 53.3078, lng: -4.6331 },
+            // Northern England
+            { name: 'Carlisle', lat: 54.8912, lng: -2.9330 },
+            { name: 'Durham', lat: 54.7790, lng: -1.5817 },
+            { name: 'Darlington', lat: 54.5207, lng: -1.5474 },
+            { name: 'Middlesbrough', lat: 54.5791, lng: -1.2347 },
+            { name: 'Sunderland', lat: 54.9053, lng: -1.3823 },
+            { name: 'Lancaster', lat: 54.0486, lng: -2.8002 },
+            { name: 'Preston', lat: 53.7565, lng: -2.7080 },
+            { name: 'Blackpool North', lat: 53.8217, lng: -3.0491 },
+            { name: 'Bolton', lat: 53.5742, lng: -2.4258 },
+            { name: 'Wigan North Western', lat: 53.5433, lng: -2.6330 },
+            { name: 'Warrington Bank Quay', lat: 53.3858, lng: -2.6028 },
+            { name: 'Chester', lat: 53.1968, lng: -2.8797 },
+            { name: 'Crewe', lat: 53.0896, lng: -2.4330 },
+            { name: 'Stoke-on-Trent', lat: 53.0081, lng: -2.1814 },
+            { name: 'Hull', lat: 53.7441, lng: -0.3456 },
+            { name: 'Grimsby Town', lat: 53.5642, lng: -0.0866 },
+            { name: 'Scarborough', lat: 54.2798, lng: -0.4059 },
+            { name: 'Harrogate', lat: 53.9933, lng: -1.5373 },
+            { name: 'Bradford Interchange', lat: 53.7911, lng: -1.7496 },
+            { name: 'Huddersfield', lat: 53.6487, lng: -1.7850 },
+            { name: 'Wakefield Westgate', lat: 53.6831, lng: -1.5058 },
+            { name: 'Doncaster', lat: 53.5223, lng: -1.1395 },
+            // Midlands
+            { name: 'Wolverhampton', lat: 52.5878, lng: -2.1198 },
+            { name: 'Coventry', lat: 52.4008, lng: -1.5131 },
+            { name: 'Derby', lat: 52.9165, lng: -1.4641 },
+            { name: 'Lincoln Central', lat: 53.2261, lng: -0.5398 },
+            { name: 'Worcester Shrub Hill', lat: 52.1949, lng: -2.2096 },
+            { name: 'Hereford', lat: 52.0611, lng: -2.7084 },
+            { name: 'Shrewsbury', lat: 52.7117, lng: -2.7497 },
+            { name: 'Telford Central', lat: 52.6813, lng: -2.4417 },
+            // Eastern England
+            { name: 'Norwich', lat: 52.6273, lng: 1.3068 },
+            { name: 'Ipswich', lat: 52.0508, lng: 1.1447 },
+            { name: 'Colchester', lat: 51.9007, lng: 0.8925 },
+            { name: 'Peterborough', lat: 52.5748, lng: -0.2503 },
+            { name: 'Ely', lat: 52.3914, lng: 0.2667 },
+            { name: 'Kings Lynn', lat: 52.7539, lng: 0.4036 },
+            { name: 'Great Yarmouth', lat: 52.6123, lng: 1.7136 },
+            { name: 'Lowestoft', lat: 52.4747, lng: 1.7498 },
+            // South West England
+            { name: 'Exeter St Davids', lat: 50.7293, lng: -3.5433 },
+            { name: 'Plymouth', lat: 50.3778, lng: -4.1431 },
+            { name: 'Torquay', lat: 50.4609, lng: -3.5447 },
+            { name: 'Taunton', lat: 51.0230, lng: -3.1024 },
+            { name: 'Bath Spa', lat: 51.3776, lng: -2.3570 },
+            { name: 'Swindon', lat: 51.5656, lng: -1.7854 },
+            { name: 'Gloucester', lat: 51.8655, lng: -2.2384 },
+            { name: 'Cheltenham Spa', lat: 51.8975, lng: -2.0995 },
+            { name: 'Penzance', lat: 50.1218, lng: -5.5326 },
+            { name: 'Truro', lat: 50.2635, lng: -5.0512 },
+            { name: 'St Austell', lat: 50.3390, lng: -4.7948 },
+            { name: 'Newquay', lat: 50.4155, lng: -5.0756 },
+            { name: 'Barnstaple', lat: 51.0738, lng: -4.0632 },
+            // South East England
+            { name: 'Reading', lat: 51.4588, lng: -0.9718 },
+            { name: 'Guildford', lat: 51.2370, lng: -0.5801 },
+            { name: 'Woking', lat: 51.3185, lng: -0.5570 },
+            { name: 'Basingstoke', lat: 51.2684, lng: -1.0869 },
+            { name: 'Portsmouth Harbour', lat: 50.7973, lng: -1.1075 },
+            { name: 'Portsmouth & Southsea', lat: 50.7986, lng: -1.0907 },
+            { name: 'Chichester', lat: 50.8319, lng: -0.7817 },
+            { name: 'Crawley', lat: 51.1122, lng: -0.1864 },
+            { name: 'Horsham', lat: 51.0662, lng: -0.3195 },
+            { name: 'Lewes', lat: 50.8706, lng: 0.0168 },
+            { name: 'Eastbourne', lat: 50.7695, lng: 0.2813 },
+            { name: 'Hastings', lat: 50.8577, lng: 0.5772 },
+            { name: 'Tunbridge Wells', lat: 51.1303, lng: 0.2628 },
+            { name: 'Sevenoaks', lat: 51.2768, lng: 0.1817 },
+            { name: 'Maidstone East', lat: 51.2779, lng: 0.5215 },
+            { name: 'Canterbury East', lat: 51.2743, lng: 1.0757 },
+            { name: 'Dover Priory', lat: 51.1259, lng: 1.3053 },
+            { name: 'Folkestone Central', lat: 51.0827, lng: 1.1697 },
+            { name: 'Ashford International', lat: 51.1437, lng: 0.8765 },
+            { name: 'Margate', lat: 51.3854, lng: 1.3721 },
+            { name: 'Ramsgate', lat: 51.3409, lng: 1.4062 },
+            // Northern Ireland (connected via ferry)
+            { name: 'Belfast Central', lat: 54.5987, lng: -5.9173 },
+            { name: 'Derry~Londonderry', lat: 54.9966, lng: -7.3086 },
+            // Channel Islands (connected via ferry)
+            { name: 'St Helier (Jersey)', lat: 49.1838, lng: -2.1006 },
+            { name: 'St Peter Port (Guernsey)', lat: 49.4554, lng: -2.5367 },
+            // Isle of Man (connected via ferry)
+            { name: 'Douglas (Isle of Man)', lat: 54.1452, lng: -4.4821 },
+            // Airports with rail connections
+            { name: 'Heathrow Terminal 5', lat: 51.4723, lng: -0.4877 },
+            { name: 'Gatwick Airport', lat: 51.1564, lng: -0.1610 },
+            { name: 'Stansted Airport', lat: 51.8887, lng: 0.2618 },
+            { name: 'Luton Airport Parkway', lat: 51.8726, lng: -0.3959 },
+            { name: 'Birmingham International', lat: 52.4508, lng: -1.7258 },
+            { name: 'Newcastle Airport', lat: 55.0374, lng: -1.7106 },
+            { name: 'Glasgow Airport', lat: 55.8697, lng: -4.4329 },
+            { name: 'Edinburgh Airport', lat: 55.9485, lng: -3.3635 }
+        ];
+        
+        // Function to find nearest station to a location
+        function getNearestStation(lat, lng) {
+            let nearest = railwayStations[0];
+            let minDistance = Number.MAX_VALUE;
+            
+            railwayStations.forEach(station => {
+                // Calculate distance using Haversine formula for accuracy
+                const R = 3959; // Earth radius in miles
+                const dLat = (station.lat - lat) * Math.PI / 180;
+                const dLng = (station.lng - lng) * Math.PI / 180;
+                const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                         Math.cos(lat * Math.PI / 180) * Math.cos(station.lat * Math.PI / 180) *
+                         Math.sin(dLng/2) * Math.sin(dLng/2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                const distance = R * c;
+                
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearest = station;
+                }
+            });
+            
+            console.log(`📍 Nearest station to (${lat.toFixed(4)}, ${lng.toFixed(4)}) is ${nearest.name} (${minDistance.toFixed(2)} miles away)`);
+            return nearest;
+        }
+        
+        function toggleRelayPopup() {
+            const popup = document.getElementById('relayPopup');
+            if (popup.style.display === 'none') {
+                popup.style.display = 'block';
+            } else {
+                popup.style.display = 'none';
+            }
+        }
+        
+        // Close relay popup when clicking outside
+        document.addEventListener('click', function(event) {
+            const popup = document.getElementById('relayPopup');
+            const relayStatus = document.querySelector('.relay-status');
+            if (popup && !popup.contains(event.target) && !relayStatus.contains(event.target)) {
+                popup.style.display = 'none';
+            }
+        });
+        
+        function cancelRideRequest() {
+            // Reset UI
+            document.getElementById('riderCard').classList.remove('active');
+            document.getElementById('requestRide').disabled = false;
+            document.getElementById('requestRide').textContent = 'Request Ride';
+            document.getElementById('cancelRequest').style.display = 'none';
+            
+            // Hide stake and refund
+            const stakeAmount = parseInt(document.getElementById('riderStakeAmount').textContent);
+            const currentBalance = parseInt(document.getElementById('riderBalance').textContent.replace(/,/g, ''));
+            document.getElementById('riderBalance').textContent = (currentBalance + stakeAmount).toLocaleString() + ' sats';
+            document.getElementById('riderStake').style.display = 'none';
+            
+            // Clear any waiting messages
+            document.getElementById('riderTrip').innerHTML = `
+                <div style="text-align: center; color: #666; padding: 1rem;">
+                    🚗 Request cancelled - no penalty
+                </div>
+            `;
+            
+            // Clear the current ride and remove from driver's view
+            if (currentRide) {
+                console.log('🚫 Ride request cancelled by rider');
+                currentRide = null; // Clear the global currentRide
+                
+                // Clear driver's available rides list if they're online
+                if (isDriverOnline) {
+                    document.getElementById('requestsList').innerHTML = `
+                        <div class="status-message" style="border-left-color: #ff6ec7;">
+                            ❌ Ride request was cancelled
+                            <br><small>Looking for new requests...</small>
+                        </div>
+                    `;
+                    
+                    // Clear the message after 2 seconds and show waiting state
+                    setTimeout(() => {
+                        if (isDriverOnline) {
+                            document.getElementById('requestsList').innerHTML = `
+                                <div class="status-message">
+                                    👀 Watching for rides...
+                                    <br><small>No active requests</small>
+                                </div>
+                            `;
+                        }
+                    }, 2000);
+                }
+            }
+            
+            // Auto-clear message after 3 seconds
+            setTimeout(() => {
+                document.getElementById('riderTrip').innerHTML = `
+                    <div style="text-align: center; color: #666; padding: 1rem;">
+                        Enter pickup and destination above
+                    </div>
+                `;
+            }, 3000);
+        }
+        
+        async function requestRide() {
+            const from = document.getElementById('fromLocation').value || "Current Location";
+            const to = document.getElementById('toLocation').value || "City Center";
+            const maxPrice = parseInt(document.getElementById('maxPrice').value) || 1000;
+            
+            // Calculate stake (10% of ride price)
+            const riderStake = Math.floor(maxPrice * 0.1);
+            
+            // Update UI
+            document.getElementById('riderCard').classList.add('active');
+            document.getElementById('requestRide').disabled = true;
+            document.getElementById('requestRide').textContent = 'Requesting...';
+            document.getElementById('cancelRequest').style.display = 'block';
+            
+            // Show stake
+            document.getElementById('riderStake').style.display = 'block';
+            document.getElementById('riderStakeAmount').textContent = riderStake;
+            
+            // Update balance
+            const currentBalance = parseInt(document.getElementById('riderBalance').textContent.replace(/,/g, ''));
+            document.getElementById('riderBalance').textContent = (currentBalance - riderStake).toLocaleString() + ' sats';
+            
+            // Discover and connect to relays
+            await relayMesh.discoverRelays({ lat: 40.7128, lon: -74.0060 });
+            
+            // Create ride request
+            const rideRequest = {
+                id: 'ride_' + Date.now(),
+                from: from,
+                to: to,
+                price: maxPrice,
+                stake: riderStake,
+                timestamp: Date.now()
+            };
+            
+            // Broadcast to relay mesh
+            await relayMesh.broadcastRide(rideRequest);
+            
+            // Store current ride
+            currentRide = rideRequest;
+            
+            // Show ride status
+            document.getElementById('riderTrip').innerHTML = `
+                <div class="status-message">
+                    🔍 Finding driver...
+                    <br><small>Request broadcast to ${relayMesh.relays.length} relays</small>
+                    <br><small>Your stake: ${riderStake} sats</small>
+                </div>
+            `;
+            
+            // Simulate driver seeing the request
+            if (isDriverOnline) {
+                setTimeout(() => showRideToDriver(rideRequest), 1000);
+            }
+        }
+        
+        function toggleDriverStatus() {
+            const btn = document.getElementById('goOnline');
+            
+            if (!isDriverOnline) {
+                // Go online
+                isDriverOnline = true;
+                btn.textContent = 'Go Offline';
+                btn.classList.add('cancel');
+                document.getElementById('driverCard').classList.add('active');
+                
+                // Show driver on map
+                if (driverMarker && map && driverLocation) {
+                    if (!map.hasLayer(driverMarker)) {
+                        driverMarker.addTo(map);
+                    }
+                    // Intelligent zoom to show both rider and driver
+                    if (riderLocation) {
+                        const bounds = L.latLngBounds([riderLocation, driverLocation]);
+                        map.fitBounds(bounds, { padding: [80, 80], maxZoom: 15 });
+                    }
+                }
+                
+                // Start driver movement simulation
+                startDriverSimulation();
+                
+                // Connect to relay mesh as driver
+                relayMesh.discoverRelays({ lat: 40.7200, lon: -74.0000 });
+                
+                document.getElementById('requestsList').innerHTML = `
+                    <div class="status-message">
+                        👀 Watching for rides...
+                        <br><small>Connected to ${relayMesh.relays.length} relays</small>
+                    </div>
+                `;
+                
+                // Check if there's already a pending ride
+                if (currentRide) {
+                    setTimeout(() => showRideToDriver(currentRide), 500);
+                }
+            } else {
+                // Go offline
+                isDriverOnline = false;
+                btn.textContent = 'Go Online';
+                btn.classList.remove('cancel');
+                document.getElementById('driverCard').classList.remove('active');
+                document.getElementById('requestsList').innerHTML = '';
+                
+                // Hide driver from map
+                if (driverMarker && map) {
+                    map.removeLayer(driverMarker);
+                }
+                
+                // Stop driver movement
+                if (driverMovementInterval) {
+                    clearInterval(driverMovementInterval);
+                    driverMovementInterval = null;
+                }
+                
+                // Zoom back to rider only
+                if (riderLocation) {
+                    map.setView(riderLocation, 14);
+                }
+            }
+        }
+        
+        function showRideToDriver(ride) {
+            if (!isDriverOnline) return;
+            
+            // Find best relay for this ride
+            const bestRelay = relayMesh.selectBestRelay();
+            
+            const driverStake = Math.floor(ride.price * 0.15);
+            
+            document.getElementById('requestsList').innerHTML = `
+                <div class="ride-request">
+                    <div class="ride-details"><strong>From:</strong> ${ride.from}</div>
+                    <div class="ride-details"><strong>To:</strong> ${ride.to}</div>
+                    <div class="ride-details">
+                        <span class="price">${ride.price} sats</span>
+                        <small>(via ${bestRelay.name} - ${bestRelay.fee}% fee)</small>
+                    </div>
+                    <div style="background: #1a1a00; border: 1px solid #ffff00; padding: 5px; 
+                            margin: 10px 0; border-radius: 5px; font-size: 0.85em;">
+                        ⚠️ Required stake: ${driverStake} sats
+                        <br><small>Forfeit ${Math.floor(driverStake * 0.8)} sats if you cancel</small>
+                    </div>
+                    <button onclick="acceptRide('${ride.id}', ${ride.price})" class="btn accept">
+                        Accept & Stake ${driverStake} sats
+                    </button>
+                </div>
+            `;
+        }
+        
+        function acceptRide(rideId, ridePrice) {
+            const driverStake = Math.floor(ridePrice * 0.15);
+            
+            // Update driver balance
+            const currentBalance = parseInt(document.getElementById('driverBalance').textContent.replace(/,/g, ''));
+            document.getElementById('driverBalance').textContent = (currentBalance - driverStake).toLocaleString() + ' sats';
+            
+            // Show driver stake
+            document.getElementById('driverStake').style.display = 'block';
+            document.getElementById('driverStakeAmount').textContent = driverStake;
+            
+            // Update driver panel
+            document.getElementById('requestsList').innerHTML = `
+                <div class="status-message" style="border-left-color: #ff6ec7;">
+                    ✅ Ride Accepted!
+                    <br>Stake locked: ${driverStake} sats
+                    <br>Heading to pickup...
+                </div>
+            `;
+            
+            // Update rider panel
+            document.getElementById('riderTrip').innerHTML = `
+                <div class="status-message">
+                    🚗 Driver found!
+                    <br>Driver stake: ${driverStake} sats
+                    <br>Your stake: ${Math.floor(ridePrice * 0.1)} sats
+                    <br><small>Both stakes locked until completion</small>
+                </div>
+            `;
+            
+            // Animate driver to pickup location
+            animateDriverToPickup(ridePrice);
+        }
+        
+        function arrivedAtPickup(ridePrice) {
+            // Update driver status
+            document.getElementById('requestsList').innerHTML = `
+                <div class="status-message" style="border-left-color: #00ff00;">
+                    📍 Arrived at pickup location
+                    <br>Waiting for rider...
+                </div>
+                <button onclick="confirmPickup(${ridePrice})" class="btn" style="margin-top: 10px; background: linear-gradient(135deg, #00ff00, #00cc00);">
+                    CONFIRM PICKUP
+                </button>
+            `;
+            
+            // Update rider status
+            document.getElementById('riderTrip').innerHTML = `
+                <div class="status-message">
+                    🚗 Driver has arrived!
+                    <br><small>Please board the vehicle</small>
+                </div>
+            `;
+        }
+        
+        function confirmPickup(ridePrice) {
+            // Update driver status
+            document.getElementById('requestsList').innerHTML = `
+                <div class="status-message" style="border-left-color: #b24cf3;">
+                    🚙 Rider picked up
+                    <br>Heading to destination...
+                </div>
+            `;
+            
+            // Start the actual ride
+            startRide(ridePrice);
+        }
+        
+        function startRide(ridePrice) {
+            // Show streaming payment UI
+            document.getElementById('riderTrip').innerHTML = `
+                <div class="status-message">
+                    🎯 Ride in Progress
+                    <div class="payment-stream"></div>
+                    <div id="streamingInfo">
+                        Streaming: 0 sats
+                    </div>
+                    <div id="distanceToDestination" style="margin-top: 5px; font-size: 0.9em; color: #888;">
+                        Distance to destination: calculating...
+                    </div>
+                </div>
+            `;
+            
+            // Start streaming payments with movement detection
+            startMovementBasedStreaming(ridePrice);
+            
+            // Animate driver movement and auto-detect arrival
+            animateDriverMovementWithDestinationDetection();
+        }
+        
+        function completeRide() {
+            const riderStake = parseInt(document.getElementById('riderStakeAmount').textContent);
+            const driverStake = parseInt(document.getElementById('driverStakeAmount').textContent);
+            
+            // Release stakes
+            document.getElementById('riderStake').style.display = 'none';
+            document.getElementById('driverStake').style.display = 'none';
+            
+            // Return stakes to balances
+            const riderBalance = parseInt(document.getElementById('riderBalance').textContent.replace(/,/g, ''));
+            const driverBalance = parseInt(document.getElementById('driverBalance').textContent.replace(/,/g, ''));
+            
+            document.getElementById('riderBalance').textContent = (riderBalance + riderStake).toLocaleString() + ' sats';
+            document.getElementById('driverBalance').textContent = (driverBalance + driverStake).toLocaleString() + ' sats';
+            
+            // Show completion message
+            document.getElementById('riderTrip').innerHTML = `
+                <div class="status-message">
+                    ✅ Ride Completed!
+                    <br>Stake returned: ${riderStake} sats
+                    <br>Total paid: ${currentRide.price} sats
+                    <br><small>Thank you for using DonkeyRide!</small>
+                </div>
+            `;
+            
+            document.getElementById('requestsList').innerHTML = `
+                <div class="status-message" style="border-left-color: #ffd700;">
+                    💰 Payment Received!
+                    <br>Earned: ${currentRide.price} sats
+                    <br>Stake returned: ${driverStake} sats
+                    <br>Relay fee: ${Math.floor(currentRide.price * 0.005)} sats
+                    <br><strong>Net earnings: ${Math.floor(currentRide.price * 0.995)} sats</strong>
+                </div>
+            `;
+            
+            // Reset for next ride
+            document.getElementById('requestRide').disabled = false;
+            document.getElementById('requestRide').textContent = 'Request Ride';
+            document.getElementById('riderCard').classList.remove('active');
+            currentRide = null;
+            
+            // After 5 seconds, reset everything to rider's actual GPS location
+            setTimeout(() => {
+                console.log('🔄 Resetting to rider GPS location...');
+                
+                // Get current GPS position if available
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            const lat = position.coords.latitude;
+                            const lng = position.coords.longitude;
+                            
+                            // Update rider location
+                            riderLocation = [lat, lng];
+                            
+                            // Move rider marker back to current position
+                            if (riderMarker) {
+                                riderMarker.setLatLng(riderLocation);
+                            }
+                            
+                            // Reset driver to nearby location
+                            driverLocation = [lat + (Math.random() - 0.5) * 0.01, lng + (Math.random() - 0.5) * 0.01];
+                            if (driverMarker) {
+                                driverMarker.setLatLng(driverLocation);
+                            }
+                            
+                            // Clear route line
+                            if (routeLine) {
+                                map.removeLayer(routeLine);
+                                routeLine = null;
+                            }
+                            
+                            // Center map on rider
+                            map.setView(riderLocation, 14);
+                            
+                            // Clear status messages
+                            document.getElementById('riderTrip').innerHTML = '';
+                            document.getElementById('requestsList').innerHTML = '<div style="color: #888;">Waiting for ride requests...</div>';
+                            
+                            // Update location fields
+                            document.getElementById('fromLocation').value = `Current Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+                            
+                            // Recalculate nearest station
+                            const nearestStation = getNearestStation(lat, lng);
+                            const destinationInput = document.getElementById('toLocation');
+                            destinationInput.value = nearestStation.name + ' Station';
+                            destinationInput.dataset.lat = nearestStation.lat;
+                            destinationInput.dataset.lng = nearestStation.lng;
+                            
+                            console.log('✅ Reset complete - ready for next ride');
+                        },
+                        (error) => {
+                            console.log('Could not get GPS for reset, using last known location');
+                            // Just recenter on last known location
+                            if (riderLocation) {
+                                map.setView(riderLocation, 14);
+                                // Clear route line
+                                if (routeLine) {
+                                    map.removeLayer(routeLine);
+                                    routeLine = null;
+                                }
+                                // Clear messages
+                                document.getElementById('riderTrip').innerHTML = '';
+                                document.getElementById('requestsList').innerHTML = '<div style="color: #888;">Waiting for ride requests...</div>';
+                            }
+                        }
+                    );
+                } else {
+                    // No GPS, just recenter map
+                    if (riderLocation) {
+                        map.setView(riderLocation, 14);
+                        // Clear route line
+                        if (routeLine) {
+                            map.removeLayer(routeLine);
+                            routeLine = null;
+                        }
+                    }
+                }
+            }, 5000);
+        }
+        
+        function animateDriverMovement() {
+            // Simulate driver moving towards rider's actual location
+            if (!riderLocation) return;
+            
+            const steps = 10;
+            let step = 0;
+            
+            const startLat = driverLocation[0];
+            const startLng = driverLocation[1];
+            const endLat = riderLocation[0];
+            const endLng = riderLocation[1];
+            
+            const interval = setInterval(() => {
+                if (step >= steps) {
+                    clearInterval(interval);
+                    return;
+                }
+                
+                // Interpolate position
+                const lat = startLat + (endLat - startLat) * (step / steps);
+                const lng = startLng + (endLng - startLng) * (step / steps);
+                
+                driverMarker.setLatLng([lat, lng]);
+                
+                // Draw route line
+                if (!routeLine) {
+                    routeLine = L.polyline([[startLat, startLng], [lat, lng]], {
+                        color: '#ff6ec7',
+                        weight: 3,
+                        opacity: 0.7,
+                        dashArray: '10, 10'
+                    }).addTo(map);
+                } else {
+                    routeLine.setLatLngs([[startLat, startLng], [lat, lng]]);
+                }
+                
+                step++;
+            }, 500);
+        }
+        
+        function animateDriverToPickup(ridePrice) {
+            // Simulate driver moving towards rider's actual location
+            if (!riderLocation || !driverMarker) {
+                // Fallback if no location
+                setTimeout(() => arrivedAtPickup(ridePrice), 3000);
+                return;
+            }
+            
+            const steps = 10;
+            let step = 0;
+            
+            const startLat = driverLocation[0];
+            const startLng = driverLocation[1];
+            const endLat = riderLocation[0];
+            const endLng = riderLocation[1];
+            
+            const pickupInterval = setInterval(() => {
+                if (step >= steps) {
+                    clearInterval(pickupInterval);
+                    arrivedAtPickup(ridePrice);
+                    return;
+                }
+                
+                step++;
+                const progress = step / steps;
+                
+                // Interpolate position
+                const lat = startLat + (endLat - startLat) * progress;
+                const lng = startLng + (endLng - startLng) * progress;
+                
+                // Update driver location
+                driverLocation = [lat, lng];
+                driverMarker.setLatLng([lat, lng]);
+                
+                // Update or create route line
+                if (!routeLine) {
+                    routeLine = L.polyline([[lat, lng], [endLat, endLng]], {
+                        color: '#ff6ec7',
+                        weight: 3,
+                        opacity: 0.7,
+                        dashArray: '10, 10'
+                    }).addTo(map);
+                } else {
+                    routeLine.setLatLngs([[lat, lng], [endLat, endLng]]);
+                }
+                
+                // Pan map to show both markers
+                const bounds = L.latLngBounds([driverLocation, riderLocation]);
+                map.fitBounds(bounds, { padding: [50, 50] });
+            }, 500);
+        }
+        
+        function animateDriverMovementWithDestinationDetection() {
+            // Get destination from input field data attributes
+            const destinationInput = document.getElementById('toLocation');
+            let destinationLocation;
+            
+            if (destinationInput.dataset.lat && destinationInput.dataset.lng) {
+                // Use the stored destination coordinates
+                destinationLocation = [
+                    parseFloat(destinationInput.dataset.lat),
+                    parseFloat(destinationInput.dataset.lng)
+                ];
+            } else {
+                // Fallback: calculate nearest station now
+                const nearestStation = getNearestStation(riderLocation[0], riderLocation[1]);
+                destinationLocation = [nearestStation.lat, nearestStation.lng];
+                destinationInput.dataset.lat = nearestStation.lat;
+                destinationInput.dataset.lng = nearestStation.lng;
+            }
+            
+            const stationName = destinationInput.value || 'Railway Station';
+            
+            // Add destination marker
+            const destMarker = L.marker(destinationLocation, {
+                icon: L.divIcon({
+                    html: '🚉',
+                    iconSize: [30, 30],
+                    className: 'emoji-marker'
+                })
+            }).addTo(map)
+                .bindPopup(stationName)
+                .openPopup();
+            
+            // Calculate realistic distance (approximate miles)
+            const actualDistance = Math.sqrt(
+                Math.pow((destinationLocation[0] - driverLocation[0]) * 69, 2) + 
+                Math.pow((destinationLocation[1] - driverLocation[1]) * 69, 2)
+            );
+            
+            let distanceToDestination = actualDistance;
+            const totalSteps = 40; // More steps for realistic journey
+            let step = 0;
+            let isStationary = false;
+            let stationaryCount = 0;
+            
+            const startLat = driverLocation[0];
+            const startLng = driverLocation[1];
+            
+            const movementInterval = setInterval(() => {
+                if (step >= totalSteps) {
+                    clearInterval(movementInterval);
+                    arrivingAtDestination();
+                    setTimeout(() => {
+                        arrivedAtDestination();
+                        if (destMarker) map.removeLayer(destMarker);
+                    }, 2000);
+                    return;
+                }
+                
+                // Simulate traffic stops (20% chance of stopping)
+                if (!isStationary && Math.random() < 0.2 && step > 5 && step < totalSteps - 5) {
+                    isStationary = true;
+                    stationaryCount = Math.floor(Math.random() * 3) + 2; // Stop for 2-4 intervals
+                }
+                
+                if (isStationary) {
+                    stationaryCount--;
+                    if (stationaryCount <= 0) {
+                        isStationary = false;
+                    }
+                    
+                    // Update status to show stationary
+                    if (document.getElementById('distanceToDestination')) {
+                        document.getElementById('distanceToDestination').innerHTML = 
+                            `Distance: ${distanceToDestination.toFixed(2)} miles | Status: 🔴 Stopped in traffic`;
+                    }
+                } else {
+                    // Move forward
+                    step++;
+                    const progress = step / totalSteps;
+                    
+                    // Interpolate position with some randomness for realistic path
+                    const lat = startLat + (destinationLocation[0] - startLat) * progress + 
+                               (Math.random() - 0.5) * 0.0001;
+                    const lng = startLng + (destinationLocation[1] - startLng) * progress + 
+                               (Math.random() - 0.5) * 0.0001;
+                    
+                    // Update driver location
+                    driverLocation = [lat, lng];
+                    driverMarker.setLatLng([lat, lng]);
+                    
+                    // Update route line to destination
+                    if (routeLine) {
+                        routeLine.setLatLngs([[lat, lng], destinationLocation]);
+                        routeLine.setStyle({ color: '#b24cf3' }); // Purple for destination route
+                    }
+                    
+                    // Calculate and update distance
+                    distanceToDestination = actualDistance * (1 - progress);
+                    
+                    // Update status based on distance
+                    let status = '🟢 In motion';
+                    if (distanceToDestination < 0.1) {
+                        status = '🟡 Arriving at destination';
+                    }
+                    
+                    if (document.getElementById('distanceToDestination')) {
+                        document.getElementById('distanceToDestination').innerHTML = 
+                            `Distance: ${distanceToDestination.toFixed(2)} miles | Status: ${status}`;
+                    }
+                }
+                
+                // Pan map to show driver and destination
+                const bounds = L.latLngBounds([driverLocation, destinationLocation]);
+                map.fitBounds(bounds, { padding: [50, 50] });
+            }, 500);
+        }
+        
+        function arrivingAtDestination() {
+            // Update driver status
+            document.getElementById('requestsList').innerHTML = `
+                <div class="status-message" style="border-left-color: #ffc107;">
+                    🟡 Arriving at destination...
+                    <br>Preparing to complete ride
+                </div>
+            `;
+            
+            // Update rider status
+            document.getElementById('riderTrip').innerHTML = `
+                <div class="status-message">
+                    🟡 Arriving at destination
+                    <br>Total paid: ${totalStreamed} sats
+                </div>
+            `;
+        }
+        
+        // Streaming payment implementation with movement detection
+        let streamingInterval = null;
+        let totalStreamed = 0;
+        let lastDriverPosition = null;
+        let isMoving = false;
+        
+        function startMovementBasedStreaming(ridePrice) {
+            totalStreamed = 0;
+            lastDriverPosition = driverLocation ? [...driverLocation] : null;
+            
+            streamingInterval = setInterval(() => {
+                // Check if driver is moving
+                if (lastDriverPosition && driverLocation) {
+                    const moved = Math.abs(driverLocation[0] - lastDriverPosition[0]) > 0.00001 || 
+                                 Math.abs(driverLocation[1] - lastDriverPosition[1]) > 0.00001;
+                    
+                    if (moved) {
+                        // Driver is moving, stream payment
+                        const payment = Math.floor(ridePrice / 50); // Small increments
+                        totalStreamed += payment;
+                        
+                        // Update UI
+                        if (document.getElementById('streamingInfo')) {
+                            document.getElementById('streamingInfo').innerHTML = 
+                                `Streaming: ${totalStreamed} sats ⚡ (Moving)`;
+                        }
+                        
+                        // Update driver balance in real-time
+                        const currentBalance = parseInt(document.getElementById('driverBalance').textContent.replace(/,/g, ''));
+                        document.getElementById('driverBalance').textContent = 
+                            (currentBalance + payment).toLocaleString() + ' sats';
+                        
+                        // Update rider balance
+                        const riderBalance = parseInt(document.getElementById('riderBalance').textContent.replace(/,/g, ''));
+                        document.getElementById('riderBalance').textContent = 
+                            (riderBalance - payment).toLocaleString() + ' sats';
+                    } else {
+                        // Driver is stationary
+                        if (document.getElementById('streamingInfo')) {
+                            document.getElementById('streamingInfo').innerHTML = 
+                                `Streaming: ${totalStreamed} sats ⏸️ (Stationary - no charge)`;
+                        }
+                    }
+                    
+                    lastDriverPosition = [...driverLocation];
+                }
+            }, 500); // Check every 500ms
+        }
+        
+        function stopMovementBasedStreaming() {
+            if (streamingInterval) {
+                clearInterval(streamingInterval);
+                streamingInterval = null;
+            }
+        }
+        
+        function arrivedAtDestination() {
+            // Stop streaming payments
+            stopMovementBasedStreaming();
+            
+            // Update driver status - driver must confirm completion
+            document.getElementById('requestsList').innerHTML = `
+                <div class="status-message" style="border-left-color: #00ff00;">
+                    ✅ Arrived at destination!
+                    <br>Total streamed: ${totalStreamed} sats
+                    <br><small>Please confirm ride completion</small>
+                </div>
+                <button onclick="driverCompleteRide()" class="btn" style="margin-top: 10px; background: linear-gradient(135deg, #00ff00, #00cc00);">
+                    ✅ COMPLETE RIDE
+                </button>
+            `;
+            
+            // Update rider status
+            document.getElementById('riderTrip').innerHTML = `
+                <div class="status-message">
+                    ✅ Arrived at destination!
+                    <br>Total paid: ${totalStreamed} sats
+                    <br><small>Waiting for driver to complete ride...</small>
+                </div>
+            `;
+        }
+        
+        function driverCompleteRide() {
+            // Driver confirms completion
+            document.getElementById('requestsList').innerHTML = `
+                <div class="status-message" style="border-left-color: #ffd700;">
+                    ✅ Ride Completed!
+                    <br>Total earned: ${totalStreamed} sats
+                    <br>Waiting for rider rating...
+                </div>
+            `;
+            
+            // Show rating and tipping UI for rider
+            showRatingAndTipUI();
+        }
+        
+        function showRatingAndTipUI() {
+            document.getElementById('riderTrip').innerHTML = `
+                <div class="status-message" style="border-left-color: #ffd700;">
+                    ✅ Ride Complete!
+                    <br>Total paid: ${totalStreamed} sats
+                </div>
+                <div style="margin-top: 15px; padding: 15px; background: #1a1a1a; border-radius: 10px;">
+                    <h4 style="margin-bottom: 10px; color: #00ff00;">Rate Your Driver</h4>
+                    <div id="ratingStars" style="font-size: 30px; margin: 10px 0; cursor: pointer;">
+                        <span onclick="setRating(1)">☆</span>
+                        <span onclick="setRating(2)">☆</span>
+                        <span onclick="setRating(3)">☆</span>
+                        <span onclick="setRating(4)">☆</span>
+                        <span onclick="setRating(5)">☆</span>
+                    </div>
+                    <div style="margin-top: 15px;">
+                        <label style="color: #888;">Add a tip (optional):</label>
+                        <div style="display: flex; gap: 10px; margin-top: 10px;">
+                            <button onclick="addTip(100)" class="btn" style="background: #333; padding: 5px 10px;">100 sats</button>
+                            <button onclick="addTip(200)" class="btn" style="background: #333; padding: 5px 10px;">200 sats</button>
+                            <button onclick="addTip(500)" class="btn" style="background: #333; padding: 5px 10px;">500 sats</button>
+                            <input type="number" id="customTip" placeholder="Custom" style="width: 80px; padding: 5px; background: #0f0f0f; border: 1px solid #333; color: #00ff00;">
+                        </div>
+                    </div>
+                    <button onclick="submitRatingAndTip()" class="btn" style="margin-top: 15px; width: 100%; background: linear-gradient(135deg, #ffd700, #ffed4e);">
+                        Submit Rating & Complete
+                    </button>
+                </div>
+            `;
+        }
+        
+        let selectedRating = 0;
+        let tipAmount = 0;
+        
+        function setRating(stars) {
+            selectedRating = stars;
+            const starElements = document.getElementById('ratingStars').children;
+            for (let i = 0; i < 5; i++) {
+                starElements[i].textContent = i < stars ? '★' : '☆';
+                starElements[i].style.color = i < stars ? '#ffd700' : '#888';
+            }
+        }
+        
+        function addTip(amount) {
+            tipAmount = amount;
+            document.getElementById('customTip').value = amount;
+            
+            // Update driver balance preview
+            const currentBalance = parseInt(document.getElementById('driverBalance').textContent.replace(/,/g, ''));
+            console.log(`💵 Tip selected: ${amount} sats`);
+        }
+        
+        function submitRatingAndTip() {
+            const customTip = document.getElementById('customTip').value;
+            if (customTip) {
+                tipAmount = parseInt(customTip);
+            }
+            
+            // Process tip payment
+            if (tipAmount > 0) {
+                const riderBalance = parseInt(document.getElementById('riderBalance').textContent.replace(/,/g, ''));
+                const driverBalance = parseInt(document.getElementById('driverBalance').textContent.replace(/,/g, ''));
+                
+                document.getElementById('riderBalance').textContent = (riderBalance - tipAmount).toLocaleString() + ' sats';
+                document.getElementById('driverBalance').textContent = (driverBalance + tipAmount).toLocaleString() + ' sats';
+            }
+            
+            // Show final message
+            document.getElementById('riderTrip').innerHTML = `
+                <div class="status-message" style="border-left-color: #ffd700;">
+                    ✨ Thank you for riding!
+                    <br>Rating: ${"★".repeat(selectedRating)}${"☆".repeat(5-selectedRating)}
+                    ${tipAmount > 0 ? `<br>Tip: ${tipAmount} sats` : ''}
+                    <br><small>Your feedback helps improve the network</small>
+                </div>
+            `;
+            
+            // Update driver panel
+            document.getElementById('requestsList').innerHTML = `
+                <div class="status-message" style="border-left-color: #ffd700;">
+                    🎉 Ride Complete!
+                    <br>Rating received: ${"★".repeat(selectedRating)}${"☆".repeat(5-selectedRating)}
+                    ${tipAmount > 0 ? `<br>💵 Tip received: ${tipAmount} sats!` : ''}
+                    <br>Total earned: ${totalStreamed + tipAmount} sats
+                </div>
+            `;
+            
+            // Complete the ride
+            setTimeout(() => completeRide(), 2000);
+        }
+        
+        // Function to start continuous rider GPS tracking
+        function startRiderTracking() {
+            // Clear any existing watch first to prevent duplicates
+            if (watchId) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+                console.log('🔄 Cleared existing GPS watch');
+            }
+            
+            if (navigator.geolocation) {
+                console.log('🛰️ Starting continuous GPS tracking for rider...');
+                
+                // First get current position immediately
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        updateRiderPosition(position);
+                        console.log('✅ Got initial GPS position');
+                        updateGPSStatus('active', '✅ GPS tracking active');
+                    },
+                    (error) => {
+                        console.log('⚠️ Initial GPS failed:', error.message);
+                        updateGPSStatus('error', `GPS error: ${error.message}`);
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 5000,
+                        maximumAge: 0
+                    }
+                );
+                
+                // Then start watching for changes
+                watchId = navigator.geolocation.watchPosition(
+                    (position) => {
+                        updateRiderPosition(position);
+                    },
+                    (error) => {
+                        console.log('GPS tracking error:', error.message);
+                        updateGPSStatus('error', `GPS error: ${error.message}`);
+                        // Don't stop tracking, just log the error
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        maximumAge: 1000,
+                        timeout: 10000
+                    }
+                );
+                console.log('👁️ GPS watch active with ID:', watchId);
+            } else {
+                console.log('❌ Geolocation not supported');
+            }
+        }
+        
+        // Separate function to update rider position
+        // Function to update GPS status indicator
+        function updateGPSStatus(status, message) {
+            const gpsStatus = document.getElementById('gpsStatus');
+            const gpsStatusText = document.getElementById('gpsStatusText');
+            
+            if (gpsStatus && gpsStatusText) {
+                gpsStatus.style.display = 'flex';
+                gpsStatus.className = 'gps-status ' + status;
+                gpsStatusText.textContent = message;
+                
+                // Auto-hide success messages after 3 seconds
+                if (status === 'active') {
+                    setTimeout(() => {
+                        if (gpsStatus.className.includes('active')) {
+                            gpsStatus.style.display = 'none';
+                        }
+                    }, 3000);
+                }
+            }
+        }
+        
+        function updateRiderPosition(position) {
+            const newLat = position.coords.latitude;
+            const newLng = position.coords.longitude;
+            const accuracy = position.coords.accuracy;
+            
+            // Validate coordinates
+            if (isNaN(newLat) || isNaN(newLng)) {
+                console.log('⚠️ Invalid GPS coordinates received');
+                updateGPSStatus('error', 'Invalid GPS coordinates');
+                return;
+            }
+            
+            // Show GPS updating status
+            updateGPSStatus('updating', `📍 Updating location (±${Math.round(accuracy)}m)`)
+            
+            // Check if position actually changed
+            const oldLat = riderLocation ? riderLocation[0] : 0;
+            const oldLng = riderLocation ? riderLocation[1] : 0;
+            const distance = Math.sqrt(Math.pow(newLat - oldLat, 2) + Math.pow(newLng - oldLng, 2));
+            
+            // Update rider location
+            riderLocation = [newLat, newLng];
+            
+            // Store location in localStorage for persistence
+            localStorage.setItem('riderGPSLocation', JSON.stringify({
+                lat: newLat,
+                lng: newLng,
+                accuracy: accuracy,
+                timestamp: Date.now()
+            }));
+            
+            // Move rider marker smoothly
+            if (riderMarker) {
+                riderMarker.setLatLng(riderLocation);
+            } else {
+                riderMarker = L.marker(riderLocation, {icon: riderIcon}).addTo(map);
+            }
+            
+            // Update pickup location field with accuracy
+            const fromInput = document.getElementById('fromLocation');
+            if (fromInput) {
+                fromInput.value = `📍 Current Location (±${Math.round(accuracy)}m)`;
+            }
+            
+            // Always keep map centered on rider when they move
+            if (map) {
+                // Use setView for immediate update with current zoom
+                const currentZoom = map.getZoom();
+                map.setView(riderLocation, currentZoom >= 13 ? currentZoom : 14, { 
+                    animate: true, 
+                    duration: 0.3,
+                    easeLinearity: 0.5 
+                });
+                console.log(`🗺️ Map centered on rider: ${newLat.toFixed(6)}, ${newLng.toFixed(6)}`);
+            }
+            
+            // Update destination if moved significantly
+            const destinationInput = document.getElementById('toLocation');
+            if (destinationInput) {
+                const lastLat = parseFloat(destinationInput.dataset.lastLat || newLat);
+                const lastLng = parseFloat(destinationInput.dataset.lastLng || newLng);
+                const distCheck = Math.sqrt(
+                    Math.pow(newLat - lastLat, 2) +
+                    Math.pow(newLng - lastLng, 2)
+                );
+                
+                if (distCheck > 0.005) { // About 0.3 miles
+                    const nearestStation = getNearestStation(newLat, newLng);
+                    destinationInput.value = nearestStation.name + ' Station';
+                    destinationInput.dataset.lat = nearestStation.lat;
+                    destinationInput.dataset.lng = nearestStation.lng;
+                    destinationInput.dataset.lastLat = newLat;
+                    destinationInput.dataset.lastLng = newLng;
+                }
+            }
+            
+            // Log significant movements
+            if (distance > 0.00001) { // About 1 meter
+                console.log(`📍 GPS Update: ${newLat.toFixed(6)}, ${newLng.toFixed(6)} (±${Math.round(accuracy)}m) - moved ${(distance * 111000).toFixed(1)}m`);
+                updateGPSStatus('active', `📍 Location updated (±${Math.round(accuracy)}m)`);
+            }
+        }
+        
+        // Function to simulate driver movement
+        function startDriverSimulation() {
+            if (driverMovementInterval) {
+                clearInterval(driverMovementInterval);
+            }
+            
+            console.log('🚗 Starting driver movement simulation...');
+            
+            // Simulate driver wandering around
+            driverMovementInterval = setInterval(() => {
+                if (driverLocation && driverMarker && !currentRide) {
+                    // Random movement within area (smaller movements for realism)
+                    const moveLat = (Math.random() - 0.5) * 0.0003;
+                    const moveLng = (Math.random() - 0.5) * 0.0003;
+                    
+                    driverLocation[0] += moveLat;
+                    driverLocation[1] += moveLng;
+                    
+                    // Keep driver within reasonable bounds of rider
+                    if (riderLocation) {
+                        const maxDistance = 0.015; // About 1 mile
+                        const latDiff = driverLocation[0] - riderLocation[0];
+                        const lngDiff = driverLocation[1] - riderLocation[1];
+                        
+                        if (Math.abs(latDiff) > maxDistance) {
+                            driverLocation[0] = riderLocation[0] + (latDiff > 0 ? maxDistance : -maxDistance);
+                        }
+                        if (Math.abs(lngDiff) > maxDistance) {
+                            driverLocation[1] = riderLocation[1] + (lngDiff > 0 ? maxDistance : -maxDistance);
+                        }
+                    }
+                    
+                    // Update marker smoothly
+                    driverMarker.setLatLng(driverLocation);
+                }
+            }, 3000); // Update every 3 seconds
+        }
+        
+        // Initialize on load
+        window.onload = function() {
+            console.log('🚀 DonkeyRide initializing...');
+            console.log('📡 Geolocation support:', 'geolocation' in navigator ? 'YES' : 'NO');
+            
+            // Check if we're on HTTPS (required for geolocation in many browsers)
+            if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+                console.warn('⚠️ GPS may not work on non-HTTPS sites. Current protocol:', location.protocol);
+            }
+            
+            initMap();
+        };
+    </script>
+</body>
+</html>

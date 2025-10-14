@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GPS Tracking Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        .status { margin: 10px 0; padding: 10px; background: #f0f0f0; }
+        .success { background: #d4edda; }
+        .error { background: #f8d7da; }
+        .update { background: #d1ecf1; }
+    </style>
+</head>
+<body>
+    <h1>GPS Tracking Test</h1>
+    <div id="status"></div>
+    <button onclick="testGPS()">Test GPS</button>
+    <button onclick="clearStorage()">Clear Storage</button>
+    <button onclick="checkStorage()">Check Storage</button>
+    
+    <script>
+        const status = document.getElementById('status');
+        let watchId = null;
+        
+        function log(msg, type = '') {
+            const div = document.createElement('div');
+            div.className = 'status ' + type;
+            div.textContent = new Date().toLocaleTimeString() + ': ' + msg;
+            status.insertBefore(div, status.firstChild);
+        }
+        
+        function testGPS() {
+            log('Testing GPS...');
+            
+            if (!navigator.geolocation) {
+                log('Geolocation not supported!', 'error');
+                return;
+            }
+            
+            // Clear existing watch
+            if (watchId) {
+                navigator.geolocation.clearWatch(watchId);
+                log('Cleared existing watch');
+            }
+            
+            // Get current position
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    const acc = position.coords.accuracy;
+                    
+                    log(`Got position: ${lat.toFixed(6)}, ${lng.toFixed(6)} (±${Math.round(acc)}m)`, 'success');
+                    
+                    // Save to localStorage
+                    localStorage.setItem('riderGPSLocation', JSON.stringify({
+                        lat: lat,
+                        lng: lng,
+                        accuracy: acc,
+                        timestamp: Date.now()
+                    }));
+                    log('Saved to localStorage', 'success');
+                },
+                (error) => {
+                    log(`Error: ${error.message} (code: ${error.code})`, 'error');
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
+                }
+            );
+            
+            // Start watching
+            watchId = navigator.geolocation.watchPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    const acc = position.coords.accuracy;
+                    
+                    log(`Position update: ${lat.toFixed(6)}, ${lng.toFixed(6)} (±${Math.round(acc)}m)`, 'update');
+                    
+                    // Update localStorage
+                    localStorage.setItem('riderGPSLocation', JSON.stringify({
+                        lat: lat,
+                        lng: lng,
+                        accuracy: acc,
+                        timestamp: Date.now()
+                    }));
+                },
+                (error) => {
+                    log(`Watch error: ${error.message}`, 'error');
+                },
+                {
+                    enableHighAccuracy: true,
+                    maximumAge: 1000,
+                    timeout: 10000
+                }
+            );
+            
+            log('Started watching position');
+        }
+        
+        function clearStorage() {
+            localStorage.removeItem('riderGPSLocation');
+            log('Cleared localStorage', 'success');
+        }
+        
+        function checkStorage() {
+            const saved = localStorage.getItem('riderGPSLocation');
+            if (saved) {
+                try {
+                    const data = JSON.parse(saved);
+                    const age = Math.round((Date.now() - data.timestamp) / 1000);
+                    log(`Stored: ${data.lat.toFixed(6)}, ${data.lng.toFixed(6)} (${age}s old)`, 'success');
+                } catch (e) {
+                    log('Invalid stored data', 'error');
+                }
+            } else {
+                log('No stored location', 'error');
+            }
+        }
+        
+        // Check on load
+        window.onload = () => {
+            checkStorage();
+            if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+                log('Warning: GPS may not work on non-HTTPS sites', 'error');
+            }
+        };
+    </script>
+</body>
+</html>
