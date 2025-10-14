@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DonkeyRide - Smart Navigation Demo</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'SF Mono', Monaco, monospace;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #b24cf3 0%, #ff6ec7 100%);
+            color: white;
+            padding: 15px 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+
+        .header h1 {
+            font-size: 1.8em;
+            font-weight: 900;
+            margin: 0;
+        }
+
+        .header p {
+            margin: 5px 0 0 0;
+            opacity: 0.9;
+            font-size: 0.9em;
+        }
+
+        .main-container {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            width: 400px;
+            background: #0a0a0a;
+            border-right: 2px solid #333;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .sidebar-section {
+            padding: 15px;
+            border-bottom: 1px solid #222;
+        }
+
+        .sidebar-section h3 {
+            color: #ff6ec7;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+
+        .input-group {
+            margin-bottom: 12px;
+        }
+
+        .input-group label {
+            display: block;
+            color: #888;
+            font-size: 0.85em;
+            margin-bottom: 5px;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 8px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-family: inherit;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #b24cf3, #ff6ec7);
+            border: none;
+            border-radius: 6px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .route-card {
+            background: #111;
+            border: 2px solid #333;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .route-card:hover {
+            border-color: #ff6ec7;
+            transform: translateX(5px);
+        }
+
+        .route-card.selected {
+            border-color: #00ff00;
+            background: #0f1f0f;
+        }
+
+        .route-card.recommended {
+            border-color: #ff6ec7;
+        }
+
+        .route-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .route-title {
+            font-weight: bold;
+            color: #ff6ec7;
+        }
+
+        .route-score {
+            background: #ff6ec7;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+
+        .route-score.excellent { background: #00ff00; color: #000; }
+        .route-score.good { background: #ffa500; }
+        .route-score.acceptable { background: #ff6ec7; }
+
+        .route-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            font-size: 0.85em;
+        }
+
+        .stat {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .stat-label {
+            color: #888;
+        }
+
+        .stat-value {
+            color: #e0e0e0;
+            font-weight: bold;
+        }
+
+        .stat-value.profit {
+            color: #00ff00;
+        }
+
+        .navigation-instructions {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .instruction {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
+            background: #111;
+            border-left: 3px solid #ff6ec7;
+            margin-bottom: 8px;
+            border-radius: 4px;
+        }
+
+        .instruction.current {
+            border-left-color: #00ff00;
+            background: #0f1f0f;
+            font-weight: bold;
+        }
+
+        .instruction-icon {
+            font-size: 1.5em;
+        }
+
+        .instruction-text {
+            flex: 1;
+        }
+
+        .instruction-distance {
+            color: #888;
+            font-size: 0.85em;
+        }
+
+        #map {
+            flex: 1;
+        }
+
+        .traffic-alert {
+            background: #ff6666;
+            color: white;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            animation: pulse 2s infinite;
+        }
+
+        .status-indicator {
+            padding: 8px;
+            background: #111;
+            border-radius: 6px;
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+
+        .status-indicator.active {
+            background: #0f1f0f;
+            border: 1px solid #00ff00;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.8; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🚗 DonkeyRide Smart Navigation</h1>
+        <p>Traffic-aware routing with cost optimization for maximum driver profit</p>
+    </div>
+
+    <div class="main-container">
+        <div class="sidebar">
+            <!-- Route Request -->
+            <div class="sidebar-section">
+                <h3>🎯 Route Request</h3>
+                <div class="input-group">
+                    <label>From (lat,lon) - Trafalgar Square</label>
+                    <input type="text" id="origin" value="51.5074,-0.1278" placeholder="51.5074,-0.1278">
+                </div>
+                <div class="input-group">
+                    <label>To (lat,lon) - Tower Bridge</label>
+                    <input type="text" id="destination" value="51.5055,-0.0754" placeholder="51.5055,-0.0754">
+                </div>
+                <div class="input-group">
+                    <label>Fare Amount (sats)</label>
+                    <input type="number" id="fare" value="1500" placeholder="1500">
+                </div>
+                <button class="btn" id="calculate-btn" onclick="calculateRoutes()">Calculate Routes</button>
+                <div id="loading-indicator" style="display: none; text-align: center; margin-top: 10px; color: #ff6ec7;">
+                    <div style="animation: pulse 1s infinite;">🔄 Fetching real routes from OSRM...</div>
+                </div>
+            </div>
+
+            <!-- Route Options -->
+            <div class="sidebar-section" id="routes-section" style="display: none;">
+                <h3>📍 Route Options</h3>
+                <div id="routes-container"></div>
+            </div>
+
+            <!-- Navigation -->
+            <div class="sidebar-section" id="nav-section" style="display: none;">
+                <h3>🧭 Turn-by-Turn Navigation</h3>
+                <div class="status-indicator" id="nav-status">
+                    <div>Status: <span id="nav-status-text">Not Started</span></div>
+                    <div>Distance: <span id="nav-distance">-</span></div>
+                    <div>ETA: <span id="nav-eta">-</span></div>
+                    <div>Progress: <span id="nav-progress">0%</span></div>
+                </div>
+                <div id="traffic-alerts"></div>
+                <div class="navigation-instructions" id="instructions-container"></div>
+                <button class="btn" onclick="stopNavigation()" style="margin-top: 10px; background: #ff4444;">Stop Navigation</button>
+            </div>
+        </div>
+
+        <div id="map"></div>
+    </div>
+
+    <script>
+        // Initialize map
+        const map = L.map('map').setView([51.5074, -0.1278], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // State
+        let currentRoutes = null;
+        let selectedRoute = null;
+        let routeLines = [];
+        let markers = {
+            origin: null,
+            destination: null,
+            driver: null
+        };
+        let navigationSession = null;
+        let navUpdateInterval = null;
+
+        // Icons
+        const originIcon = L.divIcon({
+            html: '<div style="background: #00ff00; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid white; box-shadow: 0 2px 10px rgba(0,255,0,0.6);">🅰️</div>',
+            iconSize: [30, 30],
+            className: 'custom-marker'
+        });
+
+        const destinationIcon = L.divIcon({
+            html: '<div style="background: #ff6ec7; width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid white; box-shadow: 0 2px 10px rgba(255,110,199,0.6);">🅱️</div>',
+            iconSize: [30, 30],
+            className: 'custom-marker'
+        });
+
+        const driverIcon = L.divIcon({
+            html: '<div style="background: #ffa500; width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 3px solid white; box-shadow: 0 2px 15px rgba(255,165,0,0.8); font-size: 20px;">🚗</div>',
+            iconSize: [35, 35],
+            className: 'driver-marker'
+        });
+
+        // Calculate routes using OSRM (real road routing!)
+        async function calculateRoutes() {
+            const originInput = document.getElementById('origin').value;
+            const destInput = document.getElementById('destination').value;
+            const fareInput = document.getElementById('fare').value;
+
+            const [originLat, originLon] = originInput.split(',').map(Number);
+            const [destLat, destLon] = destInput.split(',').map(Number);
+
+            // Show loading
+            document.getElementById('calculate-btn').disabled = true;
+            document.getElementById('loading-indicator').style.display = 'block';
+            document.getElementById('routes-section').style.display = 'none';
+
+            console.log('🔍 Calculating routes with real road data from OSRM...');
+
+            try {
+                // Use public OSRM API for real road routing
+                const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${originLon},${originLat};${destLon},${destLat}`;
+                const params = new URLSearchParams({
+                    overview: 'full',
+                    geometries: 'geojson',
+                    steps: 'true',
+                    alternatives: 'true'
+                });
+
+                const response = await fetch(`${osrmUrl}?${params}`);
+                const data = await response.json();
+
+                if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+                    console.log('✅ Got real routes from OSRM:', data.routes.length);
+                    currentRoutes = parseOSRMRoutes(data.routes, originLat, originLon, destLat, destLon, parseInt(fareInput));
+                } else {
+                    throw new Error('No routes found');
+                }
+
+                displayRoutes();
+                showRoutesOnMap(originLat, originLon, destLat, destLon);
+
+                // Hide loading
+                document.getElementById('calculate-btn').disabled = false;
+                document.getElementById('loading-indicator').style.display = 'none';
+
+            } catch (error) {
+                console.error('Error calculating routes:', error);
+                console.warn('⚠️ Falling back to straight line');
+                // Use mock data only if OSRM fails
+                currentRoutes = generateMockRoutes(originLat, originLon, destLat, destLon, parseInt(fareInput));
+                displayRoutes();
+                showRoutesOnMap(originLat, originLon, destLat, destLon);
+
+                // Hide loading
+                document.getElementById('calculate-btn').disabled = false;
+                document.getElementById('loading-indicator').style.display = 'none';
+            }
+        }
+
+        // Parse OSRM routes into our format
+        function parseOSRMRoutes(osrmRoutes, originLat, originLon, destLat, destLon, fareAmount) {
+            const routes = osrmRoutes.map((route, index) => {
+                const distance = route.distance; // meters
+                const duration = route.duration; // seconds
+
+                // Extract geometry (GeoJSON coordinates are [lon, lat])
+                const geometry = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
+
+                // Parse instructions from steps
+                const instructions = route.legs[0].steps.map((step, idx) => {
+                    const maneuver = step.maneuver;
+                    const streetName = step.name || 'road';
+                    let text = '';
+
+                    // Generate human-readable instruction
+                    if (maneuver.type === 'depart') {
+                        text = `Head ${getDirection(maneuver.bearing_after)} on ${streetName}`;
+                    } else if (maneuver.type === 'arrive') {
+                        text = 'Arrive at destination';
+                    } else if (maneuver.type === 'turn') {
+                        const modifier = maneuver.modifier || '';
+                        text = `Turn ${modifier} onto ${streetName}`;
+                    } else if (maneuver.type === 'new name') {
+                        text = `Continue on ${streetName}`;
+                    } else if (maneuver.type.includes('roundabout')) {
+                        const exit = maneuver.exit || 1;
+                        text = `Take exit ${exit} from roundabout onto ${streetName}`;
+                    } else if (maneuver.type === 'merge') {
+                        text = `Merge onto ${streetName}`;
+                    } else if (maneuver.type === 'fork') {
+                        const modifier = maneuver.modifier || 'right';
+                        text = `Keep ${modifier} at fork onto ${streetName}`;
+                    } else {
+                        text = `${maneuver.type} ${streetName}`;
+                    }
+
+                    return {
+                        type: parseStepType(maneuver.type),
+                        text: text,
+                        distance: step.distance,
+                        duration: step.duration,
+                        location: [maneuver.location[1], maneuver.location[0]]
+                    };
+                });
+
+                function getDirection(bearing) {
+                    const directions = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'];
+                    const index = Math.round(bearing / 45) % 8;
+                    return directions[index];
+                }
+
+                // Calculate costs
+                const fuelCost = (distance / 1000 / 100 * 7.5 * 1.5).toFixed(2);
+                const timeCost = (duration / 3600 * 15).toFixed(2);
+                const totalCost = (parseFloat(fuelCost) + parseFloat(timeCost)).toFixed(2);
+                const netProfit = (fareAmount / 100 - totalCost).toFixed(2);
+                const profitMargin = ((netProfit / (fareAmount / 100)) * 100).toFixed(1);
+
+                // Score based on profit margin
+                let score = 50 + (parseFloat(profitMargin) / 2);
+                score = Math.min(100, Math.max(0, Math.round(score)));
+
+                return {
+                    route: {
+                        id: `route_${index}`,
+                        distance,
+                        duration,
+                        geometry,
+                        instructions
+                    },
+                    analysis: {
+                        fuelCost,
+                        timeCost,
+                        tollCost: 0,
+                        totalCost,
+                        netProfit,
+                        profitMargin,
+                        score
+                    }
+                };
+            });
+
+            return {
+                recommended: routes[0],
+                alternatives: routes.slice(1)
+            };
+        }
+
+        function parseStepType(osrmType) {
+            const mapping = {
+                'depart': 'depart',
+                'turn': 'turn',
+                'new name': 'continue',
+                'arrive': 'arrive',
+                'merge': 'merge',
+                'on ramp': 'merge',
+                'off ramp': 'exit',
+                'fork': 'turn',
+                'end of road': 'turn',
+                'continue': 'continue',
+                'roundabout': 'roundabout',
+                'rotary': 'roundabout'
+            };
+            return mapping[osrmType] || 'continue';
+        }
+
+        // Generate mock route data
+        function generateMockRoutes(originLat, originLon, destLat, destLon, fareAmount) {
+            const distance = calculateDistance(originLat, originLon, destLat, destLon);
+
+            return {
+                recommended: {
+                    route: {
+                        id: 'route_1',
+                        distance: distance * 1000,
+                        duration: (distance * 1000) / 8, // ~8 m/s average
+                        geometry: generateRouteGeometry(originLat, originLon, destLat, destLon, 0),
+                        instructions: generateMockInstructions()
+                    },
+                    analysis: {
+                        fuelCost: (distance * 1.5).toFixed(2),
+                        timeCost: ((distance * 1000 / 8 / 60) * 0.25).toFixed(2),
+                        tollCost: 0,
+                        totalCost: (distance * 1.75).toFixed(2),
+                        netProfit: (fareAmount / 100 - distance * 1.75).toFixed(2),
+                        profitMargin: ((fareAmount / 100 - distance * 1.75) / (fareAmount / 100) * 100).toFixed(1),
+                        score: 85
+                    }
+                },
+                alternatives: [
+                    {
+                        route: {
+                            id: 'route_2',
+                            distance: distance * 1200,
+                            duration: (distance * 1100) / 8,
+                            geometry: generateRouteGeometry(originLat, originLon, destLat, destLon, 0.002),
+                            instructions: generateMockInstructions()
+                        },
+                        analysis: {
+                            fuelCost: (distance * 1.6).toFixed(2),
+                            timeCost: ((distance * 1100 / 8 / 60) * 0.25).toFixed(2),
+                            tollCost: 0,
+                            totalCost: (distance * 1.85).toFixed(2),
+                            netProfit: (fareAmount / 100 - distance * 1.85).toFixed(2),
+                            profitMargin: ((fareAmount / 100 - distance * 1.85) / (fareAmount / 100) * 100).toFixed(1),
+                            score: 72
+                        }
+                    }
+                ]
+            };
+        }
+
+        function generateRouteGeometry(lat1, lon1, lat2, lon2, offset) {
+            const points = [];
+            const steps = 20;
+            for (let i = 0; i <= steps; i++) {
+                const t = i / steps;
+                const lat = lat1 + (lat2 - lat1) * t + (Math.sin(t * Math.PI) * offset);
+                const lon = lon1 + (lon2 - lon1) * t + (Math.cos(t * Math.PI) * offset);
+                points.push([lat, lon]);
+            }
+            return points;
+        }
+
+        function generateMockInstructions() {
+            return [
+                { type: 'depart', text: 'Head north', distance: 200, location: null },
+                { type: 'turn', text: 'Turn right onto Main Street', distance: 500, location: null },
+                { type: 'continue', text: 'Continue on Main Street', distance: 2000, location: null },
+                { type: 'turn', text: 'Turn left onto High Street', distance: 1000, location: null },
+                { type: 'arrive', text: 'Arrive at destination', distance: 0, location: null }
+            ];
+        }
+
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                    Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        // Display route options in sidebar
+        function displayRoutes() {
+            const container = document.getElementById('routes-container');
+            container.innerHTML = '';
+
+            // Recommended route
+            const recCard = createRouteCard(currentRoutes.recommended, 'Recommended', true);
+            container.appendChild(recCard);
+
+            // Alternative routes
+            currentRoutes.alternatives.forEach((alt, index) => {
+                const card = createRouteCard(alt, `Alternative ${index + 1}`, false);
+                container.appendChild(card);
+            });
+
+            document.getElementById('routes-section').style.display = 'block';
+        }
+
+        function createRouteCard(routeData, title, isRecommended) {
+            const card = document.createElement('div');
+            card.className = `route-card ${isRecommended ? 'recommended' : ''}`;
+
+            const analysis = routeData.analysis;
+            const scoreClass = analysis.score >= 80 ? 'excellent' : analysis.score >= 60 ? 'good' : 'acceptable';
+
+            card.innerHTML = `
+                <div class="route-header">
+                    <div class="route-title">${title}</div>
+                    <div class="route-score ${scoreClass}">${analysis.score}/100</div>
+                </div>
+                <div class="route-stats">
+                    <div class="stat">
+                        <span class="stat-label">Distance:</span>
+                        <span class="stat-value">${(routeData.route.distance / 1000).toFixed(1)} km</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Duration:</span>
+                        <span class="stat-value">${Math.round(routeData.route.duration / 60)} min</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Total Cost:</span>
+                        <span class="stat-value">£${analysis.totalCost}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Net Profit:</span>
+                        <span class="stat-value profit">£${analysis.netProfit}</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Margin:</span>
+                        <span class="stat-value profit">${analysis.profitMargin}%</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-label">Fuel:</span>
+                        <span class="stat-value">£${analysis.fuelCost}</span>
+                    </div>
+                </div>
+            `;
+
+            card.onclick = () => selectRoute(routeData, card);
+
+            return card;
+        }
+
+        function selectRoute(routeData, cardElement) {
+            // Remove previous selection
+            document.querySelectorAll('.route-card').forEach(c => c.classList.remove('selected'));
+            cardElement.classList.add('selected');
+
+            selectedRoute = routeData;
+
+            // Start navigation
+            startNavigation();
+        }
+
+        function showRoutesOnMap(originLat, originLon, destLat, destLon) {
+            // Clear previous routes
+            routeLines.forEach(line => map.removeLayer(line));
+            routeLines = [];
+
+            // Add markers
+            if (markers.origin) map.removeLayer(markers.origin);
+            if (markers.destination) map.removeLayer(markers.destination);
+
+            markers.origin = L.marker([originLat, originLon], {icon: originIcon})
+                .addTo(map)
+                .bindPopup('📍 Pickup Location');
+
+            markers.destination = L.marker([destLat, destLon], {icon: destinationIcon})
+                .addTo(map)
+                .bindPopup('🎯 Destination');
+
+            // Draw recommended route (bold)
+            const recLine = L.polyline(currentRoutes.recommended.route.geometry, {
+                color: '#00ff00',
+                weight: 4,
+                opacity: 0.8
+            }).addTo(map);
+            routeLines.push(recLine);
+
+            // Draw alternatives (lighter)
+            currentRoutes.alternatives.forEach(alt => {
+                const line = L.polyline(alt.route.geometry, {
+                    color: '#888',
+                    weight: 2,
+                    opacity: 0.5,
+                    dashArray: '5, 10'
+                }).addTo(map);
+                routeLines.push(line);
+            });
+
+            // Fit bounds
+            map.fitBounds(recLine.getBounds(), { padding: [50, 50] });
+        }
+
+        async function startNavigation() {
+            if (!selectedRoute) return;
+
+            console.log('🧭 Starting navigation...');
+
+            document.getElementById('nav-section').style.display = 'block';
+            document.querySelector('#nav-status').classList.add('active');
+            document.getElementById('nav-status-text').textContent = 'Active';
+
+            // Show instructions
+            displayInstructions(selectedRoute.route.instructions);
+
+            // Add driver marker at origin
+            const originCoords = selectedRoute.route.geometry[0];
+            if (markers.driver) map.removeLayer(markers.driver);
+            markers.driver = L.marker(originCoords, {icon: driverIcon})
+                .addTo(map);
+
+            // Simulate driver movement
+            simulateDriverMovement();
+        }
+
+        function displayInstructions(instructions) {
+            const container = document.getElementById('instructions-container');
+            container.innerHTML = '';
+
+            instructions.forEach((instruction, index) => {
+                const div = document.createElement('div');
+                div.className = `instruction ${index === 0 ? 'current' : ''}`;
+                div.id = `instruction-${index}`;
+
+                const icon = getInstructionIcon(instruction.type);
+
+                div.innerHTML = `
+                    <div class="instruction-icon">${icon}</div>
+                    <div class="instruction-text">${instruction.text}</div>
+                    <div class="instruction-distance">${instruction.distance}m</div>
+                `;
+
+                container.appendChild(div);
+            });
+        }
+
+        function getInstructionIcon(type) {
+            const icons = {
+                'depart': '🚦',
+                'turn': '↩️',
+                'continue': '➡️',
+                'arrive': '🏁',
+                'merge': '🔀',
+                'exit': '⤴️',
+                'roundabout': '🔄'
+            };
+            return icons[type] || '➡️';
+        }
+
+        function simulateDriverMovement() {
+            const geometry = selectedRoute.route.geometry;
+            const instructions = selectedRoute.route.instructions;
+            let currentIndex = 0;
+            const totalSteps = geometry.length;
+            let currentInstructionIndex = 0;
+            let distanceTraveled = 0;
+
+            navUpdateInterval = setInterval(() => {
+                currentIndex++;
+
+                if (currentIndex >= totalSteps) {
+                    // Arrived!
+                    clearInterval(navUpdateInterval);
+                    document.getElementById('nav-status-text').textContent = 'Arrived ✅';
+                    document.querySelector('#nav-status').classList.remove('active');
+                    console.log('🎉 Navigation complete!');
+                    return;
+                }
+
+                // Calculate distance traveled
+                if (currentIndex > 0) {
+                    const prevPos = geometry[currentIndex - 1];
+                    const currentPos = geometry[currentIndex];
+                    const segmentDistance = calculateDistance(
+                        prevPos[0], prevPos[1],
+                        currentPos[0], currentPos[1]
+                    ) * 1000; // meters
+                    distanceTraveled += segmentDistance;
+                }
+
+                // Update driver position
+                const currentPos = geometry[currentIndex];
+                markers.driver.setLatLng(currentPos);
+                map.panTo(currentPos);
+
+                // Update stats
+                const progress = (distanceTraveled / selectedRoute.route.distance) * 100;
+                document.getElementById('nav-progress').textContent = `${Math.round(progress)}%`;
+
+                const remainingDistance = selectedRoute.route.distance - distanceTraveled;
+                document.getElementById('nav-distance').textContent = `${(remainingDistance / 1000).toFixed(1)} km`;
+
+                const remainingTime = Math.round((remainingDistance / selectedRoute.route.distance) * selectedRoute.route.duration / 60);
+                document.getElementById('nav-eta').textContent = `${remainingTime} min`;
+
+                // Advance instructions based on distance
+                let cumulativeDistance = 0;
+                for (let i = 0; i < instructions.length; i++) {
+                    cumulativeDistance += instructions[i].distance;
+                    if (distanceTraveled >= cumulativeDistance && i > currentInstructionIndex) {
+                        // Move to next instruction
+                        const prevElement = document.getElementById(`instruction-${currentInstructionIndex}`);
+                        if (prevElement) prevElement.classList.remove('current');
+
+                        currentInstructionIndex = i;
+                        const currentElement = document.getElementById(`instruction-${currentInstructionIndex}`);
+                        if (currentElement) {
+                            currentElement.classList.add('current');
+                            // Scroll into view
+                            currentElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        }
+                        console.log(`📍 Instruction ${i}: ${instructions[i].text}`);
+                        break;
+                    }
+                }
+
+                // Simulate occasional traffic alert
+                if (currentIndex === Math.floor(totalSteps / 3)) {
+                    showTrafficAlert();
+                }
+
+            }, 150); // Update every 150ms for smooth animation
+        }
+
+        function showTrafficAlert() {
+            const alertsContainer = document.getElementById('traffic-alerts');
+            const alert = document.createElement('div');
+            alert.className = 'traffic-alert';
+            alert.innerHTML = `
+                <strong>⚠️ Traffic Alert</strong><br>
+                Heavy traffic ahead - considering reroute...
+            `;
+            alertsContainer.appendChild(alert);
+
+            setTimeout(() => {
+                alert.remove();
+            }, 5000);
+        }
+
+        function stopNavigation() {
+            if (navUpdateInterval) {
+                clearInterval(navUpdateInterval);
+                navUpdateInterval = null;
+            }
+
+            document.getElementById('nav-section').style.display = 'none';
+            document.getElementById('nav-status-text').textContent = 'Not Started';
+            document.querySelector('#nav-status').classList.remove('active');
+
+            if (markers.driver) {
+                map.removeLayer(markers.driver);
+                markers.driver = null;
+            }
+        }
+
+        // Auto-calculate on load
+        setTimeout(() => {
+            calculateRoutes();
+        }, 500);
+    </script>
+</body>
+</html>

@@ -50,17 +50,27 @@ This NIP introduces the following event kinds in the 30500-30599 range:
 | 30531 | Reputation Query | Yes (by d tag) | Anyone |
 | 30550 | Theft Report | No | Anyone |
 | 30551 | Theft Verification | No | Verifier |
-| 30560 | Reputation Slash | No | Verifier |
-| 30561 | Bond Slash Proposal | No | Guardian |
-| 30562 | Guardian Vote | No | Guardian |
-| 30563 | Operator Appeal | No | Operator |
+| 30552 | Reputation Slash | No | Verifier |
+| 30553 | Bond Slash Proposal | No | Guardian |
+| 30554 | Guardian Vote | No | Guardian |
+| 30555 | Operator Appeal | No | Operator |
+
+### Navigation Events
+
+| Kind  | Description | Replaceable | Publisher |
+|-------|-------------|-------------|-----------|
+| 30580 | Navigation Route | Yes (by d tag) | Driver/Operator |
+| 30581 | Navigation Update | Yes (by d tag) | Driver |
+| 30582 | Navigation Instruction | No | Driver |
+| 30583 | Route Reroute | No | Driver |
+| 30584 | Traffic Alert | No | Operator/Service |
 
 ### Optional Events
 
 | Kind  | Description | Replaceable | Publisher |
 |-------|-------------|-------------|-----------|
 | 30505 | Cross-Operator Coordination | Yes (by d tag) | Operator |
-| 30555 | Scheduled Ride | Yes (by d tag) | Rider |
+| 30556 | Scheduled Ride | Yes (by d tag) | Rider |
 | 30565 | Delivery Request | Yes (by d tag) | Sender |
 | 30566 | Delivery Acceptance | Yes (by d tag) | Courier |
 | 30570 | Verifier Registration | Yes (by d tag) | Verifier |
@@ -393,13 +403,13 @@ Published after ride completion to rate the other party.
 }
 ```
 
-### Scheduled Ride (Kind 30555)
+### Scheduled Ride (Kind 30556)
 
 For rides scheduled in advance (airport pickups, commutes, etc.).
 
 ```json
 {
-  "kind": 30555,
+  "kind": 30556,
   "pubkey": "<rider-pubkey>",
   "content": "Airport pickup for Monday morning",
   "tags": [
@@ -421,7 +431,177 @@ For rides scheduled in advance (airport pickups, commutes, etc.).
 
 **Important:** Scheduled rides typically require higher stakes (20-30% for riders, 30-50% for drivers) due to the higher commitment level.
 
-### Delivery Request (Kind 30560)
+### Navigation & Routing Events
+
+#### Navigation Route (Kind 30580)
+
+Published when optimal route is calculated for a ride.
+
+```json
+{
+  "kind": 30580,
+  "pubkey": "<driver-pubkey>",
+  "content": "Optimal route calculated: 8.2km, 12min via Main St",
+  "tags": [
+    ["d", "<route-id>"],
+    ["e", "<ride-request-id>"],
+    ["p", "<rider-pubkey>"],
+    ["origin", "<lat>,<lon>"],
+    ["destination", "<lat>,<lon>"],
+    ["distance", "<meters>"],
+    ["duration", "<seconds>"],
+    ["provider", "osrm|openrouteservice|graphhopper"],
+    ["traffic", "true|false"],
+    ["has_tolls", "true|false"],
+    ["has_highways", "true|false"],
+
+    // Cost analysis
+    ["fuel_cost", "<sats>"],
+    ["time_cost", "<sats>"],
+    ["total_cost", "<sats>"],
+    ["profit_margin", "<percentage>"],
+    ["score", "<0-100>"],
+
+    // Route metadata
+    ["geometry", "<geojson-or-polyline>"],
+    ["waypoints", "<count>"],
+    ["instructions_count", "<count>"]
+  ]
+}
+```
+
+**Tag Descriptions:**
+- `geometry`: Encoded polyline or GeoJSON LineString of route
+- `traffic`: Whether route includes real-time traffic data
+- `score`: Overall route quality score (0-100) based on time, cost, and efficiency
+
+#### Navigation Update (Kind 30581)
+
+Published periodically during ride to show driver position and progress.
+
+```json
+{
+  "kind": 30581,
+  "pubkey": "<driver-pubkey>",
+  "content": "5.2km remaining, ETA 8 minutes",
+  "tags": [
+    ["d", "<nav-update-id>"],
+    ["e", "<ride-request-id>"],
+    ["p", "<rider-pubkey>"],
+    ["position", "<lat>,<lon>"],
+    ["heading", "<degrees>"],
+    ["speed", "<meters-per-second>"],
+    ["distance_remaining", "<meters>"],
+    ["time_remaining", "<seconds>"],
+    ["eta", "<unix-timestamp>"],
+    ["progress", "<0-100>"],
+
+    // Current instruction
+    ["current_instruction", "Turn right in 200m"],
+    ["instruction_distance", "<meters>"],
+    ["next_instruction", "Continue on Main St"],
+
+    // Traffic
+    ["traffic_delay", "<seconds>"],
+    ["congestion_level", "none|light|moderate|heavy|severe"]
+  ]
+}
+```
+
+#### Navigation Instruction (Kind 30582)
+
+Published when driver approaches a turn or maneuver.
+
+```json
+{
+  "kind": 30582,
+  "pubkey": "<driver-pubkey>",
+  "content": "Turn right onto Main Street",
+  "tags": [
+    ["e", "<ride-request-id>"],
+    ["instruction_type", "turn|merge|exit|arrive|continue|roundabout"],
+    ["modifier", "left|right|sharp_left|sharp_right|slight_left|slight_right"],
+    ["street_name", "Main Street"],
+    ["distance_to_instruction", "<meters>"],
+    ["location", "<lat>,<lon>"],
+    ["voice_instruction", "In 200 meters, turn right onto Main Street"],
+    ["icon", "turn-right"]
+  ]
+}
+```
+
+**Instruction Types:**
+- `turn`: Standard turn at intersection
+- `merge`: Merge onto highway
+- `exit`: Exit from highway/roundabout
+- `arrive`: Arrival at destination
+- `continue`: Continue on current road
+- `roundabout`: Enter/navigate roundabout
+
+#### Route Reroute (Kind 30583)
+
+Published when route is recalculated due to deviation or traffic.
+
+```json
+{
+  "kind": 30583,
+  "pubkey": "<driver-pubkey>",
+  "content": "Rerouting due to traffic - new route saves 3 minutes",
+  "tags": [
+    ["e", "<ride-request-id>"],
+    ["p", "<rider-pubkey>"],
+    ["reason", "off_route|traffic|user_request|road_closure"],
+    ["old_distance", "<meters>"],
+    ["new_distance", "<meters>"],
+    ["old_duration", "<seconds>"],
+    ["new_duration", "<seconds>"],
+    ["time_saved", "<seconds>"],
+    ["distance_saved", "<meters>"],
+    ["current_position", "<lat>,<lon>"],
+    ["new_geometry", "<encoded-polyline>"]
+  ]
+}
+```
+
+**Reroute Reasons:**
+- `off_route`: Driver deviated from planned route
+- `traffic`: Traffic conditions changed significantly
+- `user_request`: Driver/rider requested different route
+- `road_closure`: Road closure or accident ahead
+
+#### Traffic Alert (Kind 30584)
+
+Published when significant traffic is detected on route.
+
+```json
+{
+  "kind": 30584,
+  "pubkey": "<navigation-service-pubkey>",
+  "content": "Heavy traffic on I-95: 15 minute delay",
+  "tags": [
+    ["e", "<ride-request-id>"],
+    ["p", "<driver-pubkey>"],
+    ["severity", "low|moderate|high|critical"],
+    ["type", "congestion|accident|road_work|weather|event"],
+    ["affected_segment", "<start-lat>,<start-lon>", "<end-lat>,<end-lon>"],
+    ["delay", "<seconds>"],
+    ["distance_ahead", "<meters>"],
+    ["alternative_available", "true|false"],
+    ["time_savings_alt", "<seconds>"],
+    ["description", "Accident blocking 2 lanes"],
+    ["source", "osrm|ors|waze|user_reports"]
+  ]
+}
+```
+
+**Traffic Types:**
+- `congestion`: Normal traffic congestion
+- `accident`: Vehicle accident blocking lanes
+- `road_work`: Construction or maintenance
+- `weather`: Weather-related delays (snow, flooding)
+- `event`: Special event causing delays (sports, concert)
+
+### Delivery Request (Kind 30565)
 
 For package/food delivery using the same infrastructure.
 
