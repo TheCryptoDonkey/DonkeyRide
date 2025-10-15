@@ -84,18 +84,28 @@
             overflow: hidden;
         }
         
-        /* Left panel */
+        /* Left panel - Rider Side */
         .left-panel {
-            width: 350px;
+            width: 400px;
             display: flex;
             flex-direction: column;
-            gap: 15px;
+            gap: 0;
+            background: #0a0a0a;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            text-align: center;
+            font-size: 1.2em;
+            letter-spacing: 2px;
         }
         
         .user-card {
             background: #0a0a0a;
-            border: 2px solid #333;
-            border-radius: 10px;
+            border: none;
+            border-bottom: 1px solid #333;
+            border-radius: 0;
             padding: 15px;
             transition: all 0.3s ease;
         }
@@ -164,19 +174,22 @@
             height: 100%;
         }
         
-        /* Right panel */
+        /* Right panel - Driver Side */
         .right-panel {
-            width: 350px;
+            width: 400px;
             display: flex;
             flex-direction: column;
-            gap: 15px;
+            gap: 0;
+            background: #0a0a0a;
+            border-radius: 8px;
+            overflow: hidden;
         }
         
         /* Request/Trip panels */
         .request-panel, .trip-panel {
             background: #0a0a0a;
-            border: 2px solid #333;
-            border-radius: 10px;
+            border: none;
+            border-radius: 0;
             padding: 15px;
             flex: 1;
             overflow-y: auto;
@@ -424,9 +437,17 @@
             <img src="assets/donkeyride-logo.png" alt="DonkeyRide" class="logo-img">
             <h1>DonkeyRide</h1>
         </div>
-        <div class="relay-status" onclick="toggleRelayPopup()" style="cursor: pointer;">
-            <div class="relay-indicator"></div>
-            <span id="relayCount">Relay Network ▼</span>
+        <div style="display: flex; gap: 15px; align-items: center;">
+            <button id="unitToggle" onclick="toggleDistanceUnit()"
+                    style="background: rgba(0, 0, 0, 0.3); color: white; border: 2px solid rgba(255, 255, 255, 0.3);
+                           padding: 8px 15px; border-radius: 20px; cursor: pointer; font-weight: bold;
+                           transition: all 0.3s; font-family: inherit;">
+                km
+            </button>
+            <div class="relay-status" onclick="toggleRelayPopup()" style="cursor: pointer;">
+                <div class="relay-indicator"></div>
+                <span id="relayCount">Relay Network ▼</span>
+            </div>
         </div>
     </div>
 
@@ -444,14 +465,18 @@
         </div>
     </div>
     
-    <!-- Main Container -->
+    <!-- Main Container - Split Screen Layout -->
     <div class="main-container">
-        <!-- Left Panel -->
+        <!-- LEFT SIDE - RIDER -->
         <div class="left-panel">
+            <div class="panel-header" style="background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; padding: 10px 15px; font-weight: bold; border-radius: 8px 8px 0 0;">
+                🚶 RIDER
+            </div>
+
             <!-- Rider Card -->
             <div class="user-card" id="riderCard">
                 <div class="user-header">
-                    <div class="user-title">🚶 Rider</div>
+                    <div class="user-title">Account</div>
                     <div class="reputation-badge">Rep: 85</div>
                 </div>
                 <div class="balance">
@@ -461,24 +486,42 @@
                 <div class="stake-info" id="riderStake" style="display: none;">
                     <div>Stake Locked: <span id="riderStakeAmount">0</span> sats</div>
                 </div>
-                <input type="text" id="fromLocation" placeholder="Pickup location..." 
-                       style="width: 100%; padding: 8px; margin: 5px 0; background: #0f0f0f; 
+                <input type="text" id="fromLocation" placeholder="Pickup location..."
+                       style="width: 100%; padding: 8px; margin: 5px 0; background: #0f0f0f;
                               border: 1px solid #333; color: #00ff00; border-radius: 5px;">
-                <input type="text" id="toLocation" placeholder="Destination..." 
-                       style="width: 100%; padding: 8px; margin: 5px 0; background: #0f0f0f; 
+                <input type="text" id="toLocation" placeholder="Destination..."
+                       style="width: 100%; padding: 8px; margin: 5px 0; background: #0f0f0f;
                               border: 1px solid #333; color: #00ff00; border-radius: 5px;">
                 <input type="number" id="maxPrice" placeholder="Max price (sats)" value="1000"
-                       style="width: 100%; padding: 8px; margin: 5px 0; background: #0f0f0f; 
+                       style="width: 100%; padding: 8px; margin: 5px 0; background: #0f0f0f;
                               border: 1px solid #333; color: #00ff00; border-radius: 5px;">
                 <button class="btn" id="requestRide" onclick="requestRide()">Request Ride</button>
-                <button class="btn cancel" id="cancelRequest" onclick="cancelRideRequest()" 
+                <button class="btn cancel" id="cancelRequest" onclick="cancelRideRequest()"
                         style="display: none; margin-top: 10px;">Cancel Request</button>
+            </div>
+
+            <!-- Rider Trip Panel -->
+            <div class="trip-panel">
+                <div class="section-title">🚀 Active Trip</div>
+                <div id="riderTrip"></div>
+            </div>
+        </div>
+
+        <!-- CENTER - MAP -->
+        <div class="map-container">
+            <div id="map"></div>
+        </div>
+
+        <!-- RIGHT SIDE - DRIVER -->
+        <div class="right-panel">
+            <div class="panel-header" style="background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 10px 15px; font-weight: bold; border-radius: 8px 8px 0 0;">
+                🚗 DRIVER
             </div>
 
             <!-- Driver Card -->
             <div class="user-card driver-card" id="driverCard">
                 <div class="user-header">
-                    <div class="user-title">🚗 Driver</div>
+                    <div class="user-title">Account</div>
                     <div class="reputation-badge">Rep: 92</div>
                 </div>
                 <div class="balance">
@@ -488,31 +531,17 @@
                 <div class="stake-info" id="driverStake" style="display: none;">
                     <div>Stake Locked: <span id="driverStakeAmount">0</span> sats</div>
                 </div>
-                <input type="text" id="lightningAddress" placeholder="Lightning address..." 
+                <input type="text" id="lightningAddress" placeholder="Lightning address..."
                        value="driver@getalby.com"
-                       style="width: 100%; padding: 8px; margin: 5px 0; background: #0f0f0f; 
+                       style="width: 100%; padding: 8px; margin: 5px 0; background: #0f0f0f;
                               border: 1px solid #333; color: #00ff00; border-radius: 5px;">
                 <button class="btn" id="goOnline" onclick="toggleDriverStatus()">Go Online</button>
             </div>
-        </div>
 
-        <!-- Map -->
-        <div class="map-container">
-            <div id="map"></div>
-        </div>
-
-        <!-- Right Panel -->
-        <div class="right-panel">
-            <!-- Available Rides (for driver) -->
+            <!-- Driver Requests Panel -->
             <div class="request-panel">
-                <div class="section-title">📍 Available Rides</div>
+                <div class="section-title" id="driverPanelTitle">📍 Available Rides</div>
                 <div id="requestsList"></div>
-            </div>
-
-            <!-- Active Trip (for rider) -->
-            <div class="trip-panel">
-                <div class="section-title">🚀 Active Trip</div>
-                <div id="riderTrip"></div>
                 <div id="driverEarnings"></div>
             </div>
         </div>
@@ -618,6 +647,34 @@
         let riderLocation = null;
         let watchId = null; // For tracking GPS updates
         let driverMovementInterval = null; // For simulating driver movement
+
+        // OSRM Smart Routing Variables
+        let currentOSRMRoute = null;
+        let routeGeometry = [];
+        let routeInstructions = [];
+        let currentInstructionIndex = 0;
+        let progressLine = null;
+
+        // Early termination & dispute tracking
+        let currentRidePrice = 0;
+        let totalDistanceForRide = 0;
+        let distanceTraveledSoFar = 0;
+        let rideInProgress = false;
+        let currentAnimationInterval = null;
+
+        // Safety features
+        let routeDeviationMonitor = null;
+        let emergencyContacts = []; // Stored trusted contact pubkeys
+        let shareableTripLink = null;
+        let deviationThreshold = 500; // meters off route = alert
+
+        // Reputation system
+        let reputationCache = {}; // Cache reputation scores { pubkey: { score, total_rides, flags, ... } }
+        let myReputation = { average: 5.0, total_rides: 0, flags: [], would_ride_again: 100 }; // Demo data
+        let ratingHistory = []; // Store all ratings (kind: 57014 events)
+
+        // Distance unit preference
+        let distanceUnit = 'km'; // 'km' or 'mi'
         
         function initMap() {
             // Check for saved GPS location first
@@ -1200,6 +1257,58 @@
                 popup.style.display = 'none';
             }
         }
+
+        // ==========================================
+        // DISTANCE UNIT CONVERSION
+        // ==========================================
+
+        function toggleDistanceUnit() {
+            // Toggle between km and miles
+            distanceUnit = distanceUnit === 'km' ? 'mi' : 'km';
+
+            // Update button text
+            const btn = document.getElementById('unitToggle');
+            btn.textContent = distanceUnit;
+
+            // Save preference
+            localStorage.setItem('distanceUnit', distanceUnit);
+
+            // Add visual feedback
+            btn.style.transform = 'scale(1.1)';
+            setTimeout(() => {
+                btn.style.transform = 'scale(1)';
+            }, 200);
+
+            console.log(`📏 Distance unit changed to: ${distanceUnit}`);
+        }
+
+        function convertMetersToPreferredUnit(meters) {
+            if (distanceUnit === 'mi') {
+                // Convert meters to miles
+                return meters * 0.000621371;
+            } else {
+                // Convert meters to kilometers
+                return meters / 1000;
+            }
+        }
+
+        function formatDistance(meters, decimals = 1) {
+            const converted = convertMetersToPreferredUnit(meters);
+            return `${converted.toFixed(decimals)}${distanceUnit}`;
+        }
+
+        // Load saved unit preference on startup
+        function loadDistanceUnitPreference() {
+            const saved = localStorage.getItem('distanceUnit');
+            if (saved === 'mi' || saved === 'km') {
+                distanceUnit = saved;
+                const btn = document.getElementById('unitToggle');
+                if (btn) btn.textContent = distanceUnit;
+            }
+        }
+
+        // Call on page load
+        window.addEventListener('DOMContentLoaded', loadDistanceUnitPreference);
         
         // Close relay popup when clicking outside
         document.addEventListener('click', function(event) {
@@ -1267,7 +1376,92 @@
                 `;
             }, 3000);
         }
-        
+
+        // ==========================================
+        // OSRM SMART ROUTING FUNCTIONS
+        // ==========================================
+
+        async function fetchOSRMRoute(fromLat, fromLon, toLat, toLon) {
+            try {
+                console.log(`🔍 Fetching OSRM route: ${fromLat},${fromLon} → ${toLat},${toLon}`);
+                const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${fromLon},${fromLat};${toLon},${toLat}`;
+                const params = new URLSearchParams({
+                    overview: 'full',
+                    geometries: 'geojson',
+                    steps: 'true',
+                    alternatives: 'false'
+                });
+
+                const response = await fetch(`${osrmUrl}?${params}`);
+                const data = await response.json();
+
+                if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+                    const route = data.routes[0];
+
+                    // Convert geometry to Leaflet format [lat, lon]
+                    routeGeometry = route.geometry.coordinates.map(coord => [coord[1], coord[0]]);
+
+                    // Parse turn-by-turn instructions
+                    routeInstructions = route.legs[0].steps.map((step, idx) => {
+                        const maneuver = step.maneuver;
+                        const streetName = step.name || 'road';
+                        let text = '';
+
+                        if (maneuver.type === 'depart') {
+                            text = `Head ${getDirection(maneuver.bearing_after)} on ${streetName}`;
+                        } else if (maneuver.type === 'arrive') {
+                            text = 'Arrive at destination';
+                        } else if (maneuver.type === 'turn') {
+                            text = `Turn ${maneuver.modifier || ''} onto ${streetName}`;
+                        } else if (maneuver.type === 'new name') {
+                            text = `Continue on ${streetName}`;
+                        } else if (maneuver.type.includes('roundabout')) {
+                            text = `Take exit ${maneuver.exit || 1} onto ${streetName}`;
+                        } else if (maneuver.type === 'merge') {
+                            text = `Merge onto ${streetName}`;
+                        } else if (maneuver.type === 'fork') {
+                            text = `Keep ${maneuver.modifier || 'right'} at fork onto ${streetName}`;
+                        } else {
+                            text = `${maneuver.type} ${streetName}`;
+                        }
+
+                        return {
+                            text,
+                            distance: step.distance,
+                            duration: step.duration,
+                            location: [maneuver.location[1], maneuver.location[0]]
+                        };
+                    });
+
+                    currentOSRMRoute = {
+                        distance: route.distance,
+                        duration: route.duration,
+                        geometry: routeGeometry,
+                        instructions: routeInstructions
+                    };
+
+                    console.log(`✅ OSRM route fetched: ${routeGeometry.length} points, ${formatDistance(route.distance)}, ${Math.round(route.duration / 60)}min`);
+                    return currentOSRMRoute;
+
+                } else {
+                    throw new Error('No routes found from OSRM');
+                }
+            } catch (error) {
+                console.error('❌ OSRM fetch failed:', error);
+                // Fallback to straight line
+                routeGeometry = [[fromLat, fromLon], [toLat, toLon]];
+                routeInstructions = [{text: 'Head to destination', distance: 0}];
+                console.log('⚠️ Falling back to straight-line route');
+                return null;
+            }
+        }
+
+        function getDirection(bearing) {
+            const directions = ['north', 'northeast', 'east', 'southeast', 'south', 'southwest', 'west', 'northwest'];
+            const index = Math.round(bearing / 45) % 8;
+            return directions[index];
+        }
+
         async function requestRide() {
             const from = document.getElementById('fromLocation').value || "Current Location";
             const to = document.getElementById('toLocation').value || "City Center";
@@ -1417,37 +1611,101 @@
             `;
         }
         
-        function acceptRide(rideId, ridePrice) {
+        async function acceptRide(rideId, ridePrice) {
+            // Fetch driver reputation first
+            const driverRep = await getReputationScore('driver_pubkey');
+            console.log('📊 Driver reputation:', driverRep);
+
+            // Check if driver should be auto-blocked
+            if (shouldAutoBlock(driverRep)) {
+                alert(`🚫 AUTO-BLOCKED\n\nThis driver has been automatically blocked due to poor reputation:\n\nRating: ${driverRep.average}⭐ (${driverRep.total_rides} rides)\nWould ride again: ${driverRep.would_ride_again_percent}%\n\nFor your safety, you cannot accept rides from this user.`);
+                return;
+            }
+
             const driverStake = Math.floor(ridePrice * 0.15);
-            
+
             // Update driver balance
             const currentBalance = parseInt(document.getElementById('driverBalance').textContent.replace(/,/g, ''));
             document.getElementById('driverBalance').textContent = (currentBalance - driverStake).toLocaleString() + ' sats';
-            
+
             // Show driver stake
             document.getElementById('driverStake').style.display = 'block';
             document.getElementById('driverStakeAmount').textContent = driverStake;
-            
-            // Update driver panel
+
+            // Update driver panel - show calculating route
             document.getElementById('requestsList').innerHTML = `
                 <div class="status-message" style="border-left-color: #ff6ec7;">
                     ✅ Ride Accepted!
                     <br>Stake locked: ${driverStake} sats
-                    <br>Heading to pickup...
+                    <br>🔄 Calculating best route...
                 </div>
             `;
-            
-            // Update rider panel
+
+            // Update rider panel with driver reputation
+            const trustBadge = getTrustBadge(driverRep.trust_level);
+            const trustColor = getTrustColor(driverRep.trust_level);
+            const flagWarning = Object.keys(driverRep.flags).length > 0
+                ? `<br><span style="color: #ff6600; font-size: 0.85em;">⚠️ ${Object.keys(driverRep.flags).length} safety flags</span>`
+                : '';
+
             document.getElementById('riderTrip').innerHTML = `
                 <div class="status-message">
                     🚗 Driver found!
+                    <br>
+                    <div style="background: #0f0f0f; padding: 8px; margin: 8px 0; border-radius: 6px; border-left: 3px solid ${trustColor};">
+                        <strong style="color: ${trustColor};">${trustBadge}</strong>
+                        <br><span style="font-size: 0.9em;">${driverRep.average}⭐ (${driverRep.total_rides} rides)</span>
+                        <br><span style="font-size: 0.85em; color: #888;">${driverRep.would_ride_again_percent}% would ride again</span>
+                        ${flagWarning}
+                    </div>
                     <br>Driver stake: ${driverStake} sats
                     <br>Your stake: ${Math.floor(ridePrice * 0.1)} sats
-                    <br><small>Both stakes locked until completion</small>
+                    <br><small>🔄 Calculating route...</small>
                 </div>
             `;
-            
-            // Animate driver to pickup location
+
+            // Fetch real OSRM route from driver → pickup
+            console.log('📍 Fetching OSRM route from driver to pickup...');
+            await fetchOSRMRoute(
+                driverLocation[0], driverLocation[1],  // Driver current location
+                riderLocation[0], riderLocation[1]     // Pickup location (rider)
+            );
+
+            // Update UI with route info
+            if (currentOSRMRoute) {
+                // Change panel title to "Active Ride"
+                document.getElementById('driverPanelTitle').textContent = '🚙 Active Ride';
+
+                document.getElementById('requestsList').innerHTML = `
+                    <div class="status-message" style="border-left-color: #ff6ec7;">
+                        ✅ Ride Accepted!
+                        <br>Stake locked: ${driverStake} sats
+                        <br>📍 Route: ${formatDistance(currentOSRMRoute.distance)}, ${Math.round(currentOSRMRoute.duration / 60)}min
+                        <br>🧭 Heading to pickup...
+                    </div>
+                    <div style="background: #111; padding: 8px; margin-top: 10px; border-radius: 4px; font-size: 0.85em;">
+                        <strong>Next:</strong> ${routeInstructions[0]?.text || 'Start driving'}
+                    </div>
+                `;
+
+                // Update rider panel with ETA
+                document.getElementById('riderTrip').innerHTML = `
+                    <div class="status-message">
+                        🚗 Driver found!
+                        <br>Driver stake: ${driverStake} sats
+                        <br>Your stake: ${Math.floor(ridePrice * 0.1)} sats
+                        <br><small>Both stakes locked until completion</small>
+                        <br>ETA: ${Math.round(currentOSRMRoute.duration / 60)} minutes
+                    </div>
+                `;
+
+                // Update rider button to show driver en-route
+                document.getElementById('requestRide').textContent = '🚗 DRIVER EN-ROUTE';
+                document.getElementById('requestRide').style.background = 'linear-gradient(135deg, #3b82f6, #2563eb)';
+                document.getElementById('requestRide').style.color = 'white';
+            }
+
+            // Animate driver to pickup location using real route
             animateDriverToPickup(ridePrice);
         }
         
@@ -1458,11 +1716,14 @@
                     📍 Arrived at pickup location
                     <br>Waiting for rider...
                 </div>
-                <button onclick="confirmPickup(${ridePrice})" class="btn" style="margin-top: 10px; background: linear-gradient(135deg, #00ff00, #00cc00);">
-                    CONFIRM PICKUP
+                <button onclick="confirmPickup(${ridePrice})" class="btn" style="margin-top: 10px; background: linear-gradient(135deg, #00ff00, #00cc00); width: 100%; padding: 12px; font-weight: bold;">
+                    ✅ CONFIRM PICKUP
+                </button>
+                <button onclick="refusePickupDialog(${ridePrice})" class="btn" style="margin-top: 8px; background: #dc2626; width: 100%; padding: 10px; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                    🚫 REFUSE PICKUP
                 </button>
             `;
-            
+
             // Update rider status
             document.getElementById('riderTrip').innerHTML = `
                 <div class="status-message">
@@ -1470,6 +1731,11 @@
                     <br><small>Please board the vehicle</small>
                 </div>
             `;
+
+            // Update rider button to show driver arrived
+            document.getElementById('requestRide').textContent = '📍 DRIVER ARRIVED';
+            document.getElementById('requestRide').style.background = 'linear-gradient(135deg, #22c55e, #16a34a)';
+            document.getElementById('requestRide').style.color = 'white';
         }
         
         function confirmPickup(ridePrice) {
@@ -1480,13 +1746,203 @@
                     <br>Heading to destination...
                 </div>
             `;
-            
+
+            // Hide rider marker when they get in the car
+            if (riderMarker) {
+                map.removeLayer(riderMarker);
+                console.log('👤 Rider marker hidden (in car)');
+            }
+
             // Start the actual ride
             startRide(ridePrice);
         }
+
+        function refusePickupDialog(ridePrice) {
+            const reasons = [
+                'Rider appears intoxicated',
+                'Rider is aggressive/threatening',
+                'Too many passengers',
+                'Unsafe behavior',
+                'Rider not present',
+                'Other safety concern'
+            ];
+
+            let reasonHTML = reasons.map(r =>
+                `<button onclick="refusePickup('${r}', ${ridePrice})" style="
+                    background: #333;
+                    color: white;
+                    border: 1px solid #555;
+                    padding: 10px;
+                    margin: 5px 0;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    width: 100%;
+                    text-align: left;
+                    transition: background 0.2s;
+                " onmouseover="this.style.background='#444'" onmouseout="this.style.background='#333'">${r}</button>`
+            ).join('');
+
+            const dialogHTML = `
+                <div style="
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: #1a1a1a;
+                    border: 2px solid #dc2626;
+                    border-radius: 8px;
+                    padding: 20px;
+                    z-index: 10000;
+                    min-width: 300px;
+                    max-width: 400px;
+                ">
+                    <h3 style="margin-top: 0; color: #dc2626;">🚫 Refuse Pickup</h3>
+                    <p style="color: #ccc; margin-bottom: 15px;">Select a reason:</p>
+                    ${reasonHTML}
+                    <button onclick="document.getElementById('refusePickupDialog').remove()" style="
+                        background: #666;
+                        color: white;
+                        border: none;
+                        padding: 10px;
+                        margin-top: 10px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        width: 100%;
+                    ">Cancel</button>
+                </div>
+            `;
+
+            const dialog = document.createElement('div');
+            dialog.id = 'refusePickupDialog';
+            dialog.innerHTML = dialogHTML;
+            document.body.appendChild(dialog);
+        }
+
+        function refusePickup(reason, ridePrice) {
+            console.log(`🚫 Pickup refused - Reason: ${reason}`);
+
+            // Remove dialog
+            const dialog = document.getElementById('refusePickupDialog');
+            if (dialog) dialog.remove();
+
+            // Calculate penalties and refunds
+            const riderStake = Math.floor(ridePrice * 0.1);
+            const driverStake = Math.floor(ridePrice * 0.15);
+
+            // Return both stakes
+            const riderBalance = parseInt(document.getElementById('riderBalance').textContent.replace(/,/g, ''));
+            const driverBalance = parseInt(document.getElementById('driverBalance').textContent.replace(/,/g, ''));
+
+            document.getElementById('riderBalance').textContent = (riderBalance + riderStake).toLocaleString() + ' sats';
+            document.getElementById('driverBalance').textContent = (driverBalance + driverStake).toLocaleString() + ' sats';
+
+            // Hide stakes
+            document.getElementById('riderStake').style.display = 'none';
+            document.getElementById('driverStake').style.display = 'none';
+
+            // Publish refusal event to Nostr
+            const refusalEvent = {
+                kind: 57035,  // Pickup refusal event
+                content: JSON.stringify({
+                    ride_id: currentRide?.id || 'demo_ride',
+                    refused_by: 'driver',
+                    reason: reason,
+                    rider_pubkey: 'rider_pubkey',
+                    timestamp: Date.now()
+                }),
+                tags: [
+                    ['p', 'rider_pubkey'],
+                    ['t', 'pickup_refusal']
+                ],
+                created_at: Math.floor(Date.now() / 1000)
+            };
+
+            console.log('📤 Publishing pickup refusal event:', refusalEvent);
+
+            // Update rider reputation if serious issue
+            if (reason.includes('intoxicated') || reason.includes('aggressive') || reason.includes('Unsafe')) {
+                updateReputationScore('rider_pubkey', {
+                    rating: 1,  // 1 star for refused pickup
+                    flags: ['refused_by_driver'],
+                    would_ride_again: false
+                });
+            }
+
+            // Show driver UI
+            document.getElementById('requestsList').innerHTML = `
+                <div class="status-message" style="border-left-color: #dc2626;">
+                    🚫 Pickup Refused
+                    <br><strong>Reason:</strong> ${reason}
+                    <br><br>Your stake returned: ${driverStake} sats
+                    <br><br>
+                    <div style="background: #2a0000; padding: 10px; border-radius: 4px;">
+                        <strong>Event Published:</strong>
+                        <br>📤 Refusal recorded on Nostr
+                        <br>⭐ Rider reputation updated
+                        <br><small>This helps protect other drivers</small>
+                    </div>
+                </div>
+                <button onclick="location.reload()" style="
+                    background: #666;
+                    color: white;
+                    border: none;
+                    padding: 10px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    width: 100%;
+                    margin-top: 10px;
+                ">Reset & Go Online Again</button>
+            `;
+
+            // Show rider UI
+            document.getElementById('riderTrip').innerHTML = `
+                <div class="status-message" style="border-left-color: #dc2626;">
+                    🚫 Driver Refused Pickup
+                    <br><strong>Reason:</strong> ${reason}
+                    <br><br>Your stake returned: ${riderStake} sats
+                    <br><br>
+                    <div style="background: #2a0000; padding: 10px; border-radius: 4px;">
+                        ${reason.includes('not present') ?
+                            '<small>⏰ Were you at the pickup location on time?</small>' :
+                            '<small>⚠️ This may affect your rider reputation</small>'}
+                    </div>
+                </div>
+                <button onclick="location.reload()" style="
+                    background: #666;
+                    color: white;
+                    border: none;
+                    padding: 10px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    width: 100%;
+                    margin-top: 10px;
+                ">Request New Ride</button>
+            `;
+
+            // Clear route lines
+            if (routeLine) {
+                map.removeLayer(routeLine);
+                routeLine = null;
+            }
+            if (progressLine) {
+                map.removeLayer(progressLine);
+                progressLine = null;
+            }
+
+            // Reset current ride
+            currentRide = null;
+            document.getElementById('requestRide').disabled = false;
+            document.getElementById('requestRide').textContent = 'Request Ride';
+            document.getElementById('riderCard').classList.remove('active');
+        }
         
-        function startRide(ridePrice) {
-            // Show streaming payment UI
+        async function startRide(ridePrice) {
+            // Track ride state
+            currentRidePrice = ridePrice;
+            rideInProgress = true;
+            distanceTraveledSoFar = 0;
+
+            // Show streaming payment UI with safety features
             document.getElementById('riderTrip').innerHTML = `
                 <div class="status-message">
                     🎯 Ride in Progress
@@ -1495,15 +1951,133 @@
                         Streaming: 0 sats
                     </div>
                     <div id="distanceToDestination" style="margin-top: 5px; font-size: 0.9em; color: #888;">
-                        Distance to destination: calculating...
+                        🔄 Calculating route to destination...
                     </div>
+                    <div id="routeDeviationAlert" style="margin-top: 5px; font-size: 0.85em; color: #888;">
+                        <!-- Route deviation alerts appear here -->
+                    </div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-top: 10px;">
+                        <button onclick="shareTripLocation()" style="
+                            background: #3b82f6;
+                            color: white;
+                            border: none;
+                            padding: 8px;
+                            border-radius: 4px;
+                            cursor: pointer;
+                            font-size: 0.85em;
+                        ">
+                            📍 Share Trip
+                        </button>
+                        <button onclick="panicButton('rider')" style="
+                            background: #dc2626;
+                            color: white;
+                            border: none;
+                            padding: 8px;
+                            border-radius: 4px;
+                            cursor: pointer;
+                            font-size: 0.85em;
+                            font-weight: bold;
+                        ">
+                            🚨 PANIC
+                        </button>
+                    </div>
+                    <button onclick="endRideEarlyDialog('rider')" style="
+                        background: #ff6600;
+                        color: white;
+                        border: none;
+                        padding: 8px 16px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        margin-top: 5px;
+                        font-size: 0.9em;
+                        width: 100%;
+                    ">
+                        🛑 End Ride Early
+                    </button>
                 </div>
             `;
-            
+
+            // Get destination location
+            const destinationInput = document.getElementById('toLocation');
+            let destinationLocation;
+
+            if (destinationInput.dataset.lat && destinationInput.dataset.lng) {
+                destinationLocation = [
+                    parseFloat(destinationInput.dataset.lat),
+                    parseFloat(destinationInput.dataset.lng)
+                ];
+            } else {
+                const nearestStation = getNearestStation(riderLocation[0], riderLocation[1]);
+                destinationLocation = [nearestStation.lat, nearestStation.lng];
+                destinationInput.dataset.lat = nearestStation.lat;
+                destinationInput.dataset.lng = nearestStation.lng;
+            }
+
+            // Fetch OSRM route from current location (pickup) to destination
+            console.log('📍 Fetching OSRM route from pickup to destination...');
+            await fetchOSRMRoute(
+                driverLocation[0], driverLocation[1],  // Current position (pickup)
+                destinationLocation[0], destinationLocation[1]  // Destination
+            );
+
+            // Update UI with route info
+            if (currentOSRMRoute) {
+                totalDistanceForRide = currentOSRMRoute.distance;  // Track total distance in meters
+
+                document.getElementById('distanceToDestination').textContent =
+                    `Distance: ${formatDistance(currentOSRMRoute.distance)} | ETA: ${Math.round(currentOSRMRoute.duration / 60)}min`;
+
+                // Update rider button to show in progress
+                document.getElementById('requestRide').textContent = '🚙 IN PROGRESS';
+                document.getElementById('requestRide').style.background = 'linear-gradient(135deg, #b24cf3, #9333ea)';
+                document.getElementById('requestRide').style.color = 'white';
+
+                // Show first instruction to driver with safety features
+                document.getElementById('requestsList').innerHTML = `
+                    <div class="status-message" style="border-left-color: #b24cf3;">
+                        🚙 Heading to destination
+                        <br>Route: ${formatDistance(currentOSRMRoute.distance)}
+                    </div>
+                    <div style="background: #111; padding: 8px; margin-top: 10px; border-radius: 4px; font-size: 0.85em;">
+                        <strong>🧭</strong> ${routeInstructions[0]?.text || 'Head to destination'}
+                    </div>
+                    <button onclick="panicButton('driver')" style="
+                        background: #dc2626;
+                        color: white;
+                        border: none;
+                        padding: 8px 16px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        margin-top: 10px;
+                        font-size: 0.9em;
+                        width: 100%;
+                        font-weight: bold;
+                    ">
+                        🚨 PANIC
+                    </button>
+                    <button onclick="endRideEarlyDialog('driver')" style="
+                        background: #ff6600;
+                        color: white;
+                        border: none;
+                        padding: 8px 16px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        margin-top: 5px;
+                        font-size: 0.9em;
+                        width: 100%;
+                    ">
+                        🛑 End Ride
+                    </button>
+                `;
+            }
+
             // Start streaming payments with movement detection
             startMovementBasedStreaming(ridePrice);
-            
-            // Animate driver movement and auto-detect arrival
+
+            // Start route deviation monitoring
+            startRouteDeviationMonitoring();
+
+            // Animate driver movement using OSRM route
             animateDriverMovementWithDestinationDetection();
         }
         
@@ -1545,7 +2119,16 @@
             // Reset for next ride
             document.getElementById('requestRide').disabled = false;
             document.getElementById('requestRide').textContent = 'Request Ride';
+            document.getElementById('requestRide').style.background = '';
+            document.getElementById('requestRide').style.color = '';
+            document.getElementById('cancelRequest').style.display = 'none';
             document.getElementById('riderCard').classList.remove('active');
+
+            // Reset driver panel title back to "Available Rides"
+            if (isDriverOnline) {
+                document.getElementById('driverPanelTitle').textContent = '📍 Available Rides';
+            }
+
             currentRide = null;
             
             // After 5 seconds, reset everything to rider's actual GPS location
@@ -1584,7 +2167,17 @@
                             
                             // Clear status messages
                             document.getElementById('riderTrip').innerHTML = '';
-                            document.getElementById('requestsList').innerHTML = '<div style="color: #888;">Waiting for ride requests...</div>';
+                            // Only show "watching for rides" if driver is actually online
+                            if (isDriverOnline) {
+                                document.getElementById('requestsList').innerHTML = `
+                                    <div class="status-message">
+                                        👀 Watching for rides...
+                                        <br><small>Ready to accept new requests</small>
+                                    </div>
+                                `;
+                            } else {
+                                document.getElementById('requestsList').innerHTML = '';
+                            }
                             
                             // Update location fields
                             document.getElementById('fromLocation').value = `Current Location (${lat.toFixed(4)}, ${lng.toFixed(4)})`;
@@ -1610,7 +2203,17 @@
                                 }
                                 // Clear messages
                                 document.getElementById('riderTrip').innerHTML = '';
-                                document.getElementById('requestsList').innerHTML = '<div style="color: #888;">Waiting for ride requests...</div>';
+                                // Only show "watching for rides" if driver is actually online
+                                if (isDriverOnline) {
+                                    document.getElementById('requestsList').innerHTML = `
+                                        <div class="status-message">
+                                            👀 Watching for rides...
+                                            <br><small>Ready to accept new requests</small>
+                                        </div>
+                                    `;
+                                } else {
+                                    document.getElementById('requestsList').innerHTML = '';
+                                }
                             }
                         }
                     );
@@ -1627,7 +2230,736 @@
                 }
             }, 5000);
         }
-        
+
+        // ===== EARLY TERMINATION & DISPUTE HANDLING =====
+
+        function endRideEarlyDialog(initiatedBy) {
+            if (!rideInProgress) {
+                alert('No ride in progress');
+                return;
+            }
+
+            const reasons = initiatedBy === 'rider'
+                ? [
+                    'Wrong destination',
+                    'Emergency situation',
+                    'Feel unsafe',
+                    'Driver behavior issue',
+                    'Other'
+                  ]
+                : [
+                    'Rider requested stop',
+                    'Safety concern',
+                    'Rider behavior issue',
+                    'Cannot complete route',
+                    'Other'
+                  ];
+
+            let reasonHTML = reasons.map((r, i) =>
+                `<button onclick="endRideEarly('${r}', '${initiatedBy}')" style="
+                    background: #333;
+                    color: white;
+                    border: 1px solid #555;
+                    padding: 10px;
+                    margin: 5px 0;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    width: 100%;
+                    text-align: left;
+                ">${r}</button>`
+            ).join('');
+
+            const dialogHTML = `
+                <div style="
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: #1a1a1a;
+                    border: 2px solid #ff6ec7;
+                    border-radius: 8px;
+                    padding: 20px;
+                    z-index: 10000;
+                    min-width: 300px;
+                    max-width: 400px;
+                ">
+                    <h3 style="margin-top: 0; color: #ff6ec7;">End Ride Early</h3>
+                    <p style="color: #ccc; margin-bottom: 15px;">Select a reason:</p>
+                    ${reasonHTML}
+                    <button onclick="document.getElementById('endRideDialog').remove()" style="
+                        background: #666;
+                        color: white;
+                        border: none;
+                        padding: 10px;
+                        margin-top: 10px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        width: 100%;
+                    ">Cancel</button>
+                </div>
+            `;
+
+            const dialog = document.createElement('div');
+            dialog.id = 'endRideDialog';
+            dialog.innerHTML = dialogHTML;
+            document.body.appendChild(dialog);
+        }
+
+        function endRideEarly(reason, initiatedBy) {
+            console.log(`🛑 Ending ride early - Reason: ${reason} - By: ${initiatedBy}`);
+
+            // Remove dialog
+            const dialog = document.getElementById('endRideDialog');
+            if (dialog) dialog.remove();
+
+            // Stop animation immediately
+            if (currentAnimationInterval) {
+                clearInterval(currentAnimationInterval);
+                currentAnimationInterval = null;
+            }
+
+            // Stop streaming payment
+            stopMovementBasedStreaming();
+
+            // Calculate prorated payment
+            const payment = calculateProratedPayment();
+
+            // Handle payment based on reason type
+            const isDispute = reason.includes('unsafe') ||
+                            reason.includes('behavior') ||
+                            reason.includes('Safety');
+
+            if (isDispute) {
+                handleDisputeEarlyEnd(reason, initiatedBy, payment);
+            } else {
+                handleLegitimateEarlyEnd(reason, initiatedBy, payment);
+            }
+
+            rideInProgress = false;
+        }
+
+        function calculateProratedPayment() {
+            const percentComplete = totalDistanceForRide > 0
+                ? distanceTraveledSoFar / totalDistanceForRide
+                : 0;
+
+            const fareForDistance = Math.floor(currentRidePrice * percentComplete);
+            const remainingFare = currentRidePrice - fareForDistance;
+
+            console.log(`📊 Distance: ${formatDistance(distanceTraveledSoFar, 2)} / ${formatDistance(totalDistanceForRide, 2)} (${(percentComplete * 100).toFixed(1)}%)`);
+            console.log(`💰 Payment: ${fareForDistance} sats earned, ${remainingFare} sats to refund`);
+
+            return {
+                percentComplete: percentComplete * 100,
+                distanceTraveled: distanceTraveledSoFar,
+                totalDistance: totalDistanceForRide,
+                fareForDistance: fareForDistance,
+                remainingFare: remainingFare
+            };
+        }
+
+        function handleLegitimateEarlyEnd(reason, initiatedBy, payment) {
+            console.log('✅ Legitimate early end - processing fair payment...');
+
+            const riderStake = parseInt(document.getElementById('riderStakeAmount').textContent);
+            const driverStake = parseInt(document.getElementById('driverStakeAmount').textContent);
+
+            // Release both stakes (no penalty)
+            document.getElementById('riderStake').style.display = 'none';
+            document.getElementById('driverStake').style.display = 'none';
+
+            // Update balances
+            const riderBalance = parseInt(document.getElementById('riderBalance').textContent.replace(/,/g, ''));
+            const driverBalance = parseInt(document.getElementById('driverBalance').textContent.replace(/,/g, ''));
+
+            // Rider gets: original balance + stake + unused portion of fare
+            const riderFinal = riderBalance + riderStake + payment.remainingFare;
+
+            // Driver gets: original balance + stake + earned portion of fare
+            const driverFinal = driverBalance + driverStake + payment.fareForDistance;
+
+            document.getElementById('riderBalance').textContent = riderFinal.toLocaleString() + ' sats';
+            document.getElementById('driverBalance').textContent = driverFinal.toLocaleString() + ' sats';
+
+            // Show completion messages
+            document.getElementById('riderTrip').innerHTML = `
+                <div class="status-message" style="border-left-color: #ffa500;">
+                    🛑 Ride Ended Early
+                    <br><strong>Reason:</strong> ${reason}
+                    <br>Distance: ${formatDistance(payment.distanceTraveled, 2)} (${payment.percentComplete.toFixed(0)}%)
+                    <br>Paid: ${payment.fareForDistance} sats
+                    <br>Refunded: ${payment.remainingFare} sats
+                    <br>Stake returned: ${riderStake} sats
+                    <br><small style="color: #888;">Fair payment applied</small>
+                </div>
+            `;
+
+            document.getElementById('requestsList').innerHTML = `
+                <div class="status-message" style="border-left-color: #ffa500;">
+                    🛑 Ride Ended Early
+                    <br><strong>Reason:</strong> ${reason}
+                    <br>Distance: ${formatDistance(payment.distanceTraveled, 2)}
+                    <br>Earned: ${payment.fareForDistance} sats
+                    <br>Stake returned: ${driverStake} sats
+                    <br><small style="color: #888;">Fair payment received</small>
+                </div>
+            `;
+
+            // Reset UI after 5 seconds
+            setTimeout(() => {
+                document.getElementById('requestRide').disabled = false;
+                document.getElementById('requestRide').textContent = 'Request Ride';
+                document.getElementById('riderCard').classList.remove('active');
+                currentRide = null;
+
+                if (routeLine) {
+                    map.removeLayer(routeLine);
+                    routeLine = null;
+                }
+                if (progressLine) {
+                    map.removeLayer(progressLine);
+                    progressLine = null;
+                }
+
+                document.getElementById('riderTrip').innerHTML = '';
+                document.getElementById('requestsList').innerHTML = '<div style="color: #888;">Waiting for ride requests...</div>';
+            }, 5000);
+        }
+
+        function handleDisputeEarlyEnd(reason, initiatedBy, payment) {
+            console.log('⚠️ Dispute case - freezing stakes...');
+
+            const riderStake = parseInt(document.getElementById('riderStakeAmount').textContent);
+            const driverStake = parseInt(document.getElementById('driverStakeAmount').textContent);
+
+            // Show dispute UI (stakes remain locked)
+            document.getElementById('riderTrip').innerHTML = `
+                <div class="status-message" style="border-left-color: #ff4444;">
+                    ⚠️ Ride Disputed
+                    <br><strong>Reason:</strong> ${reason}
+                    <br>Initiated by: ${initiatedBy}
+                    <br>Distance: ${formatDistance(payment.distanceTraveled, 2)}
+                    <br><br>
+                    <strong>Stakes Frozen:</strong>
+                    <br>Your stake: ${riderStake} sats 🔒
+                    <br><br>
+                    <div style="background: #2a0000; padding: 10px; border-radius: 4px; margin-top: 10px;">
+                        <strong>Dispute Resolution Options:</strong>
+                        <br><br>
+                        <button onclick="resolveDispute('accept_driver', ${payment.fareForDistance})" style="
+                            background: #22c55e;
+                            color: white;
+                            border: none;
+                            padding: 8px;
+                            border-radius: 4px;
+                            cursor: pointer;
+                            width: 100%;
+                            margin-bottom: 5px;
+                        ">Accept Driver's Case (Pay ${payment.fareForDistance} sats)</button>
+                        <button onclick="resolveDispute('community_arbitration')" style="
+                            background: #3b82f6;
+                            color: white;
+                            border: none;
+                            padding: 8px;
+                            border-radius: 4px;
+                            cursor: pointer;
+                            width: 100%;
+                        ">Request Community Arbitration</button>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('requestsList').innerHTML = `
+                <div class="status-message" style="border-left-color: #ff4444;">
+                    ⚠️ Ride Disputed
+                    <br><strong>Reason:</strong> ${reason}
+                    <br>Initiated by: ${initiatedBy}
+                    <br>Distance: ${formatDistance(payment.distanceTraveled, 2)}
+                    <br><br>
+                    <strong>Stakes Frozen:</strong>
+                    <br>Your stake: ${driverStake} sats 🔒
+                    <br><br>
+                    <div style="background: #2a0000; padding: 10px; border-radius: 4px; margin-top: 10px;">
+                        <strong>Your Case:</strong>
+                        <br>Distance traveled: ${formatDistance(payment.distanceTraveled, 2)}
+                        <br>Fair payment: ${payment.fareForDistance} sats
+                        <br><br>
+                        <small>Waiting for resolution...</small>
+                    </div>
+                </div>
+            `;
+
+            // Publish dispute event to Nostr
+            publishDisputeEvent(reason, initiatedBy, payment);
+        }
+
+        async function resolveDispute(resolution, payment) {
+            console.log(`✅ Dispute resolved: ${resolution}`);
+
+            const riderStake = parseInt(document.getElementById('riderStakeAmount').textContent);
+            const driverStake = parseInt(document.getElementById('driverStakeAmount').textContent);
+
+            if (resolution === 'accept_driver') {
+                // Rider accepts driver's case - pay for distance
+                handleLegitimateEarlyEnd('Dispute resolved - accepted', 'rider', {
+                    distanceTraveled: distanceTraveledSoFar,
+                    totalDistance: totalDistanceForRide,
+                    fareForDistance: payment,
+                    remainingFare: currentRidePrice - payment,
+                    percentComplete: (distanceTraveledSoFar / totalDistanceForRide) * 100
+                });
+            } else if (resolution === 'community_arbitration') {
+                // Check if dispute can be auto-resolved by reputation
+                alert('Checking reputation scores for auto-resolution...');
+
+                const riderRep = await getReputationScore('rider_pubkey');
+                const driverRep = await getReputationScore('driver_pubkey');
+
+                const autoResolve = resolveDisputeByReputation(riderRep, driverRep, {
+                    ride_id: currentRide?.id,
+                    distance_traveled: distanceTraveledSoFar,
+                    total_distance: totalDistanceForRide
+                });
+
+                if (autoResolve.auto_resolved) {
+                    // Show auto-resolution result
+                    alert(`🤖 AUTO-RESOLVED BY REPUTATION\n\n` +
+                          `Winner: ${autoResolve.winner}\n\n` +
+                          `Reason: ${autoResolve.reason}\n` +
+                          `Confidence: ${autoResolve.confidence}\n\n` +
+                          `Rider: ${riderRep.average}⭐ (${riderRep.total_rides} rides)\n` +
+                          `Driver: ${driverRep.average}⭐ (${driverRep.total_rides} rides)`);
+
+                    // Apply resolution
+                    if (autoResolve.winner === 'driver') {
+                        // Driver wins - gets full payment for distance
+                        handleLegitimateEarlyEnd('Auto-resolved by reputation (driver)', 'system', {
+                            distanceTraveled: distanceTraveledSoFar,
+                            totalDistance: totalDistanceForRide,
+                            fareForDistance: Math.floor(currentRidePrice * (distanceTraveledSoFar / totalDistanceForRide)),
+                            remainingFare: currentRidePrice - Math.floor(currentRidePrice * (distanceTraveledSoFar / totalDistanceForRide)),
+                            percentComplete: (distanceTraveledSoFar / totalDistanceForRide) * 100
+                        });
+                    } else {
+                        // Rider wins - refund
+                        handleLegitimateEarlyEnd('Auto-resolved by reputation (rider)', 'system', {
+                            distanceTraveled: 0,
+                            totalDistance: totalDistanceForRide,
+                            fareForDistance: 0,
+                            remainingFare: currentRidePrice,
+                            percentComplete: 0
+                        });
+                    }
+                } else {
+                    // Requires manual arbitration
+                    alert('⚖️ Reputation scores too close - community arbitration required.\n\n' +
+                          `${autoResolve.reason}\n\n` +
+                          `Rider: ${riderRep.average}⭐ (${riderRep.total_rides} rides)\n` +
+                          `Driver: ${driverRep.average}⭐ (${driverRep.total_rides} rides)\n\n` +
+                          '3 arbitrators will be selected...');
+
+                    // For demo, auto-resolve after 3 seconds
+                    setTimeout(() => {
+                        alert('Arbitration complete: 2-1 vote in favor of fair payment for distance traveled.');
+                        handleLegitimateEarlyEnd('Arbitration result', 'arbitrators', {
+                            distanceTraveled: distanceTraveledSoFar,
+                            totalDistance: totalDistanceForRide,
+                            fareForDistance: Math.floor(currentRidePrice * (distanceTraveledSoFar / totalDistanceForRide)),
+                            remainingFare: currentRidePrice - Math.floor(currentRidePrice * (distanceTraveledSoFar / totalDistanceForRide)),
+                            percentComplete: (distanceTraveledSoFar / totalDistanceForRide) * 100
+                        });
+                    }, 3000);
+                }
+            }
+        }
+
+        function publishDisputeEvent(reason, initiatedBy, payment) {
+            const disputeEvent = {
+                kind: 57032,  // Custom kind for dispute
+                content: JSON.stringify({
+                    ride_id: currentRide?.id || 'demo_ride',
+                    dispute_type: reason,
+                    initiated_by: initiatedBy,
+                    evidence: {
+                        distance_traveled: payment.distanceTraveled,
+                        total_distance: payment.totalDistance,
+                        percent_complete: payment.percentComplete,
+                        fare_for_distance: payment.fareForDistance,
+                        route_geometry: routeGeometry,
+                        timestamp: Date.now()
+                    },
+                    requested_outcome: 'fair_payment_for_distance'
+                }),
+                tags: [
+                    ['t', 'dispute'],
+                    ['t', 'early_termination']
+                ],
+                created_at: Math.floor(Date.now() / 1000)
+            };
+
+            console.log('📤 Publishing dispute event:', disputeEvent);
+            // In production, this would use window.nostr.signEvent() and publish to relays
+            alert(`Dispute event created (kind: ${disputeEvent.kind})\nThis would be published to Nostr relays in production.`);
+        }
+
+        // ===== END EARLY TERMINATION & DISPUTE HANDLING =====
+
+        // ===== SAFETY FEATURES: PANIC, LOCATION SHARING, ROUTE MONITORING =====
+
+        function panicButton(initiatedBy) {
+            if (!rideInProgress) {
+                alert('No ride in progress');
+                return;
+            }
+
+            console.log(`🚨 PANIC BUTTON PRESSED by ${initiatedBy}`);
+
+            // Confirm action
+            const confirmed = confirm(
+                `🚨 EMERGENCY\n\nThis will:\n` +
+                `1. Stop the ride immediately\n` +
+                `2. Share your location with emergency contacts\n` +
+                `3. Create dispute with evidence\n` +
+                `4. Freeze stakes\n\n` +
+                `Continue?`
+            );
+
+            if (!confirmed) return;
+
+            // 1. Stop ride immediately
+            if (currentAnimationInterval) {
+                clearInterval(currentAnimationInterval);
+                currentAnimationInterval = null;
+            }
+            stopMovementBasedStreaming();
+
+            // 2. Broadcast emergency location
+            broadcastEmergencyLocation(initiatedBy);
+
+            // 3. Calculate payment state
+            const payment = calculateProratedPayment();
+
+            // 4. Create emergency dispute
+            handleEmergencyStop(initiatedBy, payment);
+
+            rideInProgress = false;
+        }
+
+        function broadcastEmergencyLocation(initiatedBy) {
+            const emergencyEvent = {
+                kind: 57033,  // Emergency location share
+                content: JSON.stringify({
+                    alert_type: 'PANIC_BUTTON',
+                    initiated_by: initiatedBy,
+                    location: {
+                        lat: driverLocation[0],
+                        lon: driverLocation[1]
+                    },
+                    ride_id: currentRide?.id || 'demo_ride',
+                    timestamp: Date.now(),
+                    route_geometry: routeGeometry,
+                    distance_traveled: distanceTraveledSoFar
+                }),
+                tags: [
+                    ['t', 'emergency'],
+                    ['t', 'panic'],
+                    ['expiration', Math.floor(Date.now() / 1000) + 3600]  // Expires in 1 hour
+                ],
+                created_at: Math.floor(Date.now() / 1000)
+            };
+
+            console.log('📡 Broadcasting emergency location:', emergencyEvent);
+
+            // Show emergency broadcast UI
+            const broadcastMsg = `
+                🚨 EMERGENCY BROADCAST SENT
+
+                Your location has been shared with:
+                - Emergency contacts (Nostr DM)
+                - Local authorities (if enabled)
+                - Platform safety team
+
+                Current location: ${driverLocation[0].toFixed(6)}, ${driverLocation[1].toFixed(6)}
+
+                Help is on the way.
+            `;
+
+            alert(broadcastMsg);
+
+            // In production: window.nostr.signEvent() and publish to relays
+        }
+
+        function handleEmergencyStop(initiatedBy, payment) {
+            console.log('🚨 Emergency stop - freezing stakes and creating evidence package');
+
+            const riderStake = parseInt(document.getElementById('riderStakeAmount').textContent);
+            const driverStake = parseInt(document.getElementById('driverStakeAmount').textContent);
+
+            // Show emergency UI (stakes frozen)
+            const emergencyUI = `
+                <div class="status-message" style="border-left-color: #dc2626; background: #2a0000;">
+                    🚨 EMERGENCY STOP
+                    <br><strong>Panic button activated by: ${initiatedBy}</strong>
+                    <br><br>
+                    <div style="background: #1a0000; padding: 10px; border-radius: 4px;">
+                        <strong>Emergency Services Contacted:</strong>
+                        <br>📍 Location shared
+                        <br>🔒 Stakes frozen: ${initiatedBy === 'rider' ? riderStake : driverStake} sats
+                        <br>📊 Distance: ${formatDistance(payment.distanceTraveled, 2)}
+                        <br><br>
+                        <strong>Evidence Package Created:</strong>
+                        <br>✅ GPS route log
+                        <br>✅ Timestamps
+                        <br>✅ Payment history
+                        <br><br>
+                        <small>Platform support will contact you within 5 minutes.</small>
+                    </div>
+                    <br>
+                    <button onclick="location.reload()" style="
+                        background: #666;
+                        color: white;
+                        border: none;
+                        padding: 10px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        width: 100%;
+                    ">Reset & Start New Session</button>
+                </div>
+            `;
+
+            if (initiatedBy === 'rider') {
+                document.getElementById('riderTrip').innerHTML = emergencyUI;
+                document.getElementById('requestsList').innerHTML = `
+                    <div class="status-message" style="border-left-color: #dc2626;">
+                        ⚠️ Rider Activated Panic Button
+                        <br>Ride terminated immediately
+                        <br>Stakes frozen pending investigation
+                    </div>
+                `;
+            } else {
+                document.getElementById('requestsList').innerHTML = emergencyUI;
+                document.getElementById('riderTrip').innerHTML = `
+                    <div class="status-message" style="border-left-color: #dc2626;">
+                        ⚠️ Driver Activated Panic Button
+                        <br>Ride terminated immediately
+                        <br>Stakes frozen pending investigation
+                    </div>
+                `;
+            }
+
+            // Publish emergency dispute event
+            const emergencyDispute = {
+                kind: 57032,
+                content: JSON.stringify({
+                    ride_id: currentRide?.id || 'demo_ride',
+                    dispute_type: 'EMERGENCY_PANIC_BUTTON',
+                    initiated_by: initiatedBy,
+                    evidence: {
+                        distance_traveled: payment.distanceTraveled,
+                        total_distance: payment.totalDistance,
+                        route_geometry: routeGeometry,
+                        timestamp: Date.now(),
+                        emergency_location: driverLocation
+                    },
+                    requested_outcome: 'immediate_investigation'
+                }),
+                tags: [['t', 'emergency'], ['t', 'panic']],
+                created_at: Math.floor(Date.now() / 1000)
+            };
+
+            console.log('📤 Publishing emergency dispute:', emergencyDispute);
+        }
+
+        function shareTripLocation() {
+            if (!rideInProgress) {
+                alert('No ride in progress to share');
+                return;
+            }
+
+            // Generate shareable trip data
+            const tripData = {
+                ride_id: currentRide?.id || 'demo_ride',
+                current_location: driverLocation,
+                destination: routeGeometry[routeGeometry.length - 1],
+                route_geometry: routeGeometry,
+                distance_traveled: distanceTraveledSoFar,
+                total_distance: totalDistanceForRide,
+                eta: Math.round((totalDistanceForRide - distanceTraveledSoFar) / 1000 * 3),  // Rough ETA in minutes
+                last_updated: Date.now()
+            };
+
+            // Create shareable link (in production, this would be a real URL with Nostr event ID)
+            shareableTripLink = `https://donkeyride.app/track/${currentRide?.id || 'demo'}?secret=${Math.random().toString(36).substring(7)}`;
+
+            // Publish share event to Nostr
+            const shareEvent = {
+                kind: 57034,  // Trip sharing event
+                content: JSON.stringify(tripData),
+                tags: [
+                    ['t', 'trip_share'],
+                    ['expiration', Math.floor(Date.now() / 1000) + 7200]  // 2 hour expiry
+                ],
+                created_at: Math.floor(Date.now() / 1000)
+            };
+
+            console.log('📍 Publishing trip share event:', shareEvent);
+
+            // Show share UI
+            const shareDialog = document.createElement('div');
+            shareDialog.id = 'shareDialog';
+            shareDialog.innerHTML = `
+                <div style="
+                    position: fixed;
+                    top: 50%;
+                    left: 50%;
+                    transform: translate(-50%, -50%);
+                    background: #1a1a1a;
+                    border: 2px solid #3b82f6;
+                    border-radius: 8px;
+                    padding: 20px;
+                    z-index: 10000;
+                    min-width: 350px;
+                    max-width: 450px;
+                ">
+                    <h3 style="margin-top: 0; color: #3b82f6;">📍 Share Trip Location</h3>
+                    <p style="color: #ccc; margin-bottom: 15px;">
+                        Share this link with trusted contacts to track your ride in real-time:
+                    </p>
+                    <div style="background: #111; padding: 10px; border-radius: 4px; margin: 10px 0; word-break: break-all; font-size: 0.85em;">
+                        ${shareableTripLink}
+                    </div>
+                    <div style="background: #1a2a3a; padding: 10px; border-radius: 4px; margin: 10px 0; font-size: 0.85em;">
+                        <strong>Trip Info:</strong>
+                        <br>📍 Current: ${driverLocation[0].toFixed(4)}, ${driverLocation[1].toFixed(4)}
+                        <br>🎯 Destination: ${routeGeometry[routeGeometry.length - 1][0].toFixed(4)}, ${routeGeometry[routeGeometry.length - 1][1].toFixed(4)}
+                        <br>🚗 Progress: ${((distanceTraveledSoFar / totalDistanceForRide) * 100).toFixed(0)}%
+                        <br>⏱️ ETA: ~${tripData.eta} minutes
+                    </div>
+                    <button onclick="copyTripLink()" style="
+                        background: #3b82f6;
+                        color: white;
+                        border: none;
+                        padding: 10px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        width: 100%;
+                        margin-bottom: 5px;
+                    ">📋 Copy Link</button>
+                    <button onclick="document.getElementById('shareDialog').remove()" style="
+                        background: #666;
+                        color: white;
+                        border: none;
+                        padding: 10px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        width: 100%;
+                    ">Close</button>
+                </div>
+            `;
+
+            document.body.appendChild(shareDialog);
+
+            // Update route deviation alert to show sharing is active
+            const alertDiv = document.getElementById('routeDeviationAlert');
+            if (alertDiv) {
+                alertDiv.innerHTML = `<span style="color: #3b82f6;">✅ Trip shared - ${shareableTripLink.substring(0, 35)}...</span>`;
+            }
+        }
+
+        function copyTripLink() {
+            if (shareableTripLink) {
+                navigator.clipboard.writeText(shareableTripLink).then(() => {
+                    alert('✅ Trip link copied to clipboard!');
+                }).catch(() => {
+                    prompt('Copy this link:', shareableTripLink);
+                });
+            }
+        }
+
+        function startRouteDeviationMonitoring() {
+            if (!routeGeometry || routeGeometry.length === 0) {
+                console.log('⚠️ No route to monitor');
+                return;
+            }
+
+            console.log('🛰️ Starting route deviation monitoring...');
+
+            // Check deviation every 5 seconds
+            routeDeviationMonitor = setInterval(() => {
+                if (!rideInProgress) {
+                    clearInterval(routeDeviationMonitor);
+                    return;
+                }
+
+                // Find closest point on planned route
+                let minDistance = Infinity;
+                let closestPointIndex = 0;
+
+                for (let i = 0; i < routeGeometry.length; i++) {
+                    const dist = calculateDistance(
+                        driverLocation[0], driverLocation[1],
+                        routeGeometry[i][0], routeGeometry[i][1]
+                    );
+
+                    if (dist < minDistance) {
+                        minDistance = dist;
+                        closestPointIndex = i;
+                    }
+                }
+
+                // Alert if more than threshold meters off route
+                const deviationMeters = minDistance;
+
+                if (deviationMeters > deviationThreshold) {
+                    console.warn(`⚠️ Route deviation detected: ${deviationMeters.toFixed(0)}m off planned route`);
+
+                    const alertDiv = document.getElementById('routeDeviationAlert');
+                    if (alertDiv) {
+                        alertDiv.innerHTML = `
+                            <span style="color: #ffa500; font-weight: bold;">
+                                ⚠️ Route Deviation: ${deviationMeters.toFixed(0)}m off planned route
+                            </span>
+                        `;
+                    }
+
+                    // Ask rider if everything is OK
+                    if (confirm(`⚠️ Route Deviation Detected\n\nThe driver is ${deviationMeters.toFixed(0)}m off the planned route.\n\nIs everything OK?`)) {
+                        // Rider says OK - clear alert
+                        if (alertDiv) {
+                            alertDiv.innerHTML = `<span style="color: #888;">✅ Route deviation acknowledged</span>`;
+                        }
+                    } else {
+                        // Rider not OK - trigger panic
+                        panicButton('rider');
+                    }
+                } else {
+                    // On route - clear any alerts
+                    const alertDiv = document.getElementById('routeDeviationAlert');
+                    if (alertDiv && !alertDiv.innerHTML.includes('Trip shared')) {
+                        alertDiv.innerHTML = '';
+                    }
+                }
+            }, 5000);  // Check every 5 seconds
+        }
+
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            // Haversine formula for distance in meters
+            const R = 6371e3; // Earth radius in meters
+            const φ1 = lat1 * Math.PI / 180;
+            const φ2 = lat2 * Math.PI / 180;
+            const Δφ = (lat2 - lat1) * Math.PI / 180;
+            const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+            const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                    Math.cos(φ1) * Math.cos(φ2) *
+                    Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+            return R * c; // Distance in meters
+        }
+
+        // ===== END SAFETY FEATURES =====
+
         function animateDriverMovement() {
             // Simulate driver moving towards rider's actual location
             if (!riderLocation) return;
@@ -1669,80 +3001,118 @@
         }
         
         function animateDriverToPickup(ridePrice) {
-            // Simulate driver moving towards rider's actual location
+            // Use OSRM route geometry if available
             if (!riderLocation || !driverMarker) {
-                // Fallback if no location
                 setTimeout(() => arrivedAtPickup(ridePrice), 3000);
                 return;
             }
-            
-            const steps = 10;
+
+            // Use OSRM route geometry or fallback to straight line
+            if (!routeGeometry || routeGeometry.length === 0) {
+                console.log('⚠️ No OSRM route, using straight line');
+                routeGeometry = [driverLocation, riderLocation];
+            }
+
             let step = 0;
-            
-            const startLat = driverLocation[0];
-            const startLng = driverLocation[1];
-            const endLat = riderLocation[0];
-            const endLng = riderLocation[1];
-            
+            const totalSteps = routeGeometry.length;
+            currentInstructionIndex = 0;
+
+            console.log(`🚗 Animating driver along ${totalSteps} waypoints (real roads!)`);
+
+            // Draw full route line on map (luminous purple)
+            if (routeLine) map.removeLayer(routeLine);
+            routeLine = L.polyline(routeGeometry, {
+                color: '#d946ef',  // Luminous purple
+                weight: 4,
+                opacity: 0.9
+            }).addTo(map);
+
+            // Zoom to show full route with context
+            map.fitBounds(routeLine.getBounds(), {
+                padding: [50, 50],
+                maxZoom: 14  // Balanced zoom - shows route clearly
+            });
+
             const pickupInterval = setInterval(() => {
-                if (step >= steps) {
+                if (step >= totalSteps) {
                     clearInterval(pickupInterval);
                     arrivedAtPickup(ridePrice);
                     return;
                 }
-                
-                step++;
-                const progress = step / steps;
-                
-                // Interpolate position
-                const lat = startLat + (endLat - startLat) * progress;
-                const lng = startLng + (endLng - startLng) * progress;
-                
-                // Update driver location
-                driverLocation = [lat, lng];
-                driverMarker.setLatLng([lat, lng]);
-                
-                // Update or create route line
-                if (!routeLine) {
-                    routeLine = L.polyline([[lat, lng], [endLat, endLng]], {
-                        color: '#ff6ec7',
-                        weight: 3,
-                        opacity: 0.7,
-                        dashArray: '10, 10'
+
+                // Get current position from real route geometry
+                const currentPos = routeGeometry[step];
+                driverLocation = currentPos;
+                driverMarker.setLatLng(currentPos);
+
+                // Update progress line (traveled portion in luminous blue)
+                const traveledPath = routeGeometry.slice(0, step + 1);
+                if (traveledPath.length > 1) {
+                    if (progressLine) map.removeLayer(progressLine);
+                    progressLine = L.polyline(traveledPath, {
+                        color: '#06b6d4',  // Luminous cyan/blue
+                        weight: 5,
+                        opacity: 1.0
                     }).addTo(map);
-                } else {
-                    routeLine.setLatLngs([[lat, lng], [endLat, endLng]]);
                 }
-                
-                // Pan map to show both markers
-                const bounds = L.latLngBounds([driverLocation, riderLocation]);
-                map.fitBounds(bounds, { padding: [50, 50] });
-            }, 500);
+
+                // Pan map to follow driver with balanced view
+                map.setView(currentPos, 14, { animate: true, duration: 0.1 });
+
+                // Update turn-by-turn instruction
+                if (routeInstructions && routeInstructions.length > 1) {
+                    const instructionInterval = Math.max(1, Math.floor(totalSteps / routeInstructions.length));
+                    if (step % instructionInterval === 0 && currentInstructionIndex < routeInstructions.length - 1) {
+                        currentInstructionIndex = Math.min(
+                            Math.floor(step / instructionInterval),
+                            routeInstructions.length - 1
+                        );
+
+                        const instruction = routeInstructions[currentInstructionIndex];
+                        const progress = Math.round((step / totalSteps) * 100);
+
+                        document.getElementById('requestsList').innerHTML = `
+                            <div class="status-message" style="border-left-color: #ff6ec7;">
+                                🚗 En route to pickup
+                                <br>Progress: ${progress}%
+                            </div>
+                            <div style="background: #111; padding: 8px; margin-top: 10px; border-radius: 4px; font-size: 0.85em;">
+                                <strong>🧭</strong> ${instruction.text}
+                            </div>
+                        `;
+                    }
+                }
+
+                step++;
+            }, 80); // 80ms per waypoint for faster, smooth animation
         }
         
         function animateDriverMovementWithDestinationDetection() {
-            // Get destination from input field data attributes
-            const destinationInput = document.getElementById('toLocation');
-            let destinationLocation;
-            
-            if (destinationInput.dataset.lat && destinationInput.dataset.lng) {
-                // Use the stored destination coordinates
-                destinationLocation = [
+            // Use OSRM route geometry or fallback to straight line
+            if (!routeGeometry || routeGeometry.length === 0) {
+                console.log('⚠️ No OSRM route to destination, using straight line');
+                const destinationInput = document.getElementById('toLocation');
+                const destinationLocation = [
                     parseFloat(destinationInput.dataset.lat),
                     parseFloat(destinationInput.dataset.lng)
                 ];
-            } else {
-                // Fallback: calculate nearest station now
-                const nearestStation = getNearestStation(riderLocation[0], riderLocation[1]);
-                destinationLocation = [nearestStation.lat, nearestStation.lng];
-                destinationInput.dataset.lat = nearestStation.lat;
-                destinationInput.dataset.lng = nearestStation.lng;
+                routeGeometry = [driverLocation, destinationLocation];
             }
-            
+
+            let step = 0;
+            const totalSteps = routeGeometry.length;
+            currentInstructionIndex = 0;
+            const actualDistance = currentOSRMRoute ? currentOSRMRoute.distance : 5000; // meters
+
+            console.log(`🚙 Animating to destination along ${totalSteps} waypoints (real roads!)`);
+
+            // Get destination info for marker
+            const destinationInput = document.getElementById('toLocation');
             const stationName = destinationInput.value || 'Railway Station';
-            
+            const finalDest = routeGeometry[routeGeometry.length - 1];
+
             // Add destination marker
-            const destMarker = L.marker(destinationLocation, {
+            const destMarker = L.marker(finalDest, {
                 icon: L.divIcon({
                     html: '🚉',
                     iconSize: [30, 30],
@@ -1751,25 +3121,26 @@
             }).addTo(map)
                 .bindPopup(stationName)
                 .openPopup();
-            
-            // Calculate realistic distance (approximate miles)
-            const actualDistance = Math.sqrt(
-                Math.pow((destinationLocation[0] - driverLocation[0]) * 69, 2) + 
-                Math.pow((destinationLocation[1] - driverLocation[1]) * 69, 2)
-            );
-            
-            let distanceToDestination = actualDistance;
-            const totalSteps = 40; // More steps for realistic journey
-            let step = 0;
-            let isStationary = false;
-            let stationaryCount = 0;
-            
-            const startLat = driverLocation[0];
-            const startLng = driverLocation[1];
-            
-            const movementInterval = setInterval(() => {
+
+            // Draw full route line (luminous purple)
+            if (routeLine) map.removeLayer(routeLine);
+            routeLine = L.polyline(routeGeometry, {
+                color: '#d946ef',  // Luminous purple
+                weight: 4,
+                opacity: 0.9
+            }).addTo(map);
+
+            // Zoom to show full route with context
+            map.fitBounds(routeLine.getBounds(), {
+                padding: [50, 50],
+                maxZoom: 14  // Balanced zoom - shows route clearly
+            });
+
+            let distanceTraveled = 0;
+
+            currentAnimationInterval = setInterval(() => {
                 if (step >= totalSteps) {
-                    clearInterval(movementInterval);
+                    clearInterval(currentAnimationInterval);
                     arrivingAtDestination();
                     setTimeout(() => {
                         arrivedAtDestination();
@@ -1777,64 +3148,91 @@
                     }, 2000);
                     return;
                 }
-                
-                // Simulate traffic stops (20% chance of stopping)
-                if (!isStationary && Math.random() < 0.2 && step > 5 && step < totalSteps - 5) {
-                    isStationary = true;
-                    stationaryCount = Math.floor(Math.random() * 3) + 2; // Stop for 2-4 intervals
+
+                // Get current position from real route geometry
+                const currentPos = routeGeometry[step];
+                driverLocation = currentPos;
+                driverMarker.setLatLng(currentPos);
+
+                // Calculate distance traveled
+                if (step > 0) {
+                    const prevPos = routeGeometry[step - 1];
+                    const segmentDist = Math.sqrt(
+                        Math.pow((currentPos[0] - prevPos[0]) * 111000, 2) +
+                        Math.pow((currentPos[1] - prevPos[1]) * 111000 * Math.cos(currentPos[0] * Math.PI / 180), 2)
+                    );
+                    distanceTraveled += segmentDist;
+                    distanceTraveledSoFar = distanceTraveled;  // Track globally for early termination
                 }
-                
-                if (isStationary) {
-                    stationaryCount--;
-                    if (stationaryCount <= 0) {
-                        isStationary = false;
-                    }
-                    
-                    // Update status to show stationary
-                    if (document.getElementById('distanceToDestination')) {
-                        document.getElementById('distanceToDestination').innerHTML = 
-                            `Distance: ${distanceToDestination.toFixed(2)} miles | Status: 🔴 Stopped in traffic`;
-                    }
-                } else {
-                    // Move forward
-                    step++;
-                    const progress = step / totalSteps;
-                    
-                    // Interpolate position with some randomness for realistic path
-                    const lat = startLat + (destinationLocation[0] - startLat) * progress + 
-                               (Math.random() - 0.5) * 0.0001;
-                    const lng = startLng + (destinationLocation[1] - startLng) * progress + 
-                               (Math.random() - 0.5) * 0.0001;
-                    
-                    // Update driver location
-                    driverLocation = [lat, lng];
-                    driverMarker.setLatLng([lat, lng]);
-                    
-                    // Update route line to destination
-                    if (routeLine) {
-                        routeLine.setLatLngs([[lat, lng], destinationLocation]);
-                        routeLine.setStyle({ color: '#b24cf3' }); // Purple for destination route
-                    }
-                    
-                    // Calculate and update distance
-                    distanceToDestination = actualDistance * (1 - progress);
-                    
-                    // Update status based on distance
-                    let status = '🟢 In motion';
-                    if (distanceToDestination < 0.1) {
-                        status = '🟡 Arriving at destination';
-                    }
-                    
-                    if (document.getElementById('distanceToDestination')) {
-                        document.getElementById('distanceToDestination').innerHTML = 
-                            `Distance: ${distanceToDestination.toFixed(2)} miles | Status: ${status}`;
+
+                // Update progress line (traveled portion in luminous blue)
+                const traveledPath = routeGeometry.slice(0, step + 1);
+                if (traveledPath.length > 1) {
+                    if (progressLine) map.removeLayer(progressLine);
+                    progressLine = L.polyline(traveledPath, {
+                        color: '#06b6d4',  // Luminous cyan/blue
+                        weight: 5,
+                        opacity: 1.0
+                    }).addTo(map);
+                }
+
+                // Pan map to follow driver with balanced view
+                map.setView(currentPos, 14, { animate: true, duration: 0.1 });
+
+                // Calculate remaining distance
+                const progress = step / totalSteps;
+                const distanceRemaining = actualDistance - distanceTraveled;
+
+                // Update distance display
+                let status = '🟢 In motion';
+                if (distanceRemaining < 100) {
+                    status = '🟡 Arriving soon';
+                }
+
+                if (document.getElementById('distanceToDestination')) {
+                    document.getElementById('distanceToDestination').innerHTML =
+                        `Distance: ${formatDistance(distanceRemaining)} | Status: ${status}`;
+                }
+
+                // Update turn-by-turn instruction
+                if (routeInstructions && routeInstructions.length > 1) {
+                    const instructionInterval = Math.max(1, Math.floor(totalSteps / routeInstructions.length));
+                    if (step % instructionInterval === 0 && currentInstructionIndex < routeInstructions.length - 1) {
+                        currentInstructionIndex = Math.min(
+                            Math.floor(step / instructionInterval),
+                            routeInstructions.length - 1
+                        );
+
+                        const instruction = routeInstructions[currentInstructionIndex];
+                        const nextInstruction = routeInstructions[currentInstructionIndex + 1];
+
+                        // Show current AND next instruction for better navigation
+                        let instructionHTML = `
+                            <div class="status-message" style="border-left-color: #b24cf3;">
+                                🚙 Heading to destination
+                                <br>Progress: ${Math.round(progress * 100)}%
+                                <br>${formatDistance(distanceRemaining)} remaining
+                            </div>
+                            <div style="background: #111; padding: 8px; margin-top: 10px; border-radius: 4px; font-size: 0.85em;">
+                                <div style="margin-bottom: 5px;">
+                                    <strong>🧭 Now:</strong> ${instruction.text}
+                                </div>`;
+
+                        if (nextInstruction) {
+                            instructionHTML += `
+                                <div style="color: #888; border-top: 1px solid #333; padding-top: 5px; margin-top: 5px;">
+                                    <strong>➡️ Then:</strong> ${nextInstruction.text}
+                                </div>`;
+                        }
+
+                        instructionHTML += `</div>`;
+
+                        document.getElementById('requestsList').innerHTML = instructionHTML;
                     }
                 }
-                
-                // Pan map to show driver and destination
-                const bounds = L.latLngBounds([driverLocation, destinationLocation]);
-                map.fitBounds(bounds, { padding: [50, 50] });
-            }, 500);
+
+                step++;
+            }, 80); // 80ms per waypoint for faster, smooth animation
         }
         
         function arrivingAtDestination() {
@@ -1914,7 +3312,20 @@
         function arrivedAtDestination() {
             // Stop streaming payments
             stopMovementBasedStreaming();
-            
+
+            // Show rider marker at destination (they got out of the car)
+            if (routeGeometry && routeGeometry.length > 0) {
+                const destinationPos = routeGeometry[routeGeometry.length - 1];
+                riderLocation = destinationPos; // Update rider location to destination
+                if (riderMarker) {
+                    riderMarker.setLatLng(destinationPos);
+                    riderMarker.addTo(map);
+                } else {
+                    riderMarker = L.marker(destinationPos, {icon: riderIcon}).addTo(map);
+                }
+                console.log('👤 Rider marker shown at destination');
+            }
+
             // Update driver status - driver must confirm completion
             document.getElementById('requestsList').innerHTML = `
                 <div class="status-message" style="border-left-color: #00ff00;">
@@ -1926,7 +3337,7 @@
                     ✅ COMPLETE RIDE
                 </button>
             `;
-            
+
             // Update rider status
             document.getElementById('riderTrip').innerHTML = `
                 <div class="status-message">
@@ -1935,18 +3346,17 @@
                     <br><small>Waiting for driver to complete ride...</small>
                 </div>
             `;
+
+            // Update rider button to show arrived
+            document.getElementById('requestRide').textContent = '✅ ARRIVED';
+            document.getElementById('requestRide').style.background = 'linear-gradient(135deg, #ffd700, #ffed4e)';
+            document.getElementById('requestRide').style.color = '#000';
         }
         
         function driverCompleteRide() {
-            // Driver confirms completion
-            document.getElementById('requestsList').innerHTML = `
-                <div class="status-message" style="border-left-color: #ffd700;">
-                    ✅ Ride Completed!
-                    <br>Total earned: ${totalStreamed} sats
-                    <br>Waiting for rider rating...
-                </div>
-            `;
-            
+            // Show driver rating UI for passenger
+            showDriverRatingUI();
+
             // Show rating and tipping UI for rider
             showRatingAndTipUI();
         }
@@ -1959,32 +3369,167 @@
                 </div>
                 <div style="margin-top: 15px; padding: 15px; background: #1a1a1a; border-radius: 10px;">
                     <h4 style="margin-bottom: 10px; color: #00ff00;">Rate Your Driver</h4>
-                    <div id="ratingStars" style="font-size: 30px; margin: 10px 0; cursor: pointer;">
-                        <span onclick="setRating(1)">☆</span>
-                        <span onclick="setRating(2)">☆</span>
-                        <span onclick="setRating(3)">☆</span>
-                        <span onclick="setRating(4)">☆</span>
-                        <span onclick="setRating(5)">☆</span>
+                    <div id="ratingStars" style="font-size: 35px; margin: 10px 0; cursor: pointer; user-select: none;">
+                        <span class="star-rating" data-rating="1" onmouseover="hoverRating(1)" onmouseout="resetHover()" onclick="setRating(1)" style="color: #888; transition: color 0.2s;">☆</span>
+                        <span class="star-rating" data-rating="2" onmouseover="hoverRating(2)" onmouseout="resetHover()" onclick="setRating(2)" style="color: #888; transition: color 0.2s;">☆</span>
+                        <span class="star-rating" data-rating="3" onmouseover="hoverRating(3)" onmouseout="resetHover()" onclick="setRating(3)" style="color: #888; transition: color 0.2s;">☆</span>
+                        <span class="star-rating" data-rating="4" onmouseover="hoverRating(4)" onmouseout="resetHover()" onclick="setRating(4)" style="color: #888; transition: color 0.2s;">☆</span>
+                        <span class="star-rating" data-rating="5" onmouseover="hoverRating(5)" onmouseout="resetHover()" onclick="setRating(5)" style="color: #888; transition: color 0.2s;">☆</span>
                     </div>
-                    <div style="margin-top: 15px;">
-                        <label style="color: #888;">Add a tip (optional):</label>
-                        <div style="display: flex; gap: 10px; margin-top: 10px;">
-                            <button onclick="addTip(100)" class="btn" style="background: #333; padding: 5px 10px;">100 sats</button>
-                            <button onclick="addTip(200)" class="btn" style="background: #333; padding: 5px 10px;">200 sats</button>
-                            <button onclick="addTip(500)" class="btn" style="background: #333; padding: 5px 10px;">500 sats</button>
-                            <input type="number" id="customTip" placeholder="Custom" style="width: 80px; padding: 5px; background: #0f0f0f; border: 1px solid #333; color: #00ff00;">
+
+                    <div style="margin-top: 15px; padding: 10px; background: #0f0f0f; border-radius: 8px;">
+                        <label style="color: #888; font-size: 0.9em;">Safety flags (optional):</label>
+                        <div id="safetyFlags" style="margin-top: 8px; font-size: 0.85em;">
+                            <label style="display: block; margin: 5px 0; color: #ccc; cursor: pointer;">
+                                <input type="checkbox" class="safety-flag" value="aggressive_driving"> Aggressive driving
+                            </label>
+                            <label style="display: block; margin: 5px 0; color: #ccc; cursor: pointer;">
+                                <input type="checkbox" class="safety-flag" value="route_deviation"> Suspicious route
+                            </label>
+                            <label style="display: block; margin: 5px 0; color: #ccc; cursor: pointer;">
+                                <input type="checkbox" class="safety-flag" value="verbal_harassment"> Inappropriate behavior
+                            </label>
+                            <label style="display: block; margin: 5px 0; color: #ccc; cursor: pointer;">
+                                <input type="checkbox" class="safety-flag" value="unsafe_vehicle"> Vehicle concerns
+                            </label>
                         </div>
                     </div>
-                    <button onclick="submitRatingAndTip()" class="btn" style="margin-top: 15px; width: 100%; background: linear-gradient(135deg, #ffd700, #ffed4e);">
+
+                    <div style="margin-top: 15px;">
+                        <label style="color: #888;">Would you ride with this driver again?</label>
+                        <div style="margin-top: 8px;">
+                            <label style="margin-right: 15px; color: #ccc; cursor: pointer;">
+                                <input type="radio" name="would_ride_again" value="yes" checked> Yes
+                            </label>
+                            <label style="color: #ccc; cursor: pointer;">
+                                <input type="radio" name="would_ride_again" value="no"> No
+                            </label>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 15px;">
+                        <label style="color: #ffd700; font-weight: bold;">💰 Add a tip (optional):</label>
+                        <div style="display: flex; gap: 10px; margin-top: 10px;">
+                            <button onclick="addTip(100)" class="tip-btn" style="background: #2a2a2a; color: #ffd700; border: 2px solid #444; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: all 0.2s; flex: 1;">
+                                💰 100
+                            </button>
+                            <button onclick="addTip(200)" class="tip-btn" style="background: #2a2a2a; color: #ffd700; border: 2px solid #444; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: all 0.2s; flex: 1;">
+                                💰 200
+                            </button>
+                            <button onclick="addTip(500)" class="tip-btn" style="background: #2a2a2a; color: #ffd700; border: 2px solid #444; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: all 0.2s; flex: 1;">
+                                💰 500
+                            </button>
+                        </div>
+                        <div style="margin-top: 10px;">
+                            <input type="number" id="customTip" placeholder="Custom amount in sats" style="width: 100%; padding: 10px; background: #0f0f0f; border: 2px solid #444; color: #ffd700; border-radius: 6px; font-size: 14px;">
+                        </div>
+                    </div>
+                    <button onclick="submitRatingAndTip()" class="btn" style="margin-top: 15px; width: 100%; background: linear-gradient(135deg, #ffd700, #ffed4e); color: #000; font-weight: bold; padding: 12px; font-size: 16px;">
                         Submit Rating & Complete
                     </button>
                 </div>
             `;
+
+            // Add hover effects to tip buttons
+            setTimeout(() => {
+                const tipBtns = document.querySelectorAll('.tip-btn');
+                tipBtns.forEach(btn => {
+                    btn.addEventListener('mouseenter', (e) => {
+                        e.target.style.background = '#ffd700';
+                        e.target.style.color = '#000';
+                        e.target.style.borderColor = '#ffd700';
+                        e.target.style.transform = 'scale(1.05)';
+                    });
+                    btn.addEventListener('mouseleave', (e) => {
+                        e.target.style.background = '#2a2a2a';
+                        e.target.style.color = '#ffd700';
+                        e.target.style.borderColor = '#444';
+                        e.target.style.transform = 'scale(1)';
+                    });
+                });
+            }, 100);
         }
         
-        let selectedRating = 0;
+        let selectedRating = 0;  // Rider's rating of driver
         let tipAmount = 0;
-        
+        let driverSelectedRating = 0;  // Driver's rating of rider
+
+        function showDriverRatingUI() {
+            document.getElementById('requestsList').innerHTML = `
+                <div class="status-message" style="border-left-color: #ffd700;">
+                    ✅ Ride Completed!
+                    <br>Total earned: ${totalStreamed} sats
+                </div>
+                <div style="margin-top: 15px; padding: 15px; background: #1a1a1a; border-radius: 10px;">
+                    <h4 style="margin-bottom: 10px; color: #00ff00;">Rate Your Rider</h4>
+                    <div id="driverRatingStars" style="font-size: 35px; margin: 10px 0; cursor: pointer; user-select: none;">
+                        <span class="driver-star-rating" data-rating="1" onmouseover="hoverDriverRating(1)" onmouseout="resetDriverHover()" onclick="setDriverRating(1)" style="color: #888; transition: color 0.2s;">☆</span>
+                        <span class="driver-star-rating" data-rating="2" onmouseover="hoverDriverRating(2)" onmouseout="resetDriverHover()" onclick="setDriverRating(2)" style="color: #888; transition: color 0.2s;">☆</span>
+                        <span class="driver-star-rating" data-rating="3" onmouseover="hoverDriverRating(3)" onmouseout="resetDriverHover()" onclick="setDriverRating(3)" style="color: #888; transition: color 0.2s;">☆</span>
+                        <span class="driver-star-rating" data-rating="4" onmouseover="hoverDriverRating(4)" onmouseout="resetDriverHover()" onclick="setDriverRating(4)" style="color: #888; transition: color 0.2s;">☆</span>
+                        <span class="driver-star-rating" data-rating="5" onmouseover="hoverDriverRating(5)" onmouseout="resetDriverHover()" onclick="setDriverRating(5)" style="color: #888; transition: color 0.2s;">☆</span>
+                    </div>
+
+                    <div style="margin-top: 15px; padding: 10px; background: #0f0f0f; border-radius: 8px;">
+                        <label style="color: #888; font-size: 0.9em;">Safety concerns (optional):</label>
+                        <div id="driverSafetyFlags" style="margin-top: 8px; font-size: 0.85em;">
+                            <label style="display: block; margin: 5px 0; color: #ccc; cursor: pointer;">
+                                <input type="checkbox" class="driver-safety-flag" value="intoxicated"> Rider appeared intoxicated
+                            </label>
+                            <label style="display: block; margin: 5px 0; color: #ccc; cursor: pointer;">
+                                <input type="checkbox" class="driver-safety-flag" value="inappropriate_behavior"> Inappropriate behavior
+                            </label>
+                            <label style="display: block; margin: 5px 0; color: #ccc; cursor: pointer;">
+                                <input type="checkbox" class="driver-safety-flag" value="rude"> Rude or disrespectful
+                            </label>
+                            <label style="display: block; margin: 5px 0; color: #ccc; cursor: pointer;">
+                                <input type="checkbox" class="driver-safety-flag" value="payment_issue"> Payment concerns
+                            </label>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 15px;">
+                        <label style="color: #888;">Would you pick up this rider again?</label>
+                        <div style="margin-top: 8px;">
+                            <label style="margin-right: 15px; color: #ccc; cursor: pointer;">
+                                <input type="radio" name="would_pickup_again" value="yes" checked> Yes
+                            </label>
+                            <label style="color: #ccc; cursor: pointer;">
+                                <input type="radio" name="would_pickup_again" value="no"> No
+                            </label>
+                        </div>
+                    </div>
+
+                    <button onclick="submitDriverRating()" class="btn" style="margin-top: 15px; width: 100%; background: linear-gradient(135deg, #ffd700, #ffed4e); color: #000; font-weight: bold; padding: 12px; font-size: 16px;">
+                        Submit Rating
+                    </button>
+                </div>
+            `;
+        }
+
+        function hoverRating(stars) {
+            if (selectedRating > 0) return; // Don't change if already selected
+            const starElements = document.getElementById('ratingStars').children;
+            for (let i = 0; i < 5; i++) {
+                starElements[i].textContent = i < stars ? '★' : '☆';
+                starElements[i].style.color = i < stars ? '#ffd700' : '#888';
+            }
+        }
+
+        function resetHover() {
+            if (selectedRating > 0) {
+                // Restore selected rating
+                setRating(selectedRating);
+            } else {
+                // Reset to empty
+                const starElements = document.getElementById('ratingStars').children;
+                for (let i = 0; i < 5; i++) {
+                    starElements[i].textContent = '☆';
+                    starElements[i].style.color = '#888';
+                }
+            }
+        }
+
         function setRating(stars) {
             selectedRating = stars;
             const starElements = document.getElementById('ratingStars').children;
@@ -1997,37 +3542,182 @@
         function addTip(amount) {
             tipAmount = amount;
             document.getElementById('customTip').value = amount;
-            
+
             // Update driver balance preview
             const currentBalance = parseInt(document.getElementById('driverBalance').textContent.replace(/,/g, ''));
             console.log(`💵 Tip selected: ${amount} sats`);
         }
-        
-        function submitRatingAndTip() {
-            const customTip = document.getElementById('customTip').value;
-            if (customTip) {
-                tipAmount = parseInt(customTip);
+
+        // Driver rating functions (for rating passengers)
+        function hoverDriverRating(stars) {
+            if (driverSelectedRating > 0) return;
+            const starElements = document.getElementById('driverRatingStars').children;
+            for (let i = 0; i < 5; i++) {
+                starElements[i].textContent = i < stars ? '★' : '☆';
+                starElements[i].style.color = i < stars ? '#ffd700' : '#888';
             }
-            
+        }
+
+        function resetDriverHover() {
+            if (driverSelectedRating > 0) {
+                setDriverRating(driverSelectedRating);
+            } else {
+                const starElements = document.getElementById('driverRatingStars').children;
+                for (let i = 0; i < 5; i++) {
+                    starElements[i].textContent = '☆';
+                    starElements[i].style.color = '#888';
+                }
+            }
+        }
+
+        function setDriverRating(stars) {
+            driverSelectedRating = stars;
+            const starElements = document.getElementById('driverRatingStars').children;
+            for (let i = 0; i < 5; i++) {
+                starElements[i].textContent = i < stars ? '★' : '☆';
+                starElements[i].style.color = i < stars ? '#ffd700' : '#888';
+            }
+        }
+
+        function submitDriverRating() {
+            // Validate rating
+            if (!driverSelectedRating || driverSelectedRating === 0) {
+                alert('Please select a star rating before submitting');
+                return;
+            }
+
+            // Collect safety flags
+            const safetyFlags = [];
+            const flagCheckboxes = document.querySelectorAll('.driver-safety-flag:checked');
+            flagCheckboxes.forEach(cb => safetyFlags.push(cb.value));
+
+            // Get would_pickup_again
+            const wouldPickupAgainElement = document.querySelector('input[name="would_pickup_again"]:checked');
+            const wouldPickupAgain = wouldPickupAgainElement ? (wouldPickupAgainElement.value === 'yes') : true;
+
+            // Create rating event (kind: 57015 - driver rating passenger)
+            const ratingEvent = {
+                kind: 57015,
+                content: JSON.stringify({
+                    ride_id: currentRide?.id || 'demo_ride',
+                    rating: driverSelectedRating,
+                    safety_flags: safetyFlags,
+                    would_pickup_again: wouldPickupAgain,
+                    timestamp: Date.now()
+                }),
+                tags: [
+                    ['p', 'rider_pubkey'],  // Rider being rated
+                    ['e', 'ride_event_id'],
+                    ['t', 'driver_rating']
+                ],
+                created_at: Math.floor(Date.now() / 1000)
+            };
+
+            console.log('⭐ Driver publishing rating event:', ratingEvent);
+
+            // Update reputation
+            updateReputationScore('rider_pubkey', {
+                rating: driverSelectedRating,
+                flags: safetyFlags,
+                would_ride_again: wouldPickupAgain
+            });
+
+            // Show confirmation
+            const flagsDisplay = safetyFlags.length > 0
+                ? `<br><span style="color: #ff6600;">⚠️ Safety flags: ${safetyFlags.join(', ')}</span>`
+                : '';
+
+            document.getElementById('requestsList').innerHTML = `
+                <div class="status-message" style="border-left-color: #ffd700;">
+                    ✅ Rating Submitted!
+                    <br>Rider rating: ${"★".repeat(driverSelectedRating)}${"☆".repeat(5-driverSelectedRating)}
+                    ${flagsDisplay}
+                    <br><small>Waiting for rider to complete their rating...</small>
+                </div>
+            `;
+
+            console.log('✅ Driver rating submitted');
+        }
+
+        function submitRatingAndTip() {
+            console.log('🎯 submitRatingAndTip called, selectedRating:', selectedRating, 'tipAmount:', tipAmount);
+
+            // Validate rating
+            if (!selectedRating || selectedRating === 0) {
+                alert('Please select a star rating before submitting');
+                return;
+            }
+
+            const customTip = document.getElementById('customTip');
+            if (customTip && customTip.value) {
+                tipAmount = parseInt(customTip.value);
+                console.log('💵 Custom tip set:', tipAmount);
+            }
+
+            // Collect safety flags
+            const safetyFlags = [];
+            const flagCheckboxes = document.querySelectorAll('.safety-flag:checked');
+            flagCheckboxes.forEach(cb => safetyFlags.push(cb.value));
+
+            // Get would_ride_again (with fallback)
+            const wouldRideAgainElement = document.querySelector('input[name="would_ride_again"]:checked');
+            const wouldRideAgain = wouldRideAgainElement ? (wouldRideAgainElement.value === 'yes') : true;
+
+            // Create rating event (kind: 57014)
+            const ratingEvent = {
+                kind: 57014,
+                content: JSON.stringify({
+                    ride_id: currentRide?.id || 'demo_ride',
+                    rating: selectedRating,
+                    safety_flags: safetyFlags,
+                    would_ride_again: wouldRideAgain,
+                    tip_amount: tipAmount,
+                    timestamp: Date.now()
+                }),
+                tags: [
+                    ['p', 'driver_pubkey'],  // Driver being rated
+                    ['e', 'ride_event_id'],
+                    ['t', 'rating']
+                ],
+                created_at: Math.floor(Date.now() / 1000)
+            };
+
+            console.log('⭐ Publishing rating event:', ratingEvent);
+
+            // Store rating in history
+            ratingHistory.push(ratingEvent);
+
+            // Update reputation
+            updateReputationScore('driver_pubkey', {
+                rating: selectedRating,
+                flags: safetyFlags,
+                would_ride_again: wouldRideAgain
+            });
+
             // Process tip payment
             if (tipAmount > 0) {
                 const riderBalance = parseInt(document.getElementById('riderBalance').textContent.replace(/,/g, ''));
                 const driverBalance = parseInt(document.getElementById('driverBalance').textContent.replace(/,/g, ''));
-                
+
                 document.getElementById('riderBalance').textContent = (riderBalance - tipAmount).toLocaleString() + ' sats';
                 document.getElementById('driverBalance').textContent = (driverBalance + tipAmount).toLocaleString() + ' sats';
             }
-            
+
             // Show final message
+            const flagsDisplay = safetyFlags.length > 0
+                ? `<br><span style="color: #ff6600;">⚠️ Safety flags: ${safetyFlags.join(', ')}</span>`
+                : '';
+
             document.getElementById('riderTrip').innerHTML = `
                 <div class="status-message" style="border-left-color: #ffd700;">
                     ✨ Thank you for riding!
                     <br>Rating: ${"★".repeat(selectedRating)}${"☆".repeat(5-selectedRating)}
                     ${tipAmount > 0 ? `<br>Tip: ${tipAmount} sats` : ''}
+                    ${flagsDisplay}
                     <br><small>Your feedback helps improve the network</small>
                 </div>
             `;
-            
+
             // Update driver panel
             document.getElementById('requestsList').innerHTML = `
                 <div class="status-message" style="border-left-color: #ffd700;">
@@ -2035,13 +3725,160 @@
                     <br>Rating received: ${"★".repeat(selectedRating)}${"☆".repeat(5-selectedRating)}
                     ${tipAmount > 0 ? `<br>💵 Tip received: ${tipAmount} sats!` : ''}
                     <br>Total earned: ${totalStreamed + tipAmount} sats
+                    ${safetyFlags.length > 0 ? `<br><span style="color: #ff6600;">⚠️ Safety feedback received</span>` : ''}
                 </div>
             `;
-            
+
             // Complete the ride
             setTimeout(() => completeRide(), 2000);
         }
-        
+
+        // ===== REPUTATION SYSTEM =====
+
+        function updateReputationScore(pubkey, newRating) {
+            if (!reputationCache[pubkey]) {
+                reputationCache[pubkey] = {
+                    average: 0,
+                    total_rides: 0,
+                    flags: {},
+                    would_ride_again_percent: 100,
+                    ratings: []
+                };
+            }
+
+            const rep = reputationCache[pubkey];
+            rep.ratings.push(newRating);
+            rep.total_rides++;
+
+            // Calculate average
+            const totalScore = rep.ratings.reduce((sum, r) => sum + r.rating, 0);
+            rep.average = (totalScore / rep.total_rides).toFixed(1);
+
+            // Count safety flags
+            if (newRating.flags && newRating.flags.length > 0) {
+                newRating.flags.forEach(flag => {
+                    rep.flags[flag] = (rep.flags[flag] || 0) + 1;
+                });
+            }
+
+            // Calculate would_ride_again percentage
+            const wouldRideAgainCount = rep.ratings.filter(r => r.would_ride_again).length;
+            rep.would_ride_again_percent = Math.round((wouldRideAgainCount / rep.total_rides) * 100);
+
+            console.log(`📊 Updated reputation for ${pubkey}:`, rep);
+        }
+
+        async function getReputationScore(pubkey) {
+            // Check cache first
+            if (reputationCache[pubkey]) {
+                return reputationCache[pubkey];
+            }
+
+            // In production, fetch from Nostr relays (kind: 57014 events)
+            // For demo, generate mock reputation
+            const mockScore = Math.random() * 2 + 3;  // 3-5 stars
+            const mockRides = Math.floor(Math.random() * 500) + 50;  // 50-550 rides
+
+            const mockRep = {
+                average: mockScore.toFixed(1),
+                total_rides: mockRides,
+                flags: mockScore < 4 ? {
+                    'aggressive_driving': Math.floor(Math.random() * 3),
+                    'route_deviation': Math.floor(Math.random() * 2)
+                } : {},
+                would_ride_again_percent: mockScore < 4 ? Math.floor(mockScore * 18) : Math.floor(mockScore * 20),
+                trust_level: getTrustLevel(mockScore, mockRides)
+            };
+
+            reputationCache[pubkey] = mockRep;
+            console.log(`📊 Fetched reputation for ${pubkey}:`, mockRep);
+            return mockRep;
+        }
+
+        function getTrustLevel(avgRating, totalRides) {
+            if (avgRating >= 4.8 && totalRides >= 100) return 'elite';
+            if (avgRating >= 4.5 && totalRides >= 50) return 'trusted';
+            if (avgRating >= 4.0 && totalRides >= 20) return 'good';
+            if (avgRating >= 3.0) return 'fair';
+            return 'caution';
+        }
+
+        function getTrustBadge(trustLevel) {
+            const badges = {
+                'elite': '⭐ Elite',
+                'trusted': '🛡️ Trusted',
+                'good': '✅ Good',
+                'fair': '⚠️ Fair',
+                'caution': '🚫 Caution'
+            };
+            return badges[trustLevel] || '❓ New';
+        }
+
+        function getTrustColor(trustLevel) {
+            const colors = {
+                'elite': '#ffd700',
+                'trusted': '#22c55e',
+                'good': '#3b82f6',
+                'fair': '#ffa500',
+                'caution': '#dc2626'
+            };
+            return colors[trustLevel] || '#888';
+        }
+
+        function shouldAutoBlock(reputation) {
+            // Auto-block criteria
+            if (reputation.average < 2.5 && reputation.total_rides > 10) return true;
+            if (reputation.would_ride_again_percent < 30 && reputation.total_rides > 20) return true;
+
+            // Count serious flags
+            const seriousFlags = [
+                'verbal_harassment',
+                'aggressive_driving',
+                'unsafe_vehicle'
+            ];
+            let seriousFlagCount = 0;
+            seriousFlags.forEach(flag => {
+                if (reputation.flags[flag] >= 3) seriousFlagCount++;
+            });
+            if (seriousFlagCount >= 2) return true;
+
+            return false;
+        }
+
+        function resolveDisputeByReputation(riderRep, driverRep, dispute) {
+            console.log('📊 Reputation-based auto-resolution:', { riderRep, driverRep, dispute });
+
+            // Trust scores
+            const riderTrustScore = parseFloat(riderRep.average) * (1 + riderRep.total_rides / 1000);
+            const driverTrustScore = parseFloat(driverRep.average) * (1 + driverRep.total_rides / 1000);
+
+            console.log(`📊 Trust scores - Rider: ${riderTrustScore.toFixed(2)}, Driver: ${driverTrustScore.toFixed(2)}`);
+
+            // Clear difference (> 20% gap) = auto-resolve
+            const difference = Math.abs(riderTrustScore - driverTrustScore);
+            const percentDiff = (difference / Math.max(riderTrustScore, driverTrustScore)) * 100;
+
+            if (percentDiff > 20) {
+                const winner = riderTrustScore > driverTrustScore ? 'rider' : 'driver';
+                console.log(`✅ Auto-resolved in favor of ${winner} (${percentDiff.toFixed(1)}% trust difference)`);
+                return {
+                    auto_resolved: true,
+                    winner: winner,
+                    reason: `${winner === 'driver' ? 'Driver' : 'Rider'} has significantly higher trust score`,
+                    confidence: percentDiff.toFixed(1) + '%'
+                };
+            }
+
+            // Too close - needs arbitration
+            console.log('⚖️ Trust scores too close - manual arbitration required');
+            return {
+                auto_resolved: false,
+                reason: 'Trust scores too similar, requires community arbitration'
+            };
+        }
+
+        // ===== END REPUTATION SYSTEM =====
+
         // Function to start continuous rider GPS tracking
         function startRiderTracking() {
             // Clear any existing watch first to prevent duplicates
