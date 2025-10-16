@@ -1,61 +1,233 @@
 version: '3.8'
 
+# DonkeyRide Reference Infrastructure
+# Complete Docker setup for development and production
+
 services:
-  donkeyride-relay:
-    build: .
-    ports:
-      - "3000:3000"  # REST API
-      - "3001:3001"  # WebSocket
-    environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - WS_PORT=3001
-      - OPERATOR_PUBKEY=${OPERATOR_PUBKEY}
-      - OPERATOR_LIGHTNING=${OPERATOR_LIGHTNING}
-      - STRIKE_API_KEY=${STRIKE_API_KEY}
-      - NOSTR_RELAY=wss://relay.damus.io
+  # =====================================================
+  # Nostr Relay (strfry - Fast, Simple, Production-Ready)
+  # =====================================================
+  nostr-relay:
+    image: ghcr.io/hoytech/strfry:latest
+    container_name: donkeyride-nostr-relay
     restart: unless-stopped
+    ports:
+      - "7777:7777"  # WebSocket port for Nostr events
+    volumes:
+      - ./docker/strfry/strfry.conf:/etc/strfry.conf:ro
+      - strfry-db:/app/strfry-db
+    networks:
+      - donkeyride-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:7777"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
+      start_period: 10s
+
+  # =====================================================
+  # PostgreSQL - Operator State & Ride History
+  # =====================================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: donkeyride-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: donkeyride
+      POSTGRES_USER: donkey
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-devpassword123}
+      POSTGRES_INITDB_ARGS: "-E UTF8 --locale=en_US.UTF-8"
+    ports:
+      - "5432:5432"
     volumes:
-      - ./data:/usr/src/app/data  # For persistent storage if needed
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     networks:
       - donkeyride-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U donkey -d donkeyride"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # Optional: Add Redis for caching/session management
+  # =====================================================
+  # Redis - Caching, Sessions, Real-Time State
+  # =====================================================
   redis:
     image: redis:7-alpine
+    container_name: donkeyride-redis
     restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
     networks:
       - donkeyride-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # Optional: Add Postgres for ride history
-  postgres:
-    image: postgres:15-alpine
+  # =====================================================
+  # DonkeyRide Operator Backend
+  # =====================================================
+  operator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: donkeyride-operator
     restart: unless-stopped
-    environment:
-      - POSTGRES_DB=donkeyride
-      - POSTGRES_USER=donkey
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
     ports:
-      - "5432:5432"
+      - "3000:3000"  # REST API
+      - "3001:3001"  # WebSocket (real-time updates)
+    environment:
+      # Node
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      WS_PORT: 3001
+
+      # Operator Identity
+      OPERATOR_PUBKEY: ${OPERATOR_PUBKEY}
+      OPERATOR_NSEC: ${OPERATOR_NSEC}
+      OPERATOR_LIGHTNING: ${OPERATOR_LIGHTNING}
+      OPERATOR_FEE_PERCENT: ${OPERATOR_FEE_PERCENT:-0.005}
+
+      # Payment Provider
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-strike}
+      STRIKE_API_KEY: ${STRIKE_API_KEY}
+
+      # Infrastructure (use Docker service names)
+      NOSTR_RELAY: ws://nostr-relay:7777
+      DATABASE_URL: postgresql://donkey:${DB_PASSWORD:-devpassword123}@postgres:5432/donkeyride
+      REDIS_URL: redis://redis:6379
+      OSRM_URL: http://osrm-backend:5000
+
+      # Security
+      ENABLE_NIP98_AUTH: ${ENABLE_NIP98_AUTH:-true}
+      ENABLE_RATE_LIMITING: ${ENABLE_RATE_LIMITING:-true}
+
+      # Bonds
+      BOND_AMOUNT: ${BOND_AMOUNT:-1000000}
+      BOND_ADDRESS: ${BOND_ADDRESS}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nostr-relay:
+        condition: service_healthy
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - ./data:/usr/src/app/data
+      - ./logs:/usr/src/app/logs
     networks:
       - donkeyride-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
+  # =====================================================
+  # OSRM Backend - Navigation & Routing
+  # =====================================================
+  osrm-backend:
+    image: ghcr.io/project-osrm/osrm-backend:latest
+    container_name: donkeyride-osrm
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    volumes:
+      - osrm-data:/data
+    command: osrm-routed --algorithm mld /data/map.osrm --max-table-size 10000
+    networks:
+      - donkeyride-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    # Note: You need to prepare map data first. See docker/osrm/README.md
+
+  # =====================================================
+  # Mock Lightning Node (Development Only)
+  # =====================================================
+  mock-lightning:
+    build:
+      context: ./docker/mock-lightning
+      dockerfile: Dockerfile
+    container_name: donkeyride-mock-lightning
+    restart: unless-stopped
+    ports:
+      - "9735:9735"  # Lightning P2P
+      - "8080:8080"  # REST API
+    environment:
+      NETWORK: regtest
+      INITIAL_BALANCE: 10000000  # 10M sats
+    networks:
+      - donkeyride-network
+    profiles:
+      - dev  # Only start in development
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # =====================================================
+  # Adminer - Database Management UI (Development)
+  # =====================================================
+  adminer:
+    image: adminer:latest
+    container_name: donkeyride-adminer
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    networks:
+      - donkeyride-network
+    profiles:
+      - dev  # Only start in development
+
+  # =====================================================
+  # Redis Commander - Redis Management UI (Development)
+  # =====================================================
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: donkeyride-redis-ui
+    restart: unless-stopped
+    ports:
+      - "8082:8081"
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    networks:
+      - donkeyride-network
+    profiles:
+      - dev  # Only start in development
+
+# =====================================================
+# Networks
+# =====================================================
 networks:
   donkeyride-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
 
+# =====================================================
+# Volumes (Persistent Data)
+# =====================================================
 volumes:
-  redis-data:
   postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+  strfry-db:
+    driver: local
+  osrm-data:
+    driver: local
