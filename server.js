@@ -10,7 +10,8 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const WebSocket = require('ws');
-const { PaymentProviderFactory } = require('./payment-providers/factory');
+const Redis = require('redis');
+const { PaymentProviderFactory, ResilientStakeManager } = require('./payment-providers/factory');
 const { validateNIP98Auth } = require('./middleware/nip98-auth');
 const {
     publicRateLimiter,
@@ -18,10 +19,18 @@ const {
     rideCreationLimiter,
     stakeLimiter
 } = require('./middleware/rate-limit');
+const {
+    getBitcoinPrice,
+    estimateTripCost,
+    fetchBitcoinPrices
+} = require('./src/pricing/fiat-conversion');
+const { RideManager, RideStatus } = require('./src/ride-manager');
+const { getRoute } = require('./src/osrm-routing');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(express.static('public')); // Serve demo.html and other static files
 
 // ==========================================
 // RELAY OPERATOR CONFIGURATION
@@ -29,20 +38,21 @@ app.use(express.json());
 
 const config = {
     // Operator settings
+    operatorName: process.env.OPERATOR_NAME || 'DonkeyRide Operator',
     operatorPubkey: process.env.OPERATOR_PUBKEY,
     operatorLightningAddress: process.env.OPERATOR_LIGHTNING,
     operatorFeePercent: parseFloat(process.env.OPERATOR_FEE_PERCENT) || 0.005, // Market-driven fee (default 0.5%)
-    
+
     // Strike API (for now, later multiple providers)
     strikeApiKey: process.env.STRIKE_API_KEY,
-    
-    // Server settings  
+
+    // Server settings
     port: process.env.PORT || 3000,
     wsPort: process.env.WS_PORT || 3001,
-    
+
     // Nostr relay to publish events
     nostrRelay: process.env.NOSTR_RELAY || 'wss://relay.damus.io',
-    
+
     // Operator policies
     maxStakeAmount: 10000, // Max stake in sats
     minStakeAmount: 50,    // Min stake in sats
@@ -55,6 +65,7 @@ const config = {
 
 // Initialize payment provider with automatic fallbacks
 let paymentProvider;
+let stakeManager;
 
 async function initializePaymentProvider() {
     try {
@@ -72,8 +83,94 @@ async function initializePaymentProvider() {
     }
 }
 
+/**
+ * Build provider configuration map from environment variables.
+ * Mirrors PaymentProviderFactory.fromEnv so we can reuse configs for stake manager.
+ */
+function buildProviderConfigsFromEnv() {
+    return {
+        demo: {},
+        strike: {
+            apiKey: process.env.STRIKE_API_KEY,
+            baseUrl: process.env.STRIKE_BASE_URL
+        },
+        lnd: {
+            host: process.env.LND_HOST || 'localhost:10009',
+            cert: process.env.LND_CERT_PATH || '~/.lnd/tls.cert',
+            macaroon: process.env.LND_MACAROON_PATH || '~/.lnd/data/chain/bitcoin/mainnet/admin.macaroon',
+            network: process.env.LND_NETWORK || 'mainnet'
+        },
+        btcpay: {
+            url: process.env.BTCPAY_URL,
+            apiKey: process.env.BTCPAY_API_KEY,
+            storeId: process.env.BTCPAY_STORE_ID
+        },
+        alby: {
+            apiKey: process.env.ALBY_API_KEY,
+            refreshToken: process.env.ALBY_REFRESH_TOKEN
+        },
+        cln: {
+            socket: process.env.CLN_SOCKET || '~/.lightning/bitcoin/lightning-rpc',
+            network: process.env.CLN_NETWORK || 'bitcoin'
+        }
+    };
+}
+
+function parseProviderList(envValue, fallback) {
+    if (envValue && envValue.trim().length > 0) {
+        return envValue.split(',').map(p => p.trim()).filter(Boolean);
+    }
+    return Array.isArray(fallback) ? fallback : [fallback];
+}
+
+async function initializeStakeManager() {
+    const providerOrder = parseProviderList(
+        process.env.STAKE_PROVIDERS,
+        parseProviderList(process.env.PAYMENT_PROVIDER, 'demo')
+    );
+
+    // Allow explicit override of fallback order
+    const fallbacks = parseProviderList(process.env.PAYMENT_FALLBACKS, []);
+    fallbacks.forEach(p => {
+        if (!providerOrder.includes(p)) {
+            providerOrder.push(p);
+        }
+    });
+
+    const configs = buildProviderConfigsFromEnv();
+    const normalized = providerOrder.length > 0 ? providerOrder : ['demo'];
+
+    stakeManager = new ResilientStakeManager(normalized, configs, PaymentProviderFactory);
+    await stakeManager.initialize();
+}
+
+// ==========================================
+// REDIS CLIENT
+// ==========================================
+
+let redis;
+
+async function initializeRedis() {
+    try {
+        redis = Redis.createClient({
+            url: process.env.REDIS_URL || 'redis://localhost:6379'
+        });
+
+        redis.on('error', (err) => console.error('Redis error:', err));
+
+        await redis.connect();
+        console.log('✅ Redis connected');
+    } catch (error) {
+        console.warn('⚠️  Redis not available - driver location features disabled');
+        redis = null;
+    }
+}
+
 const activeRides = new Map();
 const stakeBalances = new Map();
+
+// Initialize ride manager
+const rideManager = new RideManager();
 
 // ==========================================
 // WEBSOCKET FOR REAL-TIME UPDATES
@@ -83,28 +180,88 @@ const wss = new WebSocket.Server({ port: config.wsPort });
 
 wss.on('connection', (ws) => {
     console.log('New client connected');
-    
+    ws.isAlive = true;
+
+    ws.on('pong', () => {
+        ws.isAlive = true;
+    });
+
     ws.on('message', (message) => {
-        const data = JSON.parse(message);
-        
-        switch(data.type) {
-            case 'subscribe_ride':
-                ws.rideId = data.rideId;
-                break;
-            case 'get_status':
-                ws.send(JSON.stringify({
-                    type: 'status',
-                    rides: activeRides.size,
-                    operator: config.operatorPubkey
-                }));
-                break;
+        try {
+            const data = JSON.parse(message);
+
+            switch(data.type) {
+                case 'subscribe_ride':
+                    ws.rideId = data.rideId;
+                    ws.clientType = 'rider';
+                    console.log(`Rider subscribed to ride ${data.rideId}`);
+                    break;
+
+                case 'register_driver':
+                    ws.driverNpub = data.npub;
+                    ws.clientType = 'driver';
+                    console.log(`Driver ${data.npub} registered for ride requests`);
+                    break;
+
+                case 'get_status':
+                    ws.send(JSON.stringify({
+                        type: 'status',
+                        rides: rideManager.getActiveRides().length,
+                        operator: config.operatorPubkey,
+                        stats: rideManager.getStats()
+                    }));
+                    break;
+            }
+        } catch (error) {
+            console.error('WebSocket message error:', error);
         }
+    });
+
+    ws.on('close', () => {
+        console.log('Client disconnected');
     });
 });
 
+// Heartbeat to detect broken connections
+const interval = setInterval(() => {
+    wss.clients.forEach((ws) => {
+        if (ws.isAlive === false) {
+            return ws.terminate();
+        }
+        ws.isAlive = false;
+        ws.ping();
+    });
+}, 30000);
+
+wss.on('close', () => {
+    clearInterval(interval);
+});
+
+// Broadcast to specific ride
 function broadcastToRide(rideId, message) {
     wss.clients.forEach(client => {
         if (client.rideId === rideId && client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(message));
+        }
+    });
+}
+
+// Broadcast to all drivers
+function broadcastToDrivers(message) {
+    let count = 0;
+    wss.clients.forEach(client => {
+        if (client.clientType === 'driver' && client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(message));
+            count++;
+        }
+    });
+    return count;
+}
+
+// Broadcast to all clients
+function broadcastToAll(message) {
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify(message));
         }
     });
@@ -119,14 +276,17 @@ app.get('/info', publicRateLimiter, (req, res) => {
     const caps = paymentProvider.getCapabilities();
 
     res.json({
+        name: config.operatorName,
         operator: config.operatorPubkey,
         lightning: config.operatorLightningAddress,
         fee: `${config.operatorFeePercent * 100}%`,
+        feePercent: config.operatorFeePercent,
         maxStake: config.maxStakeAmount,
         minStake: config.minStakeAmount,
         activeRides: activeRides.size,
         uptime: process.uptime(),
         version: '1.0.0',
+        nostrRelay: config.nostrRelay,
         paymentProvider: {
             name: paymentProvider.providerName,
             type: caps.type,
@@ -142,8 +302,8 @@ app.post('/rides/create', validateNIP98Auth, rideCreationLimiter, async (req, re
     try {
         const { rideId, riderId, fareAmount } = req.body;
 
-        // Verify authenticated user matches riderId
-        if (req.user.pubkey !== riderId) {
+        const authenticatedPubkey = req.user.pubkey;
+        if (riderId && riderId.toLowerCase() !== authenticatedPubkey.toLowerCase()) {
             return res.status(403).json({
                 error: 'Forbidden',
                 details: 'Authenticated pubkey must match riderId'
@@ -159,7 +319,7 @@ app.post('/rides/create', validateNIP98Auth, rideCreationLimiter, async (req, re
         
         // Store ride session
         activeRides.set(rideId, {
-            riderId,
+            riderId: authenticatedPubkey,
             fareAmount,
             riderStake,
             operatorFee,
@@ -274,14 +434,15 @@ app.post('/rides/:rideId/driver-stake', async (req, res) => {
         ride.driverStakeLocked = true;
         ride.driverStakeProof = stakeLock.holdId;
         ride.startedAt = Date.now();
-        
-        // Broadcast ride started
+
+        // Notify rider that driver stake is locked
         broadcastToRide(rideId, {
-            type: 'ride_started',
+            type: 'driver_stake_locked',
             driver: ride.driverId,
-            startedAt: ride.startedAt
+            stake: ride.driverStake,
+            timestamp: ride.startedAt
         });
-        
+
         res.json({
             success: true,
             status: 'ride_active',
@@ -426,15 +587,616 @@ app.get('/health', (req, res) => {
     res.json({
         status: 'healthy',
         uptime: process.uptime(),
-        activeRides: activeRides.size,
+        activeRides: rideManager.getActiveRides().length,
         memoryUsage: process.memoryUsage(),
-        strikeConnected: !!stakeManager
+        redisConnected: !!redis
     });
+});
+
+// ==========================================
+// DEMO & TRACKING API ENDPOINTS
+// ==========================================
+
+// Get available drivers
+app.get('/api/drivers/available', publicRateLimiter, async (req, res) => {
+    try {
+        if (!redis) {
+            return res.json({ drivers: [] });
+        }
+
+        // Get all online drivers from Redis
+        const keys = await redis.keys('driver:online:*');
+
+        if (keys.length === 0) {
+            return res.json({ drivers: [] });
+        }
+
+        // Fetch driver data
+        const driversData = await Promise.all(
+            keys.map(async (key) => {
+                const data = await redis.get(key);
+                return data ? JSON.parse(data) : null;
+            })
+        );
+
+        // Filter out null entries and add additional info
+        const drivers = driversData
+            .filter(d => d !== null)
+            .map(driver => ({
+                npub: driver.npub,
+                name: driver.name || 'Driver',
+                location: driver.location,
+                available: driver.available !== false,
+                rating: driver.rating || 5.0,
+                totalRides: driver.totalRides || 0,
+                lastUpdate: driver.lastUpdate
+            }));
+
+        res.json({
+            drivers,
+            count: drivers.length,
+            timestamp: Date.now()
+        });
+
+    } catch (error) {
+        console.error('Error fetching drivers:', error);
+        res.status(500).json({
+            error: 'Failed to fetch drivers',
+            details: error.message
+        });
+    }
+});
+
+// Estimate trip cost
+app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
+    try {
+        const { pickup_lat, pickup_lon, dropoff_lat, dropoff_lon, currency } = req.body;
+
+        // Validate inputs
+        if (!pickup_lat || !pickup_lon || !dropoff_lat || !dropoff_lon) {
+            return res.status(400).json({
+                error: 'Missing required parameters',
+                required: ['pickup_lat', 'pickup_lon', 'dropoff_lat', 'dropoff_lon']
+            });
+        }
+
+        // Calculate distance using Haversine formula
+        const distance = calculateDistance(
+            pickup_lat,
+            pickup_lon,
+            dropoff_lat,
+            dropoff_lon
+        );
+
+        // Estimate duration based on average speed (30 km/h in city)
+        const duration = (distance / 30) * 60; // minutes
+
+        // Get detailed cost estimate with dual pricing
+        const estimate = await estimateTripCost(distance, duration, {
+            currency: currency || 'USD',
+            operatorFeePct: config.operatorFeePercent
+        });
+
+        res.json({
+            ...estimate,
+            pickup: { lat: pickup_lat, lon: pickup_lon },
+            dropoff: { lat: dropoff_lat, lon: dropoff_lon },
+            timestamp: Date.now()
+        });
+
+    } catch (error) {
+        console.error('Error estimating trip cost:', error);
+        res.status(500).json({
+            error: 'Failed to estimate trip cost',
+            details: error.message
+        });
+    }
+});
+
+// Get current BTC prices
+app.get('/api/prices/btc', publicRateLimiter, async (req, res) => {
+    try {
+        // Fetch prices for all supported currencies
+        const prices = {
+            USD: await getBitcoinPrice('USD'),
+            EUR: await getBitcoinPrice('EUR'),
+            GBP: await getBitcoinPrice('GBP')
+        };
+
+        res.json({
+            prices,
+            lastUpdate: Date.now(),
+            source: 'CoinGecko'
+        });
+
+    } catch (error) {
+        console.error('Error fetching BTC prices:', error);
+        res.status(500).json({
+            error: 'Failed to fetch BTC prices',
+            details: error.message
+        });
+    }
+});
+
+// Refresh BTC prices (for testing)
+app.post('/api/prices/refresh', async (req, res) => {
+    try {
+        await fetchBitcoinPrices();
+        res.json({
+            success: true,
+            message: 'Prices refreshed',
+            timestamp: Date.now()
+        });
+    } catch (error) {
+        res.status(500).json({
+            error: 'Failed to refresh prices',
+            details: error.message
+        });
+    }
+});
+
+// Preview route (calculate route without creating a ride)
+app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
+    try {
+        const { from_lat, from_lon, to_lat, to_lon } = req.body;
+
+        // Validate inputs
+        if (!from_lat || !from_lon || !to_lat || !to_lon) {
+            return res.status(400).json({
+                error: 'Missing required parameters',
+                required: ['from_lat', 'from_lon', 'to_lat', 'to_lon']
+            });
+        }
+
+        // Try to get OSRM route
+        const osrmRoute = await getRoute(from_lat, from_lon, to_lat, to_lon);
+
+        if (osrmRoute) {
+            res.json({
+                success: true,
+                route: osrmRoute.coordinates,
+                distance_km: parseFloat(osrmRoute.distanceKm),
+                duration_seconds: osrmRoute.duration,
+                duration_minutes: osrmRoute.durationMin,
+                points: osrmRoute.coordinates.length
+            });
+        } else {
+            // No OSRM available, return null route
+            res.json({
+                success: true,
+                route: null,
+                message: 'OSRM routing not available'
+            });
+        }
+
+    } catch (error) {
+        console.error('Error previewing route:', error);
+        res.status(500).json({
+            error: 'Failed to preview route',
+            details: error.message
+        });
+    }
+});
+
+// ==========================================
+// MVP RIDE APIs
+// ==========================================
+
+// Request a ride
+    app.post('/api/rides/request', publicRateLimiter, async (req, res) => {
+        try {
+            const {
+                pickup_lat,
+                pickup_lon,
+                dropoff_lat,
+                dropoff_lon,
+                rider_npub,
+                ride_id,
+                fare_sats
+            } = req.body;
+
+            // Validate
+            if (!pickup_lat || !pickup_lon || !dropoff_lat || !dropoff_lon) {
+                return res.status(400).json({
+                    error: 'Missing required parameters',
+                required: ['pickup_lat', 'pickup_lon', 'dropoff_lat', 'dropoff_lon']
+            });
+        }
+
+            // Use default rider if not provided (for MVP)
+            const riderNpub = rider_npub || 'npub_test_rider';
+            const rideOptions = ride_id ? { rideId: ride_id } : {};
+
+            // Try to get OSRM route for real road routing
+            let distance, duration, routeCoordinates = null;
+            const osrmRoute = await getRoute(pickup_lat, pickup_lon, dropoff_lat, dropoff_lon);
+
+        if (osrmRoute) {
+            // Use OSRM routing data
+            distance = parseFloat(osrmRoute.distanceKm);
+            duration = osrmRoute.durationMin;
+            routeCoordinates = osrmRoute.coordinates;
+            console.log(`🗺️  Using OSRM routing: ${distance.toFixed(2)}km, ${duration} min, ${routeCoordinates.length} points`);
+        } else {
+            // Fallback to straight-line calculation
+            distance = calculateDistance(pickup_lat, pickup_lon, dropoff_lat, dropoff_lon);
+            duration = (distance / 30) * 60; // 30 km/h average
+            console.log(`📏 Using straight-line routing: ${distance.toFixed(2)}km`);
+        }
+
+            const estimate = await estimateTripCost(distance, duration, {
+                currency: 'USD',
+                operatorFeePct: config.operatorFeePercent
+            });
+
+            const estimatedFareSats = fare_sats
+                ? parseInt(fare_sats, 10)
+                : estimate.fare.sats;
+
+            // Create ride
+            const ride = rideManager.createRide(
+                riderNpub,
+                { lat: pickup_lat, lon: pickup_lon },
+                { lat: dropoff_lat, lon: dropoff_lon },
+                estimatedFareSats,
+                rideOptions
+            );
+
+            // Add route coordinates if available
+            if (routeCoordinates) {
+                ride.route = routeCoordinates;
+            }
+
+            if (rideOptions.rideId) {
+                const session = activeRides.get(rideOptions.rideId);
+                if (session) {
+                    session.pickup = ride.pickup;
+                    session.dropoff = ride.dropoff;
+                    session.estimate = estimate;
+                    session.route = routeCoordinates;
+                }
+            }
+
+            // Broadcast to all drivers
+            const driverCount = broadcastToDrivers({
+                type: 'ride_request',
+                ride: {
+                id: ride.id,
+                pickup: ride.pickup,
+                dropoff: ride.dropoff,
+                    fare: ride.fare,
+                    distance: distance,
+                    estimatedFare: estimate,
+                    route: routeCoordinates
+                }
+            });
+
+            console.log(`📢 Broadcast ride request ${ride.id} to ${driverCount} drivers`);
+
+            res.json({
+                success: true,
+                ride_id: ride.id,
+                status: ride.status,
+                estimated_fare: estimatedFareSats,
+                estimated_cost: estimate.fare.formatted,
+                distance_km: distance,
+                duration_minutes: Math.round(duration),
+                drivers_notified: driverCount,
+                route: routeCoordinates,
+                estimate
+            });
+
+    } catch (error) {
+        console.error('Error requesting ride:', error);
+        res.status(500).json({
+            error: 'Failed to request ride',
+            details: error.message
+        });
+    }
+});
+
+// Driver accepts ride
+app.post('/api/rides/:rideId/accept', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const { driver_npub, driver_name, driver_location, driver_rating } = req.body;
+
+        const ride = rideManager.acceptRide(rideId, driver_npub, {
+            name: driver_name,
+            location: driver_location,
+            rating: driver_rating
+        });
+
+        // If ride is null, another driver already accepted (race condition)
+        if (!ride) {
+            return res.status(400).json({
+                error: 'Ride already accepted by another driver'
+            });
+        }
+
+        // Start en route
+        rideManager.startEnRoute(rideId);
+
+        // Calculate driver-to-pickup route using OSRM
+        let driverRoute = null;
+        const driverToPickupRoute = await getRoute(
+            driver_location.lat,
+            driver_location.lon,
+            ride.pickup.lat,
+            ride.pickup.lon
+        );
+
+        if (driverToPickupRoute) {
+            driverRoute = driverToPickupRoute.coordinates;
+            console.log(`🚗 Driver route calculated: ${driverToPickupRoute.distanceKm}km to pickup, ${driverRoute.length} points`);
+        }
+
+        // Calculate ETA
+        const eta = driverToPickupRoute
+            ? driverToPickupRoute.duration  // Use OSRM duration in seconds
+            : rideManager.calculateETA(driver_location, ride.pickup);
+
+        // Notify rider with driver route
+        broadcastToRide(rideId, {
+            type: 'ride_matched',
+            ride: {
+                id: ride.id,
+                status: ride.status,
+                driver: ride.driver,
+                eta_seconds: eta,
+                driver_route: driverRoute  // Route from driver to pickup
+            }
+        });
+
+        res.json({
+            success: true,
+            ride,
+            eta_seconds: eta,
+            driver_route: driverRoute
+        });
+
+    } catch (error) {
+        console.error('Error accepting ride:', error);
+        res.status(400).json({
+            error: 'Failed to accept ride',
+            details: error.message
+        });
+    }
+});
+
+// Update driver location (during ride)
+app.post('/api/rides/:rideId/location', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const { lat, lon } = req.body;
+
+        const ride = rideManager.getRide(rideId);
+
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        // Determine destination based on status
+        let destination;
+        if (ride.status === RideStatus.DRIVER_EN_ROUTE) {
+            destination = ride.pickup;
+        } else if (ride.status === RideStatus.ACTIVE) {
+            destination = ride.dropoff;
+        }
+
+        // Calculate ETA if we have a destination
+        let eta = null;
+        if (destination) {
+            eta = rideManager.calculateETA({ lat, lon }, destination);
+        }
+
+        // Update location
+        rideManager.updateDriverLocation(rideId, { lat, lon }, eta);
+
+        // Broadcast to rider
+        broadcastToRide(rideId, {
+            type: 'driver_location',
+            ride_id: rideId,
+            location: { lat, lon },
+            eta_seconds: eta
+        });
+
+        res.json({
+            success: true,
+            eta_seconds: eta
+        });
+
+    } catch (error) {
+        console.error('Error updating location:', error);
+        res.status(500).json({
+            error: 'Failed to update location',
+            details: error.message
+        });
+    }
+});
+
+// Driver arrived at pickup
+app.post('/api/rides/:rideId/arrive', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+
+        const ride = rideManager.arriveAtPickup(rideId);
+
+        // Notify rider
+        broadcastToRide(rideId, {
+            type: 'driver_arrived',
+            ride_id: rideId,
+            ride
+        });
+
+        res.json({
+            success: true,
+            ride
+        });
+
+    } catch (error) {
+        console.error('Error marking arrival:', error);
+        res.status(400).json({
+            error: 'Failed to mark arrival',
+            details: error.message
+        });
+    }
+});
+
+// Start trip
+app.post('/api/rides/:rideId/start', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+
+        const ride = rideManager.startTrip(rideId);
+
+        // Notify rider
+        broadcastToRide(rideId, {
+            type: 'trip_started',
+            ride_id: rideId,
+            ride
+        });
+
+        res.json({
+            success: true,
+            ride
+        });
+
+    } catch (error) {
+        console.error('Error starting trip:', error);
+        res.status(400).json({
+            error: 'Failed to start trip',
+            details: error.message
+        });
+    }
+});
+
+// Complete trip
+app.post('/api/rides/:rideId/complete', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+
+        const ride = rideManager.getRide(rideId);
+
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        // Mock payment
+        const payment = {
+            success: true,
+            payment_hash: `mock_hash_${Date.now()}`,
+            amount_sats: ride.fare,
+            timestamp: Date.now()
+        };
+
+        const completedRide = rideManager.completeTrip(rideId, payment);
+
+        // Notify rider
+        broadcastToRide(rideId, {
+            type: 'trip_completed',
+            ride_id: rideId,
+            ride: completedRide,
+            payment
+        });
+
+        res.json({
+            success: true,
+            ride: completedRide,
+            payment
+        });
+
+    } catch (error) {
+        console.error('Error completing trip:', error);
+        res.status(400).json({
+            error: 'Failed to complete trip',
+            details: error.message
+        });
+    }
+});
+
+// Get ride status
+app.get('/api/rides/:rideId', (req, res) => {
+    try {
+        const { rideId } = req.params;
+
+        const ride = rideManager.getRide(rideId);
+
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        res.json({
+            success: true,
+            ride
+        });
+
+    } catch (error) {
+        console.error('Error getting ride:', error);
+        res.status(500).json({
+            error: 'Failed to get ride',
+            details: error.message
+        });
+    }
+});
+
+// Get ride stats
+app.get('/api/rides/stats', (req, res) => {
+    try {
+        const stats = rideManager.getStats();
+        const activeRides = rideManager.getActiveRides();
+
+        res.json({
+            success: true,
+            stats,
+            active_rides: activeRides.length,
+            rides: activeRides.map(r => ({
+                id: r.id,
+                status: r.status,
+                rider: r.rider.npub,
+                driver: r.driver?.npub || null
+            }))
+        });
+
+    } catch (error) {
+        console.error('Error getting stats:', error);
+        res.status(500).json({
+            error: 'Failed to get stats',
+            details: error.message
+        });
+    }
 });
 
 // ==========================================
 // HELPER FUNCTIONS
 // ==========================================
+
+/**
+ * Calculate distance between two coordinates using Haversine formula
+ * @param {number} lat1 - Latitude of first point
+ * @param {number} lon1 - Longitude of first point
+ * @param {number} lat2 - Latitude of second point
+ * @param {number} lon2 - Longitude of second point
+ * @returns {number} Distance in kilometers
+ */
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Earth's radius in kilometers
+
+    const dLat = toRadians(lat2 - lat1);
+    const dLon = toRadians(lon2 - lon1);
+
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+    return R * c; // Distance in kilometers
+}
+
+function toRadians(degrees) {
+    return degrees * (Math.PI / 180);
+}
 
 async function createLightningInvoice(amount, memo) {
     // This would integrate with your Lightning node or Strike API
@@ -460,6 +1222,18 @@ async function payOperatorFee(amount) {
 async function startServer() {
     // Initialize payment provider first
     await initializePaymentProvider();
+    await initializeStakeManager();
+
+    // Initialize Redis for driver tracking
+    await initializeRedis();
+
+    // Pre-fetch BTC prices
+    try {
+        await fetchBitcoinPrices();
+        console.log('✅ BTC prices fetched');
+    } catch (error) {
+        console.warn('⚠️  Failed to fetch initial BTC prices');
+    }
 
     // Start HTTP server
     app.listen(config.port, () => {
@@ -467,8 +1241,9 @@ async function startServer() {
     ========================================
     DonkeyRide Operator Server
     ========================================
-    Operator: ${config.operatorPubkey}
-    Lightning: ${config.operatorLightningAddress}
+    Name: ${config.operatorName}
+    Operator: ${config.operatorPubkey || 'Not configured'}
+    Lightning: ${config.operatorLightningAddress || 'Not configured'}
     Fee: ${config.operatorFeePercent * 100}%
     Payment Provider: ${paymentProvider.providerName} (${paymentProvider.type})
     API Port: ${config.port}
@@ -476,11 +1251,21 @@ async function startServer() {
     ========================================
     Server running at http://localhost:${config.port}
     WebSocket at ws://localhost:${config.wsPort}
+    Demo UI at http://localhost:${config.port}/demo.html
     ========================================
 
     🔐 NIP-98 authentication enabled
     🛡️  Rate limiting active
     ⚡ Multiple payment providers supported
+    💰 Dual pricing (sats + fiat) enabled
+    🗺️  Driver tracking enabled
+    ========================================
+
+    API Endpoints:
+    GET  /api/drivers/available   - List online drivers
+    POST /api/trips/estimate       - Estimate trip cost
+    GET  /api/prices/btc           - Get BTC prices
+    GET  /info                     - Operator information
     ========================================
         `);
     });
@@ -493,9 +1278,9 @@ startServer().catch(error => {
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
     console.log('Shutting down gracefully...');
-    
+
     // Release all active stakes before shutdown
     activeRides.forEach(async (ride, rideId) => {
         if (ride.status === 'active') {
@@ -503,8 +1288,13 @@ process.on('SIGTERM', () => {
             await stakeManager.releaseStakes(`${rideId}_driver`);
         }
     });
-    
+
+    // Close connections
     wss.close();
+    if (redis) {
+        await redis.disconnect();
+    }
+
     process.exit(0);
 });
 

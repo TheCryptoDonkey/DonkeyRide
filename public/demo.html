@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DonkeyRide Demo - Live Map</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    #map {
+      width: 100%;
+      height: 100vh;
+    }
+
+    .sidebar {
+      position: absolute;
+      top: 20px;
+      right: 20px;
+      width: 350px;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      padding: 20px;
+      z-index: 1000;
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+    }
+
+    h1 {
+      font-size: 24px;
+      margin-bottom: 16px;
+      color: #1a1a1a;
+    }
+
+    h2 {
+      font-size: 18px;
+      margin: 20px 0 12px 0;
+      color: #333;
+      border-bottom: 2px solid #4CAF50;
+      padding-bottom: 8px;
+    }
+
+    .stat {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    .stat-label {
+      color: #666;
+      font-size: 14px;
+    }
+
+    .stat-value {
+      font-weight: 600;
+      color: #1a1a1a;
+      font-size: 14px;
+    }
+
+    .driver-list {
+      margin-top: 12px;
+    }
+
+    .driver-item {
+      padding: 12px;
+      border-radius: 8px;
+      background: #f5f5f5;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .driver-item:hover {
+      background: #e8f5e9;
+      transform: translateX(-2px);
+    }
+
+    .driver-item.selected {
+      background: #c8e6c9;
+      border-left: 4px solid #4CAF50;
+    }
+
+    .driver-name {
+      font-weight: 600;
+      font-size: 14px;
+      color: #1a1a1a;
+    }
+
+    .driver-stats {
+      font-size: 12px;
+      color: #666;
+      margin-top: 4px;
+    }
+
+    .trip-estimate {
+      background: #e3f2fd;
+      border-left: 4px solid #2196F3;
+      padding: 16px;
+      border-radius: 8px;
+      margin-top: 16px;
+    }
+
+    .trip-estimate h3 {
+      font-size: 16px;
+      margin-bottom: 12px;
+      color: #1976D2;
+    }
+
+    .price-display {
+      text-align: center;
+      padding: 16px;
+      background: white;
+      border-radius: 8px;
+      margin: 12px 0;
+    }
+
+    .price-primary {
+      font-size: 28px;
+      font-weight: 700;
+      color: #F7931A; /* Bitcoin orange */
+    }
+
+    .price-secondary {
+      font-size: 18px;
+      color: #666;
+      margin-top: 4px;
+    }
+
+    .route-info {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .route-detail {
+      text-align: center;
+      padding: 12px;
+      background: white;
+      border-radius: 8px;
+    }
+
+    .route-detail-label {
+      font-size: 12px;
+      color: #666;
+      text-transform: uppercase;
+    }
+
+    .route-detail-value {
+      font-size: 18px;
+      font-weight: 600;
+      color: #1a1a1a;
+      margin-top: 4px;
+    }
+
+    .status-indicator {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #4CAF50;
+      margin-right: 8px;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .btn {
+      width: 100%;
+      padding: 14px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 16px;
+      transition: all 0.2s;
+    }
+
+    .btn:hover {
+      background: #45a049;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+
+    .btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .currency-toggle {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .currency-btn {
+      flex: 1;
+      padding: 8px;
+      background: #f5f5f5;
+      border: 2px solid transparent;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    .currency-btn.active {
+      background: #e3f2fd;
+      border-color: #2196F3;
+      color: #1976D2;
+    }
+
+    /* Leaflet custom markers */
+    .driver-marker {
+      background: #4CAF50;
+      border: 3px solid white;
+      border-radius: 50%;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+
+    .driver-marker svg {
+      width: 20px;
+      height: 20px;
+      fill: white;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div class="sidebar">
+    <h1><span class="status-indicator"></span>DonkeyRide Demo</h1>
+
+    <div class="currency-toggle">
+      <button class="currency-btn active" data-currency="USD">USD $</button>
+      <button class="currency-btn" data-currency="EUR">EUR €</button>
+      <button class="currency-btn" data-currency="GBP">GBP £</button>
+    </div>
+
+    <div class="stat">
+      <span class="stat-label">Online Drivers</span>
+      <span class="stat-value" id="driver-count">0</span>
+    </div>
+
+    <div class="stat">
+      <span class="stat-label">BTC Price</span>
+      <span class="stat-value" id="btc-price">Loading...</span>
+    </div>
+
+    <h2>📍 Plan a Trip</h2>
+
+    <div class="stat">
+      <span class="stat-label">From</span>
+      <span class="stat-value">Times Square</span>
+    </div>
+
+    <div class="stat">
+      <span class="stat-label">To</span>
+      <span class="stat-value">Central Park</span>
+    </div>
+
+    <div id="trip-estimate" class="trip-estimate" style="display: none;">
+      <h3>💰 Trip Estimate</h3>
+
+      <div class="price-display">
+        <div class="price-primary" id="price-sats">0 sats</div>
+        <div class="price-secondary" id="price-fiat">$0.00</div>
+      </div>
+
+      <div class="route-info">
+        <div class="route-detail">
+          <div class="route-detail-label">Distance</div>
+          <div class="route-detail-value" id="distance">0 km</div>
+        </div>
+        <div class="route-detail">
+          <div class="route-detail-label">Duration</div>
+          <div class="route-detail-value" id="duration">0 min</div>
+        </div>
+      </div>
+
+      <div style="margin-top: 12px; font-size: 12px; color: #666;">
+        <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+          <span>Base fare:</span>
+          <span id="base-fare">$0.00</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+          <span>Distance (<span id="distance-km">0</span> km):</span>
+          <span id="distance-fare">$0.00</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 4px 0;">
+          <span>Time (<span id="duration-min">0</span> min):</span>
+          <span id="time-fare">$0.00</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-top: 1px solid #ccc; margin-top: 4px; padding-top: 8px;">
+          <span><strong>Driver earns:</strong></span>
+          <span id="driver-earns"><strong>$0.00</strong></span>
+        </div>
+      </div>
+
+      <button class="btn" id="request-ride-btn">Request Ride</button>
+    </div>
+
+    <h2>🚗 Available Drivers</h2>
+
+    <div class="driver-list" id="driver-list">
+      <p style="color: #999; text-align: center; padding: 20px 0;">
+        Loading drivers...
+      </p>
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script>
+    // State
+    let map;
+    let drivers = [];
+    let driverMarkers = {};
+    let selectedDriver = null;
+    let currentCurrency = 'USD';
+    let routePolyline = null;
+
+    // NYC coordinates
+    const NYC_CENTER = [40.7580, -73.9855];
+    const TIMES_SQUARE = [40.7580, -73.9855];
+    const CENTRAL_PARK = [40.7829, -73.9712];
+
+    // Initialize map
+    function initMap() {
+      map = L.map('map').setView(NYC_CENTER, 13);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+      }).addTo(map);
+
+      // Add markers for pickup/dropoff
+      L.marker(TIMES_SQUARE).addTo(map)
+        .bindPopup('<b>Pickup</b><br>Times Square');
+
+      L.marker(CENTRAL_PARK).addTo(map)
+        .bindPopup('<b>Dropoff</b><br>Central Park');
+    }
+
+    // Fetch available drivers
+    async function fetchDrivers() {
+      try {
+        const response = await fetch('/api/drivers/available');
+        const data = await response.json();
+
+        drivers = data.drivers || [];
+        updateDriverMarkers();
+        updateDriverList();
+        updateStats();
+      } catch (error) {
+        console.error('Failed to fetch drivers:', error);
+      }
+    }
+
+    // Update driver markers on map
+    function updateDriverMarkers() {
+      // Remove old markers
+      Object.values(driverMarkers).forEach(marker => map.removeLayer(marker));
+      driverMarkers = {};
+
+      // Add new markers
+      drivers.forEach(driver => {
+        const marker = L.marker([driver.location.lat, driver.location.lon], {
+          icon: L.divIcon({
+            className: 'driver-marker',
+            html: '<svg><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>',
+            iconSize: [32, 32]
+          })
+        }).addTo(map);
+
+        marker.bindPopup(`
+          <b>${driver.name}</b><br>
+          Rating: ${driver.rating || '4.8'} ⭐<br>
+          ${driver.totalRides || 0} rides
+        `);
+
+        driverMarkers[driver.npub] = marker;
+      });
+    }
+
+    // Update driver list in sidebar
+    function updateDriverList() {
+      const driverList = document.getElementById('driver-list');
+
+      if (drivers.length === 0) {
+        driverList.innerHTML = '<p style="color: #999; text-align: center; padding: 20px 0;">No drivers online</p>';
+        return;
+      }
+
+      driverList.innerHTML = drivers.map(driver => `
+        <div class="driver-item" data-npub="${driver.npub}">
+          <div class="driver-name">🚗 ${driver.name}</div>
+          <div class="driver-stats">
+            ⭐ ${driver.rating || '4.8'} • ${driver.totalRides || 0} rides • ${calculateDistance(TIMES_SQUARE, [driver.location.lat, driver.location.lon]).toFixed(1)} km away
+          </div>
+        </div>
+      `).join('');
+
+      // Add click handlers
+      document.querySelectorAll('.driver-item').forEach(item => {
+        item.addEventListener('click', () => selectDriver(item.dataset.npub));
+      });
+    }
+
+    // Select a driver
+    function selectDriver(npub) {
+      selectedDriver = drivers.find(d => d.npub === npub);
+
+      document.querySelectorAll('.driver-item').forEach(item => {
+        item.classList.toggle('selected', item.dataset.npub === npub);
+      });
+
+      // Show route and estimate
+      showRouteEstimate();
+    }
+
+    // Show route and cost estimate
+    async function showRouteEstimate() {
+      if (!selectedDriver) return;
+
+      // Draw route
+      if (routePolyline) {
+        map.removeLayer(routePolyline);
+      }
+
+      routePolyline = L.polyline([TIMES_SQUARE, CENTRAL_PARK], {
+        color: '#2196F3',
+        weight: 4,
+        opacity: 0.7
+      }).addTo(map);
+
+      // Fetch cost estimate
+      const estimate = await fetchCostEstimate(TIMES_SQUARE, CENTRAL_PARK);
+
+      // Display estimate
+      document.getElementById('trip-estimate').style.display = 'block';
+      displayCostEstimate(estimate);
+    }
+
+    // Fetch cost estimate from backend
+    async function fetchCostEstimate(from, to) {
+      try {
+        const response = await fetch('/api/trips/estimate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pickup_lat: from[0],
+            pickup_lon: from[1],
+            dropoff_lat: to[0],
+            dropoff_lon: to[1],
+            currency: currentCurrency
+          })
+        });
+
+        return await response.json();
+      } catch (error) {
+        console.error('Failed to fetch estimate:', error);
+        // Return mock data
+        return {
+          fare: { sats: 5000, fiat: 2.25 },
+          distance: { km: 2.1 },
+          duration: { minutes: 8 },
+          breakdown: {
+            baseFare: { fiat: 2.50 },
+            distance: { fiat: 3.15 },
+            duration: { fiat: 2.40 }
+          },
+          driverEarns: { fiat: 8.01 }
+        };
+      }
+    }
+
+    // Display cost estimate
+    function displayCostEstimate(estimate) {
+      document.getElementById('price-sats').textContent = estimate.fare.sats.toLocaleString() + ' sats';
+      document.getElementById('price-fiat').textContent = formatCurrency(estimate.fare.fiat);
+      document.getElementById('distance').textContent = estimate.distance.km.toFixed(1) + ' km';
+      document.getElementById('duration').textContent = Math.round(estimate.duration.minutes) + ' min';
+
+      document.getElementById('base-fare').textContent = formatCurrency(estimate.breakdown.baseFare.fiat);
+      document.getElementById('distance-km').textContent = estimate.distance.km.toFixed(1);
+      document.getElementById('distance-fare').textContent = formatCurrency(estimate.breakdown.distance.fiat);
+      document.getElementById('duration-min').textContent = Math.round(estimate.duration.minutes);
+      document.getElementById('time-fare').textContent = formatCurrency(estimate.breakdown.duration.fiat);
+      document.getElementById('driver-earns').textContent = formatCurrency(estimate.driverEarns.fiat);
+    }
+
+    // Update stats
+    function updateStats() {
+      document.getElementById('driver-count').textContent = drivers.length;
+    }
+
+    // Currency formatting
+    function formatCurrency(amount) {
+      const symbols = { USD: '$', EUR: '€', GBP: '£' };
+      return symbols[currentCurrency] + amount.toFixed(2);
+    }
+
+    // Calculate distance between two points (Haversine)
+    function calculateDistance(point1, point2) {
+      const [lat1, lon1] = point1;
+      const [lat2, lon2] = point2;
+
+      const R = 6371; // Earth radius in km
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon/2) * Math.sin(dLon/2);
+
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
+    }
+
+    // Currency toggle
+    document.querySelectorAll('.currency-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.currency-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentCurrency = btn.dataset.currency;
+
+        // Refresh estimate
+        if (selectedDriver) {
+          showRouteEstimate();
+        }
+      });
+    });
+
+    // Request ride button
+    document.getElementById('request-ride-btn').addEventListener('click', () => {
+      alert('🚀 Ride request would be sent to Nostr here!\n\nRide ID: ride_' + Date.now() + '\nDriver: ' + selectedDriver.name);
+    });
+
+    // Fetch BTC price
+    async function fetchBTCPrice() {
+      try {
+        const response = await fetch('/api/prices/btc');
+        const data = await response.json();
+        document.getElementById('btc-price').textContent = formatCurrency(data[currentCurrency]);
+      } catch (error) {
+        document.getElementById('btc-price').textContent = formatCurrency(45000);
+      }
+    }
+
+    // Initialize
+    window.addEventListener('load', () => {
+      initMap();
+      fetchDrivers();
+      fetchBTCPrice();
+
+      // Refresh drivers every 5 seconds
+      setInterval(fetchDrivers, 5000);
+
+      // Refresh BTC price every minute
+      setInterval(fetchBTCPrice, 60000);
+    });
+  </script>
+</body>
+</html>

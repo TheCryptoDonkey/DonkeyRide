@@ -22,7 +22,7 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
-if ! command -v docker-compose &> /dev/null; then
+if ! command -v docker compose &> /dev/null; then
     echo -e "${RED}❌ Docker Compose not found. Please install Docker Compose first.${NC}"
     echo -e "   Visit: https://docs.docker.com/compose/install/"
     exit 1
@@ -91,7 +91,7 @@ done
 # Rebuild if requested
 if [ "$REBUILD" = true ]; then
     echo -e "${YELLOW}🔨 Rebuilding Docker images...${NC}"
-    docker-compose build
+    docker compose build
     echo -e "${GREEN}✅ Build complete${NC}\n"
 fi
 
@@ -107,7 +107,7 @@ if [ "$DEV_MODE" = true ]; then
     echo -e "   - Adminer (DB UI)"
     echo -e "   - Redis Commander\n"
 
-    docker-compose --profile dev up -d
+    docker compose --profile dev up -d
 else
     echo -e "${YELLOW}🚀 Starting DonkeyRide in PRODUCTION mode...${NC}"
     echo -e "   Services:"
@@ -117,7 +117,7 @@ else
     echo -e "   - Operator Backend"
     echo -e "   - OSRM (if map data prepared)\n"
 
-    docker-compose up -d
+    docker compose up -d
 fi
 
 # Wait for services to be healthy
@@ -126,7 +126,7 @@ sleep 5
 
 # Check service health
 echo ""
-docker-compose ps
+docker compose ps
 
 # Print access info
 echo ""
@@ -153,9 +153,9 @@ echo -e "  Operator info:   ${YELLOW}curl http://localhost:3000/info${NC}"
 
 echo ""
 echo -e "${BLUE}Useful Commands:${NC}"
-echo -e "  View logs:       ${YELLOW}docker-compose logs -f${NC}"
-echo -e "  Stop services:   ${YELLOW}docker-compose down${NC}"
-echo -e "  Restart service: ${YELLOW}docker-compose restart operator${NC}"
+echo -e "  View logs:       ${YELLOW}docker compose logs -f${NC}"
+echo -e "  Stop services:   ${YELLOW}docker compose down${NC}"
+echo -e "  Restart service: ${YELLOW}docker compose restart operator${NC}"
 
 echo ""
 echo -e "${BLUE}Documentation:${NC}"
@@ -168,5 +168,5 @@ echo -e "\n${GREEN}========================================${NC}\n"
 # Show logs if requested
 if [ "$LOGS" = true ]; then
     echo -e "${YELLOW}📋 Showing logs (Ctrl+C to exit)...${NC}\n"
-    docker-compose logs -f
+    docker compose logs -f
 fi

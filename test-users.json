@@ -1,0 +1,182 @@
+{
+  "drivers": [
+    {
+      "privateKey": "demo_key_1",
+      "publicKey": "demo_pub_1",
+      "nsec": "nsec1demo1",
+      "npub": "npub1driver1",
+      "name": "Driver 1",
+      "location": {
+        "lat": 51.5074,
+        "lon": -0.1278
+      },
+      "reputation": {
+        "totalRides": 156,
+        "averageRating": 4.8,
+        "rating5Count": 125
+      }
+    },
+    {
+      "privateKey": "demo_key_2",
+      "publicKey": "demo_pub_2",
+      "nsec": "nsec1demo2",
+      "npub": "npub1driver2",
+      "name": "Driver 2",
+      "location": {
+        "lat": 51.5100,
+        "lon": -0.1200
+      },
+      "reputation": {
+        "totalRides": 89,
+        "averageRating": 4.9,
+        "rating5Count": 72
+      }
+    },
+    {
+      "privateKey": "demo_key_3",
+      "publicKey": "demo_pub_3",
+      "nsec": "nsec1demo3",
+      "npub": "npub1driver3",
+      "name": "Driver 3",
+      "location": {
+        "lat": 51.5120,
+        "lon": -0.1000
+      },
+      "reputation": {
+        "totalRides": 234,
+        "averageRating": 5.0,
+        "rating5Count": 230
+      }
+    },
+    {
+      "privateKey": "demo_key_4",
+      "publicKey": "demo_pub_4",
+      "nsec": "nsec1demo4",
+      "npub": "npub1driver4",
+      "name": "Driver 4",
+      "location": {
+        "lat": 51.5050,
+        "lon": -0.1400
+      },
+      "reputation": {
+        "totalRides": 67,
+        "averageRating": 4.7,
+        "rating5Count": 55
+      }
+    },
+    {
+      "privateKey": "demo_key_5",
+      "publicKey": "demo_pub_5",
+      "nsec": "nsec1demo5",
+      "npub": "npub1driver5",
+      "name": "Driver 5",
+      "location": {
+        "lat": 51.5140,
+        "lon": -0.0950
+      },
+      "reputation": {
+        "totalRides": 178,
+        "averageRating": 4.9,
+        "rating5Count": 145
+      }
+    },
+    {
+      "privateKey": "demo_key_6",
+      "publicKey": "demo_pub_6",
+      "nsec": "nsec1demo6",
+      "npub": "npub1driver6",
+      "name": "Driver 6",
+      "location": {
+        "lat": 51.5030,
+        "lon": -0.1350
+      },
+      "reputation": {
+        "totalRides": 112,
+        "averageRating": 4.8,
+        "rating5Count": 89
+      }
+    },
+    {
+      "privateKey": "demo_key_7",
+      "publicKey": "demo_pub_7",
+      "nsec": "nsec1demo7",
+      "npub": "npub1driver7",
+      "name": "Driver 7",
+      "location": {
+        "lat": 51.5090,
+        "lon": -0.1150
+      },
+      "reputation": {
+        "totalRides": 201,
+        "averageRating": 4.9,
+        "rating5Count": 167
+      }
+    },
+    {
+      "privateKey": "demo_key_8",
+      "publicKey": "demo_pub_8",
+      "nsec": "nsec1demo8",
+      "npub": "npub1driver8",
+      "name": "Driver 8",
+      "location": {
+        "lat": 51.5110,
+        "lon": -0.1100
+      },
+      "reputation": {
+        "totalRides": 145,
+        "averageRating": 4.8,
+        "rating5Count": 118
+      }
+    },
+    {
+      "privateKey": "demo_key_9",
+      "publicKey": "demo_pub_9",
+      "nsec": "nsec1demo9",
+      "npub": "npub1driver9",
+      "name": "Driver 9",
+      "location": {
+        "lat": 51.5070,
+        "lon": -0.1050
+      },
+      "reputation": {
+        "totalRides": 98,
+        "averageRating": 4.7,
+        "rating5Count": 76
+      }
+    },
+    {
+      "privateKey": "demo_key_10",
+      "publicKey": "demo_pub_10",
+      "nsec": "nsec1demo10",
+      "npub": "npub1driver10",
+      "name": "Driver 10",
+      "location": {
+        "lat": 51.5130,
+        "lon": -0.1300
+      },
+      "reputation": {
+        "totalRides": 189,
+        "averageRating": 5.0,
+        "rating5Count": 185
+      }
+    }
+  ],
+  "riders": [
+    {
+      "privateKey": "demo_rider_1",
+      "publicKey": "demo_rider_pub_1",
+      "nsec": "nsec1rider1",
+      "npub": "npub1rider1",
+      "name": "Rider 1",
+      "location": {
+        "lat": 51.5074,
+        "lon": -0.1278
+      },
+      "reputation": {
+        "totalRides": 45,
+        "averageRating": 4.9,
+        "rating5Count": 38
+      }
+    }
+  ]
+}

@@ -3,3 +3,11 @@
 /.idea/
 /node_modules/
 /.env
+
+# OSRM map data (regenerate with scripts/setup-osrm.sh)
+/data/*.osm.pbf
+/data/*.osrm*
+/data/great-britain-latest.osm.pbf
+
+# Logs
+/logs/*.log

@@ -1,5 +1,3 @@
-version: '3.8'
-
 # DonkeyRide Reference Infrastructure
 # Complete Docker setup for development and production
 
@@ -19,11 +17,11 @@ services:
     networks:
       - donkeyride-network
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:7777"]
-      interval: 30s
-      timeout: 10s
+      test: ["CMD-SHELL", "pgrep -x strfry > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 20s
 
   # =====================================================
   # PostgreSQL - Operator State & Ride History
@@ -102,7 +100,7 @@ services:
       NOSTR_RELAY: ws://nostr-relay:7777
       DATABASE_URL: postgresql://donkey:${DB_PASSWORD:-devpassword123}@postgres:5432/donkeyride
       REDIS_URL: redis://redis:6379
-      OSRM_URL: http://osrm-backend:5000
+      OSRM_SERVER: http://osrm-backend:5000
 
       # Security
       ENABLE_NIP98_AUTH: ${ENABLE_NIP98_AUTH:-true}
@@ -115,8 +113,6 @@ services:
       postgres:
         condition: service_healthy
       redis:
-        condition: service_healthy
-      nostr-relay:
         condition: service_healthy
     volumes:
       - ./data:/usr/src/app/data
@@ -133,15 +129,16 @@ services:
   # =====================================================
   # OSRM Backend - Navigation & Routing
   # =====================================================
+  # Using local central London map data for GDPR compliance
   osrm-backend:
     image: ghcr.io/project-osrm/osrm-backend:latest
     container_name: donkeyride-osrm
     restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "5001:5000"  # Port 5001 externally to avoid conflicts
     volumes:
-      - osrm-data:/data
-    command: osrm-routed --algorithm mld /data/map.osrm --max-table-size 10000
+      - ./data:/data  # Use local data directory with central-london.osrm files
+    command: osrm-routed --algorithm mld /data/central-london.osrm --max-table-size 10000
     networks:
       - donkeyride-network
     healthcheck:
@@ -150,7 +147,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    # Note: You need to prepare map data first. See docker/osrm/README.md
+    # Note: Map data already processed in ./data/central-london.osrm
 
   # =====================================================
   # Mock Lightning Node (Development Only)

@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DonkeyRide Driver Console</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'SF Mono', Monaco, monospace;
+      background: #0a0a0a;
+      color: #e5e5e5;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #b24cf3 0%, #ff6ec7 100%);
+      color: white;
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.35);
+      z-index: 10;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand img {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      box-shadow: 0 8px 18px rgba(178, 76, 243, 0.35);
+    }
+
+    .brand-title {
+      font-size: 1.4rem;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-tagline {
+      font-size: 0.85rem;
+      color: rgba(255, 255, 255, 0.7);
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+    }
+
+    .status-panel {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .status-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #ff6ec7;
+      box-shadow: 0 0 12px rgba(255, 110, 199, 0.8);
+    }
+
+    .status-dot.offline {
+      background: #666;
+      box-shadow: none;
+    }
+
+    .status-badge {
+      background: #00ff90;
+      color: #001b11;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .status-badge.offline {
+      background: #555;
+      color: #ddd;
+    }
+
+    .network-status {
+      font-size: 0.85rem;
+      color: #d6f4ff;
+    }
+
+    .main-container {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    .sidebar {
+      width: 420px;
+      background: #0f0f0f;
+      border-right: 1px solid rgba(255, 255, 255, 0.05);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .sidebar-section {
+      padding: 20px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .sidebar-section h3 {
+      color: #ff6ec7;
+      font-size: 1rem;
+      margin-bottom: 14px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .toggles {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .toggle-btn {
+      flex: 1;
+      padding: 14px;
+      background: #151515;
+      border: 2px solid #333;
+      border-radius: 10px;
+      color: #e5e5e5;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .toggle-btn:hover {
+      border-color: #ff6ec7;
+    }
+
+    .toggle-btn.active {
+      border-color: #00ff90;
+      box-shadow: 0 0 20px rgba(0, 255, 144, 0.25);
+    }
+
+    .toggle-btn .badge {
+      background: #333;
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+    }
+
+    .badge.active {
+      background: #00ff90;
+      color: #001b11;
+    }
+
+    .driver-meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .meta-card {
+      background: #131313;
+      border: 1px solid #1f1f1f;
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .meta-label {
+      color: #888;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .meta-value {
+      margin-top: 6px;
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #e5e5e5;
+    }
+
+    .earnings-card {
+      background: linear-gradient(135deg, rgba(15, 31, 15, 0.65), rgba(27, 27, 27, 0.95));
+      border: 1px solid rgba(0, 255, 144, 0.35);
+      border-radius: 12px;
+      padding: 18px;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+    }
+
+    .earnings-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      font-size: 0.95rem;
+      color: #bcbcbc;
+    }
+
+    .earnings-value {
+      color: #00ff90;
+      font-weight: 700;
+      font-size: 1.1rem;
+    }
+
+    #request-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .ride-request {
+      background: #141414;
+      border-radius: 12px;
+      border: 2px solid rgba(255, 110, 199, 0.4);
+      padding: 16px;
+      animation: pulse 2.4s infinite;
+    }
+
+    .ride-request h4 {
+      color: #ff6ec7;
+      margin-bottom: 10px;
+      font-size: 1rem;
+    }
+
+    .ride-info {
+      font-size: 0.9rem;
+      color: #c8c8c8;
+      line-height: 1.5;
+    }
+
+    .ride-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .btn {
+      flex: 1;
+      padding: 12px;
+      border-radius: 8px;
+      border: none;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 20px rgba(0, 0, 0, 0.25);
+    }
+
+    .btn.accept {
+      background: #00ff90;
+      color: #002116;
+    }
+
+    .btn.decline {
+      background: #ff6b6b;
+      color: #fff;
+    }
+
+    .btn.complete {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+    }
+
+    .status-indicator {
+      background: #131313;
+      border: 1px solid rgba(0, 255, 144, 0.25);
+      border-radius: 10px;
+      padding: 14px;
+      font-size: 0.9rem;
+      display: grid;
+      gap: 8px;
+    }
+
+    .navigation-instructions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+
+    #driver-stake-section {
+      display: none;
+    }
+
+    .stake-note {
+      font-size: 0.8rem;
+      color: #888;
+      margin-top: 8px;
+      line-height: 1.4;
+    }
+
+    .stake-label {
+      font-size: 0.8rem;
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 6px;
+    }
+
+    .stake-value {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: #00ff90;
+      margin-bottom: 12px;
+    }
+
+    .driver-invoice-box {
+      background: #111;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      padding: 12px;
+      font-family: 'SFMono-Regular', Monaco, monospace;
+      font-size: 0.8rem;
+      color: #d0d0d0;
+      word-break: break-all;
+      margin-bottom: 12px;
+    }
+
+    #driver-stake-confirm-btn {
+      background: linear-gradient(135deg, #00ff90 0%, #41ffa7 100%);
+      color: #001b11;
+      width: 100%;
+    }
+
+    .nav-card {
+      background: #131313;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      padding: 12px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .nav-card.current {
+      border-color: rgba(0, 255, 144, 0.4);
+      box-shadow: 0 0 15px rgba(0, 255, 144, 0.25);
+    }
+
+    .nav-step-icon {
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 50%;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 30px 10px;
+      color: #707070;
+      font-size: 0.9rem;
+    }
+
+    .empty-state-icon {
+      font-size: 2.2rem;
+      margin-bottom: 12px;
+    }
+
+    #map {
+      flex: 1;
+    }
+
+    @keyframes pulse {
+      0%, 100% { border-color: rgba(255, 110, 199, 0.45); }
+      50% { border-color: rgba(255, 110, 199, 0.8); }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      <img src="/assets/donkeyride-logo.png" alt="DonkeyRide logo">
+      <div>
+        <div class="brand-title">DonkeyRide</div>
+        <div class="brand-tagline">Driver Console</div>
+      </div>
+    </div>
+    <div class="status-panel">
+      <span class="status-dot offline" id="status-dot"></span>
+      <span class="status-badge offline" id="status-badge">OFFLINE</span>
+      <span class="network-status" id="driver-network-status">Offline</span>
+    </div>
+  </div>
+
+  <div class="main-container">
+    <aside class="sidebar">
+      <section class="sidebar-section">
+        <div class="toggles">
+          <button class="toggle-btn" id="toggle-online">
+            <span class="status-dot offline" style="width:8px;height:8px;"></span>
+            <span id="toggle-online-label">Go Online</span>
+          </button>
+          <button class="toggle-btn" id="toggle-auto-accept">
+            Auto Accept
+            <span class="badge">OFF</span>
+          </button>
+        </div>
+
+        <div class="driver-meta">
+          <div class="meta-card">
+            <div class="meta-label">Driver</div>
+            <div class="meta-value" id="driver-name">Ayesha Khan</div>
+          </div>
+          <div class="meta-card">
+            <div class="meta-label">Vehicle</div>
+            <div class="meta-value" id="driver-vehicle">Nissan Leaf (EV)</div>
+          </div>
+        </div>
+
+        <div class="earnings-card">
+          <div class="earnings-row">
+            <span>Total Earned</span>
+            <span class="earnings-value" id="total-earned">£0.00</span>
+          </div>
+          <div class="earnings-row">
+            <span>Rides</span>
+            <span class="earnings-value" id="rides-count">0</span>
+          </div>
+          <div class="earnings-row">
+            <span>Avg Per Ride</span>
+            <span class="earnings-value" id="avg-per-ride">£0.00</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="sidebar-section">
+        <h3>Ride Requests</h3>
+        <div id="request-list">
+          <div class="empty-state">
+            <div class="empty-state-icon">🔍</div>
+            <p>No ride requests yet. Stay online to be matched!</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="sidebar-section" id="driver-stake-section">
+        <h3>Stake Invoice</h3>
+        <div class="stake-label">Driver commitment (refunded after ride)</div>
+        <div class="stake-value" id="driver-stake-amount">0 sats</div>
+        <div class="driver-invoice-box" id="driver-stake-invoice">lnbc...</div>
+        <button class="btn" id="driver-stake-confirm-btn">✅ Stake Paid</button>
+        <p class="stake-note">
+          Pay the invoice with your Lightning wallet to lock your stake. Funds are released when the ride completes or refunded if the rider cancels.
+        </p>
+      </section>
+
+      <section class="sidebar-section" id="active-ride-section" style="display: none;">
+        <h3>Active Ride</h3>
+        <div class="status-indicator" id="ride-status">
+          <div><strong>Status:</strong> <span id="ride-status-text">En Route</span></div>
+          <div><strong>Distance:</strong> <span id="ride-distance">-</span></div>
+          <div><strong>ETA:</strong> <span id="ride-eta">-</span></div>
+          <div><strong>Progress:</strong> <span id="ride-progress">0%</span></div>
+          <div><strong>Earnings:</strong> <span id="ride-earnings" style="color:#00ff90;">-</span></div>
+        </div>
+        <div id="traffic-alerts"></div>
+      </section>
+
+      <section class="sidebar-section" id="nav-section" style="display: none;">
+        <h3>Turn-by-Turn</h3>
+        <div class="navigation-instructions" id="instructions-container"></div>
+        <button class="btn complete" id="complete-ride-btn" style="margin-top: 14px;">Complete Ride</button>
+      </section>
+
+      <section class="sidebar-section" id="waiting-section">
+        <div class="empty-state">
+          <div class="empty-state-icon">🟢</div>
+          <p id="waiting-message">Go online to start receiving rider requests</p>
+        </div>
+      </section>
+    </aside>
+
+    <div id="map"></div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+  <script src="/driver-app.js" defer></script>
+</body>
+</html>
