@@ -273,6 +273,266 @@
       font-weight: 600;
     }
 
+    #stream-panel {
+      background: rgba(18, 18, 18, 0.9);
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 18px;
+      border: 1px solid #333;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+    }
+
+    #stream-panel.hidden {
+      display: none;
+    }
+
+    .stream-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      color: #a0a0a0;
+      font-size: 0.9rem;
+    }
+
+    .stream-row:last-child {
+      margin-bottom: 0;
+    }
+
+    .stream-value {
+      color: #00ff90;
+      font-weight: 700;
+    }
+
+    #safety-panel {
+      background: rgba(18, 18, 18, 0.92);
+      border-radius: 12px;
+      padding: 18px;
+      margin-top: 18px;
+      border: 1px solid #333;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+    }
+
+    #safety-panel.hidden {
+      display: none;
+    }
+
+    .safety-heading {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #ff6ec7;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .safety-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .panic-btn {
+      flex: 1;
+      border: none;
+      border-radius: 10px;
+      padding: 12px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #ff6b6b 0%, #c81e1e 100%);
+      color: #fff;
+      cursor: pointer;
+      box-shadow: 0 6px 24px rgba(200, 30, 30, 0.35);
+      transition: transform 0.2s ease;
+    }
+
+    .panic-btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .checkin-btn {
+      flex: 1;
+      border: none;
+      border-radius: 10px;
+      padding: 12px;
+      font-weight: 700;
+      background: linear-gradient(135deg, #00ff90 0%, #24d4a7 100%);
+      color: #001b11;
+      cursor: pointer;
+      box-shadow: 0 6px 22px rgba(0, 255, 144, 0.25);
+      transition: transform 0.2s ease;
+    }
+
+    .checkin-btn:hover {
+      transform: translateY(-1px);
+    }
+
+    .safety-meta {
+      margin-top: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 0.85rem;
+      color: #bbb;
+    }
+
+    #safety-countdown {
+      font-weight: 600;
+      color: #87bfff;
+    }
+
+    .safety-status-text {
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    .safety-status-text.info {
+      color: #87bfff;
+    }
+
+    .safety-status-text.success {
+      color: #00ff90;
+    }
+
+    .safety-status-text.warning {
+      color: #ffb347;
+    }
+
+    .safety-status-text.alert {
+      color: #ff6b6b;
+    }
+
+    #completion-panel {
+      background: rgba(14, 14, 14, 0.95);
+      border-radius: 12px;
+      padding: 18px;
+      margin-top: 22px;
+      border: 1px solid #2d2d2d;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+    }
+
+    #completion-panel.hidden {
+      display: none;
+    }
+
+    .completion-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #b24cf3;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    .completion-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      font-size: 0.9rem;
+      color: #d0d0d0;
+    }
+
+    .completion-row:last-child {
+      margin-bottom: 16px;
+    }
+
+    .completion-label {
+      color: #888;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      font-size: 0.78rem;
+    }
+
+    .completion-value {
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .completion-close {
+      width: 100%;
+      border: none;
+      border-radius: 10px;
+      padding: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      background: linear-gradient(135deg, #b24cf3 0%, #ff6ec7 100%);
+      color: #fff;
+      letter-spacing: 0.04em;
+      transition: transform 0.2s ease;
+    }
+
+    .completion-close:hover {
+      transform: translateY(-1px);
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+      padding: 20px;
+    }
+
+    .modal.hidden {
+      display: none;
+    }
+
+    .modal-content {
+      background: #111;
+      border: 1px solid #333;
+      border-radius: 16px;
+      padding: 24px;
+      width: min(90%, 360px);
+      box-shadow: 0 18px 38px rgba(0, 0, 0, 0.45);
+      text-align: center;
+    }
+
+    .modal-content h3 {
+      font-size: 1rem;
+      margin-bottom: 12px;
+      color: #ff6ec7;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .modal-content p {
+      font-size: 0.9rem;
+      color: #bbb;
+      margin-bottom: 18px;
+      line-height: 1.4;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 12px;
+      justify-content: center;
+    }
+
+    .modal-actions button {
+      flex: 1;
+      padding: 12px;
+      border-radius: 10px;
+      border: none;
+      font-weight: 700;
+      cursor: pointer;
+      letter-spacing: 0.04em;
+    }
+
+    .modal-primary {
+      background: linear-gradient(135deg, #00ff90 0%, #1dd1a1 100%);
+      color: #001b11;
+    }
+
+    .modal-secondary {
+      background: linear-gradient(135deg, #3a3a3a 0%, #1a1a1a 100%);
+      color: #ddd;
+    }
+
+    .modal-danger {
+      background: linear-gradient(135deg, #ff6b6b 0%, #c81e1e 100%);
+      color: #fff;
+    }
+
     .ride-detail {
       display: flex;
       justify-content: space-between;
@@ -435,10 +695,76 @@
           <button id="stake-cancel-btn" style="background: linear-gradient(135deg, #444 0%, #222 100%); color: #ddd;">
             Cancel Ride
           </button>
+      </div>
+      <p style="margin-top: 12px; font-size: 0.8rem; color: #888;">
+        Lightning invoices expire in 10 minutes. Pay the stake to start searching for drivers.
+      </p>
+    </div>
+
+      <div id="stream-panel" class="hidden">
+        <div class="stream-row">
+          <span>Total Paid</span>
+          <span class="stream-value" id="stream-paid">0 sats</span>
         </div>
-        <p style="margin-top: 12px; font-size: 0.8rem; color: #888;">
-          Lightning invoices expire in 10 minutes. Pay the stake to start searching for drivers.
-        </p>
+        <div class="stream-row">
+          <span>Remaining</span>
+          <span class="stream-value" id="stream-remaining">-</span>
+        </div>
+        <div class="stream-row">
+          <span>Last Payment</span>
+          <span class="stream-value" id="stream-last">-</span>
+        </div>
+      </div>
+
+      <div id="safety-panel" class="hidden">
+        <div class="safety-heading">Safety Toolkit</div>
+        <div class="safety-actions">
+          <button id="panic-button" class="panic-btn">🚨 Panic</button>
+          <button id="checkin-button" class="checkin-btn">✅ I’m OK</button>
+        </div>
+        <div class="safety-meta">
+          <span id="safety-countdown"></span>
+          <span id="safety-status" class="safety-status-text"></span>
+        </div>
+      </div>
+
+      <div id="completion-panel" class="hidden">
+        <div class="completion-title">Ride Summary</div>
+        <div class="completion-row">
+          <span class="completion-label">Fare</span>
+          <span class="completion-value" id="completion-fare">-</span>
+        </div>
+        <div class="completion-row">
+          <span class="completion-label">Distance</span>
+          <span class="completion-value" id="completion-distance">-</span>
+        </div>
+        <div class="completion-row">
+          <span class="completion-label">Duration</span>
+          <span class="completion-value" id="completion-duration">-</span>
+        </div>
+        <button id="completion-close-btn" class="completion-close">Request Another Ride</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="panic-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Trigger Emergency?</h3>
+      <p>We’ll freeze payments, alert dispatch, and share your live location.</p>
+      <div class="modal-actions">
+        <button id="panic-cancel-btn" class="modal-secondary">Cancel</button>
+        <button id="panic-confirm-btn" class="modal-danger">Send Alert</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="checkin-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>Safety Check</h3>
+      <p>Please confirm you’re okay within 20 seconds.</p>
+      <div class="modal-actions">
+        <button id="checkin-ok-btn" class="modal-primary">I’m OK</button>
+        <button id="checkin-alert-btn" class="modal-danger">Need Help</button>
       </div>
     </div>
   </div>

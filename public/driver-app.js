@@ -43,6 +43,20 @@ class DriverApp {
     this.stakeInvoiceEl = document.getElementById('driver-stake-invoice');
     this.stakeConfirmBtn = document.getElementById('driver-stake-confirm-btn');
     this.pendingDriverStake = null;
+
+    this.controlsEl = document.getElementById('driver-controls');
+    this.arrivedBtn = document.getElementById('driver-arrived-btn');
+    this.startTripBtn = document.getElementById('driver-start-trip-btn');
+    this.streamPanel = document.getElementById('driver-stream-panel');
+    this.streamPaidEl = document.getElementById('driver-stream-paid');
+    this.streamRemainingEl = document.getElementById('driver-stream-remaining');
+    this.safetyPanel = document.getElementById('driver-safety-panel');
+    this.panicBtn = document.getElementById('driver-panic-btn');
+    this.safetyStatusEl = document.getElementById('driver-safety-status');
+
+    this.pendingArrival = false;
+    this.waitingForTripStart = false;
+    this.streamState = { total: 0, remaining: 0, fare: 0 };
   }
 
   init() {
@@ -93,6 +107,18 @@ class DriverApp {
 
     if (this.stakeConfirmBtn) {
       this.stakeConfirmBtn.addEventListener('click', () => this.confirmDriverStake());
+    }
+
+    if (this.arrivedBtn) {
+      this.arrivedBtn.addEventListener('click', () => this.markArrivedManually());
+    }
+
+    if (this.startTripBtn) {
+      this.startTripBtn.addEventListener('click', () => this.startTripManually());
+    }
+
+    if (this.panicBtn) {
+      this.panicBtn.addEventListener('click', () => this.triggerDriverPanic());
     }
   }
 
@@ -236,6 +262,21 @@ class DriverApp {
       case 'ride_cancelled':
         this.handleRideCancelled(message);
         break;
+      case 'trip_started':
+        if (message.ride?.fare) {
+          this.streamState.fare = message.ride.fare;
+        }
+        this.showDriverStreamPanel();
+        break;
+      case 'stream_payment':
+        this.handleStreamPayment(message);
+        break;
+      case 'panic_alert':
+        this.handlePanicAlert(message);
+        break;
+      case 'safety_check_update':
+        this.handleSafetyUpdate(message);
+        break;
       default:
         break;
     }
@@ -361,6 +402,13 @@ class DriverApp {
         invoice: session.invoice
       };
 
+      if (this.ws) {
+        this.ws.send(JSON.stringify({
+          type: 'subscribe_ride',
+          rideId: ride.id
+        }));
+      }
+
       this.hideWaitingState();
       this.showDriverStakePanel(session.invoice, session.stakeAmount);
       this.showSuccess('Stake invoice generated. Pay and confirm to start the ride.');
@@ -376,6 +424,11 @@ class DriverApp {
   showActiveRidePanel() {
     document.getElementById('active-ride-section').style.display = 'block';
     document.getElementById('nav-section').style.display = 'block';
+    this.hideDriverControls();
+    this.hideDriverStreamPanel();
+    this.pendingArrival = false;
+    this.waitingForTripStart = false;
+    this.streamState = { total: 0, remaining: 0, fare: this.currentRide?.fare || 0 };
     const fareDisplay = typeof this.currentRide.fare === 'number'
       ? `${this.currentRide.fare.toLocaleString()} sats`
       : '-';
@@ -387,32 +440,114 @@ class DriverApp {
       earnings: fareDisplay
     });
     this.updateNavigationInstructions('pickup');
+    this.showSafetyPanel();
   }
 
   startStageToPickup() {
     this.currentStage = 'to_pickup';
+    if (this.currentRide) {
+      this.currentRide.stage = 'to_pickup';
+      this.currentRide.status = 'en_route';
+    }
     const route = this.transformRoute(this.currentRide.driver_route) || [
       [this.driverMarker.getLatLng().lat, this.driverMarker.getLatLng().lng],
       [this.currentRide.pickup.lat, this.currentRide.pickup.lon]
     ];
 
     this.drawDriverRoute(route, '#ff6ec7');
-    this.startMovementAlongRoute(route, () => this.arriveAtPickup());
+    this.updateNavigationInstructions('pickup');
+    this.startMovementAlongRoute(route, () => this.onPickupRouteComplete());
   }
 
-  async arriveAtPickup() {
-    await fetch(`/api/rides/${this.currentRide.id}/arrive`, { method: 'POST' }).catch(() => {});
+  onPickupRouteComplete() {
+    this.stopMovement();
+    this.pendingArrival = true;
+    if (this.currentRide) {
+      this.currentRide.stage = 'arrived';
+      this.currentRide.status = 'arrived';
+    }
     this.updateRideStatus({
-      status: 'Waiting at pickup',
+      status: 'Confirm arrival at pickup',
+      distance: '0 km',
       eta: '0 min',
       progress: '50%'
     });
-    this.updateNavigationInstructions('dropoff');
-    this.startStageToDropoff();
+    this.showArrivalPrompt();
+  }
+
+  markArrivedManually() {
+    if (!this.currentRide || !this.pendingArrival) {
+      return;
+    }
+
+    this.arrivedBtn.disabled = true;
+
+    fetch(`/api/rides/${this.currentRide.id}/arrive`, { method: 'POST' })
+      .then(() => {
+        this.pendingArrival = false;
+        this.waitingForTripStart = true;
+        this.showStartTripPrompt();
+        this.updateRideStatus({
+          status: 'Waiting to start trip',
+          eta: '-',
+          progress: '60%'
+        });
+        if (this.arrivedBtn) {
+          this.arrivedBtn.style.display = 'none';
+        }
+      })
+      .catch((error) => {
+        console.error('Error marking arrival:', error);
+        this.arrivedBtn.disabled = false;
+      });
+  }
+
+  startTripManually() {
+    if (!this.currentRide || !this.waitingForTripStart) {
+      return;
+    }
+
+    this.startTripBtn.disabled = true;
+
+    fetch(`/api/rides/${this.currentRide.id}/start`, { method: 'POST' })
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(res.statusText);
+        }
+        return res.json();
+      })
+      .then((data) => {
+        this.waitingForTripStart = false;
+        if (data?.ride) {
+          this.currentRide = { ...this.currentRide, ...data.ride };
+        }
+        this.streamState = {
+          total: 0,
+          remaining: this.currentRide?.fare || 0,
+          fare: this.currentRide?.fare || 0
+        };
+        this.startStageToDropoff();
+        if (this.startTripBtn) {
+          this.startTripBtn.style.display = 'none';
+        }
+        this.updateRideStatus({
+          status: 'Driving to destination',
+          progress: '65%'
+        });
+        this.showSuccess('Trip started • Streaming payments in progress');
+      })
+      .catch((error) => {
+        console.error('Error starting trip:', error);
+        this.startTripBtn.disabled = false;
+      });
   }
 
   startStageToDropoff() {
     this.currentStage = 'to_dropoff';
+    if (this.currentRide) {
+      this.currentRide.stage = 'to_dropoff';
+      this.currentRide.status = 'active';
+    }
 
     const route = this.transformRoute(this.currentRide.route) || [
       [this.currentRide.pickup.lat, this.currentRide.pickup.lon],
@@ -420,9 +555,10 @@ class DriverApp {
     ];
 
     this.drawTripRoute(route, '#667eea');
-
-    fetch(`/api/rides/${this.currentRide.id}/start`, { method: 'POST' }).catch(() => {});
-
+    this.hideDriverControls();
+    this.showDriverStreamPanel();
+    this.updateNavigationInstructions('dropoff');
+    this.updateSafetyStatus('Trip monitoring active — we will stream sats.', 'info');
     this.startMovementAlongRoute(route, () => this.finishRide());
   }
 
@@ -464,6 +600,12 @@ class DriverApp {
     document.getElementById('active-ride-section').style.display = 'none';
     document.getElementById('nav-section').style.display = 'none';
     this.hideDriverStakePanel();
+    this.hideDriverControls();
+    this.hideDriverStreamPanel();
+    this.hideSafetyPanel();
+    this.pendingArrival = false;
+    this.waitingForTripStart = false;
+    this.streamState = { total: 0, remaining: 0, fare: 0 };
   }
 
   stopMovement() {
@@ -592,6 +734,225 @@ class DriverApp {
     }
   }
 
+  hideDriverControls() {
+    if (this.controlsEl) {
+      this.controlsEl.style.display = 'none';
+    }
+    if (this.arrivedBtn) {
+      this.arrivedBtn.style.display = 'none';
+    }
+    if (this.startTripBtn) {
+      this.startTripBtn.style.display = 'none';
+      this.startTripBtn.disabled = false;
+    }
+  }
+
+  showArrivalPrompt() {
+    if (!this.controlsEl || !this.arrivedBtn || !this.startTripBtn) {
+      return;
+    }
+
+    this.controlsEl.style.display = 'flex';
+    this.arrivedBtn.style.display = 'block';
+    this.arrivedBtn.disabled = false;
+    this.startTripBtn.style.display = 'none';
+  }
+
+  showStartTripPrompt() {
+    if (!this.controlsEl || !this.arrivedBtn || !this.startTripBtn) {
+      return;
+    }
+
+    this.controlsEl.style.display = 'flex';
+    this.arrivedBtn.style.display = 'none';
+    this.startTripBtn.style.display = 'block';
+    this.startTripBtn.disabled = false;
+  }
+
+  showDriverStreamPanel() {
+    if (!this.streamPanel || !this.currentRide) {
+      return;
+    }
+
+    this.streamState = this.streamState || { total: 0, remaining: 0 };
+    if (this.currentRide.fare) {
+      this.streamState.fare = this.currentRide.fare;
+    }
+    this.streamPanel.style.display = 'block';
+    this.updateDriverStreamPanel(this.streamState.total, this.currentRide.fare || 0);
+  }
+
+  hideDriverStreamPanel() {
+    if (this.streamPanel) {
+      this.streamPanel.style.display = 'none';
+    }
+    if (this.streamPaidEl) {
+      this.streamPaidEl.textContent = '0 sats';
+    }
+    if (this.streamRemainingEl) {
+      this.streamRemainingEl.textContent = '-';
+    }
+    this.streamState = { total: 0, remaining: 0, fare: 0 };
+  }
+
+  updateDriverStreamPanel(total, fare) {
+    if (!this.streamPanel) {
+      return;
+    }
+
+    const effectiveFare = fare || this.streamState?.fare || 0;
+    this.streamPanel.style.display = 'block';
+    if (this.streamPaidEl) {
+      this.streamPaidEl.textContent = `${Math.min(total, effectiveFare).toLocaleString()} sats`;
+    }
+    if (this.streamRemainingEl) {
+      const remaining = Math.max(0, effectiveFare - total);
+      this.streamRemainingEl.textContent = `${remaining.toLocaleString()} sats`;
+    }
+  }
+
+  handleStreamPayment(message) {
+    if (!this.currentRide || message.ride_id !== this.currentRide.id) {
+      return;
+    }
+
+    this.showDriverStreamPanel();
+    const total = message.total_paid_sats || 0;
+    const fare = message.fare_sats || this.currentRide.fare || 0;
+    if (this.currentRide && message.fare_sats) {
+      this.currentRide.fare = message.fare_sats;
+    }
+    this.streamState = {
+      total,
+      remaining: Math.max(0, fare - total),
+      fare
+    };
+
+    this.updateDriverStreamPanel(total, fare);
+    this.updateRideStatus({
+      status: 'Driving to destination',
+      earnings: `${Math.min(total, fare).toLocaleString()} sats`
+    });
+  }
+
+  showSafetyPanel(message = 'Safety tools armed.', resetButton = true) {
+    if (this.safetyPanel) {
+      this.safetyPanel.classList.add('active');
+    }
+    if (resetButton && this.panicBtn) {
+      this.panicBtn.disabled = false;
+    }
+    this.updateSafetyStatus(message, 'info');
+  }
+
+  hideSafetyPanel() {
+    if (this.safetyPanel) {
+      this.safetyPanel.classList.remove('active');
+    }
+    if (this.panicBtn) {
+      this.panicBtn.disabled = false;
+    }
+    if (this.safetyStatusEl) {
+      this.safetyStatusEl.className = 'driver-safety-status';
+      this.safetyStatusEl.textContent = '';
+    }
+  }
+
+  updateSafetyStatus(message, tone = 'info') {
+    if (!this.safetyStatusEl) {
+      return;
+    }
+    const className = tone ? `driver-safety-status ${tone}` : 'driver-safety-status';
+    this.safetyStatusEl.className = className;
+    this.safetyStatusEl.textContent = message;
+  }
+
+  async triggerDriverPanic() {
+    this.showSafetyPanel(undefined, false);
+
+    if (!this.currentRide || !this.currentRide.id) {
+      this.updateSafetyStatus('No active ride to escalate.', 'alert');
+      return;
+    }
+
+    if (this.panicBtn) {
+      this.panicBtn.disabled = true;
+    }
+    this.updateSafetyStatus('Sending emergency alert…', 'info');
+
+    try {
+      await fetch(`/api/rides/${this.currentRide.id}/panic`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          initiatedBy: DRIVER_PROFILE.npub,
+          role: 'driver',
+          note: 'driver_manual'
+        })
+      });
+      this.handlePanicAlert({
+        ride_id: this.currentRide.id,
+        initiated_by: DRIVER_PROFILE.npub
+      });
+      this.updateSafetyStatus('Emergency alert sent. Await instructions.', 'alert');
+    } catch (error) {
+      console.error('Driver panic alert failed', error);
+      this.updateSafetyStatus(`Failed to send alert: ${error.message}`, 'alert');
+      if (this.panicBtn) {
+        this.panicBtn.disabled = false;
+      }
+    }
+  }
+
+  handlePanicAlert(message) {
+    const rideId = message?.ride_id;
+    const initiator = (message?.initiated_by || '').toLowerCase();
+    let alertSource = 'dispatch';
+    if (initiator) {
+      if (initiator === DRIVER_PROFILE.npub.toLowerCase()) {
+        alertSource = 'driver';
+      } else {
+        alertSource = 'rider';
+      }
+    }
+    this.showError(`Emergency alert triggered by ${alertSource}. Hold position.`);
+    this.showSafetyPanel(undefined, false);
+    this.updateSafetyStatus(`Emergency alert triggered by ${alertSource}.`, 'alert');
+
+    if (this.currentRide && rideId === this.currentRide.id) {
+      this.stopMovement();
+      this.hideDriverControls();
+      this.hideDriverStreamPanel();
+      this.currentRide.status = 'panic';
+      this.pendingArrival = false;
+      this.waitingForTripStart = false;
+      this.updateRideStatus({
+        status: 'Emergency — await instructions',
+        distance: '-',
+        eta: '-',
+        earnings: this.streamState?.total
+          ? `${Math.min(this.streamState.total, this.streamState.fare || 0).toLocaleString()} sats`
+          : '-'
+      });
+    }
+  }
+
+  handleSafetyUpdate(message) {
+    if (!message) {
+      return;
+    }
+    if (this.currentRide && message.ride_id && message.ride_id !== this.currentRide.id) {
+      return;
+    }
+    if (message.status === 'ok') {
+      this.showSuccess('Rider confirmed safety check.');
+      this.updateSafetyStatus('Rider confirmed safety check.', 'success');
+    } else if (message.status === 'missed') {
+      this.showError('Dispatch flagged a missed safety check — reach out to rider.');
+      this.updateSafetyStatus('Dispatch flagged a missed check-in.', 'alert');
+    }
+  }
+
   async confirmDriverStake() {
     if (!this.currentRide || !this.pendingDriverStake) {
       return;
@@ -639,7 +1000,8 @@ class DriverApp {
         ...result.ride
       };
       this.currentRide.fare = result.ride?.fare || this.currentRide.fare;
-      this.currentRide.stage = 'active';
+      this.currentRide.stage = 'to_pickup';
+      this.currentRide.status = 'en_route';
       this.currentRide.driver_route = result.driver_route || null;
       this.currentRide.pickupEtaSeconds = result.eta_seconds || null;
       this.pendingDriverStake = null;
@@ -806,13 +1168,16 @@ class DriverApp {
   }
 
   handleRideCancelled(message) {
-    if (this.currentRide && this.currentRide.id === message.ride_id) {
+    const rideId = message.ride_id || message?.ride?.id;
+    if (this.currentRide && this.currentRide.id === rideId) {
       this.showError('Ride cancelled by rider');
       this.clearActiveRide();
       this.currentRide = null;
       this.showWaitingState(true);
     } else {
-      this.pendingRides.delete(message.ride_id);
+      if (rideId) {
+        this.pendingRides.delete(rideId);
+      }
       this.renderRideCards();
     }
   }

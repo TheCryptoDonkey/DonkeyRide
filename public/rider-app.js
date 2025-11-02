@@ -74,8 +74,8 @@ if (!riderPubKey && nostrGetPublicKey) {
   window.localStorage.setItem('donkeyride.riderPrivKey', DEMO_PRIV_HEX);
 }
 
-const riderNpub = riderPrivKey && nostrGetPublicKey
-  ? (riderPubKey && nip19 ? nip19.npubEncode(riderPubKey) : null)
+const riderNpub = riderPubKey && nip19
+  ? nip19.npubEncode(riderPubKey)
   : 'npub1demo0kqz9sc8d0c8dfzhh7l6kdfl8c8v0krls28m3uwg5k6nvqusyzd0g6';
 console.log('[DonkeyRide] Rider key', riderPrivKey, riderPubKey, riderNpub);
 
@@ -100,6 +100,38 @@ const stakeRiderShareEl = document.getElementById('stake-rider-share');
 const stakeOperatorShareEl = document.getElementById('stake-operator-share');
 const stakePaidBtn = document.getElementById('stake-paid-btn');
 const stakeCancelBtn = document.getElementById('stake-cancel-btn');
+const streamPanelEl = document.getElementById('stream-panel');
+const streamPaidEl = document.getElementById('stream-paid');
+const streamRemainingEl = document.getElementById('stream-remaining');
+const streamLastEl = document.getElementById('stream-last');
+const safetyPanelEl = document.getElementById('safety-panel');
+const panicBtn = document.getElementById('panic-button');
+const checkinBtn = document.getElementById('checkin-button');
+const safetyCountdownEl = document.getElementById('safety-countdown');
+const safetyStatusEl = document.getElementById('safety-status');
+const panicModalEl = document.getElementById('panic-modal');
+const panicConfirmBtn = document.getElementById('panic-confirm-btn');
+const panicCancelBtn = document.getElementById('panic-cancel-btn');
+const checkinModalEl = document.getElementById('checkin-modal');
+const checkinOkBtn = document.getElementById('checkin-ok-btn');
+const checkinAlertBtn = document.getElementById('checkin-alert-btn');
+const completionPanelEl = document.getElementById('completion-panel');
+const completionFareEl = document.getElementById('completion-fare');
+const completionDistanceEl = document.getElementById('completion-distance');
+const completionDurationEl = document.getElementById('completion-duration');
+const completionCloseBtn = document.getElementById('completion-close-btn');
+
+let streamState = { totalPaid: 0, fare: 0, lastAmount: 0 };
+
+const SAFETY_CHECK_INTERVAL_MS = 120000;
+const SAFETY_RESPONSE_TIMEOUT_MS = 20000;
+
+let safetyCheckTimer = null;
+let safetyCountdownInterval = null;
+let safetyResponseTimer = null;
+let nextSafetyDeadline = null;
+let pendingSafetyPrompt = false;
+let safetyMode = 'idle';
 
 function generateRideId() {
   const randomPart = Math.random().toString(36).slice(2, 8);
@@ -201,6 +233,293 @@ function hideStakePanel() {
   }
 }
 
+function showStreamPanel(fareSats = null, reset = false) {
+  if (!streamPanelEl) {
+    return;
+  }
+
+  if (typeof fareSats === 'number') {
+    streamState.fare = fareSats;
+  }
+
+  if (reset) {
+    streamState.totalPaid = 0;
+    streamState.lastAmount = 0;
+  }
+
+  streamPanelEl.classList.remove('hidden');
+  updateStreamPanel({
+    total_paid_sats: streamState.totalPaid,
+    fare_sats: streamState.fare,
+    amount_sats: reset ? 0 : streamState.lastAmount
+  });
+}
+
+function hideStreamPanel() {
+  if (!streamPanelEl) {
+    return;
+  }
+  streamPanelEl.classList.add('hidden');
+  if (streamPaidEl) streamPaidEl.textContent = '0 sats';
+  if (streamRemainingEl) streamRemainingEl.textContent = '—';
+  if (streamLastEl) streamLastEl.textContent = '—';
+  streamState = { totalPaid: 0, fare: 0, lastAmount: 0 };
+}
+
+function updateStreamPanel({ total_paid_sats, fare_sats, amount_sats }) {
+  streamState.totalPaid = typeof total_paid_sats === 'number' ? total_paid_sats : streamState.totalPaid;
+  streamState.fare = typeof fare_sats === 'number' ? fare_sats : streamState.fare;
+
+  if (typeof amount_sats === 'number') {
+    streamState.lastAmount = amount_sats;
+  }
+
+  if (streamPanelEl) {
+    streamPanelEl.classList.remove('hidden');
+  }
+  if (streamPaidEl) {
+    streamPaidEl.textContent = `${streamState.totalPaid.toLocaleString()} sats`;
+  }
+  if (streamRemainingEl) {
+    const remaining = Math.max(0, streamState.fare - streamState.totalPaid);
+    streamRemainingEl.textContent = `${remaining.toLocaleString()} sats`;
+  }
+  if (streamLastEl) {
+    const lastAmount = typeof amount_sats === 'number' ? amount_sats : streamState.lastAmount;
+    streamLastEl.textContent = lastAmount != null ? `${lastAmount.toLocaleString()} sats` : '—';
+  }
+}
+
+function setSafetyStatus(message, tone = 'info') {
+  if (!safetyStatusEl) {
+    return;
+  }
+  safetyStatusEl.textContent = message;
+  safetyStatusEl.className = `safety-status-text ${tone}`;
+}
+
+function formatCountdown(ms) {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function updateSafetyCountdown() {
+  if (!safetyCountdownEl) {
+    return;
+  }
+  if (!nextSafetyDeadline) {
+    safetyCountdownEl.textContent = pendingSafetyPrompt ? 'Awaiting response…' : '';
+    return;
+  }
+  const remaining = Math.max(0, nextSafetyDeadline - Date.now());
+  if (remaining === 0) {
+    safetyCountdownEl.textContent = 'Awaiting response…';
+  } else {
+    safetyCountdownEl.textContent = `Next check-in in ${formatCountdown(remaining)}`;
+  }
+}
+
+function clearSafetyTimers() {
+  if (safetyCheckTimer) {
+    clearTimeout(safetyCheckTimer);
+    safetyCheckTimer = null;
+  }
+  if (safetyCountdownInterval) {
+    clearInterval(safetyCountdownInterval);
+    safetyCountdownInterval = null;
+  }
+  if (safetyResponseTimer) {
+    clearTimeout(safetyResponseTimer);
+    safetyResponseTimer = null;
+  }
+  nextSafetyDeadline = null;
+  pendingSafetyPrompt = false;
+}
+
+function showSafetyPanel() {
+  if (safetyPanelEl) {
+    safetyPanelEl.classList.remove('hidden');
+  }
+}
+
+function hideSafetyPanel() {
+  clearSafetyTimers();
+  if (safetyPanelEl) {
+    safetyPanelEl.classList.add('hidden');
+  }
+  hidePanicModal();
+  hideCheckinModal();
+  if (safetyStatusEl) {
+    safetyStatusEl.textContent = '';
+    safetyStatusEl.className = 'safety-status-text';
+  }
+  if (safetyCountdownEl) {
+    safetyCountdownEl.textContent = '';
+  }
+  safetyMode = 'idle';
+}
+
+function enableSafetyStandby() {
+  showSafetyPanel();
+  clearSafetyTimers();
+  safetyMode = 'standby';
+  setSafetyStatus('Driver en route — safety tools armed.', 'info');
+  if (safetyCountdownEl) {
+    safetyCountdownEl.textContent = 'Check-ins start when the trip begins';
+  }
+}
+
+function startSafetyMonitoring() {
+  showSafetyPanel();
+  safetyMode = 'active';
+  setSafetyStatus('Trip in progress — we will check in every 2 minutes.', 'success');
+  scheduleSafetyCheck(SAFETY_CHECK_INTERVAL_MS);
+}
+
+function stopSafetyMonitoring() {
+  clearSafetyTimers();
+  safetyMode = 'idle';
+  if (safetyCountdownEl) {
+    safetyCountdownEl.textContent = '';
+  }
+  pendingSafetyPrompt = false;
+}
+
+function scheduleSafetyCheck(delayMs = SAFETY_CHECK_INTERVAL_MS) {
+  if (safetyMode !== 'active') {
+    return;
+  }
+  if (safetyCheckTimer) {
+    clearTimeout(safetyCheckTimer);
+  }
+  safetyCheckTimer = setTimeout(() => promptSafetyCheck('auto'), delayMs);
+  nextSafetyDeadline = Date.now() + delayMs;
+  if (!safetyCountdownInterval) {
+    safetyCountdownInterval = setInterval(updateSafetyCountdown, 1000);
+  }
+  updateSafetyCountdown();
+}
+
+function promptSafetyCheck(source = 'auto') {
+  if (safetyMode !== 'active') {
+    return;
+  }
+  pendingSafetyPrompt = true;
+  nextSafetyDeadline = null;
+  updateSafetyCountdown();
+  setSafetyStatus('Quick safety check — confirm you are okay.', 'warning');
+  showCheckinModal(source);
+  if (safetyResponseTimer) {
+    clearTimeout(safetyResponseTimer);
+  }
+  safetyResponseTimer = setTimeout(() => {
+    pendingSafetyPrompt = false;
+    setSafetyStatus('No response detected — escalating.', 'alert');
+    triggerPanic('rider', 'check-in-timeout');
+  }, SAFETY_RESPONSE_TIMEOUT_MS);
+}
+
+function showCheckinModal(source = 'auto') {
+  if (!checkinModalEl) {
+    return;
+  }
+  checkinModalEl.dataset.source = source;
+  checkinModalEl.classList.remove('hidden');
+}
+
+function hideCheckinModal() {
+  if (checkinModalEl) {
+    checkinModalEl.classList.add('hidden');
+    delete checkinModalEl.dataset.source;
+  }
+}
+
+function showPanicModal() {
+  if (panicModalEl) {
+    panicModalEl.classList.remove('hidden');
+  } else {
+    triggerPanic('rider', 'modal-unavailable');
+  }
+}
+
+function hidePanicModal() {
+  if (panicModalEl) {
+    panicModalEl.classList.add('hidden');
+  }
+}
+
+async function sendSafetyCheck(status, source, note = '') {
+  if (!currentRide || !currentRide.id) {
+    return;
+  }
+
+  try {
+    await fetch(`/api/rides/${currentRide.id}/check-in`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        status,
+        source,
+        note,
+        by: riderPubKey || riderNpub
+      })
+    });
+  } catch (error) {
+    console.warn('Failed to record safety check', error);
+  }
+}
+
+async function completeSafetyCheck(source = 'manual', note = '') {
+  pendingSafetyPrompt = false;
+  hideCheckinModal();
+  if (safetyResponseTimer) {
+    clearTimeout(safetyResponseTimer);
+    safetyResponseTimer = null;
+  }
+  setSafetyStatus('Safety check acknowledged.', 'success');
+  await sendSafetyCheck('ok', source, note);
+  scheduleSafetyCheck(SAFETY_CHECK_INTERVAL_MS);
+}
+
+async function triggerPanic(initiatedBy = 'rider', note = '') {
+  if (!currentRide || !currentRide.id) {
+    updateStatus('No active ride to flag for emergency.', 'error');
+    hidePanicModal();
+    return;
+  }
+
+  if (panicBtn) {
+    panicBtn.disabled = true;
+  }
+
+  stopSafetyMonitoring();
+  hideCheckinModal();
+  setSafetyStatus('Emergency alert dispatched. We froze the ride.', 'alert');
+
+  try {
+    await fetch(`/api/rides/${currentRide.id}/panic`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        initiatedBy: riderPubKey || riderNpub,
+        role: initiatedBy,
+        note
+      })
+    });
+    updateStatus('Emergency services notified. Ride paused.', 'error');
+  } catch (error) {
+    console.error('Failed to send panic alert', error);
+    updateStatus(`Failed to send emergency alert: ${error.message}`, 'error');
+    if (panicBtn) {
+      panicBtn.disabled = false;
+    }
+  } finally {
+    hidePanicModal();
+  }
+}
+
 async function fetchTripEstimate() {
   const response = await fetch('/api/trips/estimate', {
     method: 'POST',
@@ -258,6 +577,8 @@ async function confirmStakePayment() {
 
 function cancelStakeFlow() {
   updateStatus('Ride cancelled before stake payment.', 'info');
+  hideStreamPanel();
+  streamState = { totalPaid: 0, fare: 0, lastAmount: 0 };
   resetRide();
 }
 
@@ -295,6 +616,7 @@ async function submitRideRequest() {
     currentRide.estimate = data.estimate || currentRide.estimate;
     currentRide.fare = currentRide.estimate?.fare?.sats;
     currentRide.fareCost = currentRide.estimate?.fare?.formatted;
+    streamState = { totalPaid: 0, fare: currentRide.fare || 0, lastAmount: 0 };
 
     hideStakePanel();
 
@@ -618,6 +940,22 @@ function handleRideUpdate(message) {
     case 'trip_completed':
       handleTripCompleted(message);
       break;
+    case 'ride_cancelled':
+      updateStatus('Ride cancelled by driver.', 'error');
+      hideStreamPanel();
+      stopSafetyMonitoring();
+      setSafetyStatus('Ride cancelled.', 'info');
+      setTimeout(() => resetRide(), 1000);
+      break;
+    case 'stream_payment':
+      handleStreamPayment(message);
+      break;
+    case 'panic_alert':
+      handlePanicAlert(message);
+      break;
+    case 'safety_check_update':
+      handleSafetyCheckUpdate(message);
+      break;
   }
 }
 
@@ -627,6 +965,7 @@ function handleRideMatched(ride) {
   currentRide.eta = ride.eta_seconds;
 
   updateStatus(`Driver ${ride.driver.name} is on the way!`, 'success');
+  enableSafetyStandby();
 
   document.getElementById('driver-name').textContent = `🚗 ${ride.driver.name}`;
   document.getElementById('ride-status').textContent = 'Driver en route to pickup';
@@ -696,7 +1035,10 @@ function handleDriverLocation(message) {
 // Handle driver arrived
 function handleDriverArrived() {
   updateStatus('Driver has arrived at pickup!', 'success');
-  document.getElementById('ride-status').textContent = 'Driver arrived - Starting trip...';
+  if (currentRide) {
+    currentRide.status = 'arrived';
+  }
+  document.getElementById('ride-status').textContent = 'Driver arrived - waiting to begin trip';
   document.getElementById('eta-display').textContent = 'Arrived!';
 }
 
@@ -704,6 +1046,10 @@ function handleDriverArrived() {
 function handleTripStarted() {
   updateStatus('Trip started! Heading to destination...', 'success');
   document.getElementById('ride-status').textContent = 'Trip in progress';
+  const fareSats = currentRide?.estimate?.fare?.sats || currentRide?.fare || streamState.fare;
+  streamState = { totalPaid: 0, fare: fareSats || 0, lastAmount: 0 };
+  showStreamPanel(streamState.fare, true);
+  startSafetyMonitoring();
 
   // Remove driver route line (no longer needed)
   if (driverRouteLine) {
@@ -745,14 +1091,92 @@ function handleTripCompleted(message) {
   updateStatus('Trip completed! Thank you for riding with DonkeyRide!', 'success');
   document.getElementById('ride-status').textContent = 'Completed';
   document.getElementById('eta-display').textContent = '✅ Complete';
+  hideStreamPanel();
+  streamState = { totalPaid: 0, fare: 0, lastAmount: 0 };
+  stopSafetyMonitoring();
+  setSafetyStatus('Ride completed safely.', 'success');
+  showCompletionPanel(message);
+}
 
-  // Show completion details
-  setTimeout(() => {
-    alert(`Trip completed!\n\nFare: ${currentRide.fareCost}\nDuration: ${message.ride.duration}s\n\nThank you for using DonkeyRide!`);
+function handleStreamPayment(message) {
+  if (!currentRide || message.ride_id !== currentRide.id) {
+    return;
+  }
 
-    // Reset for next ride
+  if (typeof message.fare_sats === 'number') {
+    if (currentRide) {
+      currentRide.fare = message.fare_sats;
+    }
+    streamState.fare = message.fare_sats;
+  }
+  updateStreamPanel(message);
+  const totalDisplay = streamState.totalPaid.toLocaleString();
+  document.getElementById('ride-status').textContent = `Trip in progress • ${totalDisplay} sats streamed`;
+}
+
+function handlePanicAlert(message) {
+  showSafetyPanel();
+  stopSafetyMonitoring();
+  hideCheckinModal();
+  const initiator = (message?.initiated_by || '').toLowerCase();
+  const riderIdentifiers = [
+    (riderPubKey || '').toLowerCase(),
+    (riderNpub || '').toLowerCase(),
+    'rider'
+  ];
+  const isSelf = riderIdentifiers.includes(initiator);
+  const actorLabel = isSelf ? 'You' : 'Driver';
+  setSafetyStatus(`Emergency alert triggered by ${actorLabel}. Support is on the way.`, 'alert');
+  updateStatus('Emergency safety flow active. Stakes frozen until resolved.', 'error');
+}
+
+function handleSafetyCheckUpdate(message) {
+  if (!message) {
+    return;
+  }
+  showSafetyPanel();
+  if (message.status === 'ok') {
+    setSafetyStatus('Safety check acknowledged by dispatch.', 'success');
+  } else if (message.status === 'missed') {
+    setSafetyStatus('Dispatch flagged a missed check-in.', 'alert');
+  }
+}
+
+function showCompletionPanel(message) {
+  if (!completionPanelEl) {
     resetRide();
-  }, 2000);
+    return;
+  }
+
+  const fareSats = message?.payment?.amount_sats
+    || message?.ride?.payment?.amount_sats
+    || currentRide?.fare
+    || currentRide?.estimate?.fare?.sats
+    || 0;
+  const fareDisplay = currentRide?.fareCost
+    || (fareSats ? `${fareSats.toLocaleString()} sats` : '-');
+  const distanceValue = currentRide?.distance
+    || currentRide?.estimate?.distance?.km
+    || message?.ride?.distance_km
+    || 0;
+  const durationSeconds = message?.ride?.duration;
+
+  if (completionFareEl) {
+    completionFareEl.textContent = fareDisplay;
+  }
+  if (completionDistanceEl) {
+    completionDistanceEl.textContent = `${Number(distanceValue || 0).toFixed(1)} km`;
+  }
+  if (completionDurationEl) {
+    if (typeof durationSeconds === 'number') {
+      const minutes = Math.max(1, Math.round(durationSeconds / 60));
+      completionDurationEl.textContent = `${minutes} min`;
+    } else {
+      completionDurationEl.textContent = '-';
+    }
+  }
+
+  completionPanelEl.classList.remove('hidden');
 }
 
 // Update ETA display
@@ -847,6 +1271,12 @@ function resetRide() {
 
   updateStatus('Click on the map to set pickup (blue) and dropoff (red) locations', 'info');
   hideStakePanel();
+  hideStreamPanel();
+  hideSafetyPanel();
+  if (completionPanelEl) {
+    completionPanelEl.classList.add('hidden');
+  }
+  streamState = { totalPaid: 0, fare: 0, lastAmount: 0 };
   if (stakePaidBtn) {
     stakePaidBtn.disabled = false;
     stakePaidBtn.textContent = '✅ I’ve paid the stake';
@@ -863,6 +1293,35 @@ if (stakePaidBtn) {
 }
 if (stakeCancelBtn) {
   stakeCancelBtn.addEventListener('click', cancelStakeFlow);
+}
+if (panicBtn) {
+  panicBtn.addEventListener('click', showPanicModal);
+}
+if (panicConfirmBtn) {
+  panicConfirmBtn.addEventListener('click', () => triggerPanic('rider', 'manual-activate'));
+}
+if (panicCancelBtn) {
+  panicCancelBtn.addEventListener('click', hidePanicModal);
+}
+if (checkinBtn) {
+  checkinBtn.addEventListener('click', () => completeSafetyCheck('manual-button'));
+}
+if (checkinOkBtn) {
+  checkinOkBtn.addEventListener('click', () => {
+    const source = checkinModalEl?.dataset.source || 'prompt';
+    completeSafetyCheck(source);
+  });
+}
+if (checkinAlertBtn) {
+  checkinAlertBtn.addEventListener('click', () => triggerPanic('rider', 'manual-escalated'));
+}
+if (completionCloseBtn) {
+  completionCloseBtn.addEventListener('click', () => {
+    if (completionPanelEl) {
+      completionPanelEl.classList.add('hidden');
+    }
+    resetRide();
+  });
 }
 
 // Initialize

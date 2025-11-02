@@ -168,6 +168,10 @@ async function initializeRedis() {
 
 const activeRides = new Map();
 const stakeBalances = new Map();
+const rideStreamingTimers = new Map();
+
+const STREAM_INTERVAL_MS = 3000;
+const STREAM_STEPS = 40;
 
 // Initialize ride manager
 const rideManager = new RideManager();
@@ -265,6 +269,124 @@ function broadcastToAll(message) {
             client.send(JSON.stringify(message));
         }
     });
+}
+
+function updateRideStreamingState(rideId, patch = {}) {
+    const safePatch = { ...patch };
+    if (!Object.prototype.hasOwnProperty.call(safePatch, 'updatedAt')) {
+        safePatch.updatedAt = Date.now();
+    }
+
+    const session = activeRides.get(rideId);
+    if (session) {
+        session.streaming = {
+            ...(session.streaming || {}),
+            ...safePatch
+        };
+    }
+
+    const rideRecord = rideManager.getRide(rideId);
+    if (rideRecord) {
+        rideRecord.streaming = {
+            ...(rideRecord.streaming || {}),
+            ...safePatch
+        };
+    }
+}
+
+function startStreamingForRide(rideId) {
+    if (rideStreamingTimers.has(rideId)) {
+        return;
+    }
+
+    const ride = rideManager.getRide(rideId);
+    if (!ride || !ride.fare || ride.fare <= 0) {
+        return;
+    }
+
+    const fareSats = ride.fare;
+    const step = Math.max(1, Math.floor(fareSats / STREAM_STEPS));
+
+    const state = {
+        totalPaid: 0,
+        fareSats,
+        step,
+        interval: null
+    };
+
+    const startedAt = Date.now();
+    updateRideStreamingState(rideId, {
+        totalPaid: 0,
+        fare: fareSats,
+        startedAt
+    });
+
+    state.interval = setInterval(() => {
+        const remaining = Math.max(0, state.fareSats - state.totalPaid);
+        const amount = Math.min(state.step, remaining);
+
+        if (amount <= 0) {
+            stopStreamingForRide(rideId);
+            return;
+        }
+
+        state.totalPaid += amount;
+
+        updateRideStreamingState(rideId, {
+            totalPaid: state.totalPaid,
+            fare: state.fareSats,
+            lastAmount: amount
+        });
+
+        broadcastToRide(rideId, {
+            type: 'stream_payment',
+            ride_id: rideId,
+            amount_sats: amount,
+            total_paid_sats: state.totalPaid,
+            fare_sats: state.fareSats,
+            remaining_sats: Math.max(0, state.fareSats - state.totalPaid),
+            timestamp: Date.now()
+        });
+
+        if (state.totalPaid >= state.fareSats) {
+            stopStreamingForRide(rideId);
+        }
+    }, STREAM_INTERVAL_MS);
+
+    rideStreamingTimers.set(rideId, state);
+}
+
+function stopStreamingForRide(rideId) {
+    const state = rideStreamingTimers.get(rideId);
+    if (!state) {
+        return;
+    }
+
+    clearInterval(state.interval);
+    rideStreamingTimers.delete(rideId);
+    updateRideStreamingState(rideId, {
+        totalPaid: state.totalPaid,
+        fare: state.fareSats,
+        stoppedAt: Date.now()
+    });
+}
+
+function finalizeRideSession(rideId, finalStatus) {
+    const session = activeRides.get(rideId);
+    if (session) {
+        if (finalStatus) {
+            session.status = finalStatus;
+        }
+        session.finalizedAt = Date.now();
+    }
+
+    stopStreamingForRide(rideId);
+    activeRides.delete(rideId);
+
+    const rideRecord = rideManager.getRide(rideId);
+    if (rideRecord) {
+        rideRecord.finalizedAt = Date.now();
+    }
 }
 
 // ==========================================
@@ -470,9 +592,28 @@ app.post('/rides/:rideId/complete', async (req, res) => {
         
         // Pay operator fee (from fare, not stakes)
         const operatorPayment = await payOperatorFee(ride.operatorFee);
+
+        const completionTimestamp = Date.now();
+        const payment = {
+            success: true,
+            payment_hash: `mock_hash_${completionTimestamp}`,
+            amount_sats: ride.fareAmount,
+            timestamp: completionTimestamp
+        };
         
         ride.status = 'completed';
-        ride.completedAt = Date.now();
+        ride.completedAt = completionTimestamp;
+
+        const rideRecord = rideManager.getRide(rideId);
+        if (rideRecord && rideRecord.status !== RideStatus.COMPLETED) {
+            try {
+                rideManager.completeTrip(rideId, payment);
+            } catch (err) {
+                console.warn(`Ride ${rideId} completion already processed:`, err.message);
+            }
+        } else if (rideRecord && rideRecord.status === RideStatus.COMPLETED) {
+            rideRecord.payment = rideRecord.payment || payment;
+        }
         
         // Broadcast completion
         broadcastToRide(rideId, {
@@ -480,9 +621,8 @@ app.post('/rides/:rideId/complete', async (req, res) => {
             operatorFee: ride.operatorFee,
             duration: ride.completedAt - ride.startedAt
         });
-        
-        // Clean up after 5 minutes
-        setTimeout(() => activeRides.delete(rideId), 300000);
+
+        finalizeRideSession(rideId, 'completed');
         
         res.json({
             success: true,
@@ -505,7 +645,9 @@ app.post('/rides/:rideId/cancel', async (req, res) => {
         
         const ride = activeRides.get(rideId);
         if (!ride) throw new Error('Ride not found');
-        
+
+        stopStreamingForRide(rideId);
+
         let penalty = {};
         
         if (ride.status === 'active') {
@@ -538,13 +680,32 @@ app.post('/rides/:rideId/cancel', async (req, res) => {
         ride.cancelledBy = cancelledBy;
         ride.cancelReason = reason;
         ride.cancelledAt = Date.now();
+
+        try {
+            rideManager.cancelRide(
+                rideId,
+                cancelledBy || 'unknown',
+                reason || 'cancelled'
+            );
+        } catch (err) {
+            console.warn(`Ride ${rideId} cancellation already processed:`, err.message);
+        }
         
         // Broadcast cancellation
         broadcastToRide(rideId, {
             type: 'ride_cancelled',
+            ride_id: rideId,
             cancelledBy,
             penalty: penalty.penalty || 0
         });
+        broadcastToDrivers({
+            type: 'ride_cancelled',
+            ride_id: rideId,
+            cancelledBy,
+            penalty: penalty.penalty || 0
+        });
+
+        finalizeRideSession(rideId, 'cancelled');
         
         res.json({
             success: true,
@@ -560,26 +721,48 @@ app.post('/rides/:rideId/cancel', async (req, res) => {
 
 // Get ride status
 app.get('/rides/:rideId', (req, res) => {
-    const ride = activeRides.get(req.params.rideId);
-    
-    if (!ride) {
+    const { rideId } = req.params;
+    const session = activeRides.get(rideId);
+
+    if (session) {
+        const response = {
+            rideId,
+            status: session.status,
+            fareAmount: session.fareAmount,
+            riderStake: session.riderStake,
+            driverStake: session.driverStake,
+            operatorFee: session.operatorFee,
+            createdAt: session.createdAt,
+            startedAt: session.startedAt,
+            completedAt: session.completedAt,
+            streaming: session.streaming || null,
+            finalizedAt: session.finalizedAt || null
+        };
+
+        return res.json(response);
+    }
+
+    const rideRecord = rideManager.getRide(rideId);
+    if (!rideRecord) {
         return res.status(404).json({ error: 'Ride not found' });
     }
-    
-    // Don't expose sensitive data
-    const safeRide = {
-        rideId: req.params.rideId,
-        status: ride.status,
-        fareAmount: ride.fareAmount,
-        riderStake: ride.riderStake,
-        driverStake: ride.driverStake,
-        operatorFee: ride.operatorFee,
-        createdAt: ride.createdAt,
-        startedAt: ride.startedAt,
-        completedAt: ride.completedAt
+
+    const timestamps = rideRecord.timestamps || {};
+    const response = {
+        rideId,
+        status: rideRecord.status,
+        fareAmount: rideRecord.fare,
+        riderId: rideRecord.rider?.npub,
+        driverId: rideRecord.driver?.npub || null,
+        createdAt: timestamps.requested,
+        startedAt: timestamps.started,
+        completedAt: timestamps.completed,
+        cancelledAt: timestamps.cancelled,
+        streaming: rideRecord.streaming || null,
+        finalizedAt: rideRecord.finalizedAt || timestamps.completed || timestamps.cancelled || null
     };
-    
-    res.json(safeRide);
+
+    res.json(response);
 });
 
 // Health check
@@ -1049,6 +1232,7 @@ app.post('/api/rides/:rideId/start', async (req, res) => {
         const { rideId } = req.params;
 
         const ride = rideManager.startTrip(rideId);
+        startStreamingForRide(rideId);
 
         // Notify rider
         broadcastToRide(rideId, {
@@ -1066,6 +1250,100 @@ app.post('/api/rides/:rideId/start', async (req, res) => {
         console.error('Error starting trip:', error);
         res.status(400).json({
             error: 'Failed to start trip',
+            details: error.message
+        });
+    }
+});
+
+// Panic / emergency alert
+app.post('/api/rides/:rideId/panic', (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const { initiatedBy, role, note } = req.body || {};
+
+        const ride = rideManager.getRide(rideId);
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        const timestamp = Date.now();
+        const session = activeRides.get(rideId);
+        if (session) {
+            session.panicActive = true;
+            session.panicAt = timestamp;
+            session.status = 'panic';
+        }
+
+        ride.safety = ride.safety || { panicEvents: [], checkIns: [] };
+        ride.safety.panicEvents.push({
+            initiatedBy: initiatedBy || role || 'unknown',
+            role: role || null,
+            note: note || null,
+            timestamp
+        });
+        ride.history.push({
+            status: 'panic_alert',
+            timestamp,
+            by: initiatedBy || role || 'unknown'
+        });
+
+        updateRideStreamingState(rideId, { panicTriggeredAt: timestamp });
+        stopStreamingForRide(rideId);
+
+        broadcastToRide(rideId, {
+            type: 'panic_alert',
+            ride_id: rideId,
+            initiated_by: initiatedBy || role || 'unknown',
+            note: note || null,
+            timestamp
+        });
+
+        res.json({ success: true, timestamp });
+    } catch (error) {
+        console.error('Error handling panic alert:', error);
+        res.status(500).json({
+            error: 'Failed to trigger panic',
+            details: error.message
+        });
+    }
+});
+
+// Record safety check-in
+app.post('/api/rides/:rideId/check-in', (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const { status, source, note, by } = req.body || {};
+
+        const ride = rideManager.getRide(rideId);
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        const timestamp = Date.now();
+        ride.safety = ride.safety || { panicEvents: [], checkIns: [] };
+        ride.safety.checkIns.push({
+            status: status || 'ok',
+            source: source || 'manual',
+            note: note || null,
+            by: by || null,
+            timestamp
+        });
+
+        broadcastToRide(rideId, {
+            type: 'safety_check_update',
+            ride_id: rideId,
+            status: status || 'ok',
+            source: source || 'manual',
+            note: note || null,
+            by: by || null,
+            timestamp
+        });
+
+        res.json({ success: true, timestamp });
+    } catch (error) {
+        console.error('Error recording safety check:', error);
+        res.status(500).json({
+            error: 'Failed to record safety check',
             details: error.message
         });
     }
@@ -1091,6 +1369,7 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
         };
 
         const completedRide = rideManager.completeTrip(rideId, payment);
+        stopStreamingForRide(rideId);
 
         // Notify rider
         broadcastToRide(rideId, {
@@ -1287,6 +1566,7 @@ process.on('SIGTERM', async () => {
             await stakeManager.releaseStakes(`${rideId}_rider`);
             await stakeManager.releaseStakes(`${rideId}_driver`);
         }
+        stopStreamingForRide(rideId);
     });
 
     // Close connections
