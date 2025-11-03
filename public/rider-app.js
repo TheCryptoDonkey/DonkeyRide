@@ -120,6 +120,18 @@ const completionFareEl = document.getElementById('completion-fare');
 const completionDistanceEl = document.getElementById('completion-distance');
 const completionDurationEl = document.getElementById('completion-duration');
 const completionCloseBtn = document.getElementById('completion-close-btn');
+const riderRatingPanel = document.getElementById('rider-rating-panel');
+const riderRatingStars = document.getElementById('rider-rating-stars');
+const riderRatingSubmitBtn = document.getElementById('rider-rating-submit-btn');
+const riderRatingStatusEl = document.getElementById('rider-rating-status');
+const riderRatingNotesEl = document.getElementById('rider-rating-notes');
+const riderFlagSafetyEl = document.getElementById('rider-flag-safety');
+const driverRatingEl = document.getElementById('driver-rating');
+
+let riderRatingValue = 0;
+let riderRatingSubmitted = false;
+const unitSelectEl = document.getElementById('unit-select');
+const currencySelectEl = document.getElementById('currency-select');
 
 let streamState = { totalPaid: 0, fare: 0, lastAmount: 0 };
 
@@ -132,6 +144,164 @@ let safetyResponseTimer = null;
 let nextSafetyDeadline = null;
 let pendingSafetyPrompt = false;
 let safetyMode = 'idle';
+const reputationCache = new Map();
+
+const UNIT_PREFERENCE_KEY = 'donkeyride.pref.unit';
+const CURRENCY_PREFERENCE_KEY = 'donkeyride.pref.currency';
+const DEFAULT_UNIT = 'mi';
+const DEFAULT_CURRENCY = 'GBP';
+
+let distanceUnit = (window.localStorage.getItem(UNIT_PREFERENCE_KEY) || DEFAULT_UNIT).toLowerCase();
+if (distanceUnit !== 'km' && distanceUnit !== 'mi') {
+  distanceUnit = DEFAULT_UNIT;
+}
+
+let currencyPreference = (window.localStorage.getItem(CURRENCY_PREFERENCE_KEY) || DEFAULT_CURRENCY).toUpperCase();
+if (!['USD', 'EUR', 'GBP'].includes(currencyPreference)) {
+  currencyPreference = DEFAULT_CURRENCY;
+}
+
+if (unitSelectEl) {
+  unitSelectEl.value = distanceUnit;
+}
+if (currencySelectEl) {
+  currencySelectEl.value = currencyPreference;
+}
+
+function convertDistance(distanceKm) {
+  if (typeof distanceKm !== 'number' || Number.isNaN(distanceKm)) {
+    return { value: 0, unitLabel: distanceUnit === 'mi' ? 'mi' : 'km' };
+  }
+  if (distanceUnit === 'mi') {
+    return { value: distanceKm * 0.621371, unitLabel: 'mi' };
+  }
+  return { value: distanceKm, unitLabel: 'km' };
+}
+
+function formatDistance(distanceKm, fractionDigits = 1) {
+  const { value, unitLabel } = convertDistance(distanceKm);
+  const digits = typeof fractionDigits === 'number' ? fractionDigits : 1;
+  return `${value.toFixed(digits)} ${unitLabel}`;
+}
+
+async function fetchReputationProfile(npub) {
+  if (!npub) {
+    return null;
+  }
+  const cacheKey = npub.toLowerCase();
+  if (reputationCache.has(cacheKey)) {
+    return reputationCache.get(cacheKey);
+  }
+
+  try {
+    const response = await fetch(`/api/reputation/${encodeURIComponent(cacheKey)}`);
+    if (!response.ok) {
+      return null;
+    }
+    const data = await response.json();
+    if (data?.profile) {
+      reputationCache.set(cacheKey, data.profile);
+      return data.profile;
+    }
+  } catch (error) {
+    console.warn('Failed to fetch reputation', error);
+  }
+  return null;
+}
+
+function updateDriverReputationDisplay(profile) {
+  if (!driverRatingEl) {
+    return;
+  }
+  if (!profile) {
+    driverRatingEl.textContent = 'No ratings yet';
+    return;
+  }
+  const rounded = profile.averageRating ? Number(profile.averageRating).toFixed(2) : '0.00';
+  driverRatingEl.textContent = `${rounded} (${profile.ratingsCount} ratings)`;
+}
+
+function normaliseHexKey(key) {
+  if (!key) {
+    return null;
+  }
+  const trimmed = key.trim();
+  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+  if (nip19) {
+    try {
+      const decoded = nip19.decode(trimmed);
+      if (typeof decoded.data === 'string') {
+        return decoded.data.toLowerCase();
+      }
+      if (decoded.data?.data && typeof decoded.data.data === 'string') {
+        return decoded.data.data.toLowerCase();
+      }
+    } catch (error) {
+      console.warn('Failed to decode npub', error);
+    }
+  }
+  return null;
+}
+
+function buildRatingEvent({ rideId, targetKey, rating, role, notes, safetyFlag }) {
+  const targetHex = normaliseHexKey(targetKey);
+  if (!targetHex) {
+    throw new Error('Unknown rating target');
+  }
+  if (!riderPubKey || !riderPrivKey) {
+    throw new Error('Rider key unavailable for signing');
+  }
+
+  const event = {
+    kind: 30530,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [
+      ['ride', rideId],
+      ['p', targetHex],
+      ['rating', String(rating)],
+      ['role', role]
+    ],
+    content: notes || ''
+  };
+
+  if (safetyFlag) {
+    event.tags.push(['safety', safetyFlag]);
+  }
+
+  event.pubkey = riderPubKey;
+  event.id = getEventHash(event);
+  event.sig = getSignature(event, riderPrivKey);
+  return event;
+}
+
+function buildPanicEvent({ rideId, role, note, targetKey }) {
+  const pubkey = riderPubKey;
+  const privKey = riderPrivKey;
+  if (!pubkey || !privKey) {
+    throw new Error('Missing signing key');
+  }
+  const tags = [
+    ['ride', rideId],
+    ['role', role]
+  ];
+  const targetHex = normaliseHexKey(targetKey);
+  if (targetHex) {
+    tags.push(['p', targetHex]);
+  }
+
+  const event = {
+    kind: 30560,
+    created_at: Math.floor(Date.now() / 1000),
+    tags,
+    content: note || ''
+  };
+  event.pubkey = pubkey;
+  event.id = getEventHash(event);
+  event.sig = getSignature(event, privKey);
+  return event;
+}
 
 function generateRideId() {
   const randomPart = Math.random().toString(36).slice(2, 8);
@@ -200,7 +370,8 @@ async function createRideSession(rideId, fareSats) {
     body: JSON.stringify({
       rideId,
       riderId: riderPubKey || riderNpub,
-      fareAmount: fareSats
+      fareAmount: fareSats,
+      currency: currencyPreference
     })
   });
 
@@ -499,16 +670,35 @@ async function triggerPanic(initiatedBy = 'rider', note = '') {
   setSafetyStatus('Emergency alert dispatched. We froze the ride.', 'alert');
 
   try {
-    await fetch(`/api/rides/${currentRide.id}/panic`, {
+    const targetKey = currentRide?.driver?.npub || currentRide?.driver?.pubkey;
+    const panicEvent = buildPanicEvent({
+      rideId: currentRide.id,
+      role: 'rider',
+      note,
+      targetKey
+    });
+
+    const response = await fetch(`/api/rides/${currentRide.id}/panic`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        initiatedBy: riderPubKey || riderNpub,
-        role: initiatedBy,
-        note
-      })
+      body: JSON.stringify({ event: panicEvent })
     });
-    updateStatus('Emergency services notified. Ride paused.', 'error');
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || response.statusText);
+    }
+
+    const payload = await response.json().catch(() => ({}));
+    if (Array.isArray(payload?.relay_statuses) && payload.relay_statuses.length) {
+      console.debug('[Rider] Rating relay statuses', payload.relay_statuses);
+    }
+    const cached = !!payload?.cached_locally;
+    const message = cached
+      ? 'Emergency alert queued locally — dispatcher offline, retry pending.'
+      : 'Emergency services notified. Ride paused.';
+    updateStatus(message, 'error');
+    setSafetyStatus(message, cached ? 'warning' : 'alert');
   } catch (error) {
     console.error('Failed to send panic alert', error);
     updateStatus(`Failed to send emergency alert: ${error.message}`, 'error');
@@ -516,6 +706,9 @@ async function triggerPanic(initiatedBy = 'rider', note = '') {
       panicBtn.disabled = false;
     }
   } finally {
+    if (panicBtn) {
+      panicBtn.disabled = false;
+    }
     hidePanicModal();
   }
 }
@@ -529,7 +722,7 @@ async function fetchTripEstimate() {
       pickup_lon: pickup.lon,
       dropoff_lat: dropoff.lat,
       dropoff_lon: dropoff.lon,
-      currency: 'USD'
+      currency: currencyPreference
     })
   });
 
@@ -600,7 +793,8 @@ async function submitRideRequest() {
         dropoff_lon: dropoff.lon,
         rider_npub: riderNpub,
         ride_id: currentRide.id,
-        fare_sats: currentRide.estimate?.fare?.sats
+        fare_sats: currentRide.estimate?.fare?.sats,
+        currency: currencyPreference
       })
     });
 
@@ -616,6 +810,7 @@ async function submitRideRequest() {
     currentRide.estimate = data.estimate || currentRide.estimate;
     currentRide.fare = currentRide.estimate?.fare?.sats;
     currentRide.fareCost = currentRide.estimate?.fare?.formatted;
+    currentRide.currency = data.currency || currentRide.currency || currencyPreference;
     streamState = { totalPaid: 0, fare: currentRide.fare || 0, lastAmount: 0 };
 
     hideStakePanel();
@@ -736,8 +931,8 @@ async function previewRoute() {
     if (data.success && data.route && data.route.length > 0) {
       // Draw the OSRM route
       drawRoute(data.route);
-      updateStatus(`Ready to request ride! Route: ${data.distance_km.toFixed(1)}km, ~${data.duration_minutes} min`, 'success');
-      console.log(`Route preview: ${data.distance_km.toFixed(1)}km, ${data.duration_minutes} min, ${data.points} points`);
+      updateStatus(`Ready to request ride! Route: ${formatDistance(data.distance_km)}, ~${data.duration_minutes} min`, 'success');
+      console.log(`Route preview: ${formatDistance(data.distance_km)} (${data.distance_km.toFixed(1)} km raw), ${data.duration_minutes} min, ${data.points} points`);
     } else {
       // Fallback to straight line if OSRM not available
       drawStraightLine();
@@ -868,7 +1063,8 @@ async function requestRide() {
       id: rideId,
       stage: 'waiting_rider_payment',
       estimate,
-      stake: session
+      stake: session,
+      currency: currencyPreference
     };
     riderStakeState = session;
 
@@ -956,6 +1152,11 @@ function handleRideUpdate(message) {
     case 'safety_check_update':
       handleSafetyCheckUpdate(message);
       break;
+    case 'rating_submitted':
+      if (message.role === 'driver' && currentRide?.driver?.npub) {
+        fetchReputationProfile(currentRide.driver.npub).then(profile => updateDriverReputationDisplay(profile));
+      }
+      break;
   }
 }
 
@@ -971,6 +1172,14 @@ function handleRideMatched(ride) {
   document.getElementById('ride-status').textContent = 'Driver en route to pickup';
 
   updateETA(ride.eta_seconds);
+
+  if (ride.driver?.npub) {
+    fetchReputationProfile(ride.driver.npub).then(profile => {
+      updateDriverReputationDisplay(profile);
+    });
+  } else {
+    updateDriverReputationDisplay(null);
+  }
 
   // Add driver marker
   if (driverMarker) {
@@ -1165,7 +1374,7 @@ function showCompletionPanel(message) {
     completionFareEl.textContent = fareDisplay;
   }
   if (completionDistanceEl) {
-    completionDistanceEl.textContent = `${Number(distanceValue || 0).toFixed(1)} km`;
+    completionDistanceEl.textContent = formatDistance(Number(distanceValue || 0));
   }
   if (completionDurationEl) {
     if (typeof durationSeconds === 'number') {
@@ -1174,6 +1383,28 @@ function showCompletionPanel(message) {
     } else {
       completionDurationEl.textContent = '-';
     }
+  }
+
+  riderRatingSubmitted = false;
+  setRiderRating(0);
+  if (riderRatingNotesEl) {
+    riderRatingNotesEl.value = '';
+    riderRatingNotesEl.disabled = false;
+  }
+  if (riderFlagSafetyEl) {
+    riderFlagSafetyEl.checked = false;
+    riderFlagSafetyEl.disabled = false;
+  }
+  if (riderRatingStars) {
+    riderRatingStars.querySelectorAll('button').forEach((btn) => {
+      btn.disabled = false;
+    });
+  }
+  if (riderRatingSubmitBtn) {
+    riderRatingSubmitBtn.disabled = false;
+  }
+  if (riderRatingStatusEl) {
+    riderRatingStatusEl.textContent = '';
   }
 
   completionPanelEl.classList.remove('hidden');
@@ -1199,8 +1430,117 @@ function showRideInfo() {
     ? currentRide.distance
     : (currentRide.estimate?.distance?.km || 0);
   document.getElementById('ride-fare').textContent = fareText;
-  document.getElementById('ride-distance').textContent = `${distanceVal.toFixed(1)} km`;
+  document.getElementById('ride-distance').textContent = formatDistance(distanceVal);
   document.getElementById('ride-status').textContent = 'Waiting for driver...';
+  updateDriverReputationDisplay(null);
+}
+
+function refreshDistanceDisplays() {
+  if (!currentRide) {
+    return;
+  }
+
+  const distanceKm = typeof currentRide.distance === 'number'
+    ? currentRide.distance
+    : (currentRide.estimate?.distance?.km || currentEstimate?.distance?.km || 0);
+  const rideDistanceEl = document.getElementById('ride-distance');
+  if (rideDistanceEl) {
+    rideDistanceEl.textContent = formatDistance(distanceKm);
+  }
+
+  if (completionPanelEl && !completionPanelEl.classList.contains('hidden') && completionDistanceEl) {
+    completionDistanceEl.textContent = formatDistance(distanceKm);
+  }
+}
+
+function setRiderRating(value) {
+  riderRatingValue = value;
+  if (!riderRatingStars) {
+    return;
+  }
+  const buttons = Array.from(riderRatingStars.querySelectorAll('button'));
+  buttons.forEach((btn) => {
+    const btnValue = Number(btn.dataset.rating);
+    if (btnValue <= value) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+  if (riderRatingStatusEl) {
+    riderRatingStatusEl.textContent = '';
+  }
+}
+
+async function submitRiderRating() {
+  if (riderRatingSubmitted) {
+    return;
+  }
+  if (!currentRide || !currentRide.id) {
+    riderRatingStatusEl.textContent = 'No ride to rate yet.';
+    return;
+  }
+  if (riderRatingValue < 1) {
+    riderRatingStatusEl.textContent = 'Tap stars to select a rating.';
+    return;
+  }
+
+  try {
+    riderRatingSubmitBtn.disabled = true;
+    riderRatingStatusEl.textContent = 'Submitting feedback…';
+
+    const targetKey = currentRide?.driver?.npub || currentRide?.driver?.pubkey;
+    const notes = riderRatingNotesEl?.value || '';
+    const safetyFlag = riderFlagSafetyEl?.checked ? 'safety_issue' : null;
+    const event = buildRatingEvent({
+      rideId: currentRide.id,
+      targetKey,
+      rating: riderRatingValue,
+      role: 'rider',
+      notes,
+      safetyFlag
+    });
+
+    const response = await fetch(`/api/rides/${currentRide.id}/rate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ event })
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || response.statusText);
+    }
+
+    const payload = await response.json().catch(() => ({}));
+    if (Array.isArray(payload?.relay_statuses) && payload.relay_statuses.length) {
+      console.debug('[Rider] Panic relay statuses', payload.relay_statuses);
+    }
+
+    riderRatingSubmitted = true;
+    riderRatingSubmitBtn.disabled = true;
+    if (riderRatingNotesEl) riderRatingNotesEl.disabled = true;
+    if (riderFlagSafetyEl) riderFlagSafetyEl.disabled = true;
+    if (riderRatingStars) {
+      riderRatingStars.querySelectorAll('button').forEach((btn) => {
+        btn.disabled = true;
+      });
+    }
+    riderRatingStatusEl.textContent = payload?.cached_locally
+      ? 'Feedback queued locally — we will publish when relays are reachable.'
+      : 'Thank you! Your feedback was sent.';
+    setTimeout(() => {
+      riderRatingStatusEl.textContent = '';
+    }, 4000);
+    if (currentRide?.driver?.npub) {
+      reputationCache.delete(currentRide.driver.npub.toLowerCase());
+      fetchReputationProfile(currentRide.driver.npub).then(profile => updateDriverReputationDisplay(profile));
+    }
+  } catch (error) {
+    console.error('Failed to submit rider rating', error);
+    riderRatingStatusEl.textContent = `Could not submit feedback: ${error.message}`;
+    riderRatingSubmitBtn.disabled = false;
+  }
 }
 
 // Update status message
@@ -1276,6 +1616,27 @@ function resetRide() {
   if (completionPanelEl) {
     completionPanelEl.classList.add('hidden');
   }
+  riderRatingSubmitted = false;
+  setRiderRating(0);
+  if (riderRatingStatusEl) {
+    riderRatingStatusEl.textContent = '';
+  }
+  if (riderRatingSubmitBtn) {
+    riderRatingSubmitBtn.disabled = false;
+  }
+  if (riderRatingNotesEl) {
+    riderRatingNotesEl.value = '';
+    riderRatingNotesEl.disabled = false;
+  }
+  if (riderFlagSafetyEl) {
+    riderFlagSafetyEl.checked = false;
+    riderFlagSafetyEl.disabled = false;
+  }
+  if (riderRatingStars) {
+    riderRatingStars.querySelectorAll('button').forEach(btn => {
+      btn.disabled = false;
+    });
+  }
   streamState = { totalPaid: 0, fare: 0, lastAmount: 0 };
   if (stakePaidBtn) {
     stakePaidBtn.disabled = false;
@@ -1293,6 +1654,21 @@ if (stakePaidBtn) {
 }
 if (stakeCancelBtn) {
   stakeCancelBtn.addEventListener('click', cancelStakeFlow);
+}
+if (unitSelectEl) {
+  unitSelectEl.addEventListener('change', (event) => {
+    const newUnit = (event.target.value || DEFAULT_UNIT).toLowerCase();
+    distanceUnit = newUnit === 'km' ? 'km' : 'mi';
+    window.localStorage.setItem(UNIT_PREFERENCE_KEY, distanceUnit);
+    refreshDistanceDisplays();
+  });
+}
+if (currencySelectEl) {
+  currencySelectEl.addEventListener('change', (event) => {
+    const newCurrency = (event.target.value || DEFAULT_CURRENCY).toUpperCase();
+    currencyPreference = ['USD', 'EUR', 'GBP'].includes(newCurrency) ? newCurrency : DEFAULT_CURRENCY;
+    window.localStorage.setItem(CURRENCY_PREFERENCE_KEY, currencyPreference);
+  });
 }
 if (panicBtn) {
   panicBtn.addEventListener('click', showPanicModal);
@@ -1322,6 +1698,21 @@ if (completionCloseBtn) {
     }
     resetRide();
   });
+}
+if (riderRatingStars) {
+  riderRatingStars.addEventListener('click', (event) => {
+    const btn = event.target.closest('button[data-rating]');
+    if (!btn || riderRatingSubmitted) {
+        return;
+    }
+    const value = Number(btn.dataset.rating);
+    if (Number.isFinite(value)) {
+      setRiderRating(value);
+    }
+  });
+}
+if (riderRatingSubmitBtn) {
+  riderRatingSubmitBtn.addEventListener('click', submitRiderRating);
 }
 
 // Initialize

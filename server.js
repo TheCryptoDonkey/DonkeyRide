@@ -12,6 +12,7 @@ const cors = require('cors');
 const WebSocket = require('ws');
 const Redis = require('redis');
 const { PaymentProviderFactory, ResilientStakeManager } = require('./payment-providers/factory');
+const reputation = require('./src/nostr/reputation');
 const { validateNIP98Auth } = require('./middleware/nip98-auth');
 const {
     publicRateLimiter,
@@ -175,6 +176,11 @@ const STREAM_STEPS = 40;
 
 // Initialize ride manager
 const rideManager = new RideManager();
+const relayConfig = (process.env.REPUTATION_RELAYS || `${process.env.NOSTR_RELAYS || ''},${config.nostrRelay || ''}`)
+    .split(',')
+    .map(r => r.trim())
+    .filter(Boolean);
+reputation.setRelays(relayConfig);
 
 // ==========================================
 // WEBSOCKET FOR REAL-TIME UPDATES
@@ -422,7 +428,17 @@ app.get('/info', publicRateLimiter, (req, res) => {
 // Create ride session with stakes
 app.post('/rides/create', validateNIP98Auth, rideCreationLimiter, async (req, res) => {
     try {
-        const { rideId, riderId, fareAmount } = req.body;
+        const { rideId, riderId, fareAmount, currency } = req.body;
+
+        const fareSats = parseInt(fareAmount, 10);
+        if (!Number.isFinite(fareSats) || fareSats <= 0) {
+            return res.status(400).json({ error: 'Invalid fare amount' });
+        }
+
+        let fiatCurrency = typeof currency === 'string' ? currency.toUpperCase() : 'GBP';
+        if (!['USD', 'EUR', 'GBP'].includes(fiatCurrency)) {
+            fiatCurrency = 'GBP';
+        }
 
         const authenticatedPubkey = req.user.pubkey;
         if (riderId && riderId.toLowerCase() !== authenticatedPubkey.toLowerCase()) {
@@ -433,8 +449,8 @@ app.post('/rides/create', validateNIP98Auth, rideCreationLimiter, async (req, re
         }
         
         // Calculate stakes
-        const riderStake = Math.max(config.minStakeAmount, Math.floor(fareAmount * 0.1));
-        const operatorFee = Math.floor(fareAmount * config.operatorFeePercent);
+        const riderStake = Math.max(config.minStakeAmount, Math.floor(fareSats * 0.1));
+        const operatorFee = Math.floor(fareSats * config.operatorFeePercent);
         
         // Create Lightning invoice for rider to pay stake
         const invoice = await createLightningInvoice(riderStake, `Stake for ride ${rideId}`);
@@ -442,12 +458,13 @@ app.post('/rides/create', validateNIP98Auth, rideCreationLimiter, async (req, re
         // Store ride session
         activeRides.set(rideId, {
             riderId: authenticatedPubkey,
-            fareAmount,
+            fareAmount: fareSats,
             riderStake,
             operatorFee,
             status: 'waiting_rider_stake',
             createdAt: Date.now(),
-            invoice
+            invoice,
+            currency: fiatCurrency
         });
         
         res.json({
@@ -456,6 +473,7 @@ app.post('/rides/create', validateNIP98Auth, rideCreationLimiter, async (req, re
             invoice: invoice.payment_request,
             stakeAmount: riderStake,
             operatorFee,
+            currency: fiatCurrency,
             expiresAt: Date.now() + 600000 // 10 minutes
         });
         
@@ -471,6 +489,7 @@ app.post('/rides/:rideId/rider-stake', async (req, res) => {
         const { paymentProof } = req.body;
         
         const ride = activeRides.get(rideId);
+        const rideRecord = rideManager.getRide(rideId);
         if (!ride) throw new Error('Ride not found');
         
         // Verify payment and lock stake
@@ -614,12 +633,16 @@ app.post('/rides/:rideId/complete', async (req, res) => {
         } else if (rideRecord && rideRecord.status === RideStatus.COMPLETED) {
             rideRecord.payment = rideRecord.payment || payment;
         }
-        
+
+        const rideSession = activeRides.get(rideId);
+        const rideCurrency = rideRecord?.currency || rideSession?.currency || 'GBP';
+
         // Broadcast completion
         broadcastToRide(rideId, {
             type: 'ride_completed',
             operatorFee: ride.operatorFee,
-            duration: ride.completedAt - ride.startedAt
+            duration: ride.completedAt - ride.startedAt,
+            currency: rideCurrency
         });
 
         finalizeRideSession(rideId, 'completed');
@@ -736,7 +759,8 @@ app.get('/rides/:rideId', (req, res) => {
             startedAt: session.startedAt,
             completedAt: session.completedAt,
             streaming: session.streaming || null,
-            finalizedAt: session.finalizedAt || null
+            finalizedAt: session.finalizedAt || null,
+            currency: session.currency || 'GBP'
         };
 
         return res.json(response);
@@ -759,7 +783,8 @@ app.get('/rides/:rideId', (req, res) => {
         completedAt: timestamps.completed,
         cancelledAt: timestamps.cancelled,
         streaming: rideRecord.streaming || null,
-        finalizedAt: rideRecord.finalizedAt || timestamps.completed || timestamps.cancelled || null
+        finalizedAt: rideRecord.finalizedAt || timestamps.completed || timestamps.cancelled || null,
+        currency: rideRecord.currency || 'GBP'
     };
 
     res.json(response);
@@ -834,6 +859,8 @@ app.get('/api/drivers/available', publicRateLimiter, async (req, res) => {
 app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
     try {
         const { pickup_lat, pickup_lon, dropoff_lat, dropoff_lon, currency } = req.body;
+        const currencyRaw = typeof currency === 'string' ? currency.toUpperCase() : 'GBP';
+        const fiatCurrency = ['USD', 'EUR', 'GBP'].includes(currencyRaw) ? currencyRaw : 'GBP';
 
         // Validate inputs
         if (!pickup_lat || !pickup_lon || !dropoff_lat || !dropoff_lon) {
@@ -856,7 +883,7 @@ app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
 
         // Get detailed cost estimate with dual pricing
         const estimate = await estimateTripCost(distance, duration, {
-            currency: currency || 'USD',
+            currency: fiatCurrency,
             operatorFeePct: config.operatorFeePercent
         });
 
@@ -975,20 +1002,27 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 dropoff_lon,
                 rider_npub,
                 ride_id,
-                fare_sats
+                fare_sats,
+                currency
             } = req.body;
+
+            let fiatCurrency = typeof currency === 'string' ? currency.toUpperCase() : 'GBP';
+            if (!['USD', 'EUR', 'GBP'].includes(fiatCurrency)) {
+                fiatCurrency = 'GBP';
+            }
 
             // Validate
             if (!pickup_lat || !pickup_lon || !dropoff_lat || !dropoff_lon) {
                 return res.status(400).json({
                     error: 'Missing required parameters',
-                required: ['pickup_lat', 'pickup_lon', 'dropoff_lat', 'dropoff_lon']
-            });
-        }
+                    required: ['pickup_lat', 'pickup_lon', 'dropoff_lat', 'dropoff_lon']
+                });
+            }
 
             // Use default rider if not provided (for MVP)
             const riderNpub = rider_npub || 'npub_test_rider';
             const rideOptions = ride_id ? { rideId: ride_id } : {};
+            rideOptions.currency = fiatCurrency;
 
             // Try to get OSRM route for real road routing
             let distance, duration, routeCoordinates = null;
@@ -999,16 +1033,18 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             distance = parseFloat(osrmRoute.distanceKm);
             duration = osrmRoute.durationMin;
             routeCoordinates = osrmRoute.coordinates;
-            console.log(`🗺️  Using OSRM routing: ${distance.toFixed(2)}km, ${duration} min, ${routeCoordinates.length} points`);
+            const distanceMiles = distance * 0.621371;
+            console.log(`🗺️  Using OSRM routing: ${distance.toFixed(2)}km (${distanceMiles.toFixed(2)}mi), ${duration} min, ${routeCoordinates.length} points`);
         } else {
             // Fallback to straight-line calculation
             distance = calculateDistance(pickup_lat, pickup_lon, dropoff_lat, dropoff_lon);
             duration = (distance / 30) * 60; // 30 km/h average
-            console.log(`📏 Using straight-line routing: ${distance.toFixed(2)}km`);
+            const distanceMiles = distance * 0.621371;
+            console.log(`📏 Using straight-line routing: ${distance.toFixed(2)}km (${distanceMiles.toFixed(2)}mi)`);
         }
 
             const estimate = await estimateTripCost(distance, duration, {
-                currency: 'USD',
+                currency: fiatCurrency,
                 operatorFeePct: config.operatorFeePercent
             });
 
@@ -1037,8 +1073,11 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                     session.dropoff = ride.dropoff;
                     session.estimate = estimate;
                     session.route = routeCoordinates;
+                    session.currency = fiatCurrency;
                 }
             }
+
+            ride.currency = fiatCurrency;
 
             // Broadcast to all drivers
             const driverCount = broadcastToDrivers({
@@ -1050,7 +1089,8 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                     fare: ride.fare,
                     distance: distance,
                     estimatedFare: estimate,
-                    route: routeCoordinates
+                    route: routeCoordinates,
+                    currency: fiatCurrency
                 }
             });
 
@@ -1066,6 +1106,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 duration_minutes: Math.round(duration),
                 drivers_notified: driverCount,
                 route: routeCoordinates,
+                currency: fiatCurrency,
                 estimate
             });
 
@@ -1256,49 +1297,59 @@ app.post('/api/rides/:rideId/start', async (req, res) => {
 });
 
 // Panic / emergency alert
-app.post('/api/rides/:rideId/panic', (req, res) => {
+app.post('/api/rides/:rideId/panic', async (req, res) => {
     try {
         const { rideId } = req.params;
-        const { initiatedBy, role, note } = req.body || {};
+        const { event } = req.body || {};
+
+        if (!event) {
+            return res.status(400).json({ error: 'Missing panic event payload' });
+        }
 
         const ride = rideManager.getRide(rideId);
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
         }
 
-        const timestamp = Date.now();
-        const session = activeRides.get(rideId);
-        if (session) {
-            session.panicActive = true;
-            session.panicAt = timestamp;
-            session.status = 'panic';
-        }
+        const publishResult = await reputation.publishPanic(event, ride);
 
-        ride.safety = ride.safety || { panicEvents: [], checkIns: [] };
-        ride.safety.panicEvents.push({
-            initiatedBy: initiatedBy || role || 'unknown',
-            role: role || null,
-            note: note || null,
-            timestamp
-        });
-        ride.history.push({
-            status: 'panic_alert',
-            timestamp,
-            by: initiatedBy || role || 'unknown'
-        });
-
-        updateRideStreamingState(rideId, { panicTriggeredAt: timestamp });
+        updateRideStreamingState(rideId, { panicTriggeredAt: Date.now() });
         stopStreamingForRide(rideId);
+
+        try {
+            ride.safety = ride.safety || { panicEvents: [], checkIns: [] };
+            ride.safety.panicEvents = ride.safety.panicEvents || [];
+            ride.safety.panicEvents.push({
+                eventId: event.id,
+                role: publishResult.role,
+                pubkey: event.pubkey,
+                note: event.content || '',
+                tags: event.tags || [],
+                createdAt: (event.created_at || Math.floor(Date.now() / 1000)) * 1000,
+                cachedLocally: !!publishResult.cachedLocally,
+                relayStatuses: publishResult.relayStatuses || []
+            });
+        } catch (recordError) {
+            console.warn(`Failed to append panic event for ride ${rideId}:`, recordError.message);
+        }
 
         broadcastToRide(rideId, {
             type: 'panic_alert',
             ride_id: rideId,
-            initiated_by: initiatedBy || role || 'unknown',
-            note: note || null,
-            timestamp
+            initiated_by: event.pubkey,
+            role: publishResult.role,
+            content: event.content,
+            tags: event.tags,
+            timestamp: event.created_at * 1000,
+            relay_statuses: publishResult.relayStatuses || [],
+            cached_locally: !!publishResult.cachedLocally
         });
 
-        res.json({ success: true, timestamp });
+        res.json({
+            success: true,
+            relay_statuses: publishResult.relayStatuses || [],
+            cached_locally: !!publishResult.cachedLocally
+        });
     } catch (error) {
         console.error('Error handling panic alert:', error);
         res.status(500).json({
@@ -1349,6 +1400,118 @@ app.post('/api/rides/:rideId/check-in', (req, res) => {
     }
 });
 
+app.post('/api/rides/:rideId/rate', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const { event } = req.body || {};
+
+        if (!event) {
+            return res.status(400).json({ error: 'Missing rating event payload' });
+        }
+
+        const ride = rideManager.getRide(rideId);
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        if (ride.status !== RideStatus.COMPLETED) {
+            return res.status(400).json({ error: 'Ride not completed yet' });
+        }
+
+        const result = await reputation.publishRating(event, ride);
+
+        try {
+            rideManager.recordRating(rideId, result.role, {
+                rating: result.rating,
+                target: result.target,
+                eventId: event.id,
+                pubkey: event.pubkey,
+                notes: event.content || '',
+                relayStatuses: result.relayStatuses || [],
+                cachedLocally: !!result.cachedLocally
+            });
+        } catch (recordError) {
+            console.warn(`Failed to record rating in ride manager for ${rideId}:`, recordError.message);
+        }
+
+        broadcastToRide(rideId, {
+            type: 'rating_submitted',
+            ride_id: rideId,
+            role: result.role,
+            rating: result.rating,
+            target: result.target,
+            relay_statuses: result.relayStatuses || [],
+            cached_locally: !!result.cachedLocally
+        });
+
+        res.json({
+            success: true,
+            rating: result.rating,
+            relay_statuses: result.relayStatuses || [],
+            cached_locally: !!result.cachedLocally
+        });
+    } catch (error) {
+        console.error('Error submitting rating:', error);
+        res.status(500).json({
+            error: 'Failed to submit rating',
+            details: error.message
+        });
+    }
+});
+
+app.get('/api/reputation/:npub', async (req, res) => {
+    try {
+        const profile = await reputation.getProfile(req.params.npub);
+        res.json({ success: true, profile });
+    } catch (error) {
+        if (error.message === 'Reputation not found') {
+            return res.status(404).json({ error: 'Reputation not found' });
+        }
+        console.error('Error fetching reputation:', error);
+        res.status(500).json({
+            error: 'Failed to fetch reputation',
+            details: error.message
+        });
+    }
+});
+
+app.post('/api/reputation/export', async (req, res) => {
+    try {
+        const { npub, since } = req.body || {};
+        const exportBundle = await reputation.exportEvents(npub, since);
+        res.json({ success: true, export: exportBundle });
+    } catch (error) {
+        console.error('Error exporting reputation:', error);
+        res.status(500).json({
+            error: 'Failed to export reputation',
+            details: error.message
+        });
+    }
+});
+
+app.delete('/api/reputation/:npub', async (req, res) => {
+    try {
+        const npub = req.params.npub;
+        const { event } = req.body || {};
+        if (!event) {
+            return res.status(400).json({ error: 'Provide a signed Nostr delete event' });
+        }
+        const outcome = await reputation.publishGeneric(event, npub);
+        reputation.clearCacheFor(npub);
+        res.json({
+            success: true,
+            relay_statuses: outcome.relayStatuses || [],
+            cached_locally: !!outcome.cachedLocally
+        });
+    } catch (error) {
+        console.error('Error deleting reputation data:', error);
+        res.status(500).json({
+            error: 'Failed to request reputation deletion',
+            details: error.message
+        });
+    }
+});
+
 // Complete trip
 app.post('/api/rides/:rideId/complete', async (req, res) => {
     try {
@@ -1370,6 +1533,8 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
 
         const completedRide = rideManager.completeTrip(rideId, payment);
         stopStreamingForRide(rideId);
+
+        finalizeRideSession(rideId, 'completed');
 
         // Notify rider
         broadcastToRide(rideId, {
@@ -1576,6 +1741,12 @@ process.on('SIGTERM', async () => {
     }
 
     process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+    console.log('Received SIGINT');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    process.emit('SIGTERM');
 });
 
 module.exports = app;

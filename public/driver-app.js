@@ -1,8 +1,209 @@
 const API_URL = window.location.origin;
 const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:3001`;
 
+const {
+  generatePrivateKey,
+  getPublicKey: nostrGetPublicKey,
+  getEventHash,
+  getSignature,
+  nip19,
+  utils
+} = window.NostrTools || {};
+
+if (!window.NostrTools) {
+  console.warn('nostr-tools not loaded - driver panic/rating signing disabled');
+}
+
+const bytesToHex = utils?.bytesToHex;
+const hexToBytes = utils?.hexToBytes;
+const DRIVER_PRIV_STORAGE_KEY = 'donkeyride.driverPrivKey';
+const DEMO_DRIVER_PRIVKEY = 'EXAMPLE_VALUE';
+
+function ensurePrivBytes(hexKey) {
+  if (hexToBytes) {
+    return hexToBytes(hexKey);
+  }
+  const matches = hexKey.match(/.{1,2}/g) || [];
+  return new Uint8Array(matches.map(byte => parseInt(byte, 16)));
+}
+
+let driverPrivKey = window.localStorage.getItem(DRIVER_PRIV_STORAGE_KEY);
+
+if (!driverPrivKey) {
+  if (generatePrivateKey && bytesToHex) {
+    const raw = generatePrivateKey();
+    driverPrivKey = typeof raw === 'string' ? raw : bytesToHex(raw);
+  } else {
+    driverPrivKey = DEMO_DRIVER_PRIVKEY;
+  }
+  window.localStorage.setItem(DRIVER_PRIV_STORAGE_KEY, driverPrivKey);
+}
+
+let driverPrivBytes = null;
+let driverPubKey = null;
+
+try {
+  if (nostrGetPublicKey) {
+    driverPrivBytes = ensurePrivBytes(driverPrivKey);
+    driverPubKey = nostrGetPublicKey(driverPrivBytes);
+  }
+} catch (error) {
+  console.warn('Driver key derivation failed, falling back to demo key', error);
+  driverPrivKey = DEMO_DRIVER_PRIVKEY;
+  window.localStorage.setItem(DRIVER_PRIV_STORAGE_KEY, driverPrivKey);
+  if (nostrGetPublicKey) {
+    driverPrivBytes = ensurePrivBytes(driverPrivKey);
+    driverPubKey = nostrGetPublicKey(driverPrivBytes);
+  }
+}
+
+const driverNpub = driverPubKey && nip19 ? nip19.npubEncode(driverPubKey) : null;
+
+const UNIT_PREFERENCE_KEY = 'donkeyride.pref.unit';
+const CURRENCY_PREFERENCE_KEY = 'donkeyride.pref.currency';
+const DEFAULT_UNIT = 'mi';
+const DEFAULT_CURRENCY = 'GBP';
+const CURRENCY_SYMBOLS = {
+  GBP: '£',
+  USD: '$',
+  EUR: '€'
+};
+
+let distanceUnit = (window.localStorage.getItem(UNIT_PREFERENCE_KEY) || DEFAULT_UNIT).toLowerCase();
+if (distanceUnit !== 'km' && distanceUnit !== 'mi') {
+  distanceUnit = DEFAULT_UNIT;
+}
+
+let currencyPreference = (window.localStorage.getItem(CURRENCY_PREFERENCE_KEY) || DEFAULT_CURRENCY).toUpperCase();
+if (!['USD', 'EUR', 'GBP'].includes(currencyPreference)) {
+  currencyPreference = DEFAULT_CURRENCY;
+}
+
+function convertDistance(distanceKm) {
+  if (typeof distanceKm !== 'number' || Number.isNaN(distanceKm)) {
+    return { value: 0, unitLabel: distanceUnit === 'mi' ? 'mi' : 'km' };
+  }
+  if (distanceUnit === 'mi') {
+    return { value: distanceKm * 0.621371, unitLabel: 'mi' };
+  }
+  return { value: distanceKm, unitLabel: 'km' };
+}
+
+function formatDistance(distanceKm, fractionDigits = 1) {
+  const { value, unitLabel } = convertDistance(distanceKm);
+  const digits = typeof fractionDigits === 'number' ? fractionDigits : 1;
+  return `${value.toFixed(digits)} ${unitLabel}`;
+}
+
+function getCurrencySymbol(code) {
+  return CURRENCY_SYMBOLS[code] || code || '';
+}
+
+function normaliseHexKey(key) {
+  if (!key || typeof key !== 'string') {
+    return null;
+  }
+  const trimmed = key.trim();
+  if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+    return trimmed.toLowerCase();
+  }
+  if (trimmed.startsWith('npub') && nip19) {
+    try {
+      const decoded = nip19.decode(trimmed);
+      if (typeof decoded.data === 'string') {
+        return decoded.data.toLowerCase();
+      }
+      if (decoded.data?.data && typeof decoded.data.data === 'string') {
+        return decoded.data.data.toLowerCase();
+      }
+    } catch (error) {
+      console.warn('Driver app failed to decode npub', error);
+    }
+  }
+  return null;
+}
+
+function ensureSigningAvailable(feature) {
+  if (!window.NostrTools || !getEventHash || !getSignature) {
+    throw new Error(`${feature} unavailable — nostr-tools not loaded`);
+  }
+  if (!driverPubKey || !driverPrivKey) {
+    throw new Error(`${feature} unavailable — driver key missing`);
+  }
+}
+
+function buildDriverRatingEvent({ rideId, targetKey, rating, notes }) {
+  ensureSigningAvailable('Rating');
+  const targetHex = normaliseHexKey(targetKey);
+  if (!targetHex) {
+    throw new Error('Invalid rider key for rating');
+  }
+  const event = {
+    kind: 30530,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [
+      ['ride', rideId],
+      ['p', targetHex],
+      ['rating', String(rating)],
+      ['role', 'driver']
+    ],
+    content: notes || ''
+  };
+
+  event.pubkey = driverPubKey;
+  event.id = getEventHash(event);
+  event.sig = getSignature(event, driverPrivKey);
+  return event;
+}
+
+function buildDriverPanicEvent({ rideId, note, targetKey }) {
+  ensureSigningAvailable('Panic');
+  const tags = [
+    ['ride', rideId],
+    ['role', 'driver']
+  ];
+  const targetHex = normaliseHexKey(targetKey);
+  if (targetHex) {
+    tags.push(['p', targetHex]);
+  }
+  const event = {
+    kind: 30560,
+    created_at: Math.floor(Date.now() / 1000),
+    tags,
+    content: note || ''
+  };
+  event.pubkey = driverPubKey;
+  event.id = getEventHash(event);
+  event.sig = getSignature(event, driverPrivKey);
+  return event;
+}
+
+async function fetchReputationProfile(npub) {
+  if (!npub) {
+    return null;
+  }
+  const cacheKey = npub.toLowerCase();
+  if (reputationCache.has(cacheKey)) {
+    return reputationCache.get(cacheKey);
+  }
+  try {
+    const response = await fetch(`/api/reputation/${encodeURIComponent(cacheKey)}`);
+    if (!response.ok) {
+      return null;
+    }
+    const data = await response.json();
+    if (data?.profile) {
+      reputationCache.set(cacheKey, data.profile);
+      return data.profile;
+    }
+  } catch (error) {
+    console.warn('Failed to fetch reputation', error);
+  }
+  return null;
+}
+
 const DRIVER_PROFILE = {
-  npub: 'npub_demo_driver_london',
+  npub: driverNpub || 'npub_demo_driver_london',
   name: 'Ayesha Khan',
   rating: 4.96,
   lightning: 'ayesha@getalby.com',
@@ -12,6 +213,7 @@ const DRIVER_PROFILE = {
 
 const MOVE_INTERVAL = 2000; // ms between location updates
 const MOVE_STEP_METERS = 80; // approx ~145 km/h along route for demo smoothness
+const reputationCache = new Map();
 
 class DriverApp {
   constructor() {
@@ -36,8 +238,6 @@ class DriverApp {
     this.activeRouteMeta = null;
     this.routeDistance = 0;
     this.routeProgress = 0;
-    this.earnings = { totalFiat: 0, rides: 0 };
-
     this.stakeSection = document.getElementById('driver-stake-section');
     this.stakeAmountEl = document.getElementById('driver-stake-amount');
     this.stakeInvoiceEl = document.getElementById('driver-stake-invoice');
@@ -53,10 +253,21 @@ class DriverApp {
     this.safetyPanel = document.getElementById('driver-safety-panel');
     this.panicBtn = document.getElementById('driver-panic-btn');
     this.safetyStatusEl = document.getElementById('driver-safety-status');
+    this.unitSelect = document.getElementById('driver-unit-select');
+    this.currencySelect = document.getElementById('driver-currency-select');
+    this.feedbackPanel = document.getElementById('driver-feedback-panel');
+    this.feedbackStars = document.getElementById('driver-feedback-stars');
+    this.feedbackSubmitBtn = document.getElementById('driver-feedback-submit');
+    this.feedbackStatusEl = document.getElementById('driver-feedback-status');
+    this.feedbackNotesEl = document.getElementById('driver-feedback-notes');
+    this.riderReputationEl = document.getElementById('active-rider-reputation');
 
     this.pendingArrival = false;
     this.waitingForTripStart = false;
     this.streamState = { total: 0, remaining: 0, fare: 0 };
+    this.earnings = { totalFiat: 0, rides: 0, currency: currencyPreference };
+    this.ratingValue = 0;
+    this.ratingSubmitted = false;
   }
 
   init() {
@@ -68,6 +279,12 @@ class DriverApp {
     const vehicleEl = document.getElementById('driver-vehicle');
     if (nameEl) nameEl.textContent = DRIVER_PROFILE.name;
     if (vehicleEl) vehicleEl.textContent = DRIVER_PROFILE.vehicle;
+    if (this.unitSelect) {
+      this.unitSelect.value = distanceUnit;
+    }
+    if (this.currencySelect) {
+      this.currencySelect.value = currencyPreference;
+    }
   }
 
   initMap() {
@@ -119,6 +336,37 @@ class DriverApp {
 
     if (this.panicBtn) {
       this.panicBtn.addEventListener('click', () => this.triggerDriverPanic());
+    }
+
+    if (this.unitSelect) {
+      this.unitSelect.addEventListener('change', (event) => {
+        const newUnit = (event.target.value || DEFAULT_UNIT).toLowerCase();
+        distanceUnit = newUnit === 'km' ? 'km' : 'mi';
+        window.localStorage.setItem(UNIT_PREFERENCE_KEY, distanceUnit);
+        this.renderRideCards();
+        this.refreshActiveRideDisplays();
+      });
+    }
+
+    if (this.currencySelect) {
+      this.currencySelect.addEventListener('change', (event) => {
+        const newCurrency = (event.target.value || DEFAULT_CURRENCY).toUpperCase();
+        currencyPreference = ['USD', 'EUR', 'GBP'].includes(newCurrency) ? newCurrency : DEFAULT_CURRENCY;
+        window.localStorage.setItem(CURRENCY_PREFERENCE_KEY, currencyPreference);
+        this.earnings.currency = currencyPreference;
+        this.updateEarningsDisplay({
+          total: this.earnings.totalFiat,
+          rides: this.earnings.rides
+        });
+      });
+    }
+
+    if (this.feedbackStars) {
+      this.feedbackStars.addEventListener('click', (event) => this.handleFeedbackStarClick(event));
+    }
+
+    if (this.feedbackSubmitBtn) {
+      this.feedbackSubmitBtn.addEventListener('click', () => this.submitDriverFeedback());
     }
   }
 
@@ -271,6 +519,13 @@ class DriverApp {
       case 'stream_payment':
         this.handleStreamPayment(message);
         break;
+      case 'rating_submitted':
+        if (message.role === 'rider' && this.currentRide?.rider?.npub) {
+          fetchReputationProfile(this.currentRide.rider.npub).then((profile) => {
+            this.updateRiderReputationDisplay(profile);
+          });
+        }
+        break;
       case 'panic_alert':
         this.handlePanicAlert(message);
         break;
@@ -309,21 +564,24 @@ class DriverApp {
       const card = document.createElement('div');
       card.className = 'ride-request';
 
-      const distanceKm = typeof ride.distance === 'number'
-        ? ride.distance.toFixed(1)
-        : (ride.estimatedFare?.distance?.km != null
-          ? ride.estimatedFare.distance.km.toFixed(1)
-          : '?');
+      const rawDistanceKm = typeof ride.distance === 'number'
+        ? ride.distance
+        : (ride.estimatedFare?.distance?.km ?? null);
+      const distanceDisplay = rawDistanceKm != null
+        ? formatDistance(rawDistanceKm)
+        : '—';
       const surge = ride.estimatedFare?.breakdown?.surge?.multiplier ?? 1;
       const fareSats = typeof ride.fare === 'number'
         ? ride.fare
         : (ride.estimatedFare?.fare?.sats ?? 0);
+      const fareDisplay = ride.estimatedFare?.fare?.formatted
+        || (typeof fareSats === 'number' ? `${fareSats.toLocaleString()} sats` : '—');
 
       card.innerHTML = `
         <h4>${ride.pickup.address || `${ride.pickup.lat.toFixed(3)}, ${ride.pickup.lon.toFixed(3)}`} → ${ride.dropoff.address || `${ride.dropoff.lat.toFixed(3)}, ${ride.dropoff.lon.toFixed(3)}`}</h4>
         <div class="ride-info">
-          <div>Distance: <strong>${distanceKm} km</strong></div>
-          <div>Fare: <strong>${fareSats.toLocaleString()} sats</strong></div>
+          <div>Distance: <strong>${distanceDisplay}</strong></div>
+          <div>Fare: <strong>${fareDisplay}</strong></div>
           <div>Surge: <strong>${surge.toFixed?.(2) ?? '1.0'}x</strong></div>
         </div>
         <div class="ride-actions">
@@ -397,6 +655,8 @@ class DriverApp {
         stage: 'awaiting_stake',
         driverLightning: DRIVER_PROFILE.lightning
       };
+      this.currentRide.currency = ride.currency || currencyPreference;
+      this.earnings.currency = this.currentRide.currency || currencyPreference;
       this.pendingDriverStake = {
         amount: session.stakeAmount,
         invoice: session.invoice
@@ -426,6 +686,7 @@ class DriverApp {
     document.getElementById('nav-section').style.display = 'block';
     this.hideDriverControls();
     this.hideDriverStreamPanel();
+    this.hideDriverFeedbackPanel();
     this.pendingArrival = false;
     this.waitingForTripStart = false;
     this.streamState = { total: 0, remaining: 0, fare: this.currentRide?.fare || 0 };
@@ -434,13 +695,27 @@ class DriverApp {
       : '-';
     this.updateRideStatus({
       status: 'En route to pickup',
-      distance: '-',
+      distance: formatDistance(this.currentRide?.distance || 0),
       eta: this.currentRide.pickupEtaSeconds ? `${Math.round(this.currentRide.pickupEtaSeconds / 60)} min` : '-',
       progress: '0%',
       earnings: fareDisplay
     });
     this.updateNavigationInstructions('pickup');
     this.showSafetyPanel();
+  }
+
+  refreshActiveRideDisplays() {
+    if (!this.currentRide) {
+      return;
+    }
+
+    const rideDistanceEl = document.getElementById('ride-distance');
+    if (rideDistanceEl) {
+      const distanceKm = typeof this.currentRide.distance === 'number'
+        ? this.currentRide.distance
+        : (this.currentRide.estimatedFare?.distance?.km ?? 0);
+      rideDistanceEl.textContent = distanceKm ? formatDistance(distanceKm) : '—';
+    }
   }
 
   startStageToPickup() {
@@ -468,7 +743,7 @@ class DriverApp {
     }
     this.updateRideStatus({
       status: 'Confirm arrival at pickup',
-      distance: '0 km',
+      distance: formatDistance(0),
       eta: '0 min',
       progress: '50%'
     });
@@ -569,7 +844,7 @@ class DriverApp {
 
     this.updateRideStatus({
       status: 'Ride complete',
-      distance: '0 km',
+      distance: formatDistance(0),
       eta: '0 min',
       progress: '100%'
     });
@@ -580,9 +855,15 @@ class DriverApp {
     this.clearActiveRide();
     this.showWaitingState(true);
 
+    this.showDriverFeedbackPanel();
+
     this.earnings.rides += 1;
     const rideFiat = this.currentRide.estimatedFare?.driverEarns?.fiat ?? 0;
-    this.earnings.totalFiat += rideFiat;
+    this.earnings.totalFiat += Number.isFinite(rideFiat) ? rideFiat : 0;
+    const rideCurrency = this.currentRide.estimatedFare?.fare?.currency || this.currentRide.currency;
+    if (rideCurrency) {
+      this.earnings.currency = rideCurrency;
+    }
     this.updateEarningsDisplay({
       total: this.earnings.totalFiat,
       rides: this.earnings.rides
@@ -603,6 +884,8 @@ class DriverApp {
     this.hideDriverControls();
     this.hideDriverStreamPanel();
     this.hideSafetyPanel();
+    this.hideDriverFeedbackPanel();
+    this.updateRiderReputationDisplay(null);
     this.pendingArrival = false;
     this.waitingForTripStart = false;
     this.streamState = { total: 0, remaining: 0, fare: 0 };
@@ -642,10 +925,11 @@ class DriverApp {
       const distanceRemaining = Math.max(this.routeDistance - this.routeProgress, 0);
       const etaMinutes = Math.max(Math.round((distanceRemaining / MOVE_STEP_METERS) * (MOVE_INTERVAL / 60000)), 0);
       const progressPct = this.routeDistance === 0 ? 100 : Math.round((this.routeProgress / this.routeDistance) * 100);
+      const distanceRemainingKm = distanceRemaining / 1000;
 
       this.updateRideStatus({
         status: stage === 'to_pickup' ? 'En route to pickup' : 'Driving to destination',
-        distance: `${(distanceRemaining / 1000).toFixed(2)} km`,
+        distance: formatDistance(distanceRemainingKm, 2),
         eta: `${etaMinutes} min`,
         progress: `${progressPct}%`
       });
@@ -676,6 +960,18 @@ class DriverApp {
     if (eta) document.getElementById('ride-eta').textContent = eta;
     if (progress) document.getElementById('ride-progress').textContent = progress;
     if (earnings) document.getElementById('ride-earnings').textContent = earnings;
+  }
+
+  updateRiderReputationDisplay(profile) {
+    if (!this.riderReputationEl) {
+      return;
+    }
+    if (!profile) {
+      this.riderReputationEl.textContent = 'No history yet';
+      return;
+    }
+    const rounded = profile.averageRating ? Number(profile.averageRating).toFixed(2) : '0.00';
+    this.riderReputationEl.textContent = `${rounded} (${profile.ratingsCount} ratings)`;
   }
 
   updateNavigationInstructions(stage) {
@@ -795,6 +1091,162 @@ class DriverApp {
     this.streamState = { total: 0, remaining: 0, fare: 0 };
   }
 
+  showDriverFeedbackPanel() {
+    if (!this.feedbackPanel) {
+      return;
+    }
+    this.ratingValue = 0;
+    this.ratingSubmitted = false;
+    this.feedbackPanel.classList.add('active');
+    this.updateFeedbackStars();
+    if (this.feedbackStatusEl) {
+      this.feedbackStatusEl.textContent = '';
+    }
+    if (this.feedbackSubmitBtn) {
+      this.feedbackSubmitBtn.disabled = false;
+    }
+    if (this.feedbackNotesEl) {
+      this.feedbackNotesEl.value = '';
+      this.feedbackNotesEl.disabled = false;
+    }
+    if (this.feedbackStars) {
+      this.feedbackStars.querySelectorAll('button').forEach((btn) => {
+        btn.disabled = false;
+      });
+    }
+  }
+
+  hideDriverFeedbackPanel() {
+    if (this.feedbackPanel) {
+      this.feedbackPanel.classList.remove('active');
+    }
+    this.ratingValue = 0;
+    this.ratingSubmitted = false;
+    this.updateFeedbackStars();
+    if (this.feedbackStatusEl) {
+      this.feedbackStatusEl.textContent = '';
+    }
+  }
+
+  updateFeedbackStars() {
+    if (!this.feedbackStars) {
+      return;
+    }
+    const buttons = Array.from(this.feedbackStars.querySelectorAll('button'));
+    buttons.forEach((btn) => {
+      const btnValue = Number(btn.dataset.rating);
+      if (btnValue <= this.ratingValue) {
+        btn.classList.add('active');
+      } else {
+        btn.classList.remove('active');
+      }
+    });
+  }
+
+  handleFeedbackStarClick(event) {
+    if (this.ratingSubmitted) {
+      return;
+    }
+    const btn = event.target.closest('button[data-rating]');
+    if (!btn) {
+      return;
+    }
+    const value = Number(btn.dataset.rating);
+    if (Number.isFinite(value)) {
+      this.ratingValue = value;
+      this.updateFeedbackStars();
+      if (this.feedbackStatusEl) {
+        this.feedbackStatusEl.textContent = '';
+      }
+    }
+  }
+
+  async submitDriverFeedback() {
+    if (this.ratingSubmitted) {
+      return;
+    }
+
+    if (!this.currentRide || !this.currentRide.id) {
+      if (this.feedbackStatusEl) {
+        this.feedbackStatusEl.textContent = 'No active ride to rate.';
+      }
+      return;
+    }
+
+    if (this.ratingValue < 1) {
+      if (this.feedbackStatusEl) {
+        this.feedbackStatusEl.textContent = 'Select a star rating first.';
+      }
+      return;
+    }
+
+    try {
+      if (this.feedbackSubmitBtn) {
+        this.feedbackSubmitBtn.disabled = true;
+      }
+      if (this.feedbackStatusEl) {
+        this.feedbackStatusEl.textContent = 'Submitting feedback…';
+      }
+
+      const targetKey = this.currentRide?.rider?.npub || this.currentRide?.rider?.pubkey;
+      const notes = this.feedbackNotesEl?.value || '';
+      const ratingEvent = buildDriverRatingEvent({
+        rideId: this.currentRide.id,
+        targetKey,
+        rating: this.ratingValue,
+        notes
+      });
+
+      const response = await fetch(`/api/rides/${this.currentRide.id}/rate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event: ratingEvent })
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || response.statusText);
+      }
+
+      const payload = await response.json().catch(() => ({}));
+      if (Array.isArray(payload?.relay_statuses) && payload.relay_statuses.length) {
+        console.debug('[Driver] Rating relay statuses', payload.relay_statuses);
+      }
+
+      this.ratingSubmitted = true;
+      if (this.feedbackStatusEl) {
+        this.feedbackStatusEl.textContent = payload?.cached_locally
+          ? 'Feedback queued locally — will publish when relay reachable.'
+          : 'Feedback sent.';
+      }
+      if (this.feedbackSubmitBtn) {
+        this.feedbackSubmitBtn.disabled = true;
+      }
+      if (this.feedbackNotesEl) {
+        this.feedbackNotesEl.disabled = true;
+      }
+      if (this.feedbackStars) {
+        this.feedbackStars.querySelectorAll('button').forEach((btn) => {
+          btn.disabled = true;
+        });
+      }
+      if (this.currentRide?.rider?.npub) {
+        reputationCache.delete(this.currentRide.rider.npub.toLowerCase());
+        fetchReputationProfile(this.currentRide.rider.npub).then((profile) => {
+          this.updateRiderReputationDisplay(profile);
+        });
+      }
+    } catch (error) {
+      console.error('Failed to submit driver feedback', error);
+      if (this.feedbackStatusEl) {
+        this.feedbackStatusEl.textContent = `Failed to submit feedback: ${error.message}`;
+      }
+      if (this.feedbackSubmitBtn) {
+        this.feedbackSubmitBtn.disabled = false;
+      }
+    }
+  }
+
   updateDriverStreamPanel(total, fare) {
     if (!this.streamPanel) {
       return;
@@ -881,20 +1333,39 @@ class DriverApp {
     this.updateSafetyStatus('Sending emergency alert…', 'info');
 
     try {
-      await fetch(`/api/rides/${this.currentRide.id}/panic`, {
+      const targetKey = this.currentRide?.rider?.npub || this.currentRide?.rider?.pubkey;
+      const panicEvent = buildDriverPanicEvent({
+        rideId: this.currentRide.id,
+        note: 'driver_manual',
+        targetKey
+      });
+
+      const response = await fetch(`/api/rides/${this.currentRide.id}/panic`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          initiatedBy: DRIVER_PROFILE.npub,
-          role: 'driver',
-          note: 'driver_manual'
-        })
+        body: JSON.stringify({ event: panicEvent })
       });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error || response.statusText);
+      }
+
+      const payload = await response.json().catch(() => ({}));
+      if (Array.isArray(payload?.relay_statuses) && payload.relay_statuses.length) {
+        console.debug('[Driver] Panic relay statuses', payload.relay_statuses);
+      }
       this.handlePanicAlert({
         ride_id: this.currentRide.id,
-        initiated_by: DRIVER_PROFILE.npub
+        initiated_by: panicEvent.pubkey,
+        relay_statuses: payload?.relay_statuses,
+        cached_locally: payload?.cached_locally
       });
-      this.updateSafetyStatus('Emergency alert sent. Await instructions.', 'alert');
+
+      const statusMessage = payload?.cached_locally
+        ? 'Emergency alert queued locally — dispatcher offline, retrying.'
+        : 'Emergency alert sent. Await instructions.';
+      this.updateSafetyStatus(statusMessage, 'alert');
     } catch (error) {
       console.error('Driver panic alert failed', error);
       this.updateSafetyStatus(`Failed to send alert: ${error.message}`, 'alert');
@@ -915,9 +1386,13 @@ class DriverApp {
         alertSource = 'rider';
       }
     }
+    const cachedFlag = !!message?.cached_locally;
+    const statusCopy = cachedFlag
+      ? `Emergency alert queued (${alertSource}). Await relay connectivity.`
+      : `Emergency alert triggered by ${alertSource}.`;
     this.showError(`Emergency alert triggered by ${alertSource}. Hold position.`);
     this.showSafetyPanel(undefined, false);
-    this.updateSafetyStatus(`Emergency alert triggered by ${alertSource}.`, 'alert');
+    this.updateSafetyStatus(statusCopy, cachedFlag ? 'warning' : 'alert');
 
     if (this.currentRide && rideId === this.currentRide.id) {
       this.stopMovement();
@@ -1000,11 +1475,25 @@ class DriverApp {
         ...result.ride
       };
       this.currentRide.fare = result.ride?.fare || this.currentRide.fare;
+      this.currentRide.currency = result.ride?.currency || this.currentRide.currency || currencyPreference;
+      this.earnings.currency = this.currentRide.currency || currencyPreference;
       this.currentRide.stage = 'to_pickup';
       this.currentRide.status = 'en_route';
       this.currentRide.driver_route = result.driver_route || null;
       this.currentRide.pickupEtaSeconds = result.eta_seconds || null;
       this.pendingDriverStake = null;
+
+      if (this.riderReputationEl) {
+        this.riderReputationEl.textContent = 'Loading…';
+      }
+      const riderNpub = this.currentRide.rider?.npub;
+      if (riderNpub) {
+        fetchReputationProfile(riderNpub).then((profile) => {
+          this.updateRiderReputationDisplay(profile);
+        });
+      } else {
+        this.updateRiderReputationDisplay(null);
+      }
 
       this.hideDriverStakePanel();
       this.showActiveRidePanel();
@@ -1162,9 +1651,12 @@ class DriverApp {
   }
 
   updateEarningsDisplay({ total, rides }) {
-    document.getElementById('total-earned').textContent = `£${total.toFixed(2)}`;
+    const symbol = getCurrencySymbol(this.earnings?.currency || currencyPreference);
+    const safeTotal = Number.isFinite(total) ? total : 0;
+    const avg = rides > 0 ? safeTotal / rides : 0;
+    document.getElementById('total-earned').textContent = `${symbol}${safeTotal.toFixed(2)}`;
     document.getElementById('rides-count').textContent = rides;
-    document.getElementById('avg-per-ride').textContent = rides > 0 ? `£${(total / rides).toFixed(2)}` : '£0.00';
+    document.getElementById('avg-per-ride').textContent = rides > 0 ? `${symbol}${avg.toFixed(2)}` : `${symbol}0.00`;
   }
 
   handleRideCancelled(message) {

@@ -49,6 +49,7 @@ class RideManager {
         lat: dropoff.lat,
         lon: dropoff.lon
       },
+      currency: options.currency || 'GBP',
       fare: estimatedFare,
       timestamps: {
         requested: Date.now(),
@@ -57,6 +58,10 @@ class RideManager {
         driverArrived: null,
         started: null,
         completed: null
+      },
+      feedback: {
+        rider: null,
+        driver: null
       },
       history: [
         { status: RideStatus.REQUESTED, timestamp: Date.now() }
@@ -217,6 +222,28 @@ class RideManager {
         this.driverRides.delete(ride.driver.npub);
       }
     }, 300000);
+
+    return ride;
+  }
+
+  recordRating(rideId, role, ratingPayload) {
+    const ride = this.rides.get(rideId);
+    if (!ride) {
+      throw new Error(`Ride ${rideId} not found`);
+    }
+
+    if (!ride.feedback) {
+      ride.feedback = { rider: null, driver: null };
+    }
+
+    if (ride.feedback[role]) {
+      throw new Error(`Rating already recorded for ${role}`);
+    }
+
+    ride.feedback[role] = {
+      ...ratingPayload,
+      timestamp: Date.now()
+    };
 
     return ride;
   }

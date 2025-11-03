@@ -25,9 +25,10 @@
       background: linear-gradient(135deg, #b24cf3 0%, #ff6ec7 100%);
       color: white;
       padding: 16px 24px;
-      display: flex;
-      justify-content: space-between;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
       align-items: center;
+      gap: 16px;
       box-shadow: 0 8px 25px rgba(0, 0, 0, 0.35);
       z-index: 10;
     }
@@ -62,6 +63,42 @@
       display: flex;
       align-items: center;
       gap: 12px;
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+    }
+
+    .pref-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .pref-group select {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      appearance: none;
+      cursor: pointer;
+    }
+
+    .pref-group select:focus {
+      outline: none;
+      border-color: rgba(255, 255, 255, 0.5);
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.15);
     }
 
     .status-light {
@@ -462,6 +499,78 @@
       transform: translateY(-1px);
     }
 
+    .rating-block {
+      margin-top: 18px;
+      background: rgba(24, 24, 24, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-radius: 10px;
+      padding: 14px;
+    }
+
+    .rating-title {
+      font-size: 0.85rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #ff6ec7;
+      margin-bottom: 10px;
+    }
+
+    .rating-stars {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .rating-stars button {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #ffb347;
+      font-size: 1.1rem;
+      padding: 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+
+    .rating-stars button.active {
+      border-color: #ff6ec7;
+      color: #ff6ec7;
+      transform: translateY(-1px);
+    }
+
+    .rating-stars button:focus {
+      outline: none;
+      border-color: #ff6ec7;
+    }
+
+    .rating-block textarea {
+      width: 100%;
+      margin-bottom: 10px;
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #fff;
+      padding: 10px;
+      border-radius: 6px;
+      font-family: 'SF Mono', Monaco, monospace;
+      resize: vertical;
+    }
+
+    .rating-flag {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8rem;
+      color: #ddd;
+      margin-bottom: 10px;
+    }
+
+    .rating-status {
+      font-size: 0.8rem;
+      margin-top: 8px;
+      min-height: 18px;
+      color: #87bfff;
+    }
+
     .modal {
       position: fixed;
       inset: 0;
@@ -561,6 +670,14 @@
       margin-bottom: 12px;
     }
 
+    .driver-rating-line {
+      color: #f9d923;
+      font-size: 0.85rem;
+      margin-bottom: 12px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
     .eta {
       font-size: 30px;
       font-weight: 800;
@@ -628,6 +745,23 @@
         <div class="brand-tagline">Rider App</div>
       </div>
     </div>
+    <div class="header-controls">
+      <div class="pref-group">
+        <span>Units</span>
+        <select id="unit-select">
+          <option value="mi">Miles</option>
+          <option value="km">Kilometers</option>
+        </select>
+      </div>
+      <div class="pref-group">
+        <span>Fiat</span>
+        <select id="currency-select">
+          <option value="GBP">GBP £</option>
+          <option value="USD">USD $</option>
+          <option value="EUR">EUR €</option>
+        </select>
+      </div>
+    </div>
     <div class="header-info">
       <span class="status-light info" id="header-status-dot"></span>
       <span class="header-status-text" id="header-status-text">Set pickup &amp; dropoff</span>
@@ -657,6 +791,7 @@
 
       <div id="ride-info" class="hidden">
         <div class="driver-name" id="driver-name"></div>
+        <div class="driver-rating-line">⭐ <span id="driver-rating">-</span></div>
 
         <div class="eta" id="eta-display"></div>
 
@@ -741,6 +876,22 @@
         <div class="completion-row">
           <span class="completion-label">Duration</span>
           <span class="completion-value" id="completion-duration">-</span>
+        </div>
+        <div class="rating-block" id="rider-rating-panel">
+          <div class="rating-title">Rate your driver</div>
+          <div class="rating-stars" id="rider-rating-stars">
+            <button type="button" data-rating="1">★</button>
+            <button type="button" data-rating="2">★</button>
+            <button type="button" data-rating="3">★</button>
+            <button type="button" data-rating="4">★</button>
+            <button type="button" data-rating="5">★</button>
+          </div>
+          <textarea id="rider-rating-notes" rows="3" placeholder="Share feedback (optional)"></textarea>
+          <label class="rating-flag">
+            <input type="checkbox" id="rider-flag-safety"> Flag a safety issue
+          </label>
+          <button class="completion-close" id="rider-rating-submit-btn">Submit Feedback</button>
+          <div class="rating-status" id="rider-rating-status"></div>
         </div>
         <button id="completion-close-btn" class="completion-close">Request Another Ride</button>
       </div>

@@ -25,9 +25,10 @@
       background: linear-gradient(135deg, #b24cf3 0%, #ff6ec7 100%);
       color: white;
       padding: 16px 24px;
-      display: flex;
-      justify-content: space-between;
+      display: grid;
+      grid-template-columns: auto 1fr auto;
       align-items: center;
+      gap: 16px;
       box-shadow: 0 8px 25px rgba(0, 0, 0, 0.35);
       z-index: 10;
     }
@@ -56,6 +57,42 @@
       color: rgba(255, 255, 255, 0.7);
       text-transform: uppercase;
       letter-spacing: 0.2em;
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+    }
+
+    .pref-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .pref-group select {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      appearance: none;
+      cursor: pointer;
+    }
+
+    .pref-group select:focus {
+      outline: none;
+      border-color: rgba(255, 255, 255, 0.5);
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.15);
     }
 
     .status-panel {
@@ -407,6 +444,81 @@
       color: #ff6b6b;
     }
 
+    .rider-rating-line {
+      margin-top: 10px;
+      font-size: 0.85rem;
+      color: #87bfff;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .feedback-panel {
+      display: none;
+      margin-top: 12px;
+      background: #151515;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      border-radius: 10px;
+      padding: 14px;
+    }
+
+    .feedback-panel.active {
+      display: block;
+    }
+
+    .feedback-title {
+      font-size: 0.85rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #ff6ec7;
+      margin-bottom: 10px;
+    }
+
+    .feedback-stars {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .feedback-stars button {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #ffb347;
+      font-size: 1.1rem;
+      padding: 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+
+    .feedback-stars button.active {
+      border-color: #ff6ec7;
+      color: #ff6ec7;
+      transform: translateY(-1px);
+    }
+
+    .feedback-stars button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .feedback-panel textarea {
+      width: 100%;
+      margin-bottom: 10px;
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      color: #fff;
+      padding: 10px;
+      border-radius: 6px;
+      font-family: 'SF Mono', Monaco, monospace;
+      resize: vertical;
+    }
+
+    .feedback-status {
+      font-size: 0.8rem;
+      color: #87bfff;
+      min-height: 18px;
+    }
+
     .driver-invoice-box {
       background: #111;
       border: 1px solid rgba(255, 255, 255, 0.05);
@@ -479,6 +591,23 @@
       <div>
         <div class="brand-title">DonkeyRide</div>
         <div class="brand-tagline">Driver Console</div>
+      </div>
+    </div>
+    <div class="header-controls">
+      <div class="pref-group">
+        <span>Units</span>
+        <select id="driver-unit-select">
+          <option value="mi">Miles</option>
+          <option value="km">Kilometers</option>
+        </select>
+      </div>
+      <div class="pref-group">
+        <span>Fiat</span>
+        <select id="driver-currency-select">
+          <option value="GBP">GBP £</option>
+          <option value="USD">USD $</option>
+          <option value="EUR">EUR €</option>
+        </select>
       </div>
     </div>
     <div class="status-panel">
@@ -559,6 +688,7 @@
           <div><strong>Progress:</strong> <span id="ride-progress">0%</span></div>
           <div><strong>Earnings:</strong> <span id="ride-earnings" style="color:#00ff90;">-</span></div>
         </div>
+        <div class="rider-rating-line">Passenger reputation: <span id="active-rider-reputation">-</span></div>
         <div id="traffic-alerts"></div>
         <div class="driver-controls" id="driver-controls">
           <button class="btn complete" id="driver-arrived-btn">Mark Arrived at Pickup</button>
@@ -581,6 +711,22 @@
         <button class="btn complete" id="complete-ride-btn" style="margin-top: 14px;">Complete Ride</button>
       </section>
 
+      <section class="sidebar-section">
+        <div class="feedback-panel" id="driver-feedback-panel">
+          <div class="feedback-title">Rate your passenger</div>
+          <div class="feedback-stars" id="driver-feedback-stars">
+            <button type="button" data-rating="1">★</button>
+            <button type="button" data-rating="2">★</button>
+            <button type="button" data-rating="3">★</button>
+            <button type="button" data-rating="4">★</button>
+            <button type="button" data-rating="5">★</button>
+          </div>
+          <textarea id="driver-feedback-notes" rows="3" placeholder="Notes for the rider (optional)"></textarea>
+          <button class="btn" id="driver-feedback-submit">Submit Feedback</button>
+          <div class="feedback-status" id="driver-feedback-status"></div>
+        </div>
+      </section>
+
       <section class="sidebar-section" id="waiting-section">
         <div class="empty-state">
           <div class="empty-state-icon">🟢</div>
@@ -593,6 +739,7 @@
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+  <script src="/vendor/nostr.bundle.min.js" defer></script>
   <script src="/driver-app.js" defer></script>
 </body>
 </html>
