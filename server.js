@@ -67,6 +67,7 @@ const config = {
 // Initialize payment provider with automatic fallbacks
 let paymentProvider;
 let stakeManager;
+let httpServer = null;
 
 async function initializePaymentProvider() {
     try {
@@ -152,6 +153,11 @@ async function initializeStakeManager() {
 let redis;
 
 async function initializeRedis() {
+    if ((process.env.DISABLE_REDIS || '').toLowerCase() === 'true') {
+        console.log('⚠️  Redis disabled via DISABLE_REDIS env');
+        redis = null;
+        return;
+    }
     try {
         redis = Redis.createClient({
             url: process.env.REDIS_URL || 'redis://localhost:6379'
@@ -186,54 +192,62 @@ reputation.setRelays(relayConfig);
 // WEBSOCKET FOR REAL-TIME UPDATES
 // ==========================================
 
-const wss = new WebSocket.Server({ port: config.wsPort });
+const wsDisabled = (process.env.DISABLE_WS || '').toLowerCase() === 'true';
+const wss = wsDisabled ? null : new WebSocket.Server({ port: config.wsPort });
 
-wss.on('connection', (ws) => {
-    console.log('New client connected');
-    ws.isAlive = true;
+if (wsDisabled) {
+    console.log('⚠️  WebSocket broadcasting disabled via DISABLE_WS');
+}
 
-    ws.on('pong', () => {
+if (wss) {
+    wss.on('connection', (ws) => {
+        console.log('New client connected');
         ws.isAlive = true;
-    });
 
-    ws.on('message', (message) => {
-        try {
-            const data = JSON.parse(message);
+        ws.on('pong', () => {
+            ws.isAlive = true;
+        });
 
-            switch(data.type) {
-                case 'subscribe_ride':
-                    ws.rideId = data.rideId;
-                    ws.clientType = 'rider';
-                    console.log(`Rider subscribed to ride ${data.rideId}`);
-                    break;
+        ws.on('message', (message) => {
+            try {
+                const data = JSON.parse(message);
+
+                switch(data.type) {
+                    case 'subscribe_ride':
+                        ws.rideId = data.rideId;
+                        ws.clientType = 'rider';
+                        console.log(`Rider subscribed to ride ${data.rideId}`);
+                        break;
 
                 case 'register_driver':
                     ws.driverNpub = data.npub;
                     ws.clientType = 'driver';
                     console.log(`Driver ${data.npub} registered for ride requests`);
+                    sendPendingRideRequests(ws);
                     break;
 
-                case 'get_status':
-                    ws.send(JSON.stringify({
-                        type: 'status',
-                        rides: rideManager.getActiveRides().length,
-                        operator: config.operatorPubkey,
-                        stats: rideManager.getStats()
-                    }));
-                    break;
+                    case 'get_status':
+                        ws.send(JSON.stringify({
+                            type: 'status',
+                            rides: rideManager.getActiveRides().length,
+                            operator: config.operatorPubkey,
+                            stats: rideManager.getStats()
+                        }));
+                        break;
+                }
+            } catch (error) {
+                console.error('WebSocket message error:', error);
             }
-        } catch (error) {
-            console.error('WebSocket message error:', error);
-        }
-    });
+        });
 
-    ws.on('close', () => {
-        console.log('Client disconnected');
+        ws.on('close', () => {
+            console.log('Client disconnected');
+        });
     });
-});
+}
 
 // Heartbeat to detect broken connections
-const interval = setInterval(() => {
+const interval = wss ? setInterval(() => {
     wss.clients.forEach((ws) => {
         if (ws.isAlive === false) {
             return ws.terminate();
@@ -241,14 +255,19 @@ const interval = setInterval(() => {
         ws.isAlive = false;
         ws.ping();
     });
-}, 30000);
+}, 30000) : null;
 
-wss.on('close', () => {
-    clearInterval(interval);
-});
+if (wss) {
+    wss.on('close', () => {
+        clearInterval(interval);
+    });
+}
 
 // Broadcast to specific ride
 function broadcastToRide(rideId, message) {
+    if (!wss) {
+        return;
+    }
     wss.clients.forEach(client => {
         if (client.rideId === rideId && client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify(message));
@@ -258,6 +277,9 @@ function broadcastToRide(rideId, message) {
 
 // Broadcast to all drivers
 function broadcastToDrivers(message) {
+    if (!wss) {
+        return 0;
+    }
     let count = 0;
     wss.clients.forEach(client => {
         if (client.clientType === 'driver' && client.readyState === WebSocket.OPEN) {
@@ -270,9 +292,49 @@ function broadcastToDrivers(message) {
 
 // Broadcast to all clients
 function broadcastToAll(message) {
+    if (!wss) {
+        return;
+    }
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify(message));
+        }
+    });
+}
+
+function sendPendingRideRequests(ws) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        return;
+    }
+
+    const pendingRides = rideManager.getActiveRides().filter(
+        (ride) => ride.status === RideStatus.REQUESTED
+    );
+
+    pendingRides.forEach((ride) => {
+        const session = activeRides.get(ride.id) || {};
+        const estimate = session.estimate || null;
+        const distanceKm = typeof session?.estimate?.distance?.km === 'number'
+            ? session.estimate.distance.km
+            : null;
+        const payload = {
+            type: 'ride_request',
+            ride: {
+                id: ride.id,
+                pickup: ride.pickup,
+                dropoff: ride.dropoff,
+                fare: ride.fare,
+                distance: distanceKm,
+                estimatedFare: estimate,
+                route: session.route || ride.route || null,
+                currency: ride.currency || session.currency || 'GBP'
+            }
+        };
+
+        try {
+            ws.send(JSON.stringify(payload));
+        } catch (error) {
+            console.warn(`Failed to send pending ride ${ride.id} to driver:`, error.message);
         }
     });
 }
@@ -696,6 +758,15 @@ app.post('/rides/:rideId/cancel', async (req, res) => {
                 
                 // Release driver stake
                 await stakeManager.releaseStakes(`${rideId}_driver`);
+            }
+        } else if (ride.status === 'waiting_driver' || ride.status === 'waiting_rider_stake') {
+            if (ride.riderStakeLocked) {
+                try {
+                    const release = await stakeManager.releaseStakes(`${rideId}_rider`);
+                    penalty.refund = release?.amount || ride.riderStake || 0;
+                } catch (releaseError) {
+                    console.warn(`Failed to release rider stake for ${rideId}:`, releaseError.message);
+                }
             }
         }
         
@@ -1663,7 +1734,8 @@ async function payOperatorFee(amount) {
 // SERVER STARTUP
 // ==========================================
 
-async function startServer() {
+async function startServer(options = {}) {
+    const listen = options.listen !== false;
     // Initialize payment provider first
     await initializePaymentProvider();
     await initializeStakeManager();
@@ -1680,8 +1752,9 @@ async function startServer() {
     }
 
     // Start HTTP server
-    app.listen(config.port, () => {
-        console.log(`
+    if (listen) {
+        httpServer = app.listen(config.port, () => {
+            console.log(`
     ========================================
     DonkeyRide Operator Server
     ========================================
@@ -1712,14 +1785,28 @@ async function startServer() {
     GET  /info                     - Operator information
     ========================================
         `);
+        });
+    } else {
+        console.log('🧪 Server initialized without HTTP listener (listen=false)');
+    }
+
+    return { app, httpServer, wss };
+}
+
+if (require.main === module) {
+    startServer().catch(error => {
+        console.error('Failed to start server:', error);
+        process.exit(1);
     });
 }
 
-// Start the server
-startServer().catch(error => {
-    console.error('Failed to start server:', error);
-    process.exit(1);
-});
+module.exports = {
+    app,
+    startServer,
+    rideManager,
+    reputation,
+    getHttpServer: () => httpServer
+};
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
@@ -1735,7 +1822,9 @@ process.on('SIGTERM', async () => {
     });
 
     // Close connections
-    wss.close();
+    if (wss && typeof wss.close === 'function') {
+        wss.close();
+    }
     if (redis) {
         await redis.disconnect();
     }
@@ -1748,5 +1837,3 @@ process.on('SIGINT', async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     process.emit('SIGTERM');
 });
-
-module.exports = app;

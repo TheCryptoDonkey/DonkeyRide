@@ -158,12 +158,22 @@ async function dispatchToRelays(event) {
   if (!relays.length) {
     return [];
   }
-  const publishPromises = relays.map((relay) =>
-    pool.publish(relay, event).then(
-      () => ({ relay, ok: true }),
-      (error) => ({ relay, ok: false, error: error?.message || String(error) })
-    )
-  );
+  const publishPromises = relays.map((relay) => {
+    const trimmed = (relay || '').trim();
+    if (!trimmed) {
+      return Promise.resolve({ relay: trimmed, ok: false, error: 'Empty relay URI' });
+    }
+    if (trimmed.startsWith('memory://') || trimmed.startsWith('mock://success')) {
+      return Promise.resolve({ relay: trimmed, ok: true, mock: true });
+    }
+    if (trimmed.startsWith('mock://fail')) {
+      return Promise.resolve({ relay: trimmed, ok: false, error: 'Mock relay failure' });
+    }
+    return pool.publish(trimmed, event).then(
+      () => ({ relay: trimmed, ok: true }),
+      (error) => ({ relay: trimmed, ok: false, error: error?.message || String(error) })
+    );
+  });
   const results = await Promise.all(publishPromises);
   return results;
 }
@@ -392,5 +402,12 @@ module.exports = {
   getProfile,
   exportEvents,
   publishGeneric,
-  clearCacheFor
+  clearCacheFor,
+  shutdown: () => {
+    try {
+      pool.close(getRelays());
+    } catch (error) {
+      console.warn('Failed to close reputation pool:', error.message);
+    }
+  }
 };

@@ -127,6 +127,11 @@ const riderRatingStatusEl = document.getElementById('rider-rating-status');
 const riderRatingNotesEl = document.getElementById('rider-rating-notes');
 const riderFlagSafetyEl = document.getElementById('rider-flag-safety');
 const driverRatingEl = document.getElementById('driver-rating');
+const rideCancelBtn = document.getElementById('ride-cancel-btn');
+if (rideCancelBtn) {
+  rideCancelBtn.classList.add('hidden');
+  rideCancelBtn.disabled = true;
+}
 
 let riderRatingValue = 0;
 let riderRatingSubmitted = false;
@@ -148,6 +153,7 @@ const reputationCache = new Map();
 
 const UNIT_PREFERENCE_KEY = 'donkeyride.pref.unit';
 const CURRENCY_PREFERENCE_KEY = 'donkeyride.pref.currency';
+const ACTIVE_RIDE_STORAGE_KEY = 'donkeyride.state.activeRideId';
 const DEFAULT_UNIT = 'mi';
 const DEFAULT_CURRENCY = 'GBP';
 
@@ -243,6 +249,100 @@ function normaliseHexKey(key) {
     }
   }
   return null;
+}
+
+function rememberActiveRide(rideId) {
+  if (!rideId || typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  try {
+    window.localStorage.setItem(ACTIVE_RIDE_STORAGE_KEY, rideId);
+  } catch (error) {
+    console.warn('Failed to persist active ride id', error);
+  }
+}
+
+function forgetActiveRide() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(ACTIVE_RIDE_STORAGE_KEY);
+  } catch (error) {
+    console.warn('Failed to clear active ride id', error);
+  }
+}
+
+function getStoredActiveRideId() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return null;
+  }
+  try {
+    return window.localStorage.getItem(ACTIVE_RIDE_STORAGE_KEY);
+  } catch (error) {
+    console.warn('Failed to read active ride id', error);
+    return null;
+  }
+}
+
+function setRideCancelVisible(visible) {
+  if (!rideCancelBtn) {
+    return;
+  }
+  rideCancelBtn.classList.toggle('hidden', !visible);
+  rideCancelBtn.disabled = !visible;
+}
+
+function renderRideMarkers(ride) {
+  if (!map || !ride) {
+    return;
+  }
+
+  if (pickupMarker) {
+    map.removeLayer(pickupMarker);
+    pickupMarker = null;
+  }
+  if (dropoffMarker) {
+    map.removeLayer(dropoffMarker);
+    dropoffMarker = null;
+  }
+
+  if (ride.pickup) {
+    pickup = {
+      lat: Number(ride.pickup.lat),
+      lon: Number(ride.pickup.lon)
+    };
+    pickupMarker = L.marker([pickup.lat, pickup.lon], {
+      icon: L.divIcon({
+        className: 'marker-icon pickup-marker',
+        html: '📍',
+        iconSize: [30, 30]
+      })
+    }).addTo(map);
+  }
+
+  if (ride.dropoff) {
+    dropoff = {
+      lat: Number(ride.dropoff.lat),
+      lon: Number(ride.dropoff.lon)
+    };
+    dropoffMarker = L.marker([dropoff.lat, dropoff.lon], {
+      icon: L.divIcon({
+        className: 'marker-icon dropoff-marker',
+        html: '🎯',
+        iconSize: [30, 30]
+      })
+    }).addTo(map);
+  }
+
+  if (pickup && dropoff) {
+    map.fitBounds([
+      [pickup.lat, pickup.lon],
+      [dropoff.lat, dropoff.lon]
+    ], { padding: [50, 50] });
+  } else if (pickup) {
+    map.setView([pickup.lat, pickup.lon], 14);
+  }
 }
 
 function buildRatingEvent({ rideId, targetKey, rating, role, notes, safetyFlag }) {
@@ -768,11 +868,82 @@ async function confirmStakePayment() {
   }
 }
 
-function cancelStakeFlow() {
-  updateStatus('Ride cancelled before stake payment.', 'info');
-  hideStreamPanel();
-  streamState = { totalPaid: 0, fare: 0, lastAmount: 0 };
-  resetRide();
+async function cancelActiveRide(reason = 'rider_cancelled') {
+  if (!currentRide || !currentRide.id) {
+    updateStatus('No active ride to cancel.', 'info');
+    return;
+  }
+
+  const controls = [rideCancelBtn, stakeCancelBtn, stakePaidBtn].filter(Boolean);
+  controls.forEach((btn) => {
+    btn.disabled = true;
+  });
+
+  try {
+    updateStatus('Cancelling ride...', 'waiting');
+    const cancelledBy = (riderPubKey || riderNpub || 'rider').toLowerCase();
+    const response = await fetch(`/rides/${currentRide.id}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cancelledBy,
+        reason
+      })
+    });
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        forgetActiveRide();
+        resetRide();
+        updateStatus('Ride session already closed.', 'info');
+        return;
+      }
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || response.statusText);
+    }
+
+    const payload = await response.json().catch(() => ({}));
+    const penalty = Number(payload?.penalty || 0);
+    const refund = Number(payload?.refund || 0);
+    forgetActiveRide();
+    hideStreamPanel();
+    stopSafetyMonitoring();
+    setSafetyStatus('Ride cancelled.', 'info');
+    let tone = 'info';
+    let message = 'Ride cancelled.';
+    if (reason === 'stake_unpaid') {
+      message = 'Ride cancelled before stake payment — no sats locked.';
+    } else if (refund > 0 && penalty <= 0) {
+      message = `Ride cancelled. Stake refunded (${refund.toLocaleString()} sats).`;
+      tone = 'success';
+    } else if (penalty > 0) {
+      message = `Ride cancelled. ${penalty.toLocaleString()} sats forfeited.`;
+      if (refund > 0) {
+        message += ` Refund: ${refund.toLocaleString()} sats.`;
+      }
+      tone = 'warning';
+    }
+    updateStatus(message, tone);
+    resetRide();
+  } catch (error) {
+    console.error('Failed to cancel ride', error);
+    updateStatus(`Failed to cancel ride: ${error.message}`, 'error');
+  } finally {
+    controls.forEach((btn) => {
+      if (btn) {
+        btn.disabled = false;
+      }
+    });
+  }
+}
+
+async function cancelStakeFlow() {
+  if (!currentRide || !currentRide.id) {
+    updateStatus('Ride cancelled before stake payment.', 'info');
+    resetRide();
+    return;
+  }
+  await cancelActiveRide('stake_unpaid');
 }
 
 async function submitRideRequest() {
@@ -814,6 +985,8 @@ async function submitRideRequest() {
     streamState = { totalPaid: 0, fare: currentRide.fare || 0, lastAmount: 0 };
 
     hideStakePanel();
+    rememberActiveRide(currentRide.id);
+    setRideCancelVisible(true);
 
     if (data.route && data.route.length > 0) {
       drawRoute(data.route);
@@ -1136,13 +1309,25 @@ function handleRideUpdate(message) {
     case 'trip_completed':
       handleTripCompleted(message);
       break;
-    case 'ride_cancelled':
-      updateStatus('Ride cancelled by driver.', 'error');
+    case 'ride_cancelled': {
+      const cancelledBy = (message.cancelledBy || '').toLowerCase();
+      const identifiers = [
+        (riderPubKey || '').toLowerCase(),
+        (riderNpub || '').toLowerCase(),
+        'rider'
+      ];
+      const isSelf = identifiers.includes(cancelledBy);
+      const tone = isSelf ? 'info' : 'error';
+      const text = isSelf ? 'Ride cancelled.' : 'Ride cancelled by driver.';
+      updateStatus(text, tone);
+      forgetActiveRide();
       hideStreamPanel();
       stopSafetyMonitoring();
       setSafetyStatus('Ride cancelled.', 'info');
-      setTimeout(() => resetRide(), 1000);
+      setRideCancelVisible(false);
+      setTimeout(() => resetRide(), 400);
       break;
+    }
     case 'stream_payment':
       handleStreamPayment(message);
       break;
@@ -1164,11 +1349,17 @@ function handleRideUpdate(message) {
 function handleRideMatched(ride) {
   currentRide.driver = ride.driver;
   currentRide.eta = ride.eta_seconds;
+  rememberActiveRide(currentRide.id);
+  setRideCancelVisible(false);
 
   updateStatus(`Driver ${ride.driver.name} is on the way!`, 'success');
   enableSafetyStandby();
 
   document.getElementById('driver-name').textContent = `🚗 ${ride.driver.name}`;
+  const driverRatingLine = document.querySelector('.driver-rating-line');
+  if (driverRatingLine) {
+    driverRatingLine.classList.remove('hidden');
+  }
   document.getElementById('ride-status').textContent = 'Driver en route to pickup';
 
   updateETA(ride.eta_seconds);
@@ -1253,6 +1444,8 @@ function handleDriverArrived() {
 
 // Handle trip started
 function handleTripStarted() {
+  rememberActiveRide(currentRide?.id);
+  setRideCancelVisible(false);
   updateStatus('Trip started! Heading to destination...', 'success');
   document.getElementById('ride-status').textContent = 'Trip in progress';
   const fareSats = currentRide?.estimate?.fare?.sats || currentRide?.fare || streamState.fare;
@@ -1297,6 +1490,8 @@ function handleTripStarted() {
 
 // Handle trip completed
 function handleTripCompleted(message) {
+  forgetActiveRide();
+  setRideCancelVisible(false);
   updateStatus('Trip completed! Thank you for riding with DonkeyRide!', 'success');
   document.getElementById('ride-status').textContent = 'Completed';
   document.getElementById('eta-display').textContent = '✅ Complete';
@@ -1432,6 +1627,19 @@ function showRideInfo() {
   document.getElementById('ride-fare').textContent = fareText;
   document.getElementById('ride-distance').textContent = formatDistance(distanceVal);
   document.getElementById('ride-status').textContent = 'Waiting for driver...';
+  const driverNameEl = document.getElementById('driver-name');
+  const driverRatingLine = document.querySelector('.driver-rating-line');
+  if (driverNameEl) {
+    if (currentRide?.driver?.name) {
+      driverNameEl.textContent = `🚗 ${currentRide.driver.name}`;
+    } else {
+      driverNameEl.textContent = 'Searching for driver…';
+    }
+  }
+  if (driverRatingLine) {
+    driverRatingLine.classList.toggle('hidden', !currentRide?.driver);
+  }
+  setRideCancelVisible(!currentRide?.driver);
   updateDriverReputationDisplay(null);
 }
 
@@ -1563,6 +1771,8 @@ function setHeaderStatus(message, type = 'info') {
 
 // Reset for next ride
 function resetRide() {
+  forgetActiveRide();
+  setRideCancelVisible(false);
   currentRide = null;
   currentEstimate = null;
   riderStakeState = null;
@@ -1608,6 +1818,17 @@ function resetRide() {
   document.getElementById('request-btn').disabled = true;
   document.getElementById('request-btn').textContent = 'Request Ride';
   document.getElementById('request-btn').innerHTML = 'Request Ride';
+  const driverRatingLine = document.querySelector('.driver-rating-line');
+  if (driverRatingLine) {
+    driverRatingLine.classList.add('hidden');
+  }
+  const driverNameEl = document.getElementById('driver-name');
+  if (driverNameEl) {
+    driverNameEl.textContent = '';
+  }
+  if (driverRatingEl) {
+    driverRatingEl.textContent = '-';
+  }
 
   updateStatus('Click on the map to set pickup (blue) and dropoff (red) locations', 'info');
   hideStakePanel();
@@ -1647,6 +1868,105 @@ function resetRide() {
   map.setView([51.5074, -0.1278], 14);
 }
 
+async function restoreActiveRide() {
+  const storedId = getStoredActiveRideId();
+  if (!storedId || currentRide) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/rides/${storedId}`);
+    if (!response.ok) {
+      throw new Error(`Ride lookup failed (${response.status})`);
+    }
+    const data = await response.json();
+    const ride = data?.ride;
+    if (!data?.success || !ride) {
+      throw new Error('Ride not found');
+    }
+
+    if (ride.status === 'completed' || ride.status === 'cancelled') {
+      forgetActiveRide();
+      return;
+    }
+
+    currentRide = {
+      ...ride,
+      id: ride.id || storedId,
+      stage: ride.status
+    };
+    currentRide.fare = ride.fare || currentRide.fare;
+    currentRide.fareCost = currentRide.fare
+      ? `${Number(currentRide.fare).toLocaleString()} sats`
+      : currentRide.fareCost || currentRide.estimate?.fare?.formatted || '-';
+    currentRide.currency = ride.currency || currentRide.currency || currencyPreference;
+    pickup = ride.pickup || null;
+    dropoff = ride.dropoff || null;
+    streamState = {
+      totalPaid: ride.streaming?.totalPaid || 0,
+      fare: ride.streaming?.fare || currentRide.fare || 0,
+      lastAmount: ride.streaming?.lastAmount || 0
+    };
+
+    updateLocationDisplay();
+    renderRideMarkers(ride);
+    if (ride.route && ride.route.length > 0) {
+      currentRide.route = ride.route;
+      drawRoute(ride.route);
+    }
+
+    rememberActiveRide(currentRide.id);
+    showRideInfo();
+    const requestBtn = document.getElementById('request-btn');
+    if (requestBtn) {
+      requestBtn.disabled = true;
+      requestBtn.textContent = 'Ride Requested';
+    }
+    connectWebSocket(currentRide.id);
+
+    switch (ride.status) {
+      case 'requested':
+      case 'waiting_driver':
+        setRideCancelVisible(true);
+        updateStatus('Ride request pending — waiting for driver.', 'waiting');
+        document.getElementById('ride-status').textContent = 'Waiting for driver...';
+        break;
+      case 'matched':
+      case 'en_route':
+        handleRideMatched(ride);
+        break;
+      case 'arrived':
+        handleRideMatched(ride);
+        handleDriverArrived();
+        break;
+      case 'active':
+        handleRideMatched(ride);
+        document.getElementById('ride-status').textContent = 'Trip in progress';
+        if (ride.streaming) {
+          streamState = {
+            totalPaid: ride.streaming.totalPaid || 0,
+            fare: ride.streaming.fare || ride.fare || currentRide.fare || 0,
+            lastAmount: ride.streaming.lastAmount || 0
+          };
+          showStreamPanel(streamState.fare, false);
+          updateStreamPanel({
+            total_paid_sats: streamState.totalPaid,
+            fare_sats: streamState.fare,
+            amount_sats: streamState.lastAmount
+          });
+        }
+        startSafetyMonitoring();
+        break;
+      default:
+        updateStatus('Ride request restored.', 'info');
+        break;
+    }
+  } catch (error) {
+    console.warn('Failed to restore active ride', error);
+    forgetActiveRide();
+  }
+}
+
 // Event listeners
 document.getElementById('request-btn').addEventListener('click', requestRide);
 if (stakePaidBtn) {
@@ -1654,6 +1974,9 @@ if (stakePaidBtn) {
 }
 if (stakeCancelBtn) {
   stakeCancelBtn.addEventListener('click', cancelStakeFlow);
+}
+if (rideCancelBtn) {
+  rideCancelBtn.addEventListener('click', () => cancelActiveRide('rider_cancelled_pre_match'));
 }
 if (unitSelectEl) {
   unitSelectEl.addEventListener('change', (event) => {
@@ -1717,4 +2040,5 @@ if (riderRatingSubmitBtn) {
 
 // Initialize
 initMap();
+restoreActiveRide();
 console.log('DonkeyRide Rider App initialized');

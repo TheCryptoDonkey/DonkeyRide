@@ -233,6 +233,13 @@
       box-shadow: none;
     }
 
+    #ride-cancel-btn {
+      margin-top: 14px;
+      background: linear-gradient(135deg, #444 0%, #222 100%);
+      color: #ddd;
+      width: 100%;
+    }
+
     #ride-info {
       background: rgba(18, 18, 18, 0.9);
       border-radius: 12px;
@@ -791,7 +798,7 @@
 
       <div id="ride-info" class="hidden">
         <div class="driver-name" id="driver-name"></div>
-        <div class="driver-rating-line">⭐ <span id="driver-rating">-</span></div>
+        <div class="driver-rating-line hidden">⭐ <span id="driver-rating">-</span></div>
 
         <div class="eta" id="eta-display"></div>
 
@@ -809,6 +816,8 @@
           <span><strong>Distance:</strong></span>
           <span id="ride-distance"></span>
         </div>
+
+        <button id="ride-cancel-btn" class="hidden">Cancel Ride</button>
       </div>
 
       <div id="stake-panel" class="hidden">
