@@ -5,6 +5,35 @@
  */
 
 const { v4: uuidv4 } = require('uuid');
+const { nip19 } = require('nostr-tools');
+
+function toLower(input) {
+  return typeof input === 'string' ? input.toLowerCase() : null;
+}
+
+function resolveIdentity(identity = {}) {
+  const pubkey = toLower(identity.pubkey);
+  let npub = identity.npub || null;
+  if (!npub && pubkey && nip19?.npubEncode) {
+    try {
+      npub = nip19.npubEncode(pubkey);
+    } catch (error) {
+      npub = null;
+    }
+  }
+  return { pubkey, npub };
+}
+
+function identityKeys(identity = {}) {
+  const keys = [];
+  if (identity.pubkey) {
+    keys.push(identity.pubkey.toLowerCase());
+  }
+  if (identity.npub) {
+    keys.push(identity.npub.toLowerCase());
+  }
+  return Array.from(new Set(keys.filter(Boolean)));
+}
 
 // Ride status constants
 const RideStatus = {
@@ -27,19 +56,19 @@ class RideManager {
   /**
    * Create a new ride request
    */
-  createRide(riderNpub, pickup, dropoff, estimatedFare, options = {}) {
+  createRide(riderIdentity, pickup, dropoff, estimatedFare, options = {}) {
     const rideId = options.rideId || `ride_${uuidv4().split('-')[0]}`;
 
     if (this.rides.has(rideId)) {
       throw new Error(`Ride ${rideId} already exists`);
     }
 
+    const rider = resolveIdentity(riderIdentity);
+
     const ride = {
       id: rideId,
       status: RideStatus.REQUESTED,
-      rider: {
-        npub: riderNpub
-      },
+      rider,
       driver: null,
       pickup: {
         lat: pickup.lat,
@@ -69,9 +98,9 @@ class RideManager {
     };
 
     this.rides.set(rideId, ride);
-    this.riderRides.set(riderNpub, rideId);
+    identityKeys(rider).forEach((key) => this.riderRides.set(key, rideId));
 
-    console.log(`✅ Ride created: ${rideId} (${riderNpub})`);
+    console.log(`✅ Ride created: ${rideId} (${rider.npub || rider.pubkey || 'unknown rider'})`);
 
     return ride;
   }
@@ -91,8 +120,11 @@ class RideManager {
       return null;
     }
 
+    const driverIdentity = resolveIdentity({ npub: driverNpub, pubkey: driverInfo.pubkey });
+
     ride.driver = {
-      npub: driverNpub,
+      npub: driverIdentity.npub,
+      pubkey: driverIdentity.pubkey,
       name: driverInfo.name || 'Driver',
       location: driverInfo.location,
       rating: driverInfo.rating || 5.0
@@ -106,9 +138,9 @@ class RideManager {
       driver: driverNpub
     });
 
-    this.driverRides.set(driverNpub, rideId);
+    identityKeys(driverIdentity).forEach((key) => this.driverRides.set(key, rideId));
 
-    console.log(`✅ Ride ${rideId} matched with driver ${driverNpub}`);
+    console.log(`✅ Ride ${rideId} matched with driver ${driverIdentity.npub || driverIdentity.pubkey || 'unknown driver'}`);
 
     return ride;
   }
@@ -217,9 +249,9 @@ class RideManager {
 
     // Clean up references after 5 minutes
     setTimeout(() => {
-      this.riderRides.delete(ride.rider.npub);
+      identityKeys(ride.rider).forEach((key) => this.riderRides.delete(key));
       if (ride.driver) {
-        this.driverRides.delete(ride.driver.npub);
+        identityKeys(ride.driver).forEach((key) => this.driverRides.delete(key));
       }
     }, 300000);
 
@@ -276,9 +308,9 @@ class RideManager {
     console.log(`❌ Ride ${rideId} cancelled by ${cancelledBy}: ${reason}`);
 
     // Clean up references
-    this.riderRides.delete(ride.rider.npub);
+    identityKeys(ride.rider).forEach((key) => this.riderRides.delete(key));
     if (ride.driver) {
-      this.driverRides.delete(ride.driver.npub);
+      identityKeys(ride.driver).forEach((key) => this.driverRides.delete(key));
     }
 
     return ride;
@@ -314,7 +346,7 @@ class RideManager {
    * Get ride by rider
    */
   getRideByRider(riderNpub) {
-    const rideId = this.riderRides.get(riderNpub);
+    const rideId = this.riderRides.get(toLower(riderNpub));
     return rideId ? this.rides.get(rideId) : null;
   }
 
@@ -322,7 +354,7 @@ class RideManager {
    * Get ride by driver
    */
   getRideByDriver(driverNpub) {
-    const rideId = this.driverRides.get(driverNpub);
+    const rideId = this.driverRides.get(toLower(driverNpub));
     return rideId ? this.rides.get(rideId) : null;
   }
 

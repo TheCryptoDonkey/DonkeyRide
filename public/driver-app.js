@@ -261,13 +261,16 @@ class DriverApp {
     this.feedbackStatusEl = document.getElementById('driver-feedback-status');
     this.feedbackNotesEl = document.getElementById('driver-feedback-notes');
     this.riderReputationEl = document.getElementById('active-rider-reputation');
+    this.completeRideBtn = document.getElementById('complete-ride-btn');
 
     this.pendingArrival = false;
     this.waitingForTripStart = false;
+    this.awaitingCompletion = false;
     this.streamState = { total: 0, remaining: 0, fare: 0 };
     this.earnings = { totalFiat: 0, rides: 0, currency: currencyPreference };
     this.ratingValue = 0;
     this.ratingSubmitted = false;
+    this.lastCompletedRide = null;
   }
 
   init() {
@@ -316,11 +319,14 @@ class DriverApp {
       this.toggleAutoAccept();
     });
 
-    document.getElementById('complete-ride-btn').addEventListener('click', () => {
-      if (this.currentRide) {
-        this.finishRide();
-      }
-    });
+    if (this.completeRideBtn) {
+      this.completeRideBtn.style.display = 'none';
+      this.completeRideBtn.addEventListener('click', () => {
+        if (this.currentRide || this.awaitingCompletion) {
+          this.finishRide();
+        }
+      });
+    }
 
     if (this.stakeConfirmBtn) {
       this.stakeConfirmBtn.addEventListener('click', () => this.confirmDriverStake());
@@ -640,7 +646,8 @@ class DriverApp {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           driverId: DRIVER_PROFILE.npub,
-          driverLightning: DRIVER_PROFILE.lightning
+          driverLightning: DRIVER_PROFILE.lightning,
+          driverPubkey: driverPubKey
         })
       });
 
@@ -650,6 +657,7 @@ class DriverApp {
       }
 
       const session = await response.json();
+      this.lastCompletedRide = null;
       this.currentRide = {
         ...ride,
         stage: 'awaiting_stake',
@@ -685,6 +693,10 @@ class DriverApp {
     document.getElementById('active-ride-section').style.display = 'block';
     document.getElementById('nav-section').style.display = 'block';
     this.hideDriverControls();
+    if (this.completeRideBtn) {
+      this.completeRideBtn.style.display = 'none';
+      this.completeRideBtn.disabled = true;
+    }
     this.hideDriverStreamPanel();
     this.hideDriverFeedbackPanel();
     this.pendingArrival = false;
@@ -834,13 +846,31 @@ class DriverApp {
     this.showDriverStreamPanel();
     this.updateNavigationInstructions('dropoff');
     this.updateSafetyStatus('Trip monitoring active — we will stream sats.', 'info');
-    this.startMovementAlongRoute(route, () => this.finishRide());
+    this.startMovementAlongRoute(route, () => this.promptCompletion());
+  }
+
+  promptCompletion() {
+    this.awaitingCompletion = true;
+    this.stopMovement();
+    this.updateRideStatus({
+      status: 'Arrived at dropoff — confirm completion',
+      distance: formatDistance(0),
+      eta: '0 min',
+      progress: '95%'
+    });
+    if (this.completeRideBtn) {
+      this.completeRideBtn.style.display = 'block';
+      this.completeRideBtn.disabled = false;
+    }
   }
 
   async finishRide() {
-    if (!this.currentRide) return;
+    const rideToComplete = this.currentRide || this.lastCompletedRide;
+    if (!rideToComplete) {
+      return;
+    }
 
-    await fetch(`/api/rides/${this.currentRide.id}/complete`, { method: 'POST' }).catch(() => {});
+    await fetch(`/api/rides/${rideToComplete.id}/complete`, { method: 'POST' }).catch(() => {});
 
     this.updateRideStatus({
       status: 'Ride complete',
@@ -852,15 +882,20 @@ class DriverApp {
     this.stopMovement();
     this.showSuccess('Ride completed!');
 
+    this.lastCompletedRide = { ...rideToComplete };
+    this.awaitingCompletion = false;
+    if (this.completeRideBtn) {
+      this.completeRideBtn.style.display = 'none';
+    }
     this.clearActiveRide();
     this.showWaitingState(true);
 
     this.showDriverFeedbackPanel();
 
     this.earnings.rides += 1;
-    const rideFiat = this.currentRide.estimatedFare?.driverEarns?.fiat ?? 0;
+    const rideFiat = rideToComplete.estimatedFare?.driverEarns?.fiat ?? 0;
     this.earnings.totalFiat += Number.isFinite(rideFiat) ? rideFiat : 0;
-    const rideCurrency = this.currentRide.estimatedFare?.fare?.currency || this.currentRide.currency;
+    const rideCurrency = rideToComplete.estimatedFare?.fare?.currency || rideToComplete.currency;
     if (rideCurrency) {
       this.earnings.currency = rideCurrency;
     }
@@ -885,9 +920,13 @@ class DriverApp {
     this.hideDriverStreamPanel();
     this.hideSafetyPanel();
     this.hideDriverFeedbackPanel();
+    if (this.completeRideBtn) {
+      this.completeRideBtn.style.display = 'none';
+    }
     this.updateRiderReputationDisplay(null);
     this.pendingArrival = false;
     this.waitingForTripStart = false;
+    this.awaitingCompletion = false;
     this.streamState = { total: 0, remaining: 0, fare: 0 };
   }
 
@@ -1166,9 +1205,10 @@ class DriverApp {
       return;
     }
 
-    if (!this.currentRide || !this.currentRide.id) {
+    const ratingRide = this.currentRide || this.lastCompletedRide;
+    if (!ratingRide || !ratingRide.id) {
       if (this.feedbackStatusEl) {
-        this.feedbackStatusEl.textContent = 'No active ride to rate.';
+        this.feedbackStatusEl.textContent = 'No completed ride to rate.';
       }
       return;
     }
@@ -1188,16 +1228,16 @@ class DriverApp {
         this.feedbackStatusEl.textContent = 'Submitting feedback…';
       }
 
-      const targetKey = this.currentRide?.rider?.npub || this.currentRide?.rider?.pubkey;
+      const targetKey = ratingRide?.rider?.pubkey || ratingRide?.rider?.npub;
       const notes = this.feedbackNotesEl?.value || '';
       const ratingEvent = buildDriverRatingEvent({
-        rideId: this.currentRide.id,
+        rideId: ratingRide.id,
         targetKey,
         rating: this.ratingValue,
         notes
       });
 
-      const response = await fetch(`/api/rides/${this.currentRide.id}/rate`, {
+      const response = await fetch(`/api/rides/${ratingRide.id}/rate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ event: ratingEvent })
@@ -1230,12 +1270,15 @@ class DriverApp {
           btn.disabled = true;
         });
       }
-      if (this.currentRide?.rider?.npub) {
-        reputationCache.delete(this.currentRide.rider.npub.toLowerCase());
-        fetchReputationProfile(this.currentRide.rider.npub).then((profile) => {
+      const riderNpub = ratingRide?.rider?.npub;
+      if (riderNpub) {
+        reputationCache.delete(riderNpub.toLowerCase());
+        fetchReputationProfile(riderNpub).then((profile) => {
           this.updateRiderReputationDisplay(profile);
         });
       }
+
+      this.lastCompletedRide = null;
     } catch (error) {
       console.error('Failed to submit driver feedback', error);
       if (this.feedbackStatusEl) {

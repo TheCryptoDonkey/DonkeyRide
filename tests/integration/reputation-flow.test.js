@@ -158,7 +158,7 @@ test('reputation module caches events when relays fail', async () => {
 
   const rideManager = new RideManager();
   const ride = rideManager.createRide(
-    riderPubKey,
+    { pubkey: riderPubKey },
     { lat: 51.5, lon: -0.12 },
     { lat: 51.52, lon: -0.11 },
     2500,
@@ -168,7 +168,8 @@ test('reputation module caches events when relays fail', async () => {
   rideManager.acceptRide(ride.id, driverPubKey, {
     name: 'Integration Driver',
     location: { lat: 51.49, lon: -0.13 },
-    rating: 4.9
+    rating: 4.9,
+    pubkey: driverPubKey
   });
   rideManager.startEnRoute(ride.id);
   rideManager.arriveAtPickup(ride.id);

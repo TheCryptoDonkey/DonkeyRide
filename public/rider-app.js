@@ -770,7 +770,7 @@ async function triggerPanic(initiatedBy = 'rider', note = '') {
   setSafetyStatus('Emergency alert dispatched. We froze the ride.', 'alert');
 
   try {
-    const targetKey = currentRide?.driver?.npub || currentRide?.driver?.pubkey;
+  const targetKey = currentRide?.driver?.pubkey || currentRide?.driver?.npub;
     const panicEvent = buildPanicEvent({
       rideId: currentRide.id,
       role: 'rider',

@@ -293,24 +293,52 @@ async function exportEvents(npubOrHex, sinceMillis) {
 }
 
 function enforceRideParticipation(eventPubkey, ride, role) {
+  const riderHex = ride?.rider?.pubkey ? ride.rider.pubkey.toLowerCase() : null;
   const riderNpub = ride?.rider?.npub ? ride.rider.npub.toLowerCase() : null;
+  const driverHex = ride?.driver?.pubkey ? ride.driver.pubkey.toLowerCase() : null;
   const driverNpub = ride?.driver?.npub ? ride.driver.npub.toLowerCase() : null;
+
   if (role === 'rider') {
-    if (!riderNpub || riderNpub !== eventPubkey) {
+    if (riderHex) {
+      if (eventPubkey !== riderHex) {
+        throw new Error('Rating initiator does not match rider');
+      }
+    } else if (riderNpub && resolveHexPubkey(riderNpub) !== eventPubkey) {
       throw new Error('Rating initiator does not match rider');
+    } else if (!riderHex && !riderNpub) {
+      throw new Error('Missing rider identity for ride');
     }
-    if (!driverNpub) {
-      throw new Error('Missing driver npub for ride');
+    if (!driverHex && !driverNpub) {
+      throw new Error('Missing driver identity for ride');
     }
-    return { target: driverNpub, subject: riderNpub };
+    return {
+      targetHex: driverHex || resolveHexPubkey(driverNpub),
+      targetNpub: driverNpub || (driverHex && nip19?.npubEncode ? nip19.npubEncode(driverHex) : null),
+      subjectHex: riderHex || eventPubkey,
+      subjectNpub: riderNpub || (riderHex && nip19?.npubEncode ? nip19.npubEncode(riderHex) : null)
+    };
   }
-  if (!driverNpub || driverNpub !== eventPubkey) {
+
+  if (driverHex) {
+    if (eventPubkey !== driverHex) {
+      throw new Error('Rating initiator does not match driver');
+    }
+  } else if (driverNpub && resolveHexPubkey(driverNpub) !== eventPubkey) {
     throw new Error('Rating initiator does not match driver');
+  } else if (!driverHex && !driverNpub) {
+    throw new Error('Missing driver identity for ride');
   }
-  if (!riderNpub) {
-    throw new Error('Missing rider npub for ride');
+
+  if (!riderHex && !riderNpub) {
+    throw new Error('Missing rider identity for ride');
   }
-  return { target: riderNpub, subject: driverNpub };
+
+  return {
+    targetHex: riderHex || resolveHexPubkey(riderNpub),
+    targetNpub: riderNpub || (riderHex && nip19?.npubEncode ? nip19.npubEncode(riderHex) : null),
+    subjectHex: driverHex || eventPubkey,
+    subjectNpub: driverNpub || (driverHex && nip19?.npubEncode ? nip19.npubEncode(driverHex) : null)
+  };
 }
 
 function parseRatingEvent(event, ride) {
@@ -333,22 +361,33 @@ function parseRatingEvent(event, ride) {
   }
   const roleTag = event.tags.find(t => t[0] === 'role');
   const role = roleTag?.[1] === 'driver' ? 'driver' : 'rider';
-  const { target } = enforceRideParticipation(event.pubkey.toLowerCase(), ride, role);
+  const { targetHex, targetNpub } = enforceRideParticipation(event.pubkey.toLowerCase(), ride, role);
   const targetTag = event.tags.find(t => t[0] === 'p');
-  if (!targetTag || targetTag[1].toLowerCase() !== target) {
+  if (!targetTag) {
+    throw new Error('Rating event target missing');
+  }
+  const tagHex = resolveHexPubkey(targetTag[1]);
+  if (!tagHex || tagHex !== targetHex) {
     throw new Error('Rating event target mismatch');
   }
-  return { ratingValue, role, targetNpub: target };
+  return { ratingValue, role, targetHex, targetNpub };
 }
 
 async function publishRating(event, ride) {
-  const { ratingValue, role, targetNpub } = parseRatingEvent(event, ride);
+  const { ratingValue, role, targetHex, targetNpub } = parseRatingEvent(event, ride);
   const relayStatuses = await publishEvent(event);
-  cacheLocalEvent('ratings', targetNpub, event);
-  clearCacheFor(targetNpub);
+  cacheLocalEvent('ratings', targetHex, event);
+  clearCacheFor(targetHex);
   clearCacheFor(event.pubkey.toLowerCase());
   const cachedLocally = relayStatuses.length === 0 || !relayStatuses.some(status => status.ok);
-  return { rating: ratingValue, role, target: targetNpub, relayStatuses, cachedLocally };
+  return {
+    rating: ratingValue,
+    role,
+    targetHex,
+    targetNpub,
+    relayStatuses,
+    cachedLocally
+  };
 }
 
 function parsePanicEvent(event, ride) {

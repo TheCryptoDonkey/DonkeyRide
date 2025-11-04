@@ -13,7 +13,9 @@ const WebSocket = require('ws');
 const Redis = require('redis');
 const { PaymentProviderFactory, ResilientStakeManager } = require('./payment-providers/factory');
 const reputation = require('./src/nostr/reputation');
+const stakeEvents = require('./src/nostr/stake-events');
 const { validateNIP98Auth } = require('./middleware/nip98-auth');
+const { getPublicKey: nostrGetPublicKey } = require('nostr-tools');
 const {
     publicRateLimiter,
     authenticatedRateLimiter,
@@ -41,6 +43,7 @@ const config = {
     // Operator settings
     operatorName: process.env.OPERATOR_NAME || 'DonkeyRide Operator',
     operatorPubkey: process.env.OPERATOR_PUBKEY,
+    operatorPrivkey: process.env.OPERATOR_PRIVKEY,
     operatorLightningAddress: process.env.OPERATOR_LIGHTNING,
     operatorFeePercent: parseFloat(process.env.OPERATOR_FEE_PERCENT) || 0.005, // Market-driven fee (default 0.5%)
 
@@ -59,6 +62,15 @@ const config = {
     minStakeAmount: 50,    // Min stake in sats
     requireKYC: false,     // For larger amounts
 };
+
+if (config.operatorPrivkey && !config.operatorPubkey) {
+    try {
+        config.operatorPubkey = nostrGetPublicKey(config.operatorPrivkey);
+        console.log('🔑 Derived operator pubkey from OPERATOR_PRIVKEY');
+    } catch (error) {
+        console.warn('⚠️  Failed to derive operator pubkey from private key:', error.message);
+    }
+}
 
 // ==========================================
 // PAYMENT PROVIDER INITIALIZATION
@@ -187,6 +199,10 @@ const relayConfig = (process.env.REPUTATION_RELAYS || `${process.env.NOSTR_RELAY
     .map(r => r.trim())
     .filter(Boolean);
 reputation.setRelays(relayConfig);
+stakeEvents.configure({
+    operatorPrivkey: config.operatorPrivkey,
+    publishGeneric: (event) => reputation.publishGeneric(event, config.operatorPubkey || event.pubkey)
+});
 
 // ==========================================
 // WEBSOCKET FOR REAL-TIME UPDATES
@@ -416,6 +432,15 @@ function startStreamingForRide(rideId) {
             timestamp: Date.now()
         });
 
+        stakeEvents.publishStreamPayment({
+            rideId,
+            amount,
+            totalPaid: state.totalPaid,
+            fare: state.fareSats
+        }).catch((err) => {
+            console.warn(`Failed to publish stream payment for ${rideId}:`, err.message);
+        });
+
         if (state.totalPaid >= state.fareSats) {
             stopStreamingForRide(rideId);
         }
@@ -571,6 +596,17 @@ app.post('/rides/:rideId/rider-stake', async (req, res) => {
             type: 'rider_stake_locked',
             amount: ride.riderStake
         });
+
+        stakeEvents.publishStakeLock({
+            rideId,
+            role: 'rider',
+            amount: ride.riderStake,
+            participant: ride.riderId,
+            providerEvent: stakeLock.event,
+            escrowId: stakeLock.holdId
+        }).catch((err) => {
+            console.warn(`Failed to publish rider stake lock for ${rideId}:`, err.message);
+        });
         
         res.json({
             success: true,
@@ -587,7 +623,7 @@ app.post('/rides/:rideId/rider-stake', async (req, res) => {
 app.post('/rides/:rideId/driver-accept', async (req, res) => {
     try {
         const { rideId } = req.params;
-        const { driverId, driverLightning } = req.body;
+        const { driverId, driverLightning, driverPubkey } = req.body;
         
         const ride = activeRides.get(rideId);
         if (!ride) throw new Error('Ride not found');
@@ -599,7 +635,10 @@ app.post('/rides/:rideId/driver-accept', async (req, res) => {
         // Create invoice for driver
         const invoice = await createLightningInvoice(driverStake, `Driver stake for ${rideId}`);
         
-        ride.driverId = driverId;
+        const driverHex = (driverPubkey || driverId || '').toLowerCase();
+        ride.driverId = driverHex;
+        ride.driverNpub = driverId;
+        ride.driverPubkey = driverHex;
         ride.driverLightning = driverLightning;
         ride.driverStake = driverStake;
         ride.status = 'waiting_driver_stake';
@@ -646,6 +685,17 @@ app.post('/rides/:rideId/driver-stake', async (req, res) => {
             timestamp: ride.startedAt
         });
 
+        stakeEvents.publishStakeLock({
+            rideId,
+            role: 'driver',
+            amount: ride.driverStake,
+            participant: ride.driverId,
+            providerEvent: stakeLock.event,
+            escrowId: stakeLock.holdId
+        }).catch((err) => {
+            console.warn(`Failed to publish driver stake lock for ${rideId}:`, err.message);
+        });
+
         res.json({
             success: true,
             status: 'ride_active',
@@ -670,6 +720,24 @@ app.post('/rides/:rideId/complete', async (req, res) => {
         // Release both stakes
         const riderRelease = await stakeManager.releaseStakes(`${rideId}_rider`);
         const driverRelease = await stakeManager.releaseStakes(`${rideId}_driver`);
+        stakeEvents.publishStakeRelease({
+            rideId,
+            role: 'rider',
+            amount: ride.riderStake,
+            providerEvent: riderRelease?.event,
+            reason: 'completed'
+        }).catch((err) => {
+            console.warn(`Failed to publish rider stake release for ${rideId}:`, err.message);
+        });
+        stakeEvents.publishStakeRelease({
+            rideId,
+            role: 'driver',
+            amount: ride.driverStake,
+            providerEvent: driverRelease?.event,
+            reason: 'completed'
+        }).catch((err) => {
+            console.warn(`Failed to publish driver stake release for ${rideId}:`, err.message);
+        });
         
         // Pay operator fee (from fare, not stakes)
         const operatorPayment = await payOperatorFee(ride.operatorFee);
@@ -733,41 +801,48 @@ app.post('/rides/:rideId/cancel', async (req, res) => {
 
         stopStreamingForRide(rideId);
 
-        let penalty = {};
+        let penalty = { penalty: 0, refund: 0 };
+        let penaltyResult = null;
+        let riderReleaseResult = null;
+        let driverReleaseResult = null;
         
         if (ride.status === 'active') {
             // Apply penalties based on who cancelled
             if (cancelledBy === ride.driverId) {
                 // Driver cancelled - forfeit 80% of driver stake to rider
-                penalty = await stakeManager.forfeitStake(
+                penaltyResult = await stakeManager.forfeitStake(
                     `${rideId}_driver`,
                     ride.driverId,
                     'driver_cancelled'
                 );
                 
                 // Release rider stake
-                await stakeManager.releaseStakes(`${rideId}_rider`);
-                
+                riderReleaseResult = await stakeManager.releaseStakes(`${rideId}_rider`);
             } else if (cancelledBy === ride.riderId) {
                 // Rider cancelled - forfeit 80% of rider stake to driver  
-                penalty = await stakeManager.forfeitStake(
+                penaltyResult = await stakeManager.forfeitStake(
                     `${rideId}_rider`,
                     ride.riderId,
                     'rider_cancelled'
                 );
                 
                 // Release driver stake
-                await stakeManager.releaseStakes(`${rideId}_driver`);
+                driverReleaseResult = await stakeManager.releaseStakes(`${rideId}_driver`);
             }
         } else if (ride.status === 'waiting_driver' || ride.status === 'waiting_rider_stake') {
             if (ride.riderStakeLocked) {
                 try {
-                    const release = await stakeManager.releaseStakes(`${rideId}_rider`);
-                    penalty.refund = release?.amount || ride.riderStake || 0;
+                    riderReleaseResult = await stakeManager.releaseStakes(`${rideId}_rider`);
+                    penalty.refund = ride.riderStake || 0;
                 } catch (releaseError) {
                     console.warn(`Failed to release rider stake for ${rideId}:`, releaseError.message);
                 }
             }
+        }
+
+        if (penaltyResult) {
+            penalty.penalty = penaltyResult.penalty || 0;
+            penalty.refund = penaltyResult.refund || penalty.refund || 0;
         }
         
         ride.status = 'cancelled';
@@ -790,7 +865,8 @@ app.post('/rides/:rideId/cancel', async (req, res) => {
             type: 'ride_cancelled',
             ride_id: rideId,
             cancelledBy,
-            penalty: penalty.penalty || 0
+            penalty: penalty.penalty || 0,
+            refund: penalty.refund || 0
         });
         broadcastToDrivers({
             type: 'ride_cancelled',
@@ -798,6 +874,40 @@ app.post('/rides/:rideId/cancel', async (req, res) => {
             cancelledBy,
             penalty: penalty.penalty || 0
         });
+
+        if (riderReleaseResult) {
+            stakeEvents.publishStakeRelease({
+                rideId,
+                role: 'rider',
+                amount: ride.riderStake,
+                providerEvent: riderReleaseResult.event,
+                reason: 'cancelled'
+            }).catch((err) => {
+                console.warn(`Failed to publish rider stake release for ${rideId}:`, err.message);
+            });
+        }
+        if (driverReleaseResult) {
+            stakeEvents.publishStakeRelease({
+                rideId,
+                role: 'driver',
+                amount: ride.driverStake,
+                providerEvent: driverReleaseResult.event,
+                reason: 'cancelled'
+            }).catch((err) => {
+                console.warn(`Failed to publish driver stake release for ${rideId}:`, err.message);
+            });
+        }
+        if (penaltyResult) {
+            stakeEvents.publishStakePenalty({
+                rideId,
+                reason: reason || 'cancelled',
+                penalty: penaltyResult.penalty,
+                refund: penaltyResult.refund,
+                providerEvent: penaltyResult.event
+            }).catch((err) => {
+                console.warn(`Failed to publish stake penalty for ${rideId}:`, err.message);
+            });
+        }
 
         finalizeRideSession(rideId, 'cancelled');
         
@@ -1093,6 +1203,8 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             // Use default rider if not provided (for MVP)
             const riderNpub = rider_npub || 'npub_test_rider';
             const rideOptions = ride_id ? { rideId: ride_id } : {};
+            const sessionForRide = ride_id ? activeRides.get(ride_id) : null;
+            const riderPubkeyHex = (sessionForRide?.riderId || req.body.rider_pubkey || '').toLowerCase() || null;
             rideOptions.currency = fiatCurrency;
 
             // Try to get OSRM route for real road routing
@@ -1125,7 +1237,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
 
             // Create ride
             const ride = rideManager.createRide(
-                riderNpub,
+                { npub: riderNpub, pubkey: riderPubkeyHex },
                 { lat: pickup_lat, lon: pickup_lon },
                 { lat: dropoff_lat, lon: dropoff_lon },
                 estimatedFareSats,
@@ -1161,7 +1273,11 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                     distance: distance,
                     estimatedFare: estimate,
                     route: routeCoordinates,
-                    currency: fiatCurrency
+                    currency: fiatCurrency,
+                    rider: ride.rider ? {
+                        npub: ride.rider.npub,
+                        pubkey: ride.rider.pubkey
+                    } : null
                 }
             });
 
@@ -1194,13 +1310,20 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
 app.post('/api/rides/:rideId/accept', async (req, res) => {
     try {
         const { rideId } = req.params;
-        const { driver_npub, driver_name, driver_location, driver_rating } = req.body;
+        const { driver_npub, driver_name, driver_location, driver_rating, driver_pubkey } = req.body;
 
         const ride = rideManager.acceptRide(rideId, driver_npub, {
             name: driver_name,
             location: driver_location,
-            rating: driver_rating
+            rating: driver_rating,
+            pubkey: driver_pubkey
         });
+
+        const activeSession = activeRides.get(rideId);
+        if (activeSession) {
+            activeSession.driverId = (driver_pubkey || activeSession.driverId || driver_npub || '').toLowerCase();
+            activeSession.driverNpub = driver_npub;
+        }
 
         // If ride is null, another driver already accepted (race condition)
         if (!ride) {
@@ -1494,7 +1617,7 @@ app.post('/api/rides/:rideId/rate', async (req, res) => {
         try {
             rideManager.recordRating(rideId, result.role, {
                 rating: result.rating,
-                target: result.target,
+                target: result.targetHex,
                 eventId: event.id,
                 pubkey: event.pubkey,
                 notes: event.content || '',
@@ -1510,7 +1633,8 @@ app.post('/api/rides/:rideId/rate', async (req, res) => {
             ride_id: rideId,
             role: result.role,
             rating: result.rating,
-            target: result.target,
+            target_hex: result.targetHex,
+            target_npub: result.targetNpub || null,
             relay_statuses: result.relayStatuses || [],
             cached_locally: !!result.cachedLocally
         });
@@ -1518,6 +1642,8 @@ app.post('/api/rides/:rideId/rate', async (req, res) => {
         res.json({
             success: true,
             rating: result.rating,
+            target_hex: result.targetHex,
+            target_npub: result.targetNpub || null,
             relay_statuses: result.relayStatuses || [],
             cached_locally: !!result.cachedLocally
         });
