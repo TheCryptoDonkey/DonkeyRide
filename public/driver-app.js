@@ -212,7 +212,7 @@ const DRIVER_PROFILE = {
 };
 
 const MOVE_INTERVAL = 2000; // ms between location updates
-const MOVE_STEP_METERS = 80; // approx ~145 km/h along route for demo smoothness
+const MOVE_STEP_METERS = 140; // faster autoplay for demos (~250 km/h route replay)
 const reputationCache = new Map();
 
 class DriverApp {

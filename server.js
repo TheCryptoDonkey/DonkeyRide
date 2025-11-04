@@ -1221,7 +1221,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
         } else {
             // Fallback to straight-line calculation
             distance = calculateDistance(pickup_lat, pickup_lon, dropoff_lat, dropoff_lon);
-            duration = (distance / 30) * 60; // 30 km/h average
+            duration = (distance / 45) * 60; // faster fallback (~45 km/h) to keep demos snappy
             const distanceMiles = distance * 0.621371;
             console.log(`📏 Using straight-line routing: ${distance.toFixed(2)}km (${distanceMiles.toFixed(2)}mi)`);
         }
