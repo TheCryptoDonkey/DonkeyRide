@@ -1656,6 +1656,38 @@ app.post('/api/rides/:rideId/rate', async (req, res) => {
     }
 });
 
+// Rider tips driver
+app.post('/api/rides/:rideId/tip', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const { amount_sats } = req.body || {};
+        const amount = parseInt(amount_sats, 10);
+
+        if (!Number.isFinite(amount) || amount <= 0) {
+            return res.status(400).json({ error: 'Invalid tip amount' });
+        }
+
+        const ride = rideManager.getRide(rideId);
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        ride.tips = ride.tips || [];
+        ride.tips.push({ amount_sats: amount, timestamp: Date.now() });
+
+        broadcastToRide(rideId, {
+            type: 'tip_sent',
+            ride_id: rideId,
+            amount_sats: amount
+        });
+
+        res.json({ success: true, amount_sats: amount });
+    } catch (error) {
+        console.error('Error submitting tip:', error);
+        res.status(500).json({ error: 'Failed to submit tip' });
+    }
+});
+
 app.get('/api/reputation/:npub', async (req, res) => {
     try {
         const profile = await reputation.getProfile(req.params.npub);

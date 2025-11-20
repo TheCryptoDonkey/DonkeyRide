@@ -473,6 +473,60 @@
       color: #d0d0d0;
     }
 
+    .tip-block {
+      margin-top: 14px;
+      padding-top: 12px;
+      border-top: 1px solid #222;
+    }
+    .tip-buttons {
+      display: flex;
+      gap: 8px;
+      margin: 8px 0;
+    }
+    .tip-buttons button {
+      flex: 1;
+      padding: 10px;
+      background: #1e1e1e;
+      border: 1px solid #333;
+      border-radius: 8px;
+      color: #ffd700;
+      font-weight: 700;
+    }
+    .tip-buttons button.active {
+      border-color: #ffd700;
+      background: rgba(255, 215, 0, 0.1);
+    }
+    .tip-custom {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #333;
+      background: #111;
+      color: #fff;
+      margin-bottom: 8px;
+    }
+
+    @media (max-width: 850px) {
+      body {
+        font-size: 15px;
+      }
+      #map {
+        min-height: 300px;
+      }
+      #controls {
+        padding: 16px 14px 22px;
+      }
+      .container {
+        padding: 0 8px;
+      }
+      #ride-info, #stake-panel {
+        padding: 16px;
+      }
+      .rating-stars button {
+        font-size: 18px;
+      }
+    }
+
     .completion-row:last-child {
       margin-bottom: 16px;
     }
@@ -779,7 +833,7 @@
 
   <div id="controls">
     <div class="container">
-      <h1>🫏 DonkeyRide MVP</h1>
+      <h1 style="display:none;">DonkeyRide</h1>
 
       <div id="status" class="info">
         Click on the map to set pickup (blue) and dropoff (red) locations
@@ -885,6 +939,16 @@
         <div class="completion-row">
           <span class="completion-label">Duration</span>
           <span class="completion-value" id="completion-duration">-</span>
+        </div>
+        <div class="tip-block">
+          <div class="completion-title" style="margin-bottom:6px;">Say thanks with sats</div>
+          <div class="tip-buttons">
+            <button type="button" data-tip="500">500 sats</button>
+            <button type="button" data-tip="1000">1,000 sats</button>
+            <button type="button" data-tip="2000">2,000 sats</button>
+          </div>
+          <input id="tip-custom" class="tip-custom" type="number" min="0" inputmode="numeric" placeholder="Custom tip (sats)">
+          <button class="completion-close" id="tip-submit-btn" type="button">Send Tip</button>
         </div>
         <div class="rating-block" id="rider-rating-panel">
           <div class="rating-title">Rate your driver</div>

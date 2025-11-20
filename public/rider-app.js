@@ -93,6 +93,7 @@ let currentRide = null;
 let currentEstimate = null;
 let riderStakeState = null;
 let driverLocationTick = 0;
+let selectedTipSats = 0;
 
 const stakePanelEl = document.getElementById('stake-panel');
 const stakeAmountEl = document.getElementById('stake-amount');
@@ -120,6 +121,9 @@ const completionPanelEl = document.getElementById('completion-panel');
 const completionFareEl = document.getElementById('completion-fare');
 const completionDistanceEl = document.getElementById('completion-distance');
 const completionDurationEl = document.getElementById('completion-duration');
+const tipButtons = document.querySelectorAll('[data-tip]');
+const tipCustomInput = document.getElementById('tip-custom');
+const tipSubmitBtn = document.getElementById('tip-submit-btn');
 const completionCloseBtn = document.getElementById('completion-close-btn');
 const riderRatingPanel = document.getElementById('rider-rating-panel');
 const riderRatingStars = document.getElementById('rider-rating-stars');
@@ -1627,6 +1631,12 @@ function showCompletionPanel(message) {
     }
   }
 
+  selectedTipSats = 0;
+  tipButtons.forEach(btn => btn.classList.remove('active'));
+  if (tipCustomInput) {
+    tipCustomInput.value = '';
+  }
+
   riderRatingSubmitted = false;
   setRiderRating(0);
   if (riderRatingNotesEl) {
@@ -1797,6 +1807,41 @@ async function submitRiderRating() {
     console.error('Failed to submit rider rating', error);
     riderRatingStatusEl.textContent = `Could not submit feedback: ${error.message}`;
     riderRatingSubmitBtn.disabled = false;
+  }
+}
+
+async function submitTip() {
+  if (!currentRide?.id || selectedTipSats <= 0) {
+    updateStatus('Select a tip amount first.', 'info');
+    return;
+  }
+
+  try {
+    tipSubmitBtn.disabled = true;
+    tipSubmitBtn.textContent = 'Sending tip…';
+    const response = await fetch(`/api/rides/${currentRide.id}/tip`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount_sats: selectedTipSats })
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || response.statusText);
+    }
+    updateStatus(`Sent ${selectedTipSats.toLocaleString()} sats tip.`, 'success');
+    selectedTipSats = 0;
+    tipButtons.forEach(b => b.classList.remove('active'));
+    if (tipCustomInput) {
+      tipCustomInput.value = '';
+    }
+  } catch (error) {
+    console.error('Failed to send tip', error);
+    updateStatus(`Failed to send tip: ${error.message}`, 'error');
+  } finally {
+    if (tipSubmitBtn) {
+      tipSubmitBtn.disabled = false;
+      tipSubmitBtn.textContent = 'Send Tip';
+    }
   }
 }
 
@@ -2042,6 +2087,27 @@ if (currencySelectEl) {
     window.localStorage.setItem(CURRENCY_PREFERENCE_KEY, currencyPreference);
     fiatDisplayCurrency = currencyPreference;
   });
+}
+tipButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    tipButtons.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const value = Number(btn.dataset.tip);
+    selectedTipSats = Number.isFinite(value) ? value : 0;
+    if (tipCustomInput) {
+      tipCustomInput.value = '';
+    }
+  });
+});
+if (tipCustomInput) {
+  tipCustomInput.addEventListener('input', () => {
+    const value = Number(tipCustomInput.value);
+    selectedTipSats = Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+    tipButtons.forEach(b => b.classList.remove('active'));
+  });
+}
+if (tipSubmitBtn) {
+  tipSubmitBtn.addEventListener('click', submitTip);
 }
 if (panicBtn) {
   panicBtn.addEventListener('click', showPanicModal);

@@ -253,6 +253,7 @@ class DriverApp {
     this.stakeAmountEl = document.getElementById('driver-stake-amount');
     this.stakeInvoiceEl = document.getElementById('driver-stake-invoice');
     this.stakeConfirmBtn = document.getElementById('driver-stake-confirm-btn');
+    this.escrowSelect = document.getElementById('escrow-select');
     this.pendingDriverStake = null;
 
     this.controlsEl = document.getElementById('driver-controls');
@@ -935,7 +936,6 @@ class DriverApp {
     }
     this.clearActiveRide();
     this.showWaitingState(true);
-
     this.showDriverFeedbackPanel();
 
     this.earnings.rides += 1;
@@ -970,7 +970,6 @@ class DriverApp {
     this.hideDriverControls();
     this.hideDriverStreamPanel();
     this.hideSafetyPanel();
-    this.hideDriverFeedbackPanel();
     if (this.completeRideBtn) {
       this.completeRideBtn.style.display = 'none';
     }
@@ -979,6 +978,7 @@ class DriverApp {
     this.waitingForTripStart = false;
     this.awaitingCompletion = false;
     this.streamState = { total: 0, remaining: 0, fare: 0 };
+    // Keep feedback panel state as-is so driver can submit if needed
   }
 
   stopMovement() {
@@ -1035,7 +1035,11 @@ class DriverApp {
     };
 
     update();
-    this.movementTimer = setInterval(update, MOVE_INTERVAL);
+    try {
+      this.movementTimer = setInterval(update, MOVE_INTERVAL);
+    } catch (error) {
+      console.error('Movement timer failed', error);
+    }
   }
 
   sendLocationUpdate(lat, lon) {
@@ -1335,6 +1339,7 @@ class DriverApp {
       }
 
       this.lastCompletedRide = null;
+      this.hideDriverFeedbackPanel();
     } catch (error) {
       console.error('Failed to submit driver feedback', error);
       if (this.feedbackStatusEl) {
@@ -1541,7 +1546,10 @@ class DriverApp {
       const stakeResp = await fetch(`/rides/${this.currentRide.id}/driver-stake`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentProof: 'demo_proof' })
+        body: JSON.stringify({
+          paymentProof: 'demo_proof',
+          provider: this.escrowSelect?.value || 'demo'
+        })
       });
 
       if (!stakeResp.ok) {
