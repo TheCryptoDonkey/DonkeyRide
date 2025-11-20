@@ -156,6 +156,12 @@ const CURRENCY_PREFERENCE_KEY = 'donkeyride.pref.currency';
 const ACTIVE_RIDE_STORAGE_KEY = 'donkeyride.state.activeRideId';
 const DEFAULT_UNIT = 'mi';
 const DEFAULT_CURRENCY = 'GBP';
+const DEFAULT_FIAT_DISPLAY = 'GBP';
+const CURRENCY_SYMBOLS = {
+  GBP: '£',
+  USD: '$',
+  EUR: '€'
+};
 
 let distanceUnit = (window.localStorage.getItem(UNIT_PREFERENCE_KEY) || DEFAULT_UNIT).toLowerCase();
 if (distanceUnit !== 'km' && distanceUnit !== 'mi') {
@@ -165,6 +171,10 @@ if (distanceUnit !== 'km' && distanceUnit !== 'mi') {
 let currencyPreference = (window.localStorage.getItem(CURRENCY_PREFERENCE_KEY) || DEFAULT_CURRENCY).toUpperCase();
 if (!['USD', 'EUR', 'GBP'].includes(currencyPreference)) {
   currencyPreference = DEFAULT_CURRENCY;
+}
+let fiatDisplayCurrency = DEFAULT_FIAT_DISPLAY;
+if (currencyPreference) {
+  fiatDisplayCurrency = currencyPreference;
 }
 
 if (unitSelectEl) {
@@ -188,6 +198,15 @@ function formatDistance(distanceKm, fractionDigits = 1) {
   const { value, unitLabel } = convertDistance(distanceKm);
   const digits = typeof fractionDigits === 'number' ? fractionDigits : 1;
   return `${value.toFixed(digits)} ${unitLabel}`;
+}
+
+function formatSatsWithFiat(sats, fiatAmount, fiatCurrency) {
+  const safeSats = Number.isFinite(sats) ? sats : 0;
+  const code = (fiatCurrency || fiatDisplayCurrency || currencyPreference || DEFAULT_FIAT_DISPLAY || 'GBP').toUpperCase();
+  const symbol = CURRENCY_SYMBOLS[code] || '';
+  const fiat = Number.isFinite(fiatAmount) ? fiatAmount : null;
+  const fiatText = fiat != null ? `${symbol}${fiat.toFixed(2)}` : null;
+  return fiatText ? `${safeSats.toLocaleString()} sats (${fiatText})` : `${safeSats.toLocaleString()} sats`;
 }
 
 async function fetchReputationProfile(npub) {
@@ -981,7 +1000,9 @@ async function submitRideRequest() {
     currentRide.route = data.route;
     currentRide.estimate = data.estimate || currentRide.estimate;
     currentRide.fare = currentRide.estimate?.fare?.sats;
-    currentRide.fareCost = currentRide.estimate?.fare?.formatted;
+    currentRide.fareCost = currentRide.estimate?.fare
+      ? formatSatsWithFiat(currentRide.estimate.fare.sats, currentRide.estimate.fare.fiat, currentRide.estimate.fare.currency)
+      : currentRide.fareCost;
     currentRide.currency = data.currency || currentRide.currency || currencyPreference;
     streamState = { totalPaid: 0, fare: currentRide.fare || 0, lastAmount: 0 };
 
@@ -1559,7 +1580,7 @@ function showCompletionPanel(message) {
     || currentRide?.estimate?.fare?.sats
     || 0;
   const fareDisplay = currentRide?.fareCost
-    || (fareSats ? `${fareSats.toLocaleString()} sats` : '-');
+    || (fareSats ? formatSatsWithFiat(fareSats, currentRide?.estimate?.fare?.fiat, currentRide?.currency || currencyPreference) : '-');
   const distanceValue = currentRide?.distance
     || currentRide?.estimate?.distance?.km
     || message?.ride?.distance_km
@@ -1899,7 +1920,7 @@ async function restoreActiveRide() {
     };
     currentRide.fare = ride.fare || currentRide.fare;
     currentRide.fareCost = currentRide.fare
-      ? `${Number(currentRide.fare).toLocaleString()} sats`
+      ? formatSatsWithFiat(currentRide.fare, currentRide.estimate?.fare?.fiat, currentRide.currency || ride.currency || currencyPreference)
       : currentRide.fareCost || currentRide.estimate?.fare?.formatted || '-';
     currentRide.currency = ride.currency || currentRide.currency || currencyPreference;
     pickup = ride.pickup || null;
@@ -1993,6 +2014,7 @@ if (currencySelectEl) {
     const newCurrency = (event.target.value || DEFAULT_CURRENCY).toUpperCase();
     currencyPreference = ['USD', 'EUR', 'GBP'].includes(newCurrency) ? newCurrency : DEFAULT_CURRENCY;
     window.localStorage.setItem(CURRENCY_PREFERENCE_KEY, currencyPreference);
+    fiatDisplayCurrency = currencyPreference;
   });
 }
 if (panicBtn) {

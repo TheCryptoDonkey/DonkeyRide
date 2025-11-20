@@ -99,6 +99,15 @@ function getCurrencySymbol(code) {
   return CURRENCY_SYMBOLS[code] || code || '';
 }
 
+function formatSatsWithFiat(sats, fiatAmount, fiatCurrency) {
+  const safeSats = Number.isFinite(sats) ? sats : 0;
+  const code = (fiatCurrency || currencyPreference || DEFAULT_CURRENCY || 'GBP').toUpperCase();
+  const symbol = getCurrencySymbol(code);
+  const fiat = Number.isFinite(fiatAmount) ? fiatAmount : null;
+  const fiatText = fiat != null ? `${symbol}${fiat.toFixed(2)}` : null;
+  return fiatText ? `${safeSats.toLocaleString()} sats (${fiatText})` : `${safeSats.toLocaleString()} sats`;
+}
+
 function normaliseHexKey(key) {
   if (!key || typeof key !== 'string') {
     return null;
@@ -295,12 +304,19 @@ class DriverApp {
   initMap() {
     this.map = L.map('map', {
       zoomControl: true,
-      scrollWheelZoom: true
+      scrollWheelZoom: true,
+      zoomAnimation: false,
+      fadeAnimation: false,
+      markerZoomAnimation: false,
+      preferCanvas: true
     }).setView([DRIVER_PROFILE.homeBase.lat, DRIVER_PROFILE.homeBase.lon], 13);
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors'
+      attribution: '&copy; OpenStreetMap contributors',
+      updateWhenIdle: true,
+      updateWhenZooming: false,
+      keepBuffer: 5
     }).addTo(this.map);
 
     this.driverMarker = L.marker([DRIVER_PROFILE.homeBase.lat, DRIVER_PROFILE.homeBase.lon], {
@@ -579,8 +595,9 @@ class DriverApp {
       const fareSats = typeof ride.fare === 'number'
         ? ride.fare
         : (ride.estimatedFare?.fare?.sats ?? 0);
-      const fareDisplay = ride.estimatedFare?.fare?.formatted
-        || (typeof fareSats === 'number' ? `${fareSats.toLocaleString()} sats` : '—');
+      const fareDisplay = typeof fareSats === 'number'
+        ? formatSatsWithFiat(fareSats, ride.estimatedFare?.fare?.fiat, ride.estimatedFare?.fare?.currency)
+        : (ride.estimatedFare?.fare?.formatted || '—');
 
       card.innerHTML = `
         <h4>${ride.pickup.address || `${ride.pickup.lat.toFixed(3)}, ${ride.pickup.lon.toFixed(3)}`} → ${ride.dropoff.address || `${ride.dropoff.lat.toFixed(3)}, ${ride.dropoff.lon.toFixed(3)}`}</h4>
@@ -718,7 +735,7 @@ class DriverApp {
     this.registerForRideRequests();
     this.streamState = { total: 0, remaining: 0, fare: this.currentRide?.fare || 0 };
     const fareDisplay = typeof this.currentRide.fare === 'number'
-      ? `${this.currentRide.fare.toLocaleString()} sats`
+      ? formatSatsWithFiat(this.currentRide.fare, this.currentRide.estimatedFare?.fare?.fiat, this.currentRide.currency)
       : '-';
     this.updateRideStatus({
       status: 'En route to pickup',
@@ -993,8 +1010,8 @@ class DriverApp {
       const position = this.interpolatePosition(this.routeProgress);
       if (position) {
         this.driverMarker.setLatLng([position.lat, position.lon]);
-        if (this.moveTick % 3 === 0) {
-          this.map.panTo([position.lat, position.lon], { animate: true, duration: 0.4 });
+        if (this.moveTick % 6 === 0) {
+          this.map.panTo([position.lat, position.lon], { animate: true, duration: 0.35 });
         }
         this.sendLocationUpdate(position.lat, position.lon);
       }
