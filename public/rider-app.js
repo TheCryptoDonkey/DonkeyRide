@@ -92,6 +92,7 @@ let driverRouteLine = null;  // Route from driver to pickup
 let currentRide = null;
 let currentEstimate = null;
 let riderStakeState = null;
+let driverLocationTick = 0;
 
 const stakePanelEl = document.getElementById('stake-panel');
 const stakeAmountEl = document.getElementById('stake-amount');
@@ -1033,12 +1034,22 @@ async function submitRideRequest() {
 // Map setup
 function initMap() {
   // Create map centered on London
-  map = L.map('map').setView([51.5074, -0.1278], 14);
+  map = L.map('map', {
+    zoomControl: true,
+    scrollWheelZoom: true,
+    zoomAnimation: false,
+    fadeAnimation: false,
+    markerZoomAnimation: false,
+    preferCanvas: true
+  }).setView([51.5074, -0.1278], 14);
 
   // Add tile layer
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors',
-    maxZoom: 19
+    maxZoom: 19,
+    updateWhenIdle: true,
+    updateWhenZooming: false,
+    keepBuffer: 5
   }).addTo(map);
 
   // Click handler for setting locations
@@ -1167,6 +1178,7 @@ function drawStraightLine() {
     [pickup.lat, pickup.lon],
     [dropoff.lat, dropoff.lon]
   ], { padding: [50, 50] });
+  invalidateMapSizeSoon();
 }
 
 // Draw OSRM route on map
@@ -1186,6 +1198,7 @@ function drawRoute(routeCoordinates) {
 
   // Fit map to show the route
   map.fitBounds(routeLine.getBounds(), { padding: [50, 50] });
+  invalidateMapSizeSoon();
 }
 
 // Update location display
@@ -1222,6 +1235,15 @@ async function loadDrivers() {
   } catch (error) {
     console.error('Failed to load drivers:', error);
   }
+}
+
+function invalidateMapSizeSoon() {
+  if (!map) {
+    return;
+  }
+  requestAnimationFrame(() => {
+    map.invalidateSize();
+  });
 }
 
 // Request ride (initiate stake flow)
@@ -1442,6 +1464,7 @@ function handleDriverLocation(message) {
 
   // Update driver marker position
   driverMarker.setLatLng([message.location.lat, message.location.lon]);
+  driverLocationTick += 1;
 
   // Update ETA
   if (message.eta_seconds) {
@@ -1450,7 +1473,9 @@ function handleDriverLocation(message) {
 
   // Pan map to keep driver visible
   if (!map.getBounds().contains([message.location.lat, message.location.lon])) {
-    map.panTo([message.location.lat, message.location.lon]);
+    if (driverLocationTick % 4 === 0) {
+      map.panTo([message.location.lat, message.location.lon], { animate: true });
+    }
   }
 }
 
@@ -1663,6 +1688,7 @@ function showRideInfo() {
   }
   setRideCancelVisible(!currentRide?.driver);
   updateDriverReputationDisplay(null);
+  invalidateMapSizeSoon();
 }
 
 function refreshDistanceDisplays() {
