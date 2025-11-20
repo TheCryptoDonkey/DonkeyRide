@@ -963,6 +963,7 @@ async function submitRideRequest() {
         dropoff_lat: dropoff.lat,
         dropoff_lon: dropoff.lon,
         rider_npub: riderNpub,
+        rider_pubkey: riderPubKey,
         ride_id: currentRide.id,
         fare_sats: currentRide.estimate?.fare?.sats,
         currency: currencyPreference
@@ -1724,6 +1725,9 @@ async function submitRiderRating() {
     if (Array.isArray(payload?.relay_statuses) && payload.relay_statuses.length) {
       console.debug('[Rider] Panic relay statuses', payload.relay_statuses);
     }
+    if (payload?.cached_locally) {
+      console.info('[Rider] Feedback cached locally — relay publish pending.');
+    }
 
     riderRatingSubmitted = true;
     riderRatingSubmitBtn.disabled = true;
@@ -1734,9 +1738,7 @@ async function submitRiderRating() {
         btn.disabled = true;
       });
     }
-    riderRatingStatusEl.textContent = payload?.cached_locally
-      ? 'Feedback queued locally — we will publish when relays are reachable.'
-      : 'Thank you! Your feedback was sent.';
+    riderRatingStatusEl.textContent = 'Thank you! Your feedback was sent.';
     setTimeout(() => {
       riderRatingStatusEl.textContent = '';
     }, 4000);

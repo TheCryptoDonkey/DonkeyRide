@@ -169,10 +169,17 @@ async function dispatchToRelays(event) {
     if (trimmed.startsWith('mock://fail')) {
       return Promise.resolve({ relay: trimmed, ok: false, error: 'Mock relay failure' });
     }
-    return pool.publish(trimmed, event).then(
-      () => ({ relay: trimmed, ok: true }),
-      (error) => ({ relay: trimmed, ok: false, error: error?.message || String(error) })
-    );
+    return (async () => {
+      // SimplePool.publish returns an array of publish promises
+      const publishResults = pool.publish([trimmed], event);
+      const tasks = Array.isArray(publishResults) ? publishResults : [publishResults];
+      await Promise.all(tasks.map(p => Promise.resolve(p)));
+      return { relay: trimmed, ok: true };
+    })().catch((error) => ({
+      relay: trimmed,
+      ok: false,
+      error: error?.message || String(error)
+    }));
   });
   const results = await Promise.all(publishPromises);
   return results;

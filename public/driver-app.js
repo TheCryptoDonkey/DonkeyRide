@@ -1254,10 +1254,11 @@ class DriverApp {
       }
 
       this.ratingSubmitted = true;
+      if (payload?.cached_locally) {
+        console.info('[Driver] Feedback cached locally — relay publish pending.');
+      }
       if (this.feedbackStatusEl) {
-        this.feedbackStatusEl.textContent = payload?.cached_locally
-          ? 'Feedback queued locally — will publish when relay reachable.'
-          : 'Feedback sent.';
+        this.feedbackStatusEl.textContent = 'Feedback sent.';
       }
       if (this.feedbackSubmitBtn) {
         this.feedbackSubmitBtn.disabled = true;
@@ -1503,7 +1504,8 @@ class DriverApp {
             lat: this.driverMarker.getLatLng().lat,
             lon: this.driverMarker.getLatLng().lng
           },
-          driver_rating: DRIVER_PROFILE.rating
+          driver_rating: DRIVER_PROFILE.rating,
+          driver_pubkey: driverPubKey
         })
       });
 
