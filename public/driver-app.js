@@ -238,6 +238,8 @@ class DriverApp {
     this.activeRouteMeta = null;
     this.routeDistance = 0;
     this.routeProgress = 0;
+    this.completionTimer = null;
+    this.moveTick = 0;
     this.stakeSection = document.getElementById('driver-stake-section');
     this.stakeAmountEl = document.getElementById('driver-stake-amount');
     this.stakeInvoiceEl = document.getElementById('driver-stake-invoice');
@@ -450,10 +452,7 @@ class DriverApp {
       console.log('Driver WebSocket connected');
       this.wsReconnectTimer && clearTimeout(this.wsReconnectTimer);
       this.setNetworkStatus('Connected to dispatcher', '#00ff90');
-      this.ws.send(JSON.stringify({
-        type: 'register_driver',
-        npub: DRIVER_PROFILE.npub
-      }));
+      this.registerForRideRequests();
     };
 
     this.ws.onmessage = (event) => {
@@ -626,10 +625,20 @@ class DriverApp {
     }
     document.getElementById('active-ride-section').style.display = 'none';
     document.getElementById('nav-section').style.display = 'none';
+    this.invalidateMapSizeSoon();
   }
 
   hideWaitingState() {
     document.getElementById('waiting-section').style.display = 'none';
+  }
+
+  registerForRideRequests() {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'register_driver',
+        npub: DRIVER_PROFILE.npub
+      }));
+    }
   }
 
   async acceptRide(ride) {
@@ -699,8 +708,14 @@ class DriverApp {
     }
     this.hideDriverStreamPanel();
     this.hideDriverFeedbackPanel();
+    if (this.completionTimer) {
+      clearTimeout(this.completionTimer);
+      this.completionTimer = null;
+    }
     this.pendingArrival = false;
     this.waitingForTripStart = false;
+    this.invalidateMapSizeSoon();
+    this.registerForRideRequests();
     this.streamState = { total: 0, remaining: 0, fare: this.currentRide?.fare || 0 };
     const fareDisplay = typeof this.currentRide.fare === 'number'
       ? `${this.currentRide.fare.toLocaleString()} sats`
@@ -836,6 +851,9 @@ class DriverApp {
       this.currentRide.status = 'active';
     }
 
+    this.removePolyline(this.driverRouteLine);
+    this.driverRouteLine = null;
+
     const route = this.transformRoute(this.currentRide.route) || [
       [this.currentRide.pickup.lat, this.currentRide.pickup.lon],
       [this.currentRide.dropoff.lat, this.currentRide.dropoff.lon]
@@ -851,6 +869,13 @@ class DriverApp {
 
   promptCompletion() {
     this.awaitingCompletion = true;
+    if (this.completionTimer) {
+      clearTimeout(this.completionTimer);
+    }
+    this.completionTimer = setTimeout(() => {
+      // Auto-complete if the driver does not tap the button (keeps them available for new rides)
+      this.finishRide();
+    }, 5000);
     this.stopMovement();
     this.updateRideStatus({
       status: 'Arrived at dropoff — confirm completion',
@@ -865,6 +890,10 @@ class DriverApp {
   }
 
   async finishRide() {
+    if (this.completionTimer) {
+      clearTimeout(this.completionTimer);
+      this.completionTimer = null;
+    }
     const rideToComplete = this.currentRide || this.lastCompletedRide;
     if (!rideToComplete) {
       return;
@@ -905,9 +934,14 @@ class DriverApp {
     });
 
     this.currentRide = null;
+    this.registerForRideRequests();
   }
 
   clearActiveRide() {
+    if (this.completionTimer) {
+      clearTimeout(this.completionTimer);
+      this.completionTimer = null;
+    }
     this.stopMovement();
     this.removeMarker(this.pickupMarker);
     this.removeMarker(this.dropoffMarker);
@@ -944,10 +978,12 @@ class DriverApp {
     this.activeRouteMeta = this.prepareRouteMeta(routeLatLng);
     this.routeDistance = this.activeRouteMeta.totalDistance;
     this.routeProgress = 0;
+    this.moveTick = 0;
 
     const stage = this.currentStage;
 
     const update = async () => {
+      this.moveTick += 1;
       this.routeProgress += MOVE_STEP_METERS;
 
       if (this.routeProgress >= this.routeDistance) {
@@ -957,7 +993,9 @@ class DriverApp {
       const position = this.interpolatePosition(this.routeProgress);
       if (position) {
         this.driverMarker.setLatLng([position.lat, position.lon]);
-        this.map.panTo([position.lat, position.lon], { animate: true, duration: 0.4 });
+        if (this.moveTick % 3 === 0) {
+          this.map.panTo([position.lat, position.lon], { animate: true, duration: 0.4 });
+        }
         this.sendLocationUpdate(position.lat, position.lon);
       }
 
@@ -1593,6 +1631,7 @@ class DriverApp {
       bounds.extend(this.driverRouteLine.getBounds());
     }
     this.map.fitBounds(bounds, { padding: [40, 40] });
+    this.invalidateMapSizeSoon();
   }
 
   placePickupMarker() {
@@ -1673,6 +1712,15 @@ class DriverApp {
       }
       return null;
     }).filter(Boolean);
+  }
+
+  invalidateMapSizeSoon() {
+    if (!this.map) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      this.map.invalidateSize();
+    });
   }
 
   showError(message) {
