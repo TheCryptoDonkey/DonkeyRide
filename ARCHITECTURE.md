@@ -1,6 +1,8 @@
-# DonkeyRide Architecture - Decentralization Analysis
+# DonkeyRide Architecture — Decentralisation Analysis
 
-## Reality Check: Are We Truly Decentralized?
+> **Note (v2.0)**: The protocol is now domain-agnostic. The architecture described below applies to **all** service domains (ridesharing, locksmith, delivery, etc.) — not just ridesharing. The specification has been split into a core protocol and domain extensions. See [`specs/`](./specs/) for the layered specification structure.
+
+## Reality Check: Are We Truly Decentralised?
 
 **Short Answer**: We are **FEDERATED**, not fully decentralized.
 

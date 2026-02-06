@@ -1,8 +1,10 @@
-# DonkeyRide Protocol - Quick Reference
+# DonkeyRide Protocol — Quick Reference
 
-**Protocol Version**: v1.0
-**Event Kind Range**: 30500-30599 (82 total)
-**Last Updated**: 2025-10-16
+**Protocol Version**: v2.0 (Generalised)
+**Event Kind Range**: 30500-30699
+**Last Updated**: 2026-02-06
+
+> **Note**: The protocol specification has been generalised and split into layers. The canonical quick reference is now at **[specs/QUICK-REFERENCE.md](./specs/QUICK-REFERENCE.md)**. The tables below are preserved for backward compatibility but may be outdated.
 
 ---
 

@@ -187,16 +187,28 @@ open PRODUCTION-READINESS-FINAL.md
 ```
 
 ### For Developers
+
+**Option A: Nix (recommended)**
 ```bash
-# Clone repository
+# Clone and enter dev shell (requires Nix with flakes enabled)
+git clone https://github.com/donkeyride/donkeyride
+cd donkeyride
+nix develop
+
+# Start all services (PostgreSQL, Redis, Nostr relay, mock Lightning)
+nix run .#services
+
+# In another terminal, start the operator server
+npm install && npm run dev
+```
+
+**Option B: Docker**
+```bash
 git clone https://github.com/donkeyride/donkeyride
 cd donkeyride
 
-# Read quick reference
-open QUICK-REFERENCE.md
-
-# Check implementation examples
-open reference-implementation.js
+# Start infrastructure + operator
+docker compose --profile dev up
 ```
 
 ### For Operators

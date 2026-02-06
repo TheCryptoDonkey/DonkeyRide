@@ -11,3 +11,12 @@
 
 # Logs
 /logs/*.log
+
+# Nix
+/.nix-data/
+/.direnv/
+result
+
+# React frontend build output
+/web/dist/
+/web/node_modules/

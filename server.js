@@ -28,12 +28,19 @@ const {
     fetchBitcoinPrices
 } = require('./src/pricing/fiat-conversion');
 const { RideManager, RideStatus } = require('./src/ride-manager');
+const { TaskManager } = require('./src/task-manager');
+const { loadProfile, listProfiles } = require('./src/domain-profiles');
 const { getRoute } = require('./src/osrm-routing');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public')); // Serve demo.html and other static files
+app.use(express.static('public')); // Serve demo.html and other static files (legacy)
+
+// Serve React frontend build if available (web/dist/)
+const path = require('path');
+const reactBuildPath = path.join(__dirname, 'web', 'dist');
+app.use(express.static(reactBuildPath));
 
 // ==========================================
 // RELAY OPERATOR CONFIGURATION
@@ -62,6 +69,13 @@ const config = {
     minStakeAmount: 50,    // Min stake in sats
     requireKYC: false,     // For larger amounts
 };
+
+// ==========================================
+// DOMAIN PROFILE
+// ==========================================
+
+const domainProfile = loadProfile(process.env.DOMAIN);
+console.log(`\uD83C\uDF10 Domain profile loaded: ${domainProfile.name} (${domainProfile.id})`);
 
 if (config.operatorPrivkey && !config.operatorPubkey) {
     try {
@@ -192,8 +206,8 @@ const rideStreamingTimers = new Map();
 const STREAM_INTERVAL_MS = 3000;
 const STREAM_STEPS = 40;
 
-// Initialize ride manager
-const rideManager = new RideManager();
+// Initialise task/ride manager with the loaded domain profile
+const rideManager = new TaskManager(domainProfile);
 const relayConfig = (process.env.REPUTATION_RELAYS || `${process.env.NOSTR_RELAYS || ''},${config.nostrRelay || ''}`)
     .split(',')
     .map(r => r.trim())
@@ -502,6 +516,16 @@ app.get('/info', publicRateLimiter, (req, res) => {
         uptime: process.uptime(),
         version: '1.0.0',
         nostrRelay: config.nostrRelay,
+        domain: {
+            id: domainProfile.id,
+            name: domainProfile.name,
+            description: domainProfile.description,
+            roles: domainProfile.roles,
+            discoveryMethod: domainProfile.discoveryMethod,
+            pricingModel: domainProfile.pricingModel,
+            features: domainProfile.features,
+            states: Object.values(domainProfile.states.values)
+        },
         paymentProvider: {
             name: paymentProvider.providerName,
             type: caps.type,
@@ -1841,6 +1865,80 @@ app.get('/api/rides/stats', (req, res) => {
 });
 
 // ==========================================
+// DOMAIN PROFILE API
+// ==========================================
+
+// List available domain profiles
+app.get('/api/domains', publicRateLimiter, (req, res) => {
+    const profiles = listProfiles();
+    const details = profiles.map(id => {
+        try {
+            const profile = loadProfile(id);
+            return {
+                id: profile.id,
+                name: profile.name,
+                description: profile.description,
+                roles: profile.roles,
+                discoveryMethod: profile.discoveryMethod,
+                pricingModel: profile.pricingModel,
+                features: profile.features,
+                states: Object.values(profile.states.values)
+            };
+        } catch (_err) {
+            return { id, error: 'Failed to load profile' };
+        }
+    });
+
+    res.json({
+        current: domainProfile.id,
+        available: details,
+        count: details.length
+    });
+});
+
+// Get current domain profile details
+app.get('/api/domains/current', publicRateLimiter, (req, res) => {
+    res.json({
+        id: domainProfile.id,
+        name: domainProfile.name,
+        description: domainProfile.description,
+        roles: domainProfile.roles,
+        discoveryMethod: domainProfile.discoveryMethod,
+        pricingModel: domainProfile.pricingModel,
+        stakingModel: domainProfile.stakingModel,
+        completionProofTypes: domainProfile.completionProofTypes,
+        ratingCriteria: domainProfile.ratingCriteria,
+        features: domainProfile.features,
+        regulatoryBodies: domainProfile.regulatoryBodies,
+        states: domainProfile.states,
+        eventKinds: domainProfile.eventKinds
+    });
+});
+
+// ==========================================
+// SPA CATCH-ALL (React frontend)
+// ==========================================
+
+// For any non-API, non-static route, serve the React index.html
+// This enables client-side routing (react-router)
+const fs = require('fs');
+const reactIndexPath = path.join(__dirname, 'web', 'dist', 'index.html');
+app.get('*', (req, res, next) => {
+    // Skip API routes, health checks, and legacy HTML files
+    if (req.path.startsWith('/api/') || req.path.startsWith('/rides/') ||
+        req.path === '/info' || req.path === '/health' ||
+        req.path.endsWith('.html') || req.path.endsWith('.js') ||
+        req.path.endsWith('.css') || req.path.endsWith('.map')) {
+        return next();
+    }
+    // Serve React app if the build exists
+    if (fs.existsSync(reactIndexPath)) {
+        return res.sendFile(reactIndexPath);
+    }
+    next();
+});
+
+// ==========================================
 // HELPER FUNCTIONS
 // ==========================================
 
@@ -1917,6 +2015,8 @@ async function startServer(options = {}) {
     DonkeyRide Operator Server
     ========================================
     Name: ${config.operatorName}
+    Domain: ${domainProfile.name} (${domainProfile.id})
+    Roles: ${domainProfile.roles.requester} / ${domainProfile.roles.provider}
     Operator: ${config.operatorPubkey || 'Not configured'}
     Lightning: ${config.operatorLightningAddress || 'Not configured'}
     Fee: ${config.operatorFeePercent * 100}%
@@ -1929,16 +2029,19 @@ async function startServer(options = {}) {
     Demo UI at http://localhost:${config.port}/demo.html
     ========================================
 
-    🔐 NIP-98 authentication enabled
-    🛡️  Rate limiting active
-    ⚡ Multiple payment providers supported
-    💰 Dual pricing (sats + fiat) enabled
-    🗺️  Driver tracking enabled
+    \uD83C\uDF10 Domain: ${domainProfile.name}
+    \uD83D\uDD10 NIP-98 authentication enabled
+    \uD83D\uDEE1\uFE0F  Rate limiting active
+    \u26A1 Multiple payment providers supported
+    \uD83D\uDCB0 Dual pricing (sats + fiat) enabled
+    \uD83D\uDDFA\uFE0F  ${domainProfile.features.liveTracking ? 'Live tracking enabled' : 'Live tracking disabled'}
     ========================================
 
     API Endpoints:
-    GET  /api/drivers/available   - List online drivers
-    POST /api/trips/estimate       - Estimate trip cost
+    GET  /api/domains              - List available domain profiles
+    GET  /api/domains/current      - Current domain profile details
+    GET  /api/drivers/available    - List online ${domainProfile.roles.provider}s
+    POST /api/trips/estimate       - Estimate cost
     GET  /api/prices/btc           - Get BTC prices
     GET  /info                     - Operator information
     ========================================
@@ -1962,6 +2065,8 @@ module.exports = {
     app,
     startServer,
     rideManager,
+    taskManager: rideManager,
+    domainProfile,
     reputation,
     getHttpServer: () => httpServer
 };
