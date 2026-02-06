@@ -17,6 +17,10 @@
 /.direnv/
 result
 
+# Nix services-flake runtime data (postgres, redis)
+/data/pg1/
+/data/r1/
+
 # React frontend build output
 /web/dist/
 /web/node_modules/
