@@ -1,7 +1,11 @@
 import type { NostrIdentity } from '../types/nostr';
 
-const RIDER_KEY = 'donkeyride.riderPrivKey';
-const DRIVER_KEY = 'donkeyride.driverPrivKey';
+const REQUESTER_KEY = 'donkeyride.requesterPrivKey';
+const PROVIDER_KEY = 'donkeyride.providerPrivKey';
+
+// Legacy keys for backward compatibility
+const LEGACY_RIDER_KEY = 'donkeyride.riderPrivKey';
+const LEGACY_DRIVER_KEY = 'donkeyride.driverPrivKey';
 
 /** Generate a random 32-byte hex key */
 function generateRandomHex(): string {
@@ -24,13 +28,24 @@ export function bytesToHex(bytes: Uint8Array): string {
 /**
  * Load or create a Nostr identity from localStorage.
  * Uses nostr-tools dynamically to avoid bundling issues.
+ * Falls back to legacy storage keys for backward compatibility.
  */
 export async function loadOrCreateIdentity(
   storageKey: string,
+  legacyKey?: string,
 ): Promise<NostrIdentity> {
   const { getPublicKey, nip19 } = await import('nostr-tools');
 
   let privKeyHex = localStorage.getItem(storageKey);
+
+  // Fall back to legacy key if new key not found
+  if (!privKeyHex && legacyKey) {
+    privKeyHex = localStorage.getItem(legacyKey);
+    if (privKeyHex) {
+      // Migrate to new key
+      localStorage.setItem(storageKey, privKeyHex);
+    }
+  }
 
   if (!privKeyHex) {
     privKeyHex = generateRandomHex();
@@ -51,14 +66,14 @@ export async function loadOrCreateIdentity(
   }
 }
 
-/** Load rider identity */
-export function loadRiderIdentity(): Promise<NostrIdentity> {
-  return loadOrCreateIdentity(RIDER_KEY);
+/** Load requester identity */
+export function loadRequesterIdentity(): Promise<NostrIdentity> {
+  return loadOrCreateIdentity(REQUESTER_KEY, LEGACY_RIDER_KEY);
 }
 
-/** Load driver identity */
-export function loadDriverIdentity(): Promise<NostrIdentity> {
-  return loadOrCreateIdentity(DRIVER_KEY);
+/** Load provider identity */
+export function loadProviderIdentity(): Promise<NostrIdentity> {
+  return loadOrCreateIdentity(PROVIDER_KEY, LEGACY_DRIVER_KEY);
 }
 
 /**

@@ -7,6 +7,12 @@
     height: 100%;
   }
 
+  body {
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+    background: #0a0a0a;
+    color: #e0e0e0;
+  }
+
   /* Leaflet map container needs explicit height */
   .leaflet-container {
     height: 100%;
@@ -33,24 +39,46 @@
 @layer components {
   .btn-primary {
     @apply bg-brand-gradient text-white font-bold py-3 px-6 rounded-lg
-           hover:opacity-90 active:opacity-80 transition-opacity
+           transition-all duration-150
            disabled:opacity-40 disabled:cursor-not-allowed;
+    box-shadow: 0 8px 20px rgba(178, 76, 243, 0.25);
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 28px rgba(178, 76, 243, 0.35);
+  }
+
+  .btn-primary:active:not(:disabled) {
+    transform: translateY(0);
   }
 
   .btn-secondary {
     @apply bg-donkey-surface text-donkey-text border border-donkey-border
            font-bold py-3 px-6 rounded-lg
-           hover:bg-donkey-card transition-colors
+           transition-all duration-150
            disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    border-color: #ff6ec7;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(255, 110, 199, 0.15);
   }
 
   .btn-danger {
     @apply bg-donkey-red text-white font-bold py-3 px-6 rounded-lg
-           hover:opacity-90 active:opacity-80 transition-opacity;
+           transition-all duration-150;
+  }
+
+  .btn-danger:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 20px rgba(255, 68, 68, 0.3);
   }
 
   .card {
     @apply bg-donkey-surface border border-donkey-border rounded-xl p-4;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
   }
 
   .input-field {
@@ -70,5 +98,139 @@
 
   .text-fiat {
     @apply text-donkey-muted text-sm;
+  }
+
+  /* ── Status indicators with glow ─────────────── */
+
+  .status-indicator {
+    @apply flex items-center gap-2 rounded-full px-4 py-2;
+    background: rgba(10, 10, 10, 0.85);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .status-online {
+    border-color: rgba(0, 255, 136, 0.4);
+    box-shadow: 0 0 16px rgba(0, 255, 136, 0.15);
+  }
+
+  .status-connecting {
+    border-color: rgba(245, 166, 35, 0.4);
+  }
+
+  .status-offline {
+    border-color: rgba(102, 102, 102, 0.3);
+  }
+
+  .status-dot-glow {
+    @apply w-3 h-3 rounded-full;
+  }
+
+  .glow-green {
+    background: #00ff88;
+    box-shadow: 0 0 10px rgba(0, 255, 136, 0.8);
+  }
+
+  .glow-orange {
+    background: #f5a623;
+    box-shadow: 0 0 10px rgba(245, 166, 35, 0.7);
+    animation: pulse-glow 2s infinite;
+  }
+
+  .glow-red {
+    background: #666;
+    box-shadow: none;
+  }
+
+  /* ── Stat cards ──────────────────────────────── */
+
+  .stat-card {
+    @apply rounded-xl p-4;
+    background: rgba(20, 20, 20, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+  }
+
+  .stat-label {
+    @apply text-xs text-donkey-muted uppercase tracking-wider mt-1;
+    letter-spacing: 0.08em;
+  }
+
+  /* ── Incoming request pulse ─────────────────── */
+
+  .incoming-card {
+    @apply rounded-xl p-5;
+    background: rgba(20, 20, 20, 0.9);
+    border: 2px solid rgba(255, 110, 199, 0.4);
+    animation: pulse-border 2.4s infinite;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+  }
+
+  /* ── Panel shadow (for bottom panels) ────────── */
+
+  .shadow-panel {
+    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.4);
+  }
+
+  /* ── Meta cards (driver info, earnings) ──────── */
+
+  .meta-card {
+    @apply rounded-lg p-3;
+    background: rgba(19, 19, 19, 0.95);
+    border: 1px solid rgba(31, 31, 31, 0.8);
+  }
+
+  .meta-label {
+    @apply text-donkey-muted uppercase text-xs;
+    letter-spacing: 0.04em;
+  }
+
+  .meta-value {
+    @apply font-bold text-donkey-text mt-1;
+  }
+
+  /* ── Earnings card ──────────────────────────── */
+
+  .earnings-card {
+    @apply rounded-xl p-4;
+    background: linear-gradient(135deg, rgba(15, 31, 15, 0.65), rgba(27, 27, 27, 0.95));
+    border: 1px solid rgba(0, 255, 144, 0.35);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+  }
+
+  /* ── Connection dot (top-right on active pages) */
+
+  .connection-dot {
+    @apply w-3 h-3 rounded-full;
+    box-shadow: 0 0 10px currentColor;
+  }
+
+  /* ── Section headers ─────────────────────────── */
+
+  .section-title {
+    @apply text-donkey-pink font-bold uppercase tracking-wider text-sm mb-3;
+    letter-spacing: 0.04em;
+  }
+}
+
+/* ── Keyframe animations ──────────────────────── */
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 10px rgba(245, 166, 35, 0.7);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(245, 166, 35, 0.9);
+  }
+}
+
+@keyframes pulse-border {
+  0%, 100% {
+    border-color: rgba(255, 110, 199, 0.4);
+    box-shadow: 0 0 0 0 rgba(255, 110, 199, 0.1);
+  }
+  50% {
+    border-color: rgba(255, 110, 199, 0.7);
+    box-shadow: 0 0 20px rgba(255, 110, 199, 0.15);
   }
 }

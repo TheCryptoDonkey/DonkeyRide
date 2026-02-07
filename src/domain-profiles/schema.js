@@ -103,6 +103,17 @@ function validateProfile(profile) {
     },
     encryptionRequired: profile.encryptionRequired || false,
     regulatoryBodies: profile.regulatoryBodies || {},
+    labels: {
+      originLabel: 'Pickup',
+      destinationLabel: 'Dropoff',
+      taskNoun: 'task',
+      requestVerb: 'Request',
+      activeVerb: 'In progress',
+      completedLabel: 'Complete',
+      originInstruction: 'Tap the map to set your location',
+      destinationInstruction: 'Now tap to set your destination',
+      ...profile.labels
+    },
     features: {
       navigation: true,
       liveTracking: true,
@@ -113,6 +124,7 @@ function validateProfile(profile) {
       signatures: false,
       quoteNegotiation: false,
       guaranteePeriod: false,
+      requiresDestination: true,
       ...profile.features
     },
     eventKinds: {
@@ -157,6 +169,16 @@ function getSchemaTemplate() {
     roles: {
       requester: '(string) Domain term for the requesting party, e.g. "rider"',
       provider: '(string) Domain term for the providing party, e.g. "driver"'
+    },
+    labels: {
+      originLabel: '(string) Label for origin/pickup location, e.g. "Pickup"',
+      destinationLabel: '(string) Label for destination/dropoff location, e.g. "Dropoff"',
+      taskNoun: '(string) Noun for the task, e.g. "ride", "callout", "delivery"',
+      requestVerb: '(string) Verb for requesting, e.g. "Request", "Report lockout"',
+      activeVerb: '(string) Label for active state, e.g. "In transit"',
+      completedLabel: '(string) Label for completion, e.g. "Ride Complete"',
+      originInstruction: '(string) Instruction for setting origin on map',
+      destinationInstruction: '(string) Instruction for setting destination on map'
     },
     stakingModel: {
       requesterStakePercent: '(number) Fraction of fare staked by requester (default 0.10)',

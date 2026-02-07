@@ -7,7 +7,7 @@ import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { useLocation } from '../../hooks/useLocation';
 import { useDomain } from '../../context/DomainContext';
-import { acceptRide } from '../../services/api';
+import { acceptTask } from '../../services/api';
 import { formatDistance, formatDuration } from '../../services/pricing';
 
 export function IncomingTaskPage() {
@@ -17,8 +17,13 @@ export function IncomingTaskPage() {
   const { location } = useLocation();
   const { profile } = useDomain();
 
+  const originLabel = profile?.labels?.originLabel || 'Pickup';
+  const destinationLabel = profile?.labels?.destinationLabel || 'Dropoff';
+  const requiresDestination = profile?.features.requiresDestination !== false;
+  const taskNoun = profile?.labels?.taskNoun || 'task';
+
   useEffect(() => {
-    if (!activeTask) navigate('/drive');
+    if (!activeTask) navigate('/provide');
   }, [activeTask, navigate]);
 
   if (!activeTask) return null;
@@ -26,13 +31,13 @@ export function IncomingTaskPage() {
   const handleAccept = async () => {
     if (!identity) return;
     try {
-      const updated = await acceptRide(activeTask.id, {
-        driverPubkey: identity.pubKeyHex,
-        driverNpub: identity.npub,
-        driverLocation: location,
+      const updated = await acceptTask(activeTask.id, {
+        providerPubkey: identity.pubKeyHex,
+        providerNpub: identity.npub,
+        providerLocation: location,
       });
       setActiveTask(updated);
-      navigate('/drive/active');
+      navigate('/provide/active');
     } catch (err) {
       console.error('Accept failed:', err);
     }
@@ -40,36 +45,52 @@ export function IncomingTaskPage() {
 
   const handleDecline = () => {
     setActiveTask(null);
-    navigate('/drive');
+    navigate('/provide');
   };
 
-  const requesterLabel = profile?.roles.requester || 'Rider';
+  const requesterLabel = profile?.roles.requester || 'Requester';
 
   return (
     <div className="h-full flex flex-col">
-      {/* Map with pickup/dropoff */}
+      {/* Map with origin/destination */}
       <div className="flex-1 relative">
         <MapView centre={activeTask.pickup} zoom={14}>
-          <LocationMarker position={activeTask.pickup} label="Pickup" colour="green" />
-          <LocationMarker position={activeTask.dropoff} label="Dropoff" colour="red" />
+          <LocationMarker position={activeTask.pickup} label={originLabel} colour="green" />
+          {requiresDestination && activeTask.dropoff && (
+            <LocationMarker position={activeTask.dropoff} label={destinationLabel} colour="red" />
+          )}
           <LocationMarker position={location} label="You" colour="blue" />
         </MapView>
       </div>
 
-      {/* Incoming ride panel */}
-      <div className="bg-donkey-surface border-t border-donkey-border p-6 space-y-4">
-        <div className="text-center">
-          <p className="text-lg font-bold text-donkey-purple">
-            New {requesterLabel} Request
+      {/* Incoming task panel */}
+      <div className="bg-donkey-surface border-t-2 border-donkey-border p-6 shadow-panel">
+        <div className="incoming-card mb-4">
+          <p className="section-title text-center">
+            New {requesterLabel} {taskNoun}
           </p>
-          <DualPrice sats={activeTask.fareEstimateSats} size="lg" className="mt-2" />
-        </div>
 
-        {activeTask.distanceKm && activeTask.durationMin && (
-          <p className="text-donkey-muted text-sm text-center">
-            {formatDistance(activeTask.distanceKm)} &middot; {formatDuration(activeTask.durationMin)}
-          </p>
-        )}
+          <div className="text-center mb-3">
+            <DualPrice sats={activeTask.fareEstimateSats} size="lg" />
+          </div>
+
+          {(activeTask.distanceKm || activeTask.durationMin) && (
+            <div className="flex justify-center gap-4 text-sm text-donkey-muted mb-3">
+              {activeTask.distanceKm != null && (
+                <span>{formatDistance(activeTask.distanceKm)}</span>
+              )}
+              {activeTask.durationMin != null && (
+                <span>{formatDuration(activeTask.durationMin)}</span>
+              )}
+            </div>
+          )}
+
+          {activeTask.requesterPubkey && (
+            <p className="text-xs font-mono text-donkey-muted text-center truncate">
+              {requesterLabel}: {activeTask.requesterPubkey.slice(0, 16)}...
+            </p>
+          )}
+        </div>
 
         <div className="flex gap-3">
           <button className="btn-secondary flex-1" onClick={handleDecline}>

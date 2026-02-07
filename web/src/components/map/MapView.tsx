@@ -1,7 +1,7 @@
-import { MapContainer, TileLayer, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet';
 import type { LatLng } from '../../types/api';
 import 'leaflet/dist/leaflet.css';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 
 interface MapViewProps {
   centre: LatLng;
@@ -10,11 +10,34 @@ interface MapViewProps {
   className?: string;
 }
 
+/** Threshold in degrees (~100m at London's latitude) */
+const SIGNIFICANT_MOVE = 0.001;
+
 function MapUpdater({ centre, zoom }: { centre: LatLng; zoom: number }) {
   const map = useMap();
+  const userDragged = useRef(false);
+  const lastCentre = useRef(centre);
+
+  // Track user drag
+  useMapEvents({
+    dragstart: () => { userDragged.current = true; },
+  });
+
   useEffect(() => {
-    map.setView([centre.lat, centre.lng], zoom);
+    const latDiff = Math.abs(centre.lat - lastCentre.current.lat);
+    const lngDiff = Math.abs(centre.lng - lastCentre.current.lng);
+    const significantChange = latDiff > SIGNIFICANT_MOVE || lngDiff > SIGNIFICANT_MOVE;
+
+    if (significantChange) {
+      // Reset drag flag on significant movement — user should see the new location
+      userDragged.current = false;
+      lastCentre.current = centre;
+      map.setView([centre.lat, centre.lng], zoom);
+    } else if (!userDragged.current) {
+      map.setView([centre.lat, centre.lng], zoom);
+    }
   }, [map, centre.lat, centre.lng, zoom]);
+
   return null;
 }
 

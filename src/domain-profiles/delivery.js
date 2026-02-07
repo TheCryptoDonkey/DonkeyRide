@@ -47,6 +47,17 @@ const profile = {
     provider: 'courier'
   },
 
+  labels: {
+    originLabel: 'Collection point',
+    destinationLabel: 'Delivery address',
+    taskNoun: 'delivery',
+    requestVerb: 'Request collection',
+    activeVerb: 'In transit',
+    completedLabel: 'Delivered',
+    originInstruction: 'Tap the map to set the collection point',
+    destinationInstruction: 'Now tap to set the delivery address',
+  },
+
   stakingModel: {
     requesterStakePercent: 0.10,
     providerStakePercent: 0.15,
@@ -88,7 +99,8 @@ const profile = {
     photos: true,
     signatures: true,
     quoteNegotiation: false,
-    guaranteePeriod: false
+    guaranteePeriod: false,
+    requiresDestination: true
   },
 
   eventKinds: {
@@ -104,9 +116,9 @@ const profile = {
     dispute: 30522,
     resolution: 30524,
     rating: 30530,
-    proofOfCollection: 30560,
-    proofOfDelivery: 30561,
-    conditionPhoto: 30562,
+    proofOfCollection: 30570,
+    proofOfDelivery: 30571,
+    conditionPhoto: 30572,
     panic: 30560
   }
 };

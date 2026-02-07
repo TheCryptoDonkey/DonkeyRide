@@ -12,6 +12,9 @@ DonkeyRide is an open protocol standard for trust-minimised service coordination
 npm start              # Run operator server (Express on PORT=3000, WebSocket on WS_PORT=3001)
 npm run dev            # Development mode with nodemon auto-reload
 npm test               # Run all tests (Node.js built-in test runner)
+npm run web:dev        # React frontend dev server (Vite, in web/)
+npm run web:build      # Build React frontend (tsc + vite build)
+npm run web:test       # Run frontend tests (vitest)
 npm run docker:build   # Build Docker image
 npm run docker:run     # Run Docker container with .env
 ```
@@ -21,6 +24,8 @@ npm run docker:run     # Run Docker container with .env
 node --test tests/integration/reputation-flow.test.js
 node --test tests/integration/domain-profiles.test.js
 ```
+
+**Frontend dependencies are separate** — run `npm install` in `web/` before using `web:*` commands.
 
 **Nix development environment** (recommended):
 ```bash
@@ -59,7 +64,7 @@ src/domain-profiles/
 └── delivery.js        # sender/courier, extra COLLECTED state, photo+signature proofs
 ```
 
-Each profile defines: state machine (states + valid transitions), role names (requester/provider), pricing model, discovery method, completion proof types, rating criteria, feature flags, regulatory bodies, and Nostr event kind mappings.
+Each profile defines: state machine (states + valid transitions), role names (requester/provider), UI labels (origin/destination/task noun/instructions), pricing model, discovery method, completion proof types, rating criteria, feature flags, regulatory bodies, and Nostr event kind mappings.
 
 **To add a new domain:** create `src/domain-profiles/{name}.js` exporting a profile object (~100 lines). The schema validates it on load.
 
@@ -97,7 +102,10 @@ Selected via `PAYMENT_PROVIDER` env var, with optional `PAYMENT_FALLBACKS` for r
 
 ### Frontend
 
-`public/` contains vanilla JS web apps: `rider-app.js`, `driver-app.js`, `demo.html`. No build step — served as static files.
+Two frontends exist:
+
+- **`public/`** — Legacy vanilla JS web apps (`rider-app.js`, `driver-app.js`, `demo.html`). No build step — served as static files by Express.
+- **`web/`** — React/TypeScript SPA (Vite + Tailwind CSS). Domain-agnostic — fetches profile from `/api/domains/current` and renders labels, features, and state machine from the active domain. Pages under `web/src/pages/requester/` and `web/src/pages/provider/` with shared components in `web/src/components/`. Routes use `/request/*` and `/provide/*` (with `/ride/*` and `/drive/*` as backward-compatible redirects). Uses `react-leaflet` for maps and `nostr-tools` v2 for Nostr integration. Built output goes to `web/dist/`.
 
 ### Three-Layer Architecture
 
@@ -109,11 +117,13 @@ WEBSOCKET (ephemeral)         →  Real-time tracking + Live updates
 
 ## Testing
 
-Uses Node.js built-in `node:test` module with `node:assert/strict`. Tests are in `tests/integration/`. Tests construct signed Nostr events manually for NIP-98 auth validation.
+**Backend:** Uses Node.js built-in `node:test` module with `node:assert/strict`. Tests are in `tests/integration/`. Tests construct signed Nostr events manually for NIP-98 auth validation.
 
 Key test files:
 - `reputation-flow.test.js` — NIP-98 auth validation, rating event publishing, reputation caching
 - `domain-profiles.test.js` — Schema validation, profile loading, TaskManager lifecycle across all domains, RideManager backward compatibility
+
+**Frontend:** Uses vitest with `@testing-library/react` and jsdom. Run with `npm run web:test`.
 
 ## Environment
 
@@ -130,6 +140,14 @@ Copy `.env.example` for configuration. Key variables:
 ## Language & Style
 
 All code, comments, documentation, commit messages, and user-facing strings must use **British English** spelling (e.g. colour, initialise, behaviour, licence, organise, authorisation, centre, metre, catalogue, serialise, favour, honour, recognise, customise).
+
+## Key Design Constraints
+
+- **Backward compatibility:** All changes to `TaskManager` must preserve the `RideManager` interface — existing code importing from `ride-manager.js` must continue to work unchanged.
+- **Domain-agnosticism:** Core code (payment providers, navigation, middleware, Nostr integration) must work identically across all domain profiles. Domain-specific logic belongs in the profile, not in shared code.
+- **No linter configured:** There is no ESLint or Prettier setup. Follow existing code style.
+- **Two Nostr library versions:** Backend uses `nostr-tools` v1 (`^1.17.0`); the React frontend uses `nostr-tools` v2 (`^2.10.4`). APIs differ between versions — check which context you're in.
+- **Dual API paths:** `/api/tasks/*` and `/api/rides/*` are interchangeable (server rewrites tasks→rides). Frontend uses `/api/tasks/`; backend handlers use `/api/rides/`. Similarly `/api/providers/*` aliases `/api/drivers/*`.
 
 ## Protocol Reference
 

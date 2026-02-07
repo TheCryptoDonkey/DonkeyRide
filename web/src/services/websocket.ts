@@ -5,6 +5,11 @@ type StatusHandler = (connected: boolean) => void;
 
 const WS_PORT = 3001;
 
+function getWsBaseUrl(): string {
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  return `${protocol}://${window.location.hostname}:${WS_PORT}`;
+}
+
 export class TaskWebSocket {
   private ws: WebSocket | null = null;
   private messageHandlers: Set<MessageHandler> = new Set();
@@ -19,12 +24,11 @@ export class TaskWebSocket {
     this.taskId = taskId;
     this.shouldReconnect = true;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const url = `${protocol}://${window.location.hostname}:${WS_PORT}/realtime/${taskId}`;
-
-    this.ws = new WebSocket(url);
+    this.ws = new WebSocket(getWsBaseUrl());
 
     this.ws.onopen = () => {
+      // Subscribe to updates for this specific task/ride
+      this.send({ type: 'subscribe_ride', rideId: taskId });
       this.notifyStatus(true);
     };
 

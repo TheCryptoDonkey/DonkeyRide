@@ -12,7 +12,7 @@ export interface Task {
   providerPubkey?: string;
   providerNpub?: string;
   pickup: LatLng;
-  dropoff: LatLng;
+  dropoff?: LatLng | null;
   pickupAddress?: string;
   dropoffAddress?: string;
   fareEstimateSats: number;
@@ -65,8 +65,8 @@ export interface TripEstimate {
   routeGeometry?: string;
 }
 
-/** Available driver */
-export interface AvailableDriver {
+/** Available provider (driver, locksmith, courier, etc.) */
+export interface AvailableProvider {
   pubkey: string;
   npub: string;
   location: LatLng;
@@ -75,6 +75,9 @@ export interface AvailableDriver {
   totalRides?: number;
   vehicleType?: string;
 }
+
+/** @deprecated Use AvailableProvider */
+export type AvailableDriver = AvailableProvider;
 
 /** BTC price data */
 export interface BtcPrices {
@@ -126,5 +129,8 @@ export type WsMessage =
   | { type: 'safety_check'; data: { checkId: string; deadline: string } }
   | { type: 'panic_alert'; data: { triggeredBy: string; location: LatLng; timestamp: string } }
   | { type: 'ride_matched'; data: { rideId: string; driverPubkey: string; driverLocation: LatLng } }
+  | { type: 'task_matched'; data: { id: string; status: string } }
   | { type: 'driver_assigned'; data: Task }
-  | { type: 'ride_cancelled'; data: { rideId: string; cancelledBy: string; reason?: string } };
+  | { type: 'provider_assigned'; data: Task }
+  | { type: 'ride_cancelled'; data: { rideId: string; cancelledBy: string; reason?: string } }
+  | { type: 'task_cancelled'; data: { taskId: string; cancelledBy: string; reason?: string } };

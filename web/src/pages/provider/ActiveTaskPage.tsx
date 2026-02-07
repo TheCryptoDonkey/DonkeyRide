@@ -12,21 +12,42 @@ import { useDomain } from '../../context/DomainContext';
 import { useLocation } from '../../hooks/useLocation';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import {
-  arriveAtPickup, startTrip, completeTrip,
-  updateLocation, triggerPanic, getRide,
+  arriveAtOrigin, startTask, completeTask, transitionTask,
+  updateLocation, triggerPanic, getTask,
 } from '../../services/api';
 import type { WsMessage } from '../../types/api';
+
+/** Map known state keys to existing API endpoints */
+const KNOWN_ENDPOINTS: Record<string, string> = {
+  PROVIDER_ARRIVED: 'arrive',
+  ACTIVE: 'start',
+  COMPLETED: 'complete',
+};
+
+/** Labels for state keys that don't have obvious display names */
+const STATE_KEY_LABELS: Record<string, string> = {
+  PROVIDER_ARRIVED: 'Mark Arrived',
+  ACTIVE: 'Start',
+  COMPLETED: 'Complete',
+  METHOD_CONFIRMED: 'Confirm Method',
+  COLLECTED: 'Mark Collected',
+  ARRIVED_AT_DELIVERY: 'Arrived at Delivery',
+};
 
 export function ActiveTaskPage() {
   const navigate = useNavigate();
   const { activeTask, setActiveTask } = useTask();
   const { identity } = useIdentity();
   const { profile } = useDomain();
-  const { location } = useLocation();
+  const { location } = useLocation(true);
   const locationTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const originLabel = profile?.labels?.originLabel || 'Pickup';
+  const destinationLabel = profile?.labels?.destinationLabel || 'Dropoff';
+  const requiresDestination = profile?.features.requiresDestination !== false;
+
   useEffect(() => {
-    if (!activeTask) navigate('/drive');
+    if (!activeTask) navigate('/provide');
   }, [activeTask, navigate]);
 
   // Send location updates every 3 seconds
@@ -37,7 +58,7 @@ export function ActiveTaskPage() {
         await updateLocation(activeTask.id, {
           lat: location.lat,
           lng: location.lng,
-          driverPubkey: identity.pubKeyHex,
+          providerPubkey: identity.pubKeyHex,
         });
       } catch {
         // Ignore
@@ -53,8 +74,8 @@ export function ActiveTaskPage() {
     if (msg.type === 'status_change' && activeTask) {
       setActiveTask({ ...activeTask, status: msg.data.status });
     }
-    if (msg.type === 'ride_cancelled') {
-      navigate('/drive');
+    if (msg.type === 'ride_cancelled' || msg.type === 'task_cancelled') {
+      navigate('/provide');
     }
   }, [activeTask, setActiveTask, navigate]);
 
@@ -65,7 +86,7 @@ export function ActiveTaskPage() {
     if (!activeTask) return;
     const timer = setInterval(async () => {
       try {
-        const updated = await getRide(activeTask.id);
+        const updated = await getTask(activeTask.id);
         setActiveTask(updated);
       } catch {
         // Ignore
@@ -77,25 +98,33 @@ export function ActiveTaskPage() {
   if (!activeTask || !identity) return null;
 
   const handleArrive = async () => {
-    const updated = await arriveAtPickup(activeTask.id, {
-      driverPubkey: identity.pubKeyHex,
+    const updated = await arriveAtOrigin(activeTask.id, {
+      providerPubkey: identity.pubKeyHex,
     });
     setActiveTask(updated);
   };
 
   const handleStart = async () => {
-    const updated = await startTrip(activeTask.id, {
-      driverPubkey: identity.pubKeyHex,
+    const updated = await startTask(activeTask.id, {
+      providerPubkey: identity.pubKeyHex,
     });
     setActiveTask(updated);
   };
 
   const handleComplete = async () => {
-    const updated = await completeTrip(activeTask.id, {
-      driverPubkey: identity.pubKeyHex,
+    const updated = await completeTask(activeTask.id, {
+      providerPubkey: identity.pubKeyHex,
     });
     setActiveTask(updated);
-    navigate('/drive');
+    navigate('/provide/complete');
+  };
+
+  const handleTransition = async (targetState: string) => {
+    const updated = await transitionTask(activeTask.id, {
+      targetState,
+      providerPubkey: identity.pubKeyHex,
+    });
+    setActiveTask(updated);
   };
 
   const handlePanic = async () => {
@@ -106,7 +135,37 @@ export function ActiveTaskPage() {
   };
 
   const status = activeTask.status;
-  const requesterLabel = profile?.roles.requester || 'Rider';
+
+  // Build dynamic action buttons from profile transitions
+  const getActionButtons = () => {
+    if (!profile?.states.transitions) return [];
+
+    const validNextStates = profile.states.transitions[status] || [];
+    // Filter out cancelled — that's handled separately
+    const cancelledValue = profile.states.values.CANCELLED;
+    const filtered = validNextStates.filter((s: string) => s !== cancelledValue);
+
+    return filtered.map((nextStateValue: string) => {
+      // Find the key for this state value
+      const stateKey = Object.entries(profile.states.values)
+        .find(([, v]) => v === nextStateValue)?.[0] || '';
+
+      const label = STATE_KEY_LABELS[stateKey]
+        || nextStateValue.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+
+      // Decide which handler to use
+      const endpoint = KNOWN_ENDPOINTS[stateKey];
+      let handler: () => Promise<void>;
+      if (endpoint === 'arrive') handler = handleArrive;
+      else if (endpoint === 'start') handler = handleStart;
+      else if (endpoint === 'complete') handler = handleComplete;
+      else handler = () => handleTransition(nextStateValue);
+
+      return { label, handler, stateKey };
+    });
+  };
+
+  const buttons = getActionButtons();
 
   return (
     <div className="h-full flex flex-col">
@@ -114,67 +173,74 @@ export function ActiveTaskPage() {
       <div className="flex-1 relative">
         <MapView centre={location} zoom={15}>
           <LocationMarker position={location} label="You" colour="blue" />
-          <LocationMarker position={activeTask.pickup} label="Pickup" colour="green" />
-          <LocationMarker position={activeTask.dropoff} label="Dropoff" colour="red" />
+          <LocationMarker position={activeTask.pickup} label={originLabel} colour="green" />
+          {requiresDestination && activeTask.dropoff && (
+            <LocationMarker position={activeTask.dropoff} label={destinationLabel} colour="red" />
+          )}
           {activeTask.routeGeometry && (
             <RoutePolyline geometry={activeTask.routeGeometry} colour="#4fc3f7" />
           )}
         </MapView>
 
         {/* Connection indicator */}
-        <div className={`absolute top-3 right-3 z-10 w-3 h-3 rounded-full ${
-          connected ? 'bg-donkey-green' : 'bg-donkey-red animate-pulse'
-        }`} />
+        <div className="absolute top-3 right-3 z-10">
+          <div className={`status-dot-glow ${connected ? 'glow-green' : 'glow-orange'}`} />
+        </div>
       </div>
 
       {/* Control panel */}
-      <div className="bg-donkey-surface border-t border-donkey-border p-4 space-y-3">
+      <div className="bg-donkey-surface border-t-2 border-donkey-border p-5 space-y-3 shadow-panel">
         <div className="flex items-center justify-between">
           <StatusBadge status={status} />
           <DualPrice sats={activeTask.fareEstimateSats} size="sm" />
         </div>
 
+        {/* Task info row */}
+        {(activeTask.distanceKm || activeTask.durationMin) && (
+          <div className="flex gap-4 text-xs text-donkey-muted">
+            {activeTask.distanceKm != null && (
+              <span>{activeTask.distanceKm.toFixed(1)} km</span>
+            )}
+            {activeTask.durationMin != null && (
+              <span>~{Math.round(activeTask.durationMin)} min</span>
+            )}
+          </div>
+        )}
+
         {/* Streaming payment progress */}
         {activeTask.streamingPayment && (
-          <div className="bg-donkey-bg rounded-lg p-3">
-            <div className="flex justify-between text-xs mb-1">
-              <span className="text-donkey-muted">Earning</span>
-              <span className="text-donkey-green font-bold">
+          <div className="earnings-card">
+            <div className="flex justify-between text-xs mb-2">
+              <span className="meta-label">Earning</span>
+              <span className="text-donkey-green font-bold text-sm">
                 {activeTask.streamingPayment.totalPaidSats} sats
               </span>
             </div>
-            <div className="h-1 bg-donkey-border rounded-full overflow-hidden">
+            <div className="h-2 bg-donkey-border rounded-full overflow-hidden">
               <div
-                className="h-full bg-donkey-green transition-all"
+                className="h-full bg-donkey-green transition-all rounded-full"
                 style={{
                   width: `${Math.min(
                     (activeTask.streamingPayment.totalPaidSats / activeTask.fareEstimateSats) * 100,
                     100,
                   )}%`,
+                  boxShadow: '0 0 8px rgba(0, 255, 136, 0.5)',
                 }}
               />
             </div>
           </div>
         )}
 
-        {/* Status-dependent action buttons */}
-        <div className="flex gap-3">
-          {(status === 'matched' || status === 'en_route') && (
-            <button className="btn-primary flex-1" onClick={handleArrive}>
-              Arrived at Pickup
-            </button>
-          )}
-          {status === 'arrived' && (
-            <button className="btn-primary flex-1" onClick={handleStart}>
-              Start {requesterLabel} Trip
-            </button>
-          )}
-          {status === 'active' && (
-            <button className="btn-primary flex-1" onClick={handleComplete}>
-              Complete Trip
-            </button>
-          )}
-        </div>
+        {/* Dynamic action buttons */}
+        {buttons.length > 0 && (
+          <div className="flex gap-3">
+            {buttons.map(({ label, handler, stateKey }) => (
+              <button key={stateKey} className="btn-primary flex-1" onClick={handler}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {profile?.features.safetyAlerts && (
           <PanicButton onPanic={handlePanic} />

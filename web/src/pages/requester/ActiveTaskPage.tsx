@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapView } from '../../components/map/MapView';
 import { LocationMarker } from '../../components/map/LocationMarker';
@@ -10,26 +10,35 @@ import { Loading } from '../../components/common/Loading';
 import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { useDomain } from '../../context/DomainContext';
+import { useLocation } from '../../hooks/useLocation';
 import { useWebSocket } from '../../hooks/useWebSocket';
-import { triggerPanic, cancelRide, getRide } from '../../services/api';
+import { triggerPanic, cancelTask, getTask } from '../../services/api';
 import type { WsMessage } from '../../types/api';
 
 export function ActiveTaskPage() {
   const navigate = useNavigate();
-  const { activeTask, setActiveTask, pickup, dropoff, driverLocation, setDriverLocation } = useTask();
+  const { activeTask, setActiveTask, origin, destination, providerLocation, setProviderLocation } = useTask();
   const { identity } = useIdentity();
   const { profile } = useDomain();
+  const { location: currentLocation } = useLocation(true);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
+  const originLabel = profile?.labels?.originLabel || 'Pickup';
+  const destinationLabel = profile?.labels?.destinationLabel || 'Dropoff';
+  const taskNoun = profile?.labels?.taskNoun || 'task';
+  const requiresDestination = profile?.features.requiresDestination !== false;
+  const providerRoleLabel = profile?.roles.provider || 'Provider';
 
   // Redirect if no active task
   useEffect(() => {
-    if (!activeTask) navigate('/ride');
+    if (!activeTask) navigate('/request');
   }, [activeTask, navigate]);
 
   // Handle WebSocket messages
   const handleWsMessage = useCallback((msg: WsMessage) => {
     switch (msg.type) {
       case 'location_update':
-        setDriverLocation({ lat: msg.data.lat, lng: msg.data.lng });
+        setProviderLocation({ lat: msg.data.lat, lng: msg.data.lng });
         break;
       case 'status_change':
         if (activeTask) {
@@ -37,10 +46,11 @@ export function ActiveTaskPage() {
         }
         break;
       case 'ride_cancelled':
-        navigate('/ride');
+      case 'task_cancelled':
+        navigate('/request');
         break;
     }
-  }, [activeTask, setActiveTask, setDriverLocation, navigate]);
+  }, [activeTask, setActiveTask, setProviderLocation, navigate]);
 
   const { connected } = useWebSocket(activeTask?.id || null, handleWsMessage);
 
@@ -49,11 +59,13 @@ export function ActiveTaskPage() {
     if (!activeTask) return;
     const timer = setInterval(async () => {
       try {
-        const updated = await getRide(activeTask.id);
+        const updated = await getTask(activeTask.id);
         setActiveTask(updated);
-        if (['completed', 'cancelled'].includes(updated.status)) {
-          if (updated.status === 'completed') navigate('/ride/complete');
-          else navigate('/ride');
+        // Check terminal states from profile or hardcoded fallback
+        const terminalStates = profile?.states.terminal || ['completed', 'cancelled'];
+        if (terminalStates.includes(updated.status)) {
+          if (updated.status !== 'cancelled') navigate('/request/complete');
+          else navigate('/request');
         }
       } catch {
         // Ignore poll errors
@@ -62,37 +74,38 @@ export function ActiveTaskPage() {
     return () => clearInterval(timer);
   }, [activeTask?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!activeTask || !pickup) return <Loading message="Loading ride..." />;
+  if (!activeTask || !origin) return <Loading message={`Loading ${taskNoun}...`} />;
 
   const handlePanic = async () => {
     if (!identity) return;
     await triggerPanic(activeTask.id, {
       triggeredBy: identity.pubKeyHex,
-      location: pickup,
+      location: currentLocation,
     });
   };
 
   const handleCancel = async () => {
     if (!identity) return;
-    await cancelRide(activeTask.id, {
+    await cancelTask(activeTask.id, {
       cancelledBy: identity.pubKeyHex,
-      reason: 'Rider cancelled',
+      reason: 'Requester cancelled',
     });
-    navigate('/ride');
+    navigate('/request');
   };
 
-  const centre = driverLocation || pickup;
-  const providerLabel = profile?.roles.provider || 'Driver';
+  const centre = providerLocation || origin;
 
   return (
     <div className="h-full flex flex-col">
       {/* Map */}
       <div className="flex-1 relative">
         <MapView centre={centre} zoom={15}>
-          <LocationMarker position={pickup} label="Pickup" colour="green" />
-          {dropoff && <LocationMarker position={dropoff} label="Dropoff" colour="red" />}
-          {driverLocation && (
-            <LocationMarker position={driverLocation} label={providerLabel} colour="blue" />
+          <LocationMarker position={origin} label={originLabel} colour="green" />
+          {requiresDestination && destination && (
+            <LocationMarker position={destination} label={destinationLabel} colour="red" />
+          )}
+          {providerLocation && (
+            <LocationMarker position={providerLocation} label={providerRoleLabel} colour="blue" />
           )}
           {activeTask.routeGeometry && (
             <RoutePolyline geometry={activeTask.routeGeometry} />
@@ -100,41 +113,57 @@ export function ActiveTaskPage() {
         </MapView>
 
         {/* Connection indicator */}
-        <div className={`absolute top-3 right-3 z-10 w-3 h-3 rounded-full ${
-          connected ? 'bg-donkey-green' : 'bg-donkey-red animate-pulse'
-        }`} title={connected ? 'Connected' : 'Reconnecting...'} />
+        <div className="absolute top-3 right-3 z-10">
+          <div className={`status-dot-glow ${connected ? 'glow-green' : 'glow-orange'}`}
+               title={connected ? 'Connected' : 'Reconnecting...'} />
+        </div>
       </div>
 
       {/* Status panel */}
-      <div className="bg-donkey-surface border-t border-donkey-border p-4 space-y-3">
+      <div className="bg-donkey-surface border-t-2 border-donkey-border p-5 space-y-3 shadow-panel">
         <div className="flex items-center justify-between">
           <StatusBadge status={activeTask.status} />
           <DualPrice sats={activeTask.fareEstimateSats} size="sm" />
         </div>
 
+        {/* Provider info */}
         {activeTask.providerNpub && (
-          <p className="text-xs font-mono text-donkey-muted">
-            {providerLabel}: {activeTask.providerNpub.slice(0, 16)}...
-          </p>
+          <div className="meta-card flex items-center justify-between">
+            <div>
+              <p className="meta-label">{providerRoleLabel}</p>
+              <p className="text-sm font-mono text-donkey-text mt-1">
+                {activeTask.providerNpub.slice(0, 16)}...
+              </p>
+            </div>
+            {activeTask.durationMin != null && (
+              <div className="text-right">
+                <p className="meta-label">ETA</p>
+                <p className="text-lg font-black text-donkey-green mt-1">
+                  {Math.round(activeTask.durationMin)} min
+                </p>
+              </div>
+            )}
+          </div>
         )}
 
         {/* Streaming payment progress */}
         {activeTask.streamingPayment && (
-          <div className="bg-donkey-bg rounded-lg p-3">
-            <div className="flex justify-between text-xs mb-1">
-              <span className="text-donkey-muted">Streaming payment</span>
-              <span className="text-donkey-green font-bold">
+          <div className="meta-card">
+            <div className="flex justify-between text-xs mb-2">
+              <span className="meta-label">Streaming payment</span>
+              <span className="text-donkey-green font-bold text-sm">
                 {activeTask.streamingPayment.totalPaidSats} sats
               </span>
             </div>
-            <div className="h-1 bg-donkey-border rounded-full overflow-hidden">
+            <div className="h-2 bg-donkey-border rounded-full overflow-hidden">
               <div
-                className="h-full bg-donkey-green transition-all"
+                className="h-full bg-donkey-green transition-all rounded-full"
                 style={{
                   width: `${Math.min(
                     (activeTask.streamingPayment.totalPaidSats / activeTask.fareEstimateSats) * 100,
                     100,
                   )}%`,
+                  boxShadow: '0 0 8px rgba(0, 255, 136, 0.5)',
                 }}
               />
             </div>
@@ -143,12 +172,31 @@ export function ActiveTaskPage() {
 
         {/* Actions */}
         <div className="flex gap-3">
-          {activeTask.status === 'requested' && (
-            <button className="btn-secondary flex-1 text-sm" onClick={handleCancel}>
-              Cancel
+          {activeTask.status === profile?.states.initial && !showCancelConfirm && (
+            <button
+              className="btn-secondary flex-1"
+              onClick={() => setShowCancelConfirm(true)}
+            >
+              Cancel {taskNoun}
             </button>
           )}
-          {profile?.features.safetyAlerts && (
+          {showCancelConfirm && (
+            <>
+              <button
+                className="btn-secondary flex-1"
+                onClick={() => setShowCancelConfirm(false)}
+              >
+                Keep
+              </button>
+              <button
+                className="btn-danger flex-1"
+                onClick={handleCancel}
+              >
+                Confirm Cancel
+              </button>
+            </>
+          )}
+          {profile?.features.safetyAlerts && !showCancelConfirm && (
             <div className="flex-1">
               <PanicButton onPanic={handlePanic} />
             </div>

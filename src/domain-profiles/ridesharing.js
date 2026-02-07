@@ -39,6 +39,17 @@ const profile = {
     provider: 'driver'
   },
 
+  labels: {
+    originLabel: 'Pickup',
+    destinationLabel: 'Dropoff',
+    taskNoun: 'ride',
+    requestVerb: 'Request',
+    activeVerb: 'In transit',
+    completedLabel: 'Ride Complete',
+    originInstruction: 'Tap the map to set your pickup location',
+    destinationInstruction: 'Now tap to set your destination',
+  },
+
   stakingModel: {
     requesterStakePercent: 0.10,
     providerStakePercent: 0.15,
@@ -73,7 +84,8 @@ const profile = {
     photos: false,
     signatures: false,
     quoteNegotiation: false,
-    guaranteePeriod: false
+    guaranteePeriod: false,
+    requiresDestination: true
   },
 
   eventKinds: {

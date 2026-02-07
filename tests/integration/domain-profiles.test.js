@@ -104,6 +104,75 @@ test('validateProfile applies defaults for optional fields', () => {
   assert.equal(profile.eventKinds.request, 30500);
 });
 
+test('validateProfile applies default labels when none provided', () => {
+  const profile = validateProfile({
+    id: 'nolabels',
+    name: 'No Labels',
+    discoveryMethod: 'geohash',
+    pricingModel: 'flatRate',
+    states: {
+      values: { REQUESTED: 'requested', COMPLETED: 'completed', CANCELLED: 'cancelled' },
+      transitions: { 'requested': ['completed', 'cancelled'] },
+      terminal: ['completed', 'cancelled'],
+      initial: 'requested'
+    },
+    roles: { requester: 'client', provider: 'worker' }
+  });
+
+  assert.equal(profile.labels.originLabel, 'Pickup');
+  assert.equal(profile.labels.destinationLabel, 'Dropoff');
+  assert.equal(profile.labels.taskNoun, 'task');
+  assert.equal(profile.labels.requestVerb, 'Request');
+  assert.equal(profile.labels.activeVerb, 'In progress');
+  assert.equal(profile.labels.completedLabel, 'Complete');
+  assert.ok(profile.labels.originInstruction);
+  assert.ok(profile.labels.destinationInstruction);
+});
+
+test('validateProfile merges partial labels with defaults', () => {
+  const profile = validateProfile({
+    id: 'partial',
+    name: 'Partial Labels',
+    discoveryMethod: 'geohash',
+    pricingModel: 'flatRate',
+    states: {
+      values: { REQUESTED: 'requested', COMPLETED: 'completed', CANCELLED: 'cancelled' },
+      transitions: { 'requested': ['completed', 'cancelled'] },
+      terminal: ['completed', 'cancelled'],
+      initial: 'requested'
+    },
+    roles: { requester: 'client', provider: 'worker' },
+    labels: {
+      taskNoun: 'job',
+      originLabel: 'Site'
+    }
+  });
+
+  // Provided values override defaults
+  assert.equal(profile.labels.taskNoun, 'job');
+  assert.equal(profile.labels.originLabel, 'Site');
+  // Unprovided values fall back to defaults
+  assert.equal(profile.labels.destinationLabel, 'Dropoff');
+  assert.equal(profile.labels.requestVerb, 'Request');
+  assert.equal(profile.labels.completedLabel, 'Complete');
+});
+
+test('all built-in profiles have domain-specific labels', () => {
+  const ridesharing = loadProfile('ridesharing');
+  assert.equal(ridesharing.labels.taskNoun, 'ride');
+  assert.equal(ridesharing.labels.originLabel, 'Pickup');
+
+  const locksmith = loadProfile('locksmith');
+  assert.equal(locksmith.labels.taskNoun, 'callout');
+  assert.equal(locksmith.labels.originLabel, 'Lockout location');
+  assert.equal(locksmith.labels.destinationLabel, '');
+
+  const delivery = loadProfile('delivery');
+  assert.equal(delivery.labels.taskNoun, 'delivery');
+  assert.equal(delivery.labels.originLabel, 'Collection point');
+  assert.equal(delivery.labels.destinationLabel, 'Delivery address');
+});
+
 // ==========================================
 // All Profiles Validate Correctly
 // ==========================================
@@ -116,6 +185,26 @@ test('all built-in profiles pass validation', () => {
     assert.ok(profile.roles.requester, `Profile ${id} has requester role`);
     assert.ok(profile.roles.provider, `Profile ${id} has provider role`);
   }
+});
+
+test('all built-in profiles have requiresDestination feature flag', () => {
+  for (const id of listProfiles()) {
+    const profile = loadProfile(id);
+    assert.equal(typeof profile.features.requiresDestination, 'boolean',
+      `Profile ${id} must have boolean requiresDestination`);
+  }
+
+  const locksmith = loadProfile('locksmith');
+  assert.equal(locksmith.features.requiresDestination, false,
+    'Locksmith should not require destination');
+
+  const ridesharing = loadProfile('ridesharing');
+  assert.equal(ridesharing.features.requiresDestination, true,
+    'Ridesharing should require destination');
+
+  const delivery = loadProfile('delivery');
+  assert.equal(delivery.features.requiresDestination, true,
+    'Delivery should require destination');
 });
 
 // ==========================================

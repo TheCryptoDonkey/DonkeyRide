@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useDomain } from '../../context/DomainContext';
 import { useIdentity } from '../../context/IdentityContext';
 
@@ -6,46 +6,57 @@ export function Header() {
   const { profile } = useDomain();
   const { role, setRole, identity } = useIdentity();
   const location = useLocation();
+  const navigate = useNavigate();
 
-  const isProvider = role === 'driver' || location.pathname.startsWith('/drive');
+  const isProvider = role === 'provider' || location.pathname.startsWith('/provide');
   const truncatedPub = identity?.npub
     ? `${identity.npub.slice(0, 12)}...${identity.npub.slice(-4)}`
     : '...';
 
+  const handleRoleChange = (newRole: 'requester' | 'provider') => {
+    setRole(newRole);
+    navigate(newRole === 'provider' ? '/provide' : '/request');
+  };
+
   return (
-    <header className="bg-brand-gradient text-white px-6 py-4 flex items-center justify-between shadow-lg z-20">
+    <header className="bg-brand-gradient text-white px-6 py-4 flex items-center justify-between z-20"
+            style={{ boxShadow: '0 8px 25px rgba(0, 0, 0, 0.35)' }}>
       <Link to="/" className="flex items-center gap-3">
-        <span className="text-2xl font-black tracking-tight">
+        <span className="text-2xl font-black" style={{ letterSpacing: '-0.02em' }}>
           {profile?.name || 'DonkeyRide'}
         </span>
-        <span className="text-xs uppercase tracking-widest opacity-75">
-          {profile?.roles.requester || 'rider'} / {profile?.roles.provider || 'driver'}
+        <span className="text-xs uppercase opacity-70" style={{ letterSpacing: '0.2em' }}>
+          {profile?.roles.requester || 'requester'} / {profile?.roles.provider || 'provider'}
         </span>
       </Link>
 
       <div className="flex items-center gap-4">
         {/* Role toggle */}
-        <div className="flex bg-white/20 rounded-lg overflow-hidden text-sm">
+        <div className="flex rounded-full overflow-hidden text-sm"
+             style={{ background: 'rgba(0, 0, 0, 0.25)', border: '1px solid rgba(255, 255, 255, 0.2)' }}>
           <button
-            className={`px-4 py-2 transition-colors ${
-              !isProvider ? 'bg-white/30 font-bold' : 'hover:bg-white/10'
+            className={`px-4 py-2 transition-all font-semibold ${
+              !isProvider ? 'bg-white/25' : 'hover:bg-white/10'
             }`}
-            onClick={() => setRole('rider')}
+            style={{ letterSpacing: '0.05em' }}
+            onClick={() => handleRoleChange('requester')}
           >
-            {profile?.roles.requester || 'Rider'}
+            {profile?.roles.requester || 'Requester'}
           </button>
           <button
-            className={`px-4 py-2 transition-colors ${
-              isProvider ? 'bg-white/30 font-bold' : 'hover:bg-white/10'
+            className={`px-4 py-2 transition-all font-semibold ${
+              isProvider ? 'bg-white/25' : 'hover:bg-white/10'
             }`}
-            onClick={() => setRole('driver')}
+            style={{ letterSpacing: '0.05em' }}
+            onClick={() => handleRoleChange('provider')}
           >
-            {profile?.roles.provider || 'Driver'}
+            {profile?.roles.provider || 'Provider'}
           </button>
         </div>
 
         {/* Identity badge */}
-        <div className="text-xs font-mono opacity-75" title={identity?.npub}>
+        <div className="text-xs font-mono opacity-70" title={identity?.npub}
+             style={{ letterSpacing: '0.04em' }}>
           {truncatedPub}
         </div>
       </div>

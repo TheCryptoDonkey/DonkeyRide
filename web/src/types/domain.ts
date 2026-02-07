@@ -15,6 +15,7 @@ export interface DomainProfile {
     requester: string;
     provider: string;
   };
+  labels: DomainLabels;
   stakingModel: {
     requesterStakePercent: number;
     providerStakePercent: number;
@@ -34,6 +35,17 @@ export interface DomainProfile {
   eventKinds: Record<string, number>;
 }
 
+export interface DomainLabels {
+  originLabel: string;
+  destinationLabel: string;
+  taskNoun: string;
+  requestVerb: string;
+  activeVerb: string;
+  completedLabel: string;
+  originInstruction: string;
+  destinationInstruction: string;
+}
+
 export interface RatingCriterion {
   tag: string;
   label: string;
@@ -50,4 +62,5 @@ export interface DomainFeatures {
   signatures: boolean;
   quoteNegotiation: boolean;
   guaranteePeriod: boolean;
+  requiresDestination: boolean;
 }

@@ -37,6 +37,16 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static('public')); // Serve demo.html and other static files (legacy)
 
+// Domain-agnostic route aliases: /api/tasks/* → /api/rides/*, /api/providers/* → /api/drivers/*
+app.use((req, res, next) => {
+    if (req.path.startsWith('/api/tasks')) {
+        req.url = req.url.replace('/api/tasks', '/api/rides');
+    } else if (req.path.startsWith('/api/providers')) {
+        req.url = req.url.replace('/api/providers', '/api/drivers');
+    }
+    next();
+});
+
 // Serve React frontend build if available (web/dist/)
 const path = require('path');
 const reactBuildPath = path.join(__dirname, 'web', 'dist');
@@ -203,8 +213,8 @@ const activeRides = new Map();
 const stakeBalances = new Map();
 const rideStreamingTimers = new Map();
 
-const STREAM_INTERVAL_MS = 3000;
-const STREAM_STEPS = 40;
+const STREAM_INTERVAL_MS = 1000;
+const STREAM_STEPS = 15;
 
 // Initialise task/ride manager with the loaded domain profile
 const rideManager = new TaskManager(domainProfile);
@@ -1216,11 +1226,18 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 fiatCurrency = 'GBP';
             }
 
-            // Validate
-            if (!pickup_lat || !pickup_lon || !dropoff_lat || !dropoff_lon) {
+            // Validate — dropoff is optional for single-location domains (e.g. locksmith)
+            if (!pickup_lat || !pickup_lon) {
                 return res.status(400).json({
                     error: 'Missing required parameters',
-                    required: ['pickup_lat', 'pickup_lon', 'dropoff_lat', 'dropoff_lon']
+                    required: ['pickup_lat', 'pickup_lon']
+                });
+            }
+
+            if (domainProfile.features.requiresDestination && (!dropoff_lat || !dropoff_lon)) {
+                return res.status(400).json({
+                    error: 'Missing required parameters',
+                    required: ['dropoff_lat', 'dropoff_lon']
                 });
             }
 
@@ -1233,22 +1250,31 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
 
             // Try to get OSRM route for real road routing
             let distance, duration, routeCoordinates = null;
-            const osrmRoute = await getRoute(pickup_lat, pickup_lon, dropoff_lat, dropoff_lon);
+            const hasDropoff = dropoff_lat && dropoff_lon;
 
-        if (osrmRoute) {
-            // Use OSRM routing data
-            distance = parseFloat(osrmRoute.distanceKm);
-            duration = osrmRoute.durationMin;
-            routeCoordinates = osrmRoute.coordinates;
-            const distanceMiles = distance * 0.621371;
-            console.log(`🗺️  Using OSRM routing: ${distance.toFixed(2)}km (${distanceMiles.toFixed(2)}mi), ${duration} min, ${routeCoordinates.length} points`);
-        } else {
-            // Fallback to straight-line calculation
-            distance = calculateDistance(pickup_lat, pickup_lon, dropoff_lat, dropoff_lon);
-            duration = (distance / 45) * 60; // faster fallback (~45 km/h) to keep demos snappy
-            const distanceMiles = distance * 0.621371;
-            console.log(`📏 Using straight-line routing: ${distance.toFixed(2)}km (${distanceMiles.toFixed(2)}mi)`);
-        }
+            if (hasDropoff) {
+                const osrmRoute = await getRoute(pickup_lat, pickup_lon, dropoff_lat, dropoff_lon);
+
+                if (osrmRoute) {
+                    // Use OSRM routing data
+                    distance = parseFloat(osrmRoute.distanceKm);
+                    duration = osrmRoute.durationMin;
+                    routeCoordinates = osrmRoute.coordinates;
+                    const distanceMiles = distance * 0.621371;
+                    console.log(`🗺️  Using OSRM routing: ${distance.toFixed(2)}km (${distanceMiles.toFixed(2)}mi), ${duration} min, ${routeCoordinates.length} points`);
+                } else {
+                    // Fallback to straight-line calculation
+                    distance = calculateDistance(pickup_lat, pickup_lon, dropoff_lat, dropoff_lon);
+                    duration = (distance / 45) * 60; // faster fallback (~45 km/h) to keep demos snappy
+                    const distanceMiles = distance * 0.621371;
+                    console.log(`📏 Using straight-line routing: ${distance.toFixed(2)}km (${distanceMiles.toFixed(2)}mi)`);
+                }
+            } else {
+                // Single-location domain (e.g. locksmith) — no route to calculate
+                distance = 0;
+                duration = 0;
+                console.log(`📍 Single-location task — no route needed`);
+            }
 
             const estimate = await estimateTripCost(distance, duration, {
                 currency: fiatCurrency,
@@ -1260,10 +1286,11 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 : estimate.fare.sats;
 
             // Create ride
+            const dropoffLocation = hasDropoff ? { lat: dropoff_lat, lon: dropoff_lon } : null;
             const ride = rideManager.createRide(
                 { npub: riderNpub, pubkey: riderPubkeyHex },
                 { lat: pickup_lat, lon: pickup_lon },
-                { lat: dropoff_lat, lon: dropoff_lon },
+                dropoffLocation,
                 estimatedFareSats,
                 rideOptions
             );
@@ -1378,17 +1405,16 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
             ? driverToPickupRoute.duration  // Use OSRM duration in seconds
             : rideManager.calculateETA(driver_location, ride.pickup);
 
-        // Notify rider with driver route
-        broadcastToRide(rideId, {
-            type: 'ride_matched',
-            ride: {
-                id: ride.id,
-                status: ride.status,
-                driver: ride.driver,
-                eta_seconds: eta,
-                driver_route: driverRoute  // Route from driver to pickup
-            }
-        });
+        // Notify rider with driver route (emit both legacy and generic event types)
+        const matchPayload = {
+            id: ride.id,
+            status: ride.status,
+            driver: ride.driver,
+            eta_seconds: eta,
+            driver_route: driverRoute  // Route from driver to pickup
+        };
+        broadcastToRide(rideId, { type: 'ride_matched', ride: matchPayload });
+        broadcastToRide(rideId, { type: 'task_matched', task: matchPayload });
 
         res.json({
             success: true,
@@ -1514,6 +1540,47 @@ app.post('/api/rides/:rideId/start', async (req, res) => {
     }
 });
 
+// Generic state transition (for domain-specific intermediate states)
+app.post('/api/rides/:rideId/transition', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const { targetState, driverPubkey, metadata } = req.body;
+
+        if (!targetState) {
+            return res.status(400).json({ error: 'Missing targetState' });
+        }
+
+        const ride = rideManager.getRide(rideId);
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        rideManager.transitionTo(rideId, targetState, metadata || {});
+
+        const updatedRide = rideManager.getRide(rideId);
+
+        broadcastToRide(rideId, {
+            type: 'status_change',
+            ride_id: rideId,
+            status: updatedRide.status,
+            previousStatus: ride.status,
+            timestamp: Date.now()
+        });
+
+        res.json({
+            success: true,
+            ride: updatedRide
+        });
+
+    } catch (error) {
+        console.error('Error transitioning ride:', error);
+        res.status(400).json({
+            error: 'Failed to transition state',
+            details: error.message
+        });
+    }
+});
+
 // Panic / emergency alert
 app.post('/api/rides/:rideId/panic', async (req, res) => {
     try {
@@ -1621,11 +1688,7 @@ app.post('/api/rides/:rideId/check-in', (req, res) => {
 app.post('/api/rides/:rideId/rate', async (req, res) => {
     try {
         const { rideId } = req.params;
-        const { event } = req.body || {};
-
-        if (!event) {
-            return res.status(400).json({ error: 'Missing rating event payload' });
-        }
+        const { event, rating, comment, raterPubkey, raterRole } = req.body || {};
 
         const ride = rideManager.getRide(rideId);
         if (!ride) {
@@ -1636,40 +1699,89 @@ app.post('/api/rides/:rideId/rate', async (req, res) => {
             return res.status(400).json({ error: 'Ride not completed yet' });
         }
 
-        const result = await reputation.publishRating(event, ride);
+        // Path A: Full Nostr event (legacy / advanced clients)
+        if (event) {
+            const result = await reputation.publishRating(event, ride);
+
+            try {
+                rideManager.recordRating(rideId, result.role, {
+                    rating: result.rating,
+                    target: result.targetHex,
+                    eventId: event.id,
+                    pubkey: event.pubkey,
+                    notes: event.content || '',
+                    relayStatuses: result.relayStatuses || [],
+                    cachedLocally: !!result.cachedLocally
+                });
+            } catch (recordError) {
+                console.warn(`Failed to record rating in ride manager for ${rideId}:`, recordError.message);
+            }
+
+            broadcastToRide(rideId, {
+                type: 'rating_submitted',
+                ride_id: rideId,
+                role: result.role,
+                rating: result.rating,
+                target_hex: result.targetHex,
+                target_npub: result.targetNpub || null,
+                relay_statuses: result.relayStatuses || [],
+                cached_locally: !!result.cachedLocally
+            });
+
+            return res.json({
+                success: true,
+                rating: result.rating,
+                target_hex: result.targetHex,
+                target_npub: result.targetNpub || null,
+                relay_statuses: result.relayStatuses || [],
+                cached_locally: !!result.cachedLocally
+            });
+        }
+
+        // Path B: Simple rating (React frontend)
+        if (!rating || typeof rating !== 'number' || rating < 1 || rating > 5) {
+            return res.status(400).json({ error: 'Missing or invalid rating (1-5)' });
+        }
+
+        const role = raterRole === 'driver' ? 'driver'
+            : raterRole === 'rider' ? 'rider'
+            : raterRole === 'provider' ? 'driver'
+            : raterRole === 'requester' ? 'rider'
+            : 'rider';
+
+        // Determine the rating target
+        const targetPubkey = role === 'rider'
+            ? (ride.driver?.pubkey || ride.provider?.pubkey || '')
+            : (ride.rider?.pubkey || ride.requester?.pubkey || '');
 
         try {
-            rideManager.recordRating(rideId, result.role, {
-                rating: result.rating,
-                target: result.targetHex,
-                eventId: event.id,
-                pubkey: event.pubkey,
-                notes: event.content || '',
-                relayStatuses: result.relayStatuses || [],
-                cachedLocally: !!result.cachedLocally
+            rideManager.recordRating(rideId, role, {
+                rating,
+                target: targetPubkey,
+                pubkey: raterPubkey || '',
+                notes: comment || '',
+                cachedLocally: true
             });
         } catch (recordError) {
-            console.warn(`Failed to record rating in ride manager for ${rideId}:`, recordError.message);
+            console.warn(`Failed to record rating for ${rideId}:`, recordError.message);
         }
 
         broadcastToRide(rideId, {
             type: 'rating_submitted',
             ride_id: rideId,
-            role: result.role,
-            rating: result.rating,
-            target_hex: result.targetHex,
-            target_npub: result.targetNpub || null,
-            relay_statuses: result.relayStatuses || [],
-            cached_locally: !!result.cachedLocally
+            role,
+            rating,
+            target_hex: targetPubkey,
+            timestamp: Date.now()
         });
+
+        console.log(`⭐ Rating recorded for ${rideId}: ${rating}/5 by ${role}`);
 
         res.json({
             success: true,
-            rating: result.rating,
-            target_hex: result.targetHex,
-            target_npub: result.targetNpub || null,
-            relay_statuses: result.relayStatuses || [],
-            cached_locally: !!result.cachedLocally
+            rating,
+            role,
+            target_hex: targetPubkey
         });
     } catch (error) {
         console.error('Error submitting rating:', error);
@@ -1903,6 +2015,7 @@ app.get('/api/domains/current', publicRateLimiter, (req, res) => {
         name: domainProfile.name,
         description: domainProfile.description,
         roles: domainProfile.roles,
+        labels: domainProfile.labels,
         discoveryMethod: domainProfile.discoveryMethod,
         pricingModel: domainProfile.pricingModel,
         stakingModel: domainProfile.stakingModel,
@@ -1925,7 +2038,7 @@ const fs = require('fs');
 const reactIndexPath = path.join(__dirname, 'web', 'dist', 'index.html');
 app.get('*', (req, res, next) => {
     // Skip API routes, health checks, and legacy HTML files
-    if (req.path.startsWith('/api/') || req.path.startsWith('/rides/') ||
+    if (req.path.startsWith('/api/') || req.path.startsWith('/rides/') || req.path.startsWith('/tasks/') ||
         req.path === '/info' || req.path === '/health' ||
         req.path.endsWith('.html') || req.path.endsWith('.js') ||
         req.path.endsWith('.css') || req.path.endsWith('.map')) {

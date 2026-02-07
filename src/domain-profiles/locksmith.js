@@ -45,6 +45,17 @@ const profile = {
     provider: 'locksmith'
   },
 
+  labels: {
+    originLabel: 'Lockout location',
+    destinationLabel: '',
+    taskNoun: 'callout',
+    requestVerb: 'Report lockout',
+    activeVerb: 'Work in progress',
+    completedLabel: 'Access Gained',
+    originInstruction: 'Tap the map to set your lockout location',
+    destinationInstruction: '',
+  },
+
   stakingModel: {
     requesterStakePercent: 0.10,
     providerStakePercent: 0.15,
@@ -86,7 +97,8 @@ const profile = {
     photos: true,
     signatures: false,
     quoteNegotiation: true,
-    guaranteePeriod: true
+    guaranteePeriod: true,
+    requiresDestination: false
   },
 
   eventKinds: {
