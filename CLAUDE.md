@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DonkeyRide is an open protocol standard for trust-minimised service coordination built on Nostr (decentralised messaging) and Lightning Network (Bitcoin payments). This repo contains the **reference operator server** — a Node.js backend that coordinates tasks, manages stakes, and processes payments. It is not a ridesharing company; it's a protocol spec with a working implementation that generalises across domains (ridesharing, locksmith dispatch, parcel delivery, etc.).
+DonkeyRide is an open protocol standard for trust-minimised service coordination built on Nostr (decentralised messaging) with **payment-agnostic** financial rails (Lightning, Strike, Stripe, NIP-47, and more). This repo contains the **reference operator server** — a Node.js backend that coordinates tasks, manages stakes, and processes payments. It is not a ridesharing company; it's a protocol spec with a working implementation that generalises across 10+ domains (ridesharing, locksmith dispatch, parcel delivery, court serving, security guard dispatch, emergency trades, and more).
 
 ## Commands
 
@@ -82,7 +82,9 @@ Each profile defines: state machine (states + valid transitions), role names (re
 
 `payment-providers/factory.js` — Factory + fallback chain via `ResilientStakeManager`. All providers extend `payment-providers/base.js` with the interface: `lockStake()`, `releaseStake()`, `forfeitStake()`, `healthCheck()`, `getCapabilities()`.
 
-Providers: `strike` (custodial), `lnd` (trustless hodl invoices), `btcpay` (self-hosted), `alby` (custodial), `cln` (Core Lightning), `demo` (mock for testing).
+Providers: `nip47` (trustless, NIP-47 hold invoices), `strike` (custodial-third-party, fiat UX), `stripe` (custodial-escrow, pure fiat), `lnd` (custodial, operator hodl invoices), `btcpay` (custodial, self-hosted), `alby` (custodial-third-party), `cln` (custodial, Core Lightning), `demo` (mock for testing).
+
+Every payment event includes explicit `amount`, `currency`, and `trust_model` tags. Amounts are in the smallest unit of the specified currency (pence for GBP, cents for USD, satoshis for SAT).
 
 Selected via `PAYMENT_PROVIDER` env var, with optional `PAYMENT_FALLBACKS` for resilience. **Domain-independent** — works identically across all use cases.
 
@@ -115,6 +117,35 @@ OPERATOR (private, compliant) →  PII + Coordination + Payments + Compliance
 WEBSOCKET (ephemeral)         →  Real-time tracking + Live updates
 ```
 
+### Modular NIP Specifications
+
+The protocol is defined as a family of 8 modular NIP specifications (in `specs/`):
+
+| Spec | Scope | Event Kinds |
+|------|-------|-------------|
+| `NIP-XX-core.md` | Service lifecycle (request, accept, complete, cancel, no_show) | 30500-30509 |
+| `NIP-XX-stakes.md` | Commitment stakes (lock, release, forfeit, milestones) | 30520-30529 |
+| `NIP-XX-reputation.md` | Ratings, reputation export, NIP-85 summaries | 30530-30539 |
+| `NIP-XX-disputes.md` | Disputes, theft reports, guardian voting | 30522-30524 |
+| `NIP-XX-discovery.md` | Geohash-based service discovery, operator bonds | 30540-30549 |
+| `NIP-XX-safety.md` | Emergency alerts, trip sharing, heartbeat | 30559-30564 |
+| `NIP-XX-navigation.md` | Routes, turn-by-turn, traffic | 30570-30574 |
+| `NIP-XX-payments.md` | Streaming payments, tips, surcharges | 30510-30519 |
+
+Plus domain extension specs: `NIP-XX-ridesharing.md`, `NIP-XX-locksmith.md`, `NIP-XX-delivery.md`.
+
+`specs/QUICK-REFERENCE.md` has the complete event kind table.
+
+### GDPR Compliance
+
+The three-layer architecture supports GDPR compliance:
+- **Public Nostr events**: Only pseudonymous identifiers and geohash-level locations (data minimisation)
+- **Encrypted Nostr events**: NIP-17 gift-wrapped PII (exact addresses, phone numbers) — erasure via crypto-shredding (destroy key pair)
+- **Operator database**: Standard controller obligations — 90-day purge for operational data, 7-year retention for tax/regulatory
+- **NIP-62 Request to Vanish**: Relay-side deletion of all events for a pubkey
+
+See `docs/GDPR-COMPLIANCE.md` for the full compliance guide.
+
 ## Testing
 
 **Backend:** Uses Node.js built-in `node:test` module with `node:assert/strict`. Tests are in `tests/integration/`. Tests construct signed Nostr events manually for NIP-98 auth validation.
@@ -145,10 +176,15 @@ All code, comments, documentation, commit messages, and user-facing strings must
 
 - **Backward compatibility:** All changes to `TaskManager` must preserve the `RideManager` interface — existing code importing from `ride-manager.js` must continue to work unchanged.
 - **Domain-agnosticism:** Core code (payment providers, navigation, middleware, Nostr integration) must work identically across all domain profiles. Domain-specific logic belongs in the profile, not in shared code.
+- **Payment agnosticism:** All monetary amounts are currency-neutral (smallest unit of specified currency). Every payment event includes `amount`, `currency`, and `trust_model` tags. Never assume sats or any specific currency.
+- **NIP-40 expiration:** Use `expiration` tag (not `expiry`) for all time-limited events, per NIP-40 specification.
+- **NIP-44 encryption:** Use NIP-44 for encrypted payloads and NIP-17 (gift wrap) for private PII exchange. NIP-04 is deprecated — do not use it.
 - **No linter configured:** There is no ESLint or Prettier setup. Follow existing code style.
 - **Two Nostr library versions:** Backend uses `nostr-tools` v1 (`^1.17.0`); the React frontend uses `nostr-tools` v2 (`^2.10.4`). APIs differ between versions — check which context you're in.
 - **Dual API paths:** `/api/tasks/*` and `/api/rides/*` are interchangeable (server rewrites tasks→rides). Frontend uses `/api/tasks/`; backend handlers use `/api/rides/`. Similarly `/api/providers/*` aliases `/api/drivers/*`.
 
 ## Protocol Reference
 
-`NIP-XX-ridesharing.md` is the full protocol specification defining all event kinds. `QUICK-REFERENCE.md` has a summary table. `ARCHITECTURE.md` explains the federated model. `TRUST-MECHANISMS.md` details the 6 layers of trust.
+The protocol is defined as **8 modular NIP specifications** in `specs/`. See `specs/QUICK-REFERENCE.md` for the complete event kind table. `ARCHITECTURE.md` explains the federated model. `TRUST-MECHANISMS.md` details the 6 layers of trust. `docs/PAYMENT-PROVIDERS.md` covers payment provider integration. `docs/GDPR-COMPLIANCE.md` covers GDPR compliance.
+
+The original monolithic spec is archived at `specs/NIP-XX-v1-archive.md` (7,895 lines) for historical reference.
