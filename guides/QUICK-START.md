@@ -1,18 +1,21 @@
 # DonkeyRide Operator Quick Start Guide
 
-## 🚀 Get Started in 5 Minutes
+## Get Started in 5 Minutes
 
 ### Step 1: Install Dependencies
 
 ```bash
+git clone https://github.com/donkeyride/donkeyride.git
+cd donkeyride
 npm install
 ```
 
-This will install:
-- Express, CORS, WebSocket
-- Nostr Tools
-- LN Service (for LND)
-- C-Lightning Client (for CLN)
+**Using Nix** (recommended — handles all system dependencies):
+```bash
+nix develop                # Enter dev shell with Node.js, PostgreSQL, Redis, etc.
+nix run .#services         # Start all services
+npm run dev                # Start operator with auto-reload
+```
 
 ---
 
@@ -26,124 +29,126 @@ cp .env.example .env
 Edit `.env` and set your configuration.
 
 **Minimum Required:**
-```bash
-OPERATOR_PUBKEY=npub1...      # Your Nostr public key
-OPERATOR_NSEC=nsec1...        # Your Nostr private key (KEEP SECRET!)
-OPERATOR_LIGHTNING=you@getalby.com  # Where you receive fees
-PAYMENT_PROVIDER=strike       # Choose: strike|lnd|btcpay|alby|cln
+```env
+OPERATOR_PUBKEY=npub1...           # Your Nostr public key
+OPERATOR_NSEC=nsec1...             # Your Nostr private key (KEEP SECRET)
+OPERATOR_LIGHTNING=you@getalby.com # Where you receive fees
+PAYMENT_PROVIDER=demo              # Start with demo, upgrade later
+DOMAIN=ridesharing                 # Choose your domain (see Step 3)
 ```
 
 ---
 
-### Step 3: Choose Your Payment Provider
+### Step 3: Choose Your Domain
 
-You have 5 options. Pick what works for you:
-
-#### Option A: Strike (Easiest) ⚡
-**Best for:** Getting started quickly
+DonkeyRide is a **multi-domain** protocol. One codebase serves different use cases via the `DOMAIN` environment variable:
 
 ```bash
-# .env
+DOMAIN=ridesharing npm start   # Rider/driver coordination (default)
+DOMAIN=locksmith npm start     # Locksmith dispatch
+DOMAIN=delivery npm start      # Parcel delivery
+```
+
+Each domain loads its own state machine, role names, pricing model, and feature flags. The rest of the infrastructure (payment providers, authentication, reputation) works identically across all domains.
+
+| Domain | Requester | Provider | Pricing Model |
+|--------|-----------|----------|---------------|
+| `ridesharing` | Rider | Driver | Distance + time + surge |
+| `locksmith` | Customer | Locksmith | Flat rate (quote negotiation) |
+| `delivery` | Sender | Courier | Distance-based |
+
+To add a custom domain, create a profile in `src/domain-profiles/` (~100 lines). See the [use case catalogue](../docs/USE-CASES.md) for 20+ analysed domains.
+
+---
+
+### Step 4: Choose Your Payment Provider
+
+The protocol is **payment-agnostic**. Start with `demo` for testing, then choose a production provider:
+
+#### Option A: Demo (Testing)
+```env
+PAYMENT_PROVIDER=demo
+```
+Virtual funds, no real money. Perfect for development.
+
+#### Option B: Strike (Fiat UX — Easiest Production Setup)
+```env
 PAYMENT_PROVIDER=strike
-STRIKE_API_KEY=sk_live_...   # Get from dashboard.strike.me
+STRIKE_API_KEY=sk_live_...         # Get from dashboard.strike.me
+STRIKE_DEFAULT_CURRENCY=GBP        # GBP, USD, or EUR
 ```
+Customers pay in their local currency. Strike converts to Lightning transparently. Neither party has a taxable crypto event.
 
-**Pros:** Easy setup, instant settlement
-**Cons:** Custodial, requires KYC for large amounts
+**Trust model:** `custodial-third-party` — Strike holds funds during conversion (milliseconds). The operator never has custody.
 
----
+#### Option C: NIP-47 (Trustless — Most Decentralised)
+```env
+PAYMENT_PROVIDER=nip47
+NIP47_RELAY=wss://relay.example.com
+NIP47_CONNECT_STRING=nostr+walletconnect://...
+```
+Direct wallet-to-wallet via hold invoices. The operator never has custody of funds.
 
-#### Option B: LND (Most Trustless) 🔒
-**Best for:** Maximum security, can't steal funds
+**Trust model:** `trustless` — funds are locked in Lightning hold invoices. Nobody can steal.
 
-```bash
-# .env
+#### Option D: Stripe (Pure Fiat)
+```env
+PAYMENT_PROVIDER=stripe
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_DEFAULT_CURRENCY=GBP
+```
+Traditional card payments with escrow. Best for markets where Lightning adoption is low.
+
+**Trust model:** `custodial-escrow` — Stripe holds funds until the operator confirms completion.
+
+#### Option E: LND (Operator Lightning Node)
+```env
 PAYMENT_PROVIDER=lnd
 LND_HOST=localhost:10009
-LND_CERT_PATH=/home/user/.lnd/tls.cert
-LND_MACAROON_PATH=/home/user/.lnd/data/chain/bitcoin/mainnet/admin.macaroon
+LND_CERT_PATH=~/.lnd/tls.cert
+LND_MACAROON_PATH=~/.lnd/data/chain/bitcoin/mainnet/admin.macaroon
 ```
+Trustless hodl invoices. Operator runs their own Lightning node.
 
-**Pros:** Trustless hodl invoices, operator physically cannot steal
-**Cons:** Requires running LND node
+**Trust model:** `custodial` — operator's node holds funds temporarily. Hodl invoices prevent theft.
 
-**Prerequisites:**
-- Running LND node
-- Funded channels
-- Admin macaroon
-
----
-
-#### Option C: BTCPay Server (Self-hosted) 🏠
-**Best for:** Full control, privacy
-
-```bash
-# .env
+#### Option F: BTCPay Server (Self-hosted)
+```env
 PAYMENT_PROVIDER=btcpay
 BTCPAY_URL=https://btcpay.example.com
 BTCPAY_API_KEY=...
 BTCPAY_STORE_ID=...
 ```
 
-**Pros:** Self-hosted, open source, no third party
-**Cons:** Requires BTCPay Server setup
-
-**Prerequisites:**
-- Running BTCPay Server instance
-- Lightning node connected to BTCPay
-- API key with invoice permissions
-
----
-
-#### Option D: Alby (User-friendly) 😊
-**Best for:** Simple, good UX
-
-```bash
-# .env
-PAYMENT_PROVIDER=alby
-ALBY_API_KEY=...
-```
-
-**Pros:** Easy, browser extension, WebLN support
-**Cons:** Custodial
-
----
-
-#### Option E: Core Lightning (Trustless Alternative) ⚡🔒
-**Best for:** Alternative to LND
-
-```bash
-# .env
+#### Option G: Core Lightning
+```env
 PAYMENT_PROVIDER=cln
-CLN_SOCKET=/home/user/.lightning/bitcoin/lightning-rpc
+CLN_SOCKET=/path/to/lightning-rpc
 ```
 
-**Pros:** Trustless, lightweight
-**Cons:** Requires CLN node with hold plugin
+For the full payment provider guide (trust models, capabilities, adding custom providers), see [../docs/PAYMENT-PROVIDERS.md](../docs/PAYMENT-PROVIDERS.md).
 
 ---
 
-### Step 4: Configure Fallbacks (Optional but Recommended)
+### Step 5: Configure Fallbacks (Optional but Recommended)
 
 For maximum resilience, configure backup providers:
 
-```bash
-# .env
-PAYMENT_PROVIDER=lnd                    # Primary
-PAYMENT_FALLBACKS=btcpay,strike,alby   # Backups
+```env
+PAYMENT_PROVIDER=strike                # Primary
+PAYMENT_FALLBACKS=lnd,demo             # Backups (comma-separated)
 
 # Configure credentials for all providers
-LND_HOST=...
-BTCPAY_URL=...
 STRIKE_API_KEY=...
-ALBY_API_KEY=...
+LND_HOST=...
 ```
 
-If LND fails, automatically falls back to BTCPay, then Strike, then Alby.
+If Strike fails, the `ResilientStakeManager` automatically falls back to LND, then demo.
 
 ---
 
-### Step 5: Start Your Operator
+### Step 6: Start Your Operator
 
 ```bash
 npm start
@@ -154,27 +159,34 @@ You should see:
 ========================================
 DonkeyRide Operator Server
 ========================================
-✅ Payment provider initialized: lnd
-   Trust model: trustless
-   Features: instantRelease, refunds, automaticRefund, trustless
+Domain: ridesharing
+Payment provider: strike (custodial-third-party)
+Features: instantRelease, refunds
 
 Operator: npub1abc...
-Lightning: operator@getalby.com
-Fee: 0.5%
-Payment Provider: lnd (hodl)
+Fee: 3%
 API Port: 3000
 WebSocket Port: 3001
 ========================================
-
-🔐 NIP-98 authentication enabled
-🛡️  Rate limiting active
-⚡ Multiple payment providers supported
+NIP-98 authentication enabled
+Rate limiting active
 ========================================
+```
+
+**Development mode** (auto-reload on changes):
+```bash
+npm run dev
+```
+
+**Docker:**
+```bash
+docker compose up                      # Production
+docker compose --profile dev up        # Development (adds mock services)
 ```
 
 ---
 
-### Step 6: Test Your Operator
+### Step 7: Test Your Operator
 
 #### Check Operator Info
 ```bash
@@ -186,80 +198,105 @@ Response:
 {
   "operator": "npub1...",
   "lightning": "operator@getalby.com",
-  "fee": "0.5%",
-  "activeRides": 0,
+  "fee": "3%",
+  "domain": "ridesharing",
+  "activeTasks": 0,
   "paymentProvider": {
-    "name": "lnd",
-    "type": "hodl",
-    "trustModel": "trustless",
+    "name": "strike",
+    "trustModel": "custodial-third-party",
     "features": {
       "instantRelease": true,
-      "refunds": true,
-      "trustless": true
+      "refunds": true
     }
   }
 }
 ```
 
-#### Test Authenticated Request (NIP-98)
-You'll need Nostr tools to create signed requests.
+#### Health Check
+```bash
+curl http://localhost:3000/health
+```
 
-See `middleware/nip98-auth.js` for helper functions:
-- `generateAuthEvent(url, method, privateKey)`
-- `createAuthHeader(event)`
+#### Run Tests
+```bash
+npm test                               # All backend tests
+npm run web:test                       # Frontend tests (run npm install in web/ first)
+```
 
 ---
 
-## 🔧 Configuration Examples
+## Configuration Examples
 
-### Minimal (Strike)
-```bash
+### Minimal (Demo — Testing Only)
+```env
 OPERATOR_PUBKEY=npub1...
 OPERATOR_NSEC=nsec1...
-OPERATOR_LIGHTNING=you@getalby.com
-PAYMENT_PROVIDER=strike
-STRIKE_API_KEY=sk_live_...
+PAYMENT_PROVIDER=demo
+DOMAIN=ridesharing
 ```
 
-### Production (LND + Fallbacks)
-```bash
+### Fiat-First (Strike — Recommended for UK/EU Launch)
+```env
 OPERATOR_PUBKEY=npub1...
 OPERATOR_NSEC=nsec1...
 OPERATOR_LIGHTNING=you@getalby.com
-OPERATOR_FEE_PERCENT=0.005
-BOND_AMOUNT=1000000
-BOND_ADDRESS=bc1q...
+OPERATOR_FEE_PERCENT=0.03
+PAYMENT_PROVIDER=strike
+STRIKE_API_KEY=sk_live_...
+STRIKE_DEFAULT_CURRENCY=GBP
+DOMAIN=ridesharing
+NOSTR_RELAYS=wss://relay.damus.io,wss://nos.lol
+ENABLE_NIP98_AUTH=true
+ENABLE_RATE_LIMITING=true
+```
 
-# Primary: Trustless LND
-PAYMENT_PROVIDER=lnd
+### Multi-Domain (Ridesharing + Locksmith)
+```bash
+# Terminal 1: Ridesharing on port 3000
+PORT=3000 WS_PORT=3001 DOMAIN=ridesharing npm start
+
+# Terminal 2: Locksmith on port 3002
+PORT=3002 WS_PORT=3003 DOMAIN=locksmith npm start
+```
+
+### Production (Multiple Providers + Fallbacks)
+```env
+OPERATOR_PUBKEY=npub1...
+OPERATOR_NSEC=nsec1...
+OPERATOR_LIGHTNING=you@getalby.com
+OPERATOR_FEE_PERCENT=0.03
+BOND_AMOUNT=5000000
+
+DOMAIN=ridesharing
+PAYMENT_PROVIDER=strike
+PAYMENT_FALLBACKS=lnd,demo
+STRIKE_API_KEY=sk_live_...
+STRIKE_DEFAULT_CURRENCY=GBP
 LND_HOST=localhost:10009
 LND_CERT_PATH=~/.lnd/tls.cert
 LND_MACAROON_PATH=~/.lnd/data/chain/bitcoin/mainnet/admin.macaroon
 
-# Fallbacks
-PAYMENT_FALLBACKS=btcpay,strike
-BTCPAY_URL=https://btcpay.myoperator.com
-BTCPAY_API_KEY=...
-BTCPAY_STORE_ID=...
-STRIKE_API_KEY=sk_live_...
-
-# Server
 PORT=3000
 WS_PORT=3001
 NOSTR_RELAYS=wss://relay.damus.io,wss://nos.lol
 
-# Security
+NAVIGATION_PROVIDER=osrm
+OSRM_URL=http://localhost:5000
+
+DATABASE_URL=postgresql://donkeyride:password@localhost:5432/donkeyride
+REDIS_URL=redis://localhost:6379
+
 ENABLE_NIP98_AUTH=true
 ENABLE_RATE_LIMITING=true
 ```
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
-### "Failed to initialize payment provider"
-- Check your API keys
-- Ensure Lightning nodes are running
+### "Failed to initialise payment provider"
+- Check your API keys and credentials
+- Ensure Lightning nodes are running (for LND/CLN)
 - Verify paths to cert/macaroon files
 - Check file permissions
 
@@ -271,99 +308,47 @@ ENABLE_RATE_LIMITING=true
 
 ### "Rate limit exceeded"
 - Wait for rate limit window to reset
-- Check X-RateLimit-Reset header
+- Check `X-RateLimit-Reset` header
 - Reduce request frequency
 
 ### LND Connection Failed
 ```bash
-# Test LND connection
-lncli getinfo
-
-# Check cert path
-ls -la ~/.lnd/tls.cert
-
-# Check macaroon path
-ls -la ~/.lnd/data/chain/bitcoin/mainnet/admin.macaroon
-
-# Verify permissions
-chmod 600 ~/.lnd/tls.cert
-chmod 600 ~/.lnd/data/chain/bitcoin/mainnet/admin.macaroon
-```
-
-### BTCPay Connection Failed
-```bash
-# Test BTCPay API
-curl -H "Authorization: Bearer ${API_TOKEN}" \
-  https://btcpay.example.com/api/v1/health
-
-# Check store ID
-curl -H "Authorization: Bearer ${API_TOKEN}" \
-  https://btcpay.example.com/api/v1/stores
+lncli getinfo                          # Test LND connection
+ls -la ~/.lnd/tls.cert                 # Check cert path
+ls -la ~/.lnd/data/chain/bitcoin/mainnet/admin.macaroon  # Check macaroon
 ```
 
 ---
 
-## 📊 Monitoring Your Operator
+## Security Best Practices
 
-### Health Check
-```bash
-curl http://localhost:3000/health
-```
-
-### Active Rides
-```bash
-curl http://localhost:3000/info | jq '.activeRides'
-```
-
-### Provider Status
-```bash
-curl http://localhost:3000/info | jq '.paymentProvider'
-```
+1. **Keep nsec secret** — never commit to git, never share
+2. **Use strong bonds** — demonstrates commitment to users
+3. **Enable NIP-98 auth** — always use `ENABLE_NIP98_AUTH=true`
+4. **Configure rate limiting** — prevent abuse
+5. **Use fallbacks** — don't rely on a single payment provider
+6. **Monitor logs** — watch for suspicious activity
+7. **Automate data purge** — 90-day retention for operational data (GDPR)
+8. **Backup keys** — store nsec safely offline
 
 ---
 
-## 🔐 Security Best Practices
+## Next Steps
 
-1. **Keep nsec secret** - Never commit to git, never share
-2. **Use strong bonds** - 1M+ sats shows commitment
-3. **Enable auth** - Always use NIP-98 authentication
-4. **Configure rate limiting** - Prevent abuse
-5. **Use fallbacks** - Don't rely on single provider
-6. **Monitor logs** - Watch for suspicious activity
-7. **Update regularly** - Keep dependencies current
-8. **Backup keys** - Store nsec safely offline
+1. Get operator running with `demo` provider
+2. Test with the React frontend (`npm run web:dev`)
+3. Switch to production payment provider (Strike recommended)
+4. Configure GDPR compliance ([../docs/GDPR-COMPLIANCE.md](../docs/GDPR-COMPLIANCE.md))
+5. Publish operator bond event (kind 30540) to Nostr
+6. Start earning fees
 
 ---
 
-## 🎯 Next Steps
+## Further Reading
 
-1. ✅ Get operator running
-2. ✅ Test with small stakes
-3. ✅ Configure monitoring
-4. ✅ Join operator network
-5. ✅ Publish operator bond event (kind 30540)
-6. ✅ Start earning fees!
-
----
-
-## 📚 Further Reading
-
-- `IMPLEMENTATION-SUMMARY.md` - What we built
-- `NIP-XX-ridesharing.md` - Full protocol spec
-- `OPERATOR-DEPLOYMENT.md` - Deployment guide
-- `TRUST-MECHANISMS.md` - Security deep dive
-- `WATCHDOG-INCENTIVES.md` - Game theory
-
----
-
-## 🆘 Need Help?
-
-- GitHub Issues: https://github.com/donkeyride/donkeyride/issues
-- Nostr: Search for #donkeyride
-- Documentation: Check the docs/ folder
-
----
-
-**Welcome to the decentralized rideshare revolution! 🚀**
-
-You're now running an unstoppable, censorship-resistant operator that can't deplatform drivers and lets them keep 99-100% of fares.
+- **[OPERATOR-DEPLOYMENT.md](OPERATOR-DEPLOYMENT.md)** — Full deployment guide (GDPR, economics, architecture)
+- **[../docs/PAYMENT-PROVIDERS.md](../docs/PAYMENT-PROVIDERS.md)** — Payment provider integration guide
+- **[../docs/GDPR-COMPLIANCE.md](../docs/GDPR-COMPLIANCE.md)** — GDPR compliance guide
+- **[../TRUST-MECHANISMS.md](../TRUST-MECHANISMS.md)** — 6 layers of trust
+- **[../specs/QUICK-REFERENCE.md](../specs/QUICK-REFERENCE.md)** — Protocol event kinds reference
+- **[../ARCHITECTURE.md](../ARCHITECTURE.md)** — Three-layer federated architecture
