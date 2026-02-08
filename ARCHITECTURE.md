@@ -1,15 +1,17 @@
 # DonkeyRide Architecture — Decentralisation Analysis
 
-> **Note (v2.0)**: The protocol is now domain-agnostic. The architecture described below applies to **all** service domains (ridesharing, locksmith, delivery, etc.) — not just ridesharing. The specification has been split into a core protocol and domain extensions. See [`specs/`](./specs/) for the layered specification structure.
+> **Note (v3.0)**: The protocol is domain-agnostic and payment-agnostic. The architecture described below applies to **all** service domains (ridesharing, locksmith, delivery, etc.) and **all** payment rails (Lightning, fiat, ecash). See [`specs/`](./specs/) for the modular NIP specification family.
 
 ## Reality Check: Are We Truly Decentralised?
 
-**Short Answer**: We are **FEDERATED**, not fully decentralized.
+**Short answer**: We are **federated**, not fully decentralised.
 
-**Detailed Answer**:
-- ✅ **Nostr Layer**: 100% decentralized
-- ⚠️ **Operator Layer**: Federated (multiple competing operators, but each operator is centralized)
-- ✅ **Payment Layer**: 100% decentralized (Lightning Network)
+**Detailed answer**:
+- **Nostr layer**: Decentralised (discovery, reputation, PII exchange, coordination)
+- **Operator layer**: Federated (multiple competing operators, each centralised internally)
+- **Payment layer**: Flexible (trustless to custodial, user chooses)
+
+This is the right trade-off. Full decentralisation fails legal requirements (GDPR, safety monitoring, insurance). Full centralisation creates platform monopolies. Federation gives us the benefits of both.
 
 ---
 
@@ -17,484 +19,362 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           RIDER MOBILE APP                                   │
-│  (React Native - Open Source - Anyone can build)                            │
-│                                                                               │
-│  • Nostr client (NDK)                                                        │
-│  • Lightning wallet (LND, CLN, or custodial)                                │
-│  • GPS location                                                              │
-│  • Local storage (encrypted Nostr keys)                                     │
+│                         REQUESTER APPLICATION                               │
+│  (Open source — anyone can build)                                          │
+│                                                                             │
+│  • Nostr client (NDK / nostr-tools)                                        │
+│  • Payment wallet (NIP-47, Strike, Stripe, or custodial)                   │
+│  • GPS location                                                            │
+│  • Local storage (encrypted Nostr keys)                                    │
 └────────────────┬────────────────────────────────────────────────────────────┘
                  │
-                 │ (1) Publish obfuscated ride request
+                 │ (1) Publish obfuscated service request (geohash precision 5)
                  ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                        PUBLIC NOSTR RELAYS                                   │
-│  (Decentralized - Permissionless - Censorship Resistant)                    │
-│                                                                               │
-│  wss://relay.damus.io                                                        │
-│  wss://nos.lol                                                               │
-│  wss://relay.nostr.band                                                      │
-│  wss://relay.snort.social                                                    │
-│                                                                               │
-│  DATA STORED (PUBLIC, PERMANENT):                                            │
-│  ✅ Operator bonds & reputation (kind 30540)                                │
-│  ✅ Service areas (kind 30525)                                              │
-│  ✅ Surge pricing signals (kinds 30590-30592)                               │
-│  ✅ Driver availability - OBFUSCATED location (geohash precision 5 = ~5km)  │
-│  ✅ Ride requests - OBFUSCATED pickup (500m radius, kind 30500)             │
-│  ✅ Aggregated statistics (no individual traces)                            │
-│  ✅ Ratings & reputation (kind 30530)                                       │
-│  ✅ Dispute outcomes (kind 30524)                                           │
-│                                                                               │
-│  DATA NOT STORED (Privacy):                                                  │
-│  ❌ Exact addresses                                                          │
-│  ❌ Real-time GPS traces                                                     │
-│  ❌ Payment details                                                          │
-│  ❌ PII (names, phone numbers)                                               │
-│  ❌ Complete ride histories                                                  │
+│                        PUBLIC NOSTR RELAYS                                  │
+│  (Decentralised — permissionless — censorship-resistant)                   │
+│                                                                             │
+│  DATA ON PUBLIC RELAYS:                                                    │
+│  ✅ Operator bonds & reputation (kinds 30540, 30528)                       │
+│  ✅ Service areas (kind 30565)                                             │
+│  ✅ Provider availability — geohash only (kind 20500, ephemeral)           │
+│  ✅ Service requests — geohash only (kind 30500)                           │
+│  ✅ Ratings & reputation (kinds 30517-30519, 30530)                        │
+│  ✅ Dispute outcomes (kind 30524)                                          │
+│  ✅ NIP-89 app handlers (kind 31990)                                       │
+│                                                                             │
+│  DATA NOT ON PUBLIC RELAYS:                                                │
+│  ❌ Exact addresses (NIP-17 gift-wrapped, encrypted)                       │
+│  ❌ Real-time GPS traces (WebSocket or ephemeral encrypted events)         │
+│  ❌ Payment card details (payment provider only)                           │
+│  ❌ PII — names, phone numbers (NIP-17 encrypted between parties)          │
+│  ❌ Complete service histories (operator DB only)                          │
 └────────────────┬────────────────────────────────────────────────────────────┘
                  │
-                 │ (2) Drivers query for nearby requests
-                 │     Filter: {"#g": ["dr5ru"], kind: 30500}
-                 │
+                 │ (2) Providers query for nearby requests
+                 │     Filter: {"#g": ["gcpuu"], kind: 30500}
                  ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                          DRIVER MOBILE APP                                   │
-│  (React Native - Open Source)                                                │
-│                                                                               │
-│  • Sees obfuscated ride request (500m radius)                               │
-│  • Accepts ride → publishes kind 30501 to Nostr                             │
-│  • Contacts OPERATOR to coordinate                                          │
+│                         PROVIDER APPLICATION                                │
+│  (Open source)                                                             │
+│                                                                             │
+│  • Sees obfuscated service request (~5km area)                             │
+│  • Accepts task → publishes kind 30501 to Nostr                            │
+│  • Contacts OPERATOR to coordinate                                         │
 └────────────────┬────────────────────────────────────────────────────────────┘
                  │
-                 │ (3) After driver accepts, coordinate via operator
-                 │
+                 │ (3) After acceptance, coordinate via operator + encrypted Nostr
                  ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    OPERATOR SERVICE (CENTRALIZED)                            │
-│  (Multiple operators compete - Federated model)                             │
-│                                                                               │
-│  Operator Examples:                                                          │
-│  • operator-nyc.donkeyride.com (NYC market)                                 │
-│  • operator-sf.decentralride.io (SF market)                                 │
-│  • operator-london.bitcointaxi.uk (London market)                           │
-│                                                                               │
-│  Each operator runs:                                                         │
-│  ┌───────────────────────────────────────────────────────────────┐          │
-│  │ REST API + WebSocket Server                                   │          │
-│  │  • POST /api/v1/rides/{ride_id}/coordinate                    │          │
-│  │  • POST /api/v1/stakes/lock                                   │          │
-│  │  • POST /api/v1/stakes/release                                │          │
-│  │  • WS /realtime/{ride_id} (live location streaming)           │          │
-│  └───────────────────────────────────────────────────────────────┘          │
-│                                                                               │
-│  ┌───────────────────────────────────────────────────────────────┐          │
-│  │ PostgreSQL Database (PRIVATE, GDPR-COMPLIANT)                 │          │
-│  │  • Exact GPS traces (90-day retention, then purged)           │          │
-│  │  • Full addresses (deletable per GDPR)                        │          │
-│  │  • Payment details (7-year retention for tax law)             │          │
-│  │  • Background check results                                   │          │
-│  │  • Complete ride histories                                    │          │
-│  │  • Chat messages (90-day retention)                           │          │
-│  │  • Safety photos (90-day retention)                           │          │
-│  │  • Stake balances (Lightning hodl invoices)                   │          │
-│  └───────────────────────────────────────────────────────────────┘          │
-│                                                                               │
-│  ┌───────────────────────────────────────────────────────────────┐          │
-│  │ 24/7 Safety Team (HUMANS)                                     │          │
-│  │  • Monitor emergency alerts (kind 30559)                      │          │
-│  │  • Review safety check-in failures                            │          │
-│  │  • Call 911 when needed                                       │          │
-│  │  • Contact emergency contacts                                 │          │
-│  │  • <60 second response time requirement                       │          │
-│  └───────────────────────────────────────────────────────────────┘          │
-│                                                                               │
-│  ┌───────────────────────────────────────────────────────────────┐          │
-│  │ Background Check Integration                                  │          │
-│  │  • Checkr API                                                 │          │
-│  │  • Onfido API                                                 │          │
-│  │  • DMV verification                                           │          │
-│  │  • Results published to Nostr (kind 30595)                    │          │
-│  └───────────────────────────────────────────────────────────────┘          │
-│                                                                               │
-│  ┌───────────────────────────────────────────────────────────────┐          │
-│  │ Lightning Node (Operator's)                                   │          │
-│  │  • Holds hodl invoices for stakes                             │          │
-│  │  • Routes streaming payments                                  │          │
-│  │  • Settles disputes                                           │          │
-│  └───────────────────────────────────────────────────────────────┘          │
-│                                                                               │
-│  OPERATOR FUNCTIONS (Why we need them):                                      │
-│  1. Stake coordination (hodl invoices)                                       │
-│  2. PII storage with GDPR deletion rights (can't delete from Nostr relays)  │
-│  3. Real-time location streaming (ephemeral WebSocket)                       │
-│  4. 24/7 human safety monitoring (legal requirement)                         │
-│  5. Background check coordination (legal requirement)                        │
-│  6. Dispute resolution (needs context operators have)                        │
-│  7. Insurance coordination ($1M policy per ride)                             │
+│                    OPERATOR SERVICE (THIN COMPLIANCE LAYER)                 │
+│  (Multiple operators compete — federated model)                            │
+│                                                                             │
+│  Operator examples:                                                        │
+│  • operator-london.donkeyride.example.com (London market)                  │
+│  • operator-nyc.decentralride.example.com (NYC market)                     │
+│  • operator-berlin.bitcointaxi.example.com (Berlin market)                 │
+│                                                                             │
+│  Each operator runs:                                                       │
+│  ┌───────────────────────────────────────────────────────────────┐         │
+│  │ REST API + WebSocket Server                                   │         │
+│  │  • POST /api/v1/tasks/{task_id}/coordinate                    │         │
+│  │  • POST /api/v1/stakes/lock                                   │         │
+│  │  • POST /api/v1/stakes/release                                │         │
+│  │  • WS /realtime/{task_id} (live location streaming)           │         │
+│  └───────────────────────────────────────────────────────────────┘         │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────┐         │
+│  │ PostgreSQL Database (PRIVATE, GDPR-COMPLIANT)                 │         │
+│  │  • GPS traces (90-day retention, then purged)                 │         │
+│  │  • Safety monitoring records (legal obligation)               │         │
+│  │  • Background check results (7-year retention)                │         │
+│  │  • Insurance documentation (regulatory requirement)           │         │
+│  │  • Compliance audit trails (tax law, 7-year retention)        │         │
+│  └───────────────────────────────────────────────────────────────┘         │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────┐         │
+│  │ 24/7 Safety Team (HUMANS)                                     │         │
+│  │  • Monitor emergency alerts (kind 30559)                      │         │
+│  │  • Review safety check-in failures (kinds 30561-30563)        │         │
+│  │  • Call 999/911 when needed                                   │         │
+│  │  • Contact emergency contacts via NIP-17                      │         │
+│  │  • Sub-60-second response time requirement                    │         │
+│  └───────────────────────────────────────────────────────────────┘         │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────┐         │
+│  │ Background Check + Insurance Integration                      │         │
+│  │  • Checkr, Onfido, or jurisdiction-specific providers         │         │
+│  │  • Results published as NIP-58 badges on Nostr                │         │
+│  │  • Insurance verification published to Nostr                  │         │
+│  └───────────────────────────────────────────────────────────────┘         │
+│                                                                             │
+│  WHY WE NEED OPERATORS (legally mandated functions):                       │
+│  1. 24/7 human safety monitoring (legal requirement)                       │
+│  2. Background check coordination (legal requirement)                      │
+│  3. Insurance coordination (legal entity required)                         │
+│  4. GDPR-compliant data retention and deletion                             │
+│  5. Dispute escalation (complex disputes need human arbitration)           │
 └────────────────┬────────────────────────────────────────────────────────────┘
                  │
                  │ (4) Exact address exchange (after matching)
-                 │
                  ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                   ENCRYPTED DIRECT MESSAGES (NIP-04)                         │
-│  (End-to-End Encrypted - Only Rider & Driver Can Read)                      │
-│                                                                               │
-│  Rider → Driver (encrypted):                                                 │
-│  {                                                                            │
-│    "exact_pickup": {                                                         │
-│      "lat": 40.758123,                                                       │
-│      "lon": -73.985456,                                                      │
-│      "address": "123 W 45th St, New York, NY 10036"                          │
-│    },                                                                         │
-│    "phone": "+1-212-555-1234",  // For call/text                            │
-│    "rider_name": "John"  // First name only                                 │
-│  }                                                                            │
-│                                                                               │
-│  Driver → Rider (encrypted):                                                 │
-│  {                                                                            │
-│    "driver_name": "Sarah",                                                   │
-│    "phone": "+1-917-555-5678",                                               │
-│    "vehicle": {                                                              │
-│      "make": "Toyota",                                                       │
-│      "model": "Camry",                                                       │
-│      "color": "Silver",                                                      │
-│      "plate": "ABC1234"                                                      │
-│    },                                                                         │
-│    "eta_seconds": 180                                                        │
-│  }                                                                            │
+│                NIP-17 GIFT-WRAPPED MESSAGES (NIP-59)                        │
+│  (End-to-end encrypted — three-layer wrapping)                             │
+│                                                                             │
+│  Requester → Provider (encrypted, relay can't read):                       │
+│  {                                                                          │
+│    "exact_pickup": { "lat": 51.5074, "lon": -0.1278,                      │
+│                       "address": "123 King Street, London SW1A 1AA" },     │
+│    "phone": "+44-20-7946-0958",                                            │
+│    "name": "John"                                                          │
+│  }                                                                          │
+│                                                                             │
+│  Provider → Requester (encrypted):                                         │
+│  {                                                                          │
+│    "name": "Sarah",                                                        │
+│    "phone": "+44-7700-900123",                                             │
+│    "vehicle": { "make": "Toyota", "model": "Prius",                       │
+│                  "colour": "Silver", "plate": "AB12 CDE" },               │
+│    "eta_seconds": 180                                                      │
+│  }                                                                          │
+│                                                                             │
+│  Three-layer wrapping (NIP-17 + NIP-59):                                   │
+│  • Rumour (kind 14) → Seal (kind 13) → Gift Wrap (kind 1059)              │
+│  • Relay cannot read content, sender, or recipient                         │
+│  • Timestamps obfuscated                                                   │
+│  • Operator never sees PII                                                 │
 └────────────────┬────────────────────────────────────────────────────────────┘
                  │
-                 │ (5) During ride - live location streaming
-                 │
+                 │ (5) During task — live location streaming
                  ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                   WEBSOCKET (EPHEMERAL, NOT PERSISTED)                       │
-│  (Direct driver → operator → rider, real-time only)                         │
-│                                                                               │
-│  wss://operator-nyc.donkeyride.com/realtime/ride_abc123                     │
-│                                                                               │
-│  Driver sends every 3-5 seconds:                                             │
-│  {                                                                            │
-│    "lat": 40.758123,                                                         │
-│    "lon": -73.985456,                                                        │
-│    "heading": 45,                                                            │
-│    "speed": 12.5,                                                            │
-│    "eta": 180                                                                │
-│  }                                                                            │
-│                                                                               │
-│  Rider sees live map updates (like Uber)                                     │
-│  Data is NOT stored (privacy)                                                │
+│                   WEBSOCKET (EPHEMERAL, NOT PERSISTED)                      │
+│  (Direct provider → operator → requester, real-time only)                  │
+│                                                                             │
+│  wss://operator-london.donkeyride.example.com/realtime/task_abc123         │
+│                                                                             │
+│  Provider sends every 3-5 seconds:                                         │
+│  { "lat": 51.5074, "lon": -0.1278,                                        │
+│    "heading": 45, "speed": 12.5, "eta": 180 }                             │
+│                                                                             │
+│  Requester sees live map updates                                           │
+│  Data is NOT stored (privacy)                                              │
+│                                                                             │
+│  Alternative (privacy-maximising):                                         │
+│  NIP-44 encrypted ephemeral Nostr events (kind 20000-29999)               │
+│  Higher latency, but operator never sees location data                     │
 └────────────────┬────────────────────────────────────────────────────────────┘
                  │
-                 │ (6) Payment during ride
-                 │
+                 │ (6) Payment during task
                  ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    LIGHTNING NETWORK (DECENTRALIZED)                         │
-│  (Bitcoin Layer 2 - Trustless - Instant Settlement)                         │
-│                                                                               │
-│  Rider Wallet → Operator Node → Driver Wallet                               │
-│                                                                               │
-│  Streaming Payment Flow (every 30 seconds during ride):                     │
-│  1. Rider pays 100 sats → Operator                                          │
-│  2. Operator takes 0.5 sats fee (0.5%)                                      │
-│  3. Operator forwards 99.5 sats → Driver                                    │
-│                                                                               │
-│  OR Stake-Based Flow:                                                        │
-│  1. Rider locks 3000 sats hodl invoice → Operator                           │
-│  2. Driver locks 500 sats hodl invoice → Operator                           │
-│  3. At completion, operator settles invoices                                │
-│     - Rider pays final fare                                                  │
-│     - Driver receives payment                                                │
-│     - Stakes returned                                                        │
-│                                                                               │
-│  Tips (100% to driver):                                                      │
-│  1. Rider pays 500 sats tip                                                 │
-│  2. Operator forwards 500 sats → Driver (NO FEE)                            │
+│                    PAYMENT PROVIDERS (FLEXIBLE)                             │
+│  (User chooses trust model — trustless to custodial)                       │
+│                                                                             │
+│  OPTION A — Trustless (NIP-47, hold invoices):                             │
+│  Requester Wallet ←NIP-47→ Provider Wallet                                 │
+│  Operator role: triggers settlement, NEVER has custody                     │
+│                                                                             │
+│  OPTION B — Custodial third-party (Strike):                                │
+│  Requester pays £12.50 → Strike converts → sats over Lightning → Provider │
+│  Strike holds funds briefly during conversion                              │
+│  Operator role: routing payment requests                                   │
+│                                                                             │
+│  OPTION C — Custodial escrow (Stripe):                                     │
+│  Requester pays £12.50 → Stripe escrow → Released on completion            │
+│  Operator role: confirming completion                                      │
+│                                                                             │
+│  OPTION D — Federated (Cashu/Fedimint):                                    │
+│  Ecash tokens locked in federation → Released on completion                │
+│  Operator role: confirming completion                                      │
+│                                                                             │
+│  Streaming payments (per-second/per-metre) work across all options          │
+│  Tips go 100% to provider (NIP-57 zaps or kind 30513)                      │
 └─────────────────────────────────────────────────────────────────────────────┘
-
 ```
 
 ---
 
-## Decentralization Scorecard
+## Decentralisation Scorecard
 
-| Component | Type | Can Be Censored? | Can Manipulate Data? | Single Point of Failure? |
-|-----------|------|------------------|----------------------|--------------------------|
-| **Nostr Relays** | Decentralized | No (multiple relays) | No (cryptographic signatures) | No (relay diversity) |
-| **Lightning Network** | Decentralized | No (routing) | No (cryptographic proofs) | No (node diversity) |
-| **Operator Service** | Federated | Yes (individual operator can ban) | Yes (operator controls PII) | Yes (per-operator) |
-| **Mobile Apps** | Open Source | No (anyone can fork) | No (user controls keys) | No (permissionless) |
+| Function | Current | Proposed | Change |
+|----------|---------|----------|--------|
+| **Discovery** | Nostr (decentralised) | No change | — |
+| **Reputation** | Nostr (decentralised) | + NIP-85 summaries, NIP-58 badges | Enhancement |
+| **Stake custody** | Operator Lightning node (centralised) | **NIP-47 user wallets (trustless)** | Decentralised |
+| **PII exchange** | Operator DB (centralised) | **NIP-17 gift wrap (encrypted)** | Decentralised |
+| **Coordination** | Operator WebSocket (centralised) | **NIP-44 encrypted Nostr events** | Decentralised |
+| **Live tracking** | Operator WebSocket | **Ephemeral Nostr (optional)** | Optional |
+| **Safety monitoring** | Operator humans | No change | Legally required |
+| **Background checks** | Operator + third party | No change | Legally required |
+| **Payments** | Lightning only | **Multiple providers, trust model transparency** | Flexible |
+
+### What Moved Off the Operator
+
+Three functions that were centralised in the operator are now decentralised:
+
+**1. Stake custody → NIP-47 (Nostr Wallet Connect)**
+
+```
+BEFORE:  Requester Wallet → Operator Lightning Node → Provider Wallet
+         (operator has temporary custody)
+
+AFTER:   Requester Wallet ←NIP-47→ Provider Wallet
+         (hold invoice directly between parties)
+         Operator role: triggers settlement by publishing signed completion event
+         Operator custody: NONE
+```
+
+NIP-47 already supports `make_hold_invoice`, `settle_hold_invoice`, `cancel_hold_invoice` — our exact lock/release/forfeit lifecycle.
+
+For fiat users via Strike: Strike holds funds (not the operator). Trust model: `custodial-third-party`.
+
+**2. PII exchange → NIP-17 + NIP-59 (Gift Wrap)**
+
+```
+BEFORE:  Requester → Operator DB → Provider
+         (operator sees and stores all PII)
+
+AFTER:   Requester → [NIP-59 Gift Wrap] → Nostr Relay → Provider
+         (operator can't read it, relay can't read it)
+```
+
+Three-layer wrapping hides sender, recipient, and timestamps from relay operators. The operator never sees exact addresses, phone numbers, or real names.
+
+**3. Coordination messages → Encrypted Nostr events**
+
+Status updates, ETAs, "I'm outside" messages — previously went through the operator's WebSocket. These become NIP-44 encrypted events published to Nostr, removing the operator from the conversation.
 
 ---
 
-## Where We're Actually Centralized
+## Where We're Centralised (and Why)
 
-### 1. **Operator Service** (Biggest Centralization)
+### 1. Operator Service (Biggest Centralisation)
 
 **What operators control:**
-- Your PII (addresses, GPS traces, payment history)
-- Stake custody (hodl invoices or balances)
-- Real-time location streaming
-- 24/7 safety monitoring
-- Background check results (private)
-- Dispute resolution (though publicly auditable on Nostr)
+- Safety monitoring and emergency response
+- Background check coordination
+- Insurance documentation
+- GDPR-compliant data retention and deletion
+- Complex dispute escalation
 
 **Why we need operators:**
-- **GDPR/CCPA compliance**: Can't delete data from public Nostr relays
-- **Legal liability**: Someone needs to be legally responsible for safety
-- **Insurance**: $1M commercial rideshare policy requires a legal entity
-- **Background checks**: Screening services require API integration by a company
-- **24/7 safety team**: Humans monitoring emergency alerts (legal requirement in CA/NY)
-- **Real-time coordination**: WebSocket streaming is more efficient than Nostr polling
+- **GDPR/CCPA compliance** — need deletable data storage and right-to-erasure
+- **Legal liability** — someone needs to be legally responsible for safety
+- **Insurance** — commercial policies require a legal entity
+- **Background checks** — screening services require a company to integrate
+- **24/7 safety team** — humans monitoring emergency alerts (legal requirement)
 
-**Mitigation (Federated Model):**
-- ✅ Multiple operators compete (NYC, SF, London, etc.)
-- ✅ Operators can't manipulate reputation (stored on Nostr with signatures)
-- ✅ Riders/drivers can switch operators anytime
-- ✅ Operators are bonded (lose bond if malicious)
-- ✅ Operators are auditable (all critical events on public Nostr)
-- ✅ Anyone can run an operator (open source reference implementation)
+**Mitigation (federated model):**
+- Multiple operators compete (London, NYC, Berlin, etc.)
+- Operators can't manipulate reputation (stored on Nostr with cryptographic signatures)
+- Users can switch operators freely
+- Operators are bonded (kind 30540, slashable if malicious)
+- Operators are auditable (all critical events on public Nostr)
+- Anyone can run an operator (open source reference implementation)
 
-### 2. **Background Check Providers**
+### 2. Background Check Providers
 
-**Centralized:**
-- Checkr, Onfido (commercial screening services)
+Checkr, Onfido, or jurisdiction-specific screening services. Required for legal compliance.
 
-**Why:**
-- Access to criminal databases (FBI, state police)
-- DMV records verification
-- Legal compliance requirements
+**Mitigation:** Results published as NIP-58 badges on Nostr — verification is decentralised even if the checking isn't.
 
-**Mitigation:**
-- ✅ Results cryptographically signed and published to Nostr (kind 30595)
-- ✅ Multiple providers can compete
-- ⚠️ Still requires trusting the screening provider
+### 3. Insurance Providers
 
-### 3. **Insurance Providers**
+Commercial liability insurance requires a legal entity.
 
-**Centralized:**
-- Commercial rideshare insurance ($1M liability)
-
-**Why:**
-- Legal requirement in most jurisdictions
-- Risk pooling requires centralized underwriting
-
-**Mitigation:**
-- ✅ Verification published to Nostr (kind 30596)
-- ✅ Multiple insurers can compete
-- ⚠️ Traditional insurance industry is not decentralized
+**Mitigation:** Verification published to Nostr. Multiple insurers can compete.
 
 ---
 
-## What We Exceed Uber/Lyft On
+## Could We Be MORE Decentralised?
 
-Despite being federated (not fully decentralized), we still beat Uber/Lyft:
-
-| Feature | Uber/Lyft | DonkeyRide |
-|---------|-----------|------------|
-| **Operator Monopoly** | ❌ Single company controls everything | ✅ Multiple operators compete |
-| **Platform Fee** | 25-30% | 0.5% (operator fee) |
-| **Deplatforming** | ❌ Can ban drivers/riders arbitrarily | ✅ Drivers can switch operators freely |
-| **Reputation Manipulation** | ❌ Platform controls ratings | ✅ Ratings cryptographically signed on Nostr |
-| **Pricing Transparency** | ❌ Surge pricing is a black box | ✅ Surge calculations publicly auditable |
-| **Data Ownership** | ❌ Uber owns all data | ✅ Users can export/delete data (GDPR) |
-| **Open Protocol** | ❌ Proprietary APIs | ✅ Anyone can build compatible apps |
-| **Censorship Resistance** | ❌ Single point of control | ✅ Can't be shut down (protocol-level) |
-| **Global** | ❌ Country-by-country permission | ✅ Works anywhere (permissionless) |
-
----
-
-## Could We Be MORE Decentralized?
-
-### **Attempt 1: Fully P2P (No Operators)**
+### Attempt 1: Fully P2P (No Operators)
 
 ```
-Rider ←→ Nostr Relays ←→ Driver
-         (only communication layer)
+Requester ←→ Nostr Relays ←→ Provider
+             (only communication layer)
 ```
 
 **Problems:**
-1. ❌ **GDPR Compliance**: Can't delete GPS traces from public Nostr relays
-2. ❌ **Safety Monitoring**: No 24/7 team to respond to emergency alerts (legal requirement)
-3. ❌ **Background Checks**: Who integrates with Checkr? Who pays for screening?
-4. ❌ **Insurance**: Who holds $1M liability policy? (legal requirement)
-5. ❌ **Dispute Resolution**: Who arbitrates? Web-of-trust is too slow for urgent disputes
-6. ❌ **Stake Custody**: Who holds hodl invoices? Fully trustless staking is complex
-7. ❌ **Real-time Location**: Nostr event polling every 3 seconds is inefficient
+1. GDPR compliance — can't delete from Nostr relays
+2. Safety monitoring — no 24/7 team to respond to emergencies (legal requirement)
+3. Background checks — who integrates with screening providers? Who pays?
+4. Insurance — who holds the liability policy? (legal requirement)
+5. Dispute resolution — web-of-trust is too slow for urgent disputes
 
-**Verdict**: ❌ Not viable for production ridesharing (fails legal/safety requirements)
+**Verdict:** Not viable for production services (fails legal/safety requirements)
 
----
-
-### **Attempt 2: Fully On-Chain (Bitcoin)**
+### Attempt 2: Cashu/Fedimint for Stakes
 
 ```
-All ride data + payments on Bitcoin blockchain
+Instead of operators or NIP-47 for stakes:
+Use Cashu ecash mints or Fedimint federations for stake escrow
 ```
 
-**Problems:**
-1. ❌ **Privacy**: Every ride would be permanently public (worse than Nostr)
-2. ❌ **Cost**: Bitcoin tx fees ($1-5) eat into small rides
-3. ❌ **Speed**: 10-min block times too slow for real-time coordination
-4. ❌ **Data Size**: GPS traces would bloat the blockchain
-5. ❌ **GDPR**: Impossible to delete on-chain data
+**Pros:** More private (ecash is anonymous), multi-party custody (federation)
+**Cons:** Still need operators for safety, checks, insurance. Newer technology.
 
-**Verdict**: ❌ Not viable (privacy disaster + expensive + slow)
+**Verdict:** Viable complementary option (already supported as `federated` trust model)
 
----
-
-### **Attempt 3: Federated Nostr Relays (Specialized)**
+### Attempt 3: Ephemeral Nostr for Live Tracking
 
 ```
-Geographic relays per city:
-- wss://nyc-rides.nostr.com
-- wss://sf-rides.nostr.com
-
-Still use operators for PII/safety
+Instead of operator WebSocket for GPS streaming:
+Use NIP-44 encrypted ephemeral events (kind 20000-29999)
 ```
 
-**Pros:**
-- ✅ More efficient discovery (only NYC rides on NYC relay)
-- ✅ Still federated (multiple relays per city)
-- ✅ Operators compete within each market
+**Pros:** Operator never sees real-time location. Fully privacy-preserving.
+**Cons:** Higher latency than direct WebSocket. May affect UX.
 
-**Cons:**
-- ⚠️ Adds complexity (clients must know which relays to connect to)
-- ⚠️ Doesn't solve the "operator sidecar" issue
+**Verdict:** Offered as an option — privacy-maximising users choose ephemeral Nostr, UX-maximising users choose operator WebSocket.
 
-**Verdict**: ✅ Viable, but doesn't eliminate operators (just optimizes relay usage)
+### Attempt 4: Guardian Network for Disputes
 
----
+Guardian voting (kinds 30553-30554) enables decentralised dispute resolution. Simple disputes (GPS proves no-show) can be automated. Complex disputes still need human arbitration.
 
-### **Attempt 4: Cashu/Fedimint for Stakes (More Decentralized Custody)**
-
-```
-Instead of operators holding Lightning hodl invoices:
-- Use Cashu ecash mints for stake custody
-- Use Fedimint federations for stake escrow
-```
-
-**Pros:**
-- ✅ More decentralized custody (federated mints vs single operator)
-- ✅ Privacy-preserving (ecash is anonymous)
-- ✅ Trustless escrow (multisig federations)
-
-**Cons:**
-- ⚠️ Still need operators for: PII storage, safety monitoring, background checks
-- ⚠️ Cashu/Fedimint are newer tech (less battle-tested than Lightning)
-
-**Verdict**: ✅ Viable future enhancement (doesn't eliminate operators, but improves stake custody)
+**Verdict:** Viable for simple disputes. Complex cases still need operators.
 
 ---
 
 ## The Honest Answer
 
-**We are NOT 100% decentralized. We are FEDERATED.**
+**We are NOT 100% decentralised. We are FEDERATED.**
 
-**Architecture:**
 ```
-Decentralized Layer:    Nostr (discovery, reputation, transparency)
-                          ↓
-Federated Layer:        Operators (PII, safety, stakes, real-time)
-                          ↓
-Decentralized Layer:    Lightning (payments)
+Decentralised:  Nostr (discovery + reputation + PII exchange + coordination)
+Decentralised:  NIP-47 / Strike / Payment providers (payments + stakes)
+Federated:      Operators (safety monitoring + background checks + insurance)
 ```
 
-**This is the BEST we can do while:**
+**This is the best we can do while:**
 1. Complying with GDPR/CCPA (need deletable PII storage)
 2. Meeting safety regulations (need 24/7 human monitoring)
 3. Meeting insurance requirements (need legal entity)
 4. Passing background checks (need company integration)
 5. Providing good UX (real-time location streaming)
 
-**We exceed Uber/Lyft because:**
-- ✅ Multiple operators compete (not a monopoly)
-- ✅ Operators can't manipulate reputation (Nostr-based)
-- ✅ Users can switch operators (not locked-in)
-- ✅ Operators are bonded & auditable (slashable if malicious)
-- ✅ Open protocol (anyone can build apps/operators)
-- ✅ 0.5% fee vs 25-30% (operator competition drives fees down)
+**We exceed traditional platforms because:**
+- Multiple operators compete (not a monopoly)
+- Operators can't manipulate reputation (Nostr-based, cryptographically signed)
+- Users can switch operators (not locked-in)
+- Operators are bonded and auditable (slashable if malicious)
+- Open protocol (anyone can build apps/operators)
+- Lower fees (operator competition drives fees down)
+- Payment choice (trustless to custodial, user decides)
 
-**Comparison to other "decentralized" services:**
-- **Email**: Federated (Gmail, ProtonMail, self-hosted) ← WE ARE HERE
-- **Mastodon**: Federated (multiple instances) ← WE ARE HERE
-- **Bitcoin**: Fully decentralized (no operators) ← WE ARE NOT HERE
-- **Nostr**: Fully decentralized (relays are dumb) ← ONLY FOR DISCOVERY
-
----
-
-## The Sidecar Is Real (And Necessary)
-
-**Yes, you're right** - there IS a sidecar service (the Operator).
-
-**Why it's necessary:**
-1. **Legal entities are required** for ridesharing (insurance, liability, compliance)
-2. **PII must be deletable** (GDPR/CCPA) - can't delete from Nostr relays
-3. **Safety monitoring requires humans** (24/7 team is a legal requirement)
-4. **Real-time coordination is more efficient** via WebSocket than Nostr polling
-
-**How we make it "decentralized enough":**
-1. **Multiple operators compete** (not a single Uber)
-2. **Operators are bonded** ($50k-500k bond, slashable if malicious)
-3. **Critical events on Nostr** (can't hide reputation, disputes, safety incidents)
-4. **Users can switch operators** (not locked-in)
-5. **Open source** (anyone can run an operator)
+**Comparison to other federated services:**
+- **Email**: Federated (Gmail, ProtonMail, self-hosted) — **we are here**
+- **Mastodon**: Federated (multiple instances) — **we are here**
+- **Bitcoin**: Fully decentralised (no operators) — we are not here
+- **Nostr**: Fully decentralised (relays are simple) — only for our discovery layer
 
 ---
 
-## Final Verdict
+## See Also
 
-**Claim**: "We are Uber/Lyft 100%"
-**Reality**: ✅ **TRUE** - We match feature parity
-
-**Claim**: "We exceed Uber/Lyft"
-**Reality**: ✅ **TRUE** - We have:
-- Lower fees (0.5% vs 25-30%)
-- Operator competition (not a monopoly)
-- Censorship resistance (can't deplatform from protocol)
-- Open protocol (anyone can build)
-- Transparent pricing (auditable on Nostr)
-
-**Claim**: "We are 100% decentralized"
-**Reality**: ❌ **FALSE** - We are **federated**
-- Nostr layer: 100% decentralized ✅
-- Operator layer: Federated (multiple competing services) ⚠️
-- Payment layer: 100% decentralized ✅
-
-**Best Description**:
-> "DonkeyRide is a **federated ridesharing protocol** built on decentralized rails (Nostr + Lightning), offering Uber/Lyft feature parity with 10x lower fees, censorship resistance, and operator competition - while maintaining legal compliance and user safety through bonded, auditable operators."
-
----
-
-## Recommendation
-
-**Update Marketing Claims:**
-- ❌ "100% decentralized ridesharing"
-- ✅ "Federated ridesharing protocol on Nostr"
-- ✅ "Decentralized discovery, federated operators, trustless payments"
-- ✅ "No platform monopoly - operators compete on your terms"
-
-**Update NIP Abstract:**
-Add clarity about the federated operator model upfront (currently it's buried in the spec).
-
-**Diagrams to Add to NIP:**
-1. This architecture diagram (text-based) ✅
-2. Data flow diagram (what goes where)
-3. Decentralization scorecard (be honest about tradeoffs)
-
----
-
-**Is this architecture acceptable for your goals?**
-
-If you want to be MORE decentralized, we'd need to sacrifice:
-- GDPR compliance (can't delete from Nostr relays)
-- Safety monitoring (no 24/7 human team)
-- Insurance (no legal entity to hold policy)
-- Background checks (no company integration)
-- Real-time UX (Nostr polling is slower than WebSocket)
-
-**The federated model is the sweet spot for production ridesharing.**
+- **[specs/QUICK-REFERENCE.md](./specs/QUICK-REFERENCE.md)** — Event kind table and protocol structure
+- **[TRUST-MECHANISMS.md](./TRUST-MECHANISMS.md)** — 6 layers of trust (reputation, bonds, insurance, limits, multi-sig, trustless)
+- **[docs/GDPR-COMPLIANCE.md](./docs/GDPR-COMPLIANCE.md)** — GDPR compliance architecture
+- **[docs/PAYMENT-PROVIDERS.md](./docs/PAYMENT-PROVIDERS.md)** — Payment provider integration guide
