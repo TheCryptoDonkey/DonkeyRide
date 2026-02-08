@@ -1,5 +1,5 @@
 import type {
-  Task, TripEstimate, AvailableProvider, BtcPrices,
+  Task, TaskQuote, TripEstimate, AvailableProvider, BtcPrices,
   OperatorInfo, Reputation, LatLng,
 } from '../types/api';
 import type { DomainProfile } from '../types/domain';
@@ -57,7 +57,7 @@ function normLoc(loc: { lat: number; lon?: number; lng?: number } | null | undef
  * Handles both the raw ride record and the various response wrappers.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function normaliseTask(raw: any): Task {
+export function normaliseTask(raw: any): Task {
   // The backend may wrap in { success, ride } or { success, ride_id, ... }
   const r = raw.ride || raw;
 
@@ -86,6 +86,13 @@ function normaliseTask(raw: any): Task {
     completedAt: r.timestamps?.completed
       ? new Date(r.timestamps.completed).toISOString()
       : r.completedAt,
+    quote: r.quote ? {
+      amountSats: r.quote.amount_sats ?? r.quote.amountSats ?? 0,
+      description: r.quote.description || '',
+      status: r.quote.status || 'pending',
+      submittedAt: r.quote.submitted_at || r.quote.submittedAt || new Date().toISOString(),
+      respondedAt: r.quote.responded_at || r.quote.respondedAt,
+    } : undefined,
   };
 }
 
@@ -104,13 +111,22 @@ export function getHealth(): Promise<{ status: string }> {
 // ── Domain ──────────────────────────────────────────
 
 /** GET /api/domains — list available domains */
-export function listDomains(): Promise<{ domains: Array<{ id: string; name: string }> }> {
+export function listDomains(): Promise<{
+  current: string;
+  available: Array<{ id: string; name: string; emoji: string }>;
+  count: number;
+}> {
   return request('/api/domains');
 }
 
 /** GET /api/domains/current — active domain profile */
 export function getCurrentDomain(): Promise<DomainProfile> {
   return request('/api/domains/current');
+}
+
+/** GET /api/domains/:id — get a specific domain profile */
+export function getDomain(domainId: string): Promise<DomainProfile> {
+  return request(`/api/domains/${domainId}`);
 }
 
 // ── Tasks ───────────────────────────────────────────
@@ -123,6 +139,7 @@ export async function requestTask(params: {
   requesterNpub?: string;
   pickupAddress?: string;
   dropoffAddress?: string;
+  domain?: string;
 }): Promise<Task> {
   const body: Record<string, unknown> = {
     pickup_lat: params.pickup.lat,
@@ -130,6 +147,10 @@ export async function requestTask(params: {
     rider_pubkey: params.requesterPubkey,
     rider_npub: params.requesterNpub,
   };
+
+  if (params.domain) {
+    body.domain = params.domain;
+  }
 
   if (params.dropoff) {
     body.dropoff_lat = params.dropoff.lat;
@@ -421,4 +442,88 @@ export function getAvailableProviders(params?: {
 /** GET /api/reputation/:npub */
 export function getReputation(npub: string): Promise<Reputation> {
   return request(`/api/reputation/${npub}`);
+}
+
+// ── Proof & Quotes ──────────────────────────────────
+
+/** POST /api/tasks/:id/proof — submit completion proof (photo) */
+export async function submitProof(taskId: string, params: {
+  type: string;
+  file: File;
+  providerPubkey: string;
+}): Promise<{ success: boolean }> {
+  // Convert file to base64 data URL for JSON transport
+  // (the reference server stores metadata only — real file storage is an operator concern)
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(params.file);
+  });
+
+  return request(`/api/tasks/${taskId}/proof`, {
+    method: 'POST',
+    body: JSON.stringify({
+      type: params.type,
+      fileName: params.file.name,
+      mimeType: params.file.type,
+      sizeBytes: params.file.size,
+      dataUrl,
+      providerPubkey: params.providerPubkey,
+    }),
+  });
+}
+
+/** POST /api/tasks/:id/proof/signature — submit signature proof */
+export function submitSignatureProof(taskId: string, params: {
+  dataUrl: string;
+  providerPubkey: string;
+}): Promise<{ success: boolean }> {
+  return request(`/api/tasks/${taskId}/proof`, {
+    method: 'POST',
+    body: JSON.stringify({
+      type: 'signature',
+      signature: params.dataUrl,
+      providerPubkey: params.providerPubkey,
+    }),
+  });
+}
+
+/** POST /api/tasks/:id/quote — provider submits a quote */
+export function submitQuote(taskId: string, params: {
+  amountSats: number;
+  description: string;
+  providerPubkey: string;
+}): Promise<{ success: boolean; quote: TaskQuote }> {
+  return request(`/api/tasks/${taskId}/quote`, {
+    method: 'POST',
+    body: JSON.stringify({
+      amount_sats: params.amountSats,
+      description: params.description,
+      providerPubkey: params.providerPubkey,
+    }),
+  });
+}
+
+/** POST /api/tasks/:id/quote/accept — requester accepts a quote */
+export function acceptQuote(taskId: string, params: {
+  requesterPubkey: string;
+}): Promise<{ success: boolean }> {
+  return request(`/api/tasks/${taskId}/quote/accept`, {
+    method: 'POST',
+    body: JSON.stringify({
+      requesterPubkey: params.requesterPubkey,
+    }),
+  });
+}
+
+/** POST /api/tasks/:id/quote/decline — requester declines a quote */
+export function declineQuote(taskId: string, params: {
+  requesterPubkey: string;
+  reason?: string;
+}): Promise<{ success: boolean }> {
+  return request(`/api/tasks/${taskId}/quote/decline`, {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
 }

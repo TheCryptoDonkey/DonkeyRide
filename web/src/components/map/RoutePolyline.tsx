@@ -46,7 +46,14 @@ function decodePolyline(encoded: string): [number, number][] {
   return coords;
 }
 
-export function RoutePolyline({ geometry, colour = '#b24cf3', opacity = 0.8 }: RoutePolylineProps) {
+function getThemeRouteColour(): string {
+  return getComputedStyle(document.documentElement)
+    .getPropertyValue('--theme-route-colour')
+    .trim() || '#b24cf3';
+}
+
+export function RoutePolyline({ geometry, colour, opacity = 0.8 }: RoutePolylineProps) {
+  const resolvedColour = colour || getThemeRouteColour();
   const positions = decodePolyline(geometry);
 
   if (positions.length === 0) return null;
@@ -54,7 +61,7 @@ export function RoutePolyline({ geometry, colour = '#b24cf3', opacity = 0.8 }: R
   return (
     <Polyline
       positions={positions}
-      pathOptions={{ color: colour, weight: 4, opacity }}
+      pathOptions={{ color: resolvedColour, weight: 4, opacity }}
     />
   );
 }

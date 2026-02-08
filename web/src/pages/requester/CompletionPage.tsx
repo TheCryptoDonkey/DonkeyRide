@@ -7,6 +7,7 @@ import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { useDomain } from '../../context/DomainContext';
 import { submitRating, sendTip } from '../../services/api';
+import { GuaranteeBanner } from '../../components/task/GuaranteeBanner';
 import { formatDistance, formatDuration } from '../../services/pricing';
 
 export function CompletionPage() {
@@ -86,6 +87,14 @@ export function CompletionPage() {
             </p>
           )}
         </div>
+
+        {/* Guarantee period banner */}
+        {profile?.features.guaranteePeriod && (
+          <GuaranteeBanner
+            providerLabel={providerLabel}
+            taskNoun={taskNoun}
+          />
+        )}
 
         {/* Rating */}
         {!submitted ? (

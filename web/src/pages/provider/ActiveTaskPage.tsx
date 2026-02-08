@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapView } from '../../components/map/MapView';
 import { LocationMarker } from '../../components/map/LocationMarker';
@@ -11,10 +11,15 @@ import { useIdentity } from '../../context/IdentityContext';
 import { useDomain } from '../../context/DomainContext';
 import { useLocation } from '../../hooks/useLocation';
 import { useWebSocket } from '../../hooks/useWebSocket';
+import { useLiveTracking } from '../../modules/pii';
 import {
   arriveAtOrigin, startTask, completeTask, transitionTask,
-  updateLocation, triggerPanic, getTask,
+  triggerPanic, getTask, submitProof,
+  submitSignatureProof, submitQuote,
 } from '../../services/api';
+import { PhotoProof } from '../../components/task/PhotoProof';
+import { SignatureCapture } from '../../components/task/SignatureCapture';
+import { QuotePanel } from '../../components/task/QuotePanel';
 import type { WsMessage } from '../../types/api';
 
 /** Map known state keys to existing API endpoints */
@@ -40,34 +45,24 @@ export function ActiveTaskPage() {
   const { identity } = useIdentity();
   const { profile } = useDomain();
   const { location } = useLocation(true);
-  const locationTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const originLabel = profile?.labels?.originLabel || 'Pickup';
   const destinationLabel = profile?.labels?.destinationLabel || 'Dropoff';
+  const taskNoun = profile?.labels?.taskNoun || 'task';
   const requiresDestination = profile?.features.requiresDestination !== false;
 
   useEffect(() => {
     if (!activeTask) navigate('/provide');
   }, [activeTask, navigate]);
 
-  // Send location updates every 3 seconds
-  useEffect(() => {
-    if (!activeTask || !identity) return;
-    locationTimer.current = setInterval(async () => {
-      try {
-        await updateLocation(activeTask.id, {
-          lat: location.lat,
-          lng: location.lng,
-          providerPubkey: identity.pubKeyHex,
-        });
-      } catch {
-        // Ignore
-      }
-    }, 3000);
-    return () => {
-      if (locationTimer.current) clearInterval(locationTimer.current);
-    };
-  }, [activeTask?.id, identity, location.lat, location.lng]);
+  // Send location updates via PII module (only when liveTracking is enabled)
+  useLiveTracking({
+    taskId: activeTask?.id || null,
+    providerPubkey: identity?.pubKeyHex || null,
+    lat: location.lat,
+    lng: location.lng,
+    enabled: !!(profile?.features.liveTracking && activeTask && identity),
+  });
 
   // Handle WebSocket messages
   const handleWsMessage = useCallback((msg: WsMessage) => {
@@ -125,6 +120,11 @@ export function ActiveTaskPage() {
       providerPubkey: identity.pubKeyHex,
     });
     setActiveTask(updated);
+    // Navigate to completion if we've reached a terminal state
+    const terminalStates = profile?.states.terminal || [];
+    if (terminalStates.includes(updated.status)) {
+      navigate('/provide/complete');
+    }
   };
 
   const handlePanic = async () => {
@@ -170,23 +170,35 @@ export function ActiveTaskPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Map */}
-      <div className="flex-1 relative">
-        <MapView centre={location} zoom={15}>
-          <LocationMarker position={location} label="You" colour="blue" />
-          <LocationMarker position={activeTask.pickup} label={originLabel} colour="green" />
-          {requiresDestination && activeTask.dropoff && (
-            <LocationMarker position={activeTask.dropoff} label={destinationLabel} colour="red" />
-          )}
-          {activeTask.routeGeometry && (
-            <RoutePolyline geometry={activeTask.routeGeometry} colour="#4fc3f7" />
-          )}
-        </MapView>
+      {profile?.features.navigation !== false ? (
+        <div className="flex-1 relative">
+          <MapView centre={location} zoom={15}>
+            <LocationMarker position={location} label="You" colour="blue" />
+            <LocationMarker position={activeTask.pickup} label={originLabel} colour="green" />
+            {requiresDestination && activeTask.dropoff && (
+              <LocationMarker position={activeTask.dropoff} label={destinationLabel} colour="red" />
+            )}
+            {activeTask.routeGeometry && (
+              <RoutePolyline geometry={activeTask.routeGeometry} />
+            )}
+          </MapView>
 
-        {/* Connection indicator */}
-        <div className="absolute top-3 right-3 z-10">
-          <div className={`status-dot-glow ${connected ? 'glow-green' : 'glow-orange'}`} />
+          {/* Connection indicator */}
+          <div className="absolute top-3 right-3 z-10">
+            <div className={`status-dot-glow ${connected ? 'glow-green' : 'glow-orange'}`} />
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center bg-donkey-bg relative">
+          <div className="card text-center max-w-sm">
+            <p className="text-lg font-bold text-donkey-text">{taskNoun} active</p>
+            <p className="text-sm text-donkey-muted mt-1">Use the controls below to manage the {taskNoun}</p>
+          </div>
+          <div className="absolute top-3 right-3 z-10">
+            <div className={`status-dot-glow ${connected ? 'glow-green' : 'glow-orange'}`} />
+          </div>
+        </div>
+      )}
 
       {/* Control panel */}
       <div className="bg-donkey-surface border-t-2 border-donkey-border p-5 space-y-3 shadow-panel">
@@ -208,7 +220,7 @@ export function ActiveTaskPage() {
         )}
 
         {/* Streaming payment progress */}
-        {activeTask.streamingPayment && (
+        {profile?.features.streaming && activeTask.streamingPayment && (
           <div className="earnings-card">
             <div className="flex justify-between text-xs mb-2">
               <span className="meta-label">Earning</span>
@@ -224,11 +236,64 @@ export function ActiveTaskPage() {
                     (activeTask.streamingPayment.totalPaidSats / activeTask.fareEstimateSats) * 100,
                     100,
                   )}%`,
-                  boxShadow: '0 0 8px rgba(0, 255, 136, 0.5)',
+                  boxShadow: '0 0 8px rgba(var(--theme-accent-rgb), 0.5)',
                 }}
               />
             </div>
           </div>
+        )}
+
+        {/* Quote negotiation — provider submits quote after arrival */}
+        {profile?.features.quoteNegotiation &&
+          status === profile?.states.values.PROVIDER_ARRIVED && (
+          <QuotePanel
+            mode="provider"
+            taskId={activeTask.id}
+            existingQuote={activeTask.quote}
+            onSubmit={async (amountSats, description) => {
+              await submitQuote(activeTask.id, {
+                amountSats,
+                description,
+                providerPubkey: identity.pubKeyHex,
+              });
+              const updated = await getTask(activeTask.id);
+              setActiveTask(updated);
+            }}
+          />
+        )}
+
+        {/* Photo proof — shown at states where proof is expected */}
+        {profile?.features.photos && (
+          status === profile?.states.values.PROVIDER_ARRIVED ||
+          status === profile?.states.values.COLLECTED ||
+          status === profile?.states.values.ARRIVED_AT_DELIVERY
+        ) && (
+          <PhotoProof
+            taskId={activeTask.id}
+            label={status === profile?.states.values.ARRIVED_AT_DELIVERY ? 'Delivery proof' : 'Collection proof'}
+            onSubmit={async (file) => {
+              await submitProof(activeTask.id, {
+                type: 'photo',
+                file,
+                providerPubkey: identity.pubKeyHex,
+              });
+            }}
+          />
+        )}
+
+        {/* Signature capture — typically at delivery completion */}
+        {profile?.features.signatures && (
+          status === profile?.states.values.ARRIVED_AT_DELIVERY
+        ) && (
+          <SignatureCapture
+            label="Recipient signature"
+            onSubmit={async (dataUrl) => {
+              await submitSignatureProof(activeTask.id, {
+                dataUrl,
+                providerPubkey: identity.pubKeyHex,
+              });
+            }}
+          />
         )}
 
         {/* Dynamic action buttons */}

@@ -28,6 +28,15 @@ export interface Task {
   completedAt?: string;
   rating?: number;
   tip?: number;
+  quote?: TaskQuote;
+}
+
+export interface TaskQuote {
+  amountSats: number;
+  description: string;
+  status: 'pending' | 'accepted' | 'declined' | 'countered';
+  submittedAt: string;
+  respondedAt?: string;
 }
 
 export interface FiatAmount {

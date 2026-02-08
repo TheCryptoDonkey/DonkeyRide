@@ -4,6 +4,7 @@ import {
 } from 'react';
 import type { Task, TripEstimate, LatLng } from '../types/api';
 import { getTask } from '../services/api';
+import { useDomain } from './DomainContext';
 
 const STORAGE_KEYS = {
   activeTask: 'donkeyride.activeTask',
@@ -68,6 +69,7 @@ const TaskContext = createContext<TaskState>({
 });
 
 export function TaskProvider({ children }: { children: ReactNode }) {
+  const { profile } = useDomain();
   const [activeTask, setActiveTaskState] = useState<Task | null>(() => loadJson(STORAGE_KEYS.activeTask));
   const [estimate, setEstimate] = useState<TripEstimate | null>(null);
   const [origin, setOriginState] = useState<LatLng | null>(() => loadJson(STORAGE_KEYS.origin));
@@ -107,12 +109,9 @@ export function TaskProvider({ children }: { children: ReactNode }) {
 
     getTask(stored.id)
       .then((fresh) => {
-        // Clear if task has reached a terminal state
-        // We check common terminal states — the profile isn't available here
-        // so we use a heuristic: if the status contains 'cancelled', 'completed',
-        // 'delivered', or 'access_gained', treat it as terminal
-        const terminalPatterns = ['cancelled', 'completed', 'delivered', 'access_gained'];
-        const isTerminal = terminalPatterns.some(p => fresh.status.includes(p));
+        // Clear if task has reached a terminal state using the domain profile
+        const terminalStates = profile?.states.terminal || [];
+        const isTerminal = terminalStates.includes(fresh.status);
         if (isTerminal) {
           reset();
         } else {
@@ -123,7 +122,7 @@ export function TaskProvider({ children }: { children: ReactNode }) {
         // Task not found — clear
         reset();
       });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [profile]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <TaskContext.Provider

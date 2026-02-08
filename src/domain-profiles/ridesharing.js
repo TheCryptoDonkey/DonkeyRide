@@ -7,7 +7,7 @@
 
 const profile = {
   id: 'ridesharing',
-  name: 'Ridesharing',
+  name: 'DonkeyRide',
   description: 'Peer-to-peer ridesharing coordination with real-time tracking and streaming payments.',
 
   discoveryMethod: 'geohash',
@@ -86,6 +86,20 @@ const profile = {
     quoteNegotiation: false,
     guaranteePeriod: false,
     requiresDestination: true
+  },
+
+  theme: {
+    primary: '#b24cf3',
+    primaryRgb: '178, 76, 243',
+    secondary: '#ff6ec7',
+    secondaryRgb: '255, 110, 199',
+    accent: '#00ff88',
+    accentRgb: '0, 255, 136',
+    gradientFrom: '#b24cf3',
+    gradientTo: '#ff6ec7',
+    gradientAngle: '135deg',
+    routeColour: '#b24cf3',
+    emoji: '🚗',
   },
 
   eventKinds: {

@@ -1,3 +1,17 @@
+export interface DomainTheme {
+  primary: string;
+  primaryRgb: string;
+  secondary: string;
+  secondaryRgb: string;
+  accent: string;
+  accentRgb: string;
+  gradientFrom: string;
+  gradientTo: string;
+  gradientAngle: string;
+  routeColour: string;
+  emoji: string;
+}
+
 /** Domain profile as returned by /api/domains/current */
 export interface DomainProfile {
   id: string;
@@ -33,6 +47,7 @@ export interface DomainProfile {
   regulatoryBodies: Record<string, { name: string; required: boolean }>;
   features: DomainFeatures;
   eventKinds: Record<string, number>;
+  theme: DomainTheme;
 }
 
 export interface DomainLabels {

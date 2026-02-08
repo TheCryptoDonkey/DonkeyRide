@@ -141,6 +141,20 @@ function validateProfile(profile) {
       resolution: 30524,
       rating: 30530,
       ...profile.eventKinds
+    },
+    theme: {
+      primary: '#b24cf3',
+      primaryRgb: '178, 76, 243',
+      secondary: '#ff6ec7',
+      secondaryRgb: '255, 110, 199',
+      accent: '#00ff88',
+      accentRgb: '0, 255, 136',
+      gradientFrom: '#b24cf3',
+      gradientTo: '#ff6ec7',
+      gradientAngle: '135deg',
+      routeColour: '#b24cf3',
+      emoji: '',
+      ...profile.theme,
     }
   };
 

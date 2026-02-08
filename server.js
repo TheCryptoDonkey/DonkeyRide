@@ -216,8 +216,103 @@ const rideStreamingTimers = new Map();
 const STREAM_INTERVAL_MS = 1000;
 const STREAM_STEPS = 15;
 
-// Initialise task/ride manager with the loaded domain profile
-const rideManager = new TaskManager(domainProfile);
+// Multi-domain task manager — routes operations to the correct domain's TaskManager.
+// Supports frontend domain switching: tasks created under locksmith use locksmith states, etc.
+const _domainManagers = new Map();
+_domainManagers.set(domainProfile.id, new TaskManager(domainProfile));
+
+function _getManagerForDomain(domainId) {
+    if (!_domainManagers.has(domainId)) {
+        const profile = loadProfile(domainId);
+        _domainManagers.set(domainId, new TaskManager(profile));
+    }
+    return _domainManagers.get(domainId);
+}
+
+// Index: rideId → domainId (populated on create, lazy-filled on lookup)
+const _rideIndex = new Map();
+
+function _getManagerForRide(rideId) {
+    const cached = _rideIndex.get(rideId);
+    if (cached && _domainManagers.has(cached)) {
+        return _domainManagers.get(cached);
+    }
+    for (const [domainId, mgr] of _domainManagers) {
+        if (mgr.getRide(rideId)) {
+            _rideIndex.set(rideId, domainId);
+            return mgr;
+        }
+    }
+    return _domainManagers.get(domainProfile.id);
+}
+
+// Drop-in replacement for the single TaskManager — same API, multi-domain routing
+const rideManager = {
+    // Ride lookup — searches all domain managers
+    getRide(rideId) {
+        return _getManagerForRide(rideId).getRide(rideId);
+    },
+
+    // Creation — accepts optional domain as last argument
+    createRide(requester, pickup, dropoff, fare, options = {}) {
+        const domain = options.domain || domainProfile.id;
+        delete options.domain;
+        const mgr = _getManagerForDomain(domain);
+        const ride = mgr.createRide(requester, pickup, dropoff, fare, options);
+        _rideIndex.set(ride.id, domain);
+        return ride;
+    },
+
+    // All per-ride operations delegate to the correct manager
+    acceptRide(rideId, ...args) { return _getManagerForRide(rideId).acceptRide(rideId, ...args); },
+    startEnRoute(rideId, ...args) { return _getManagerForRide(rideId).startEnRoute(rideId, ...args); },
+    arriveAtPickup(rideId, ...args) { return _getManagerForRide(rideId).arriveAtPickup(rideId, ...args); },
+    startTrip(rideId, ...args) { return _getManagerForRide(rideId).startTrip(rideId, ...args); },
+    completeTrip(rideId, ...args) { return _getManagerForRide(rideId).completeTrip(rideId, ...args); },
+    cancelRide(rideId, ...args) { return _getManagerForRide(rideId).cancelRide(rideId, ...args); },
+    transitionTo(rideId, ...args) { return _getManagerForRide(rideId).transitionTo(rideId, ...args); },
+    updateDriverLocation(rideId, ...args) { return _getManagerForRide(rideId).updateDriverLocation(rideId, ...args); },
+    recordRating(rideId, ...args) { return _getManagerForRide(rideId).recordRating(rideId, ...args); },
+
+    // Terminal check — uses the ride's own domain
+    isTerminal(status) {
+        for (const mgr of _domainManagers.values()) {
+            if (mgr.isTerminal(status)) return true;
+        }
+        return false;
+    },
+
+    // ETA calculation is domain-independent (haversine)
+    calculateETA(from, to, speed) {
+        return _domainManagers.get(domainProfile.id).calculateETA(from, to, speed);
+    },
+
+    // Aggregate methods — merge across all domains
+    getActiveRides() {
+        const all = [];
+        for (const mgr of _domainManagers.values()) {
+            all.push(...mgr.getActiveRides());
+        }
+        return all;
+    },
+    getActiveTasks() { return this.getActiveRides(); },
+
+    getStats() {
+        const merged = { total: 0 };
+        for (const mgr of _domainManagers.values()) {
+            const s = mgr.getStats();
+            for (const [key, val] of Object.entries(s)) {
+                merged[key] = (merged[key] || 0) + val;
+            }
+        }
+        return merged;
+    },
+
+    // Get the domain profile for a specific ride
+    getProfileForRide(rideId) {
+        return _getManagerForRide(rideId).profile;
+    },
+};
 const relayConfig = (process.env.REPUTATION_RELAYS || `${process.env.NOSTR_RELAYS || ''},${config.nostrRelay || ''}`)
     .split(',')
     .map(r => r.trim())
@@ -348,7 +443,10 @@ function sendPendingRideRequests(ws) {
     }
 
     const pendingRides = rideManager.getActiveRides().filter(
-        (ride) => ride.status === RideStatus.REQUESTED
+        (ride) => {
+            const p = rideManager.getProfileForRide(ride.id);
+            return ride.status === p.states.values.REQUESTED;
+        }
     );
 
     pendingRides.forEach((ride) => {
@@ -788,13 +886,15 @@ app.post('/rides/:rideId/complete', async (req, res) => {
         ride.completedAt = completionTimestamp;
 
         const rideRecord = rideManager.getRide(rideId);
-        if (rideRecord && rideRecord.status !== RideStatus.COMPLETED) {
+        const rideProfile = rideManager.getProfileForRide(rideId);
+        const completedState = rideProfile.states.values.COMPLETED;
+        if (rideRecord && rideRecord.status !== completedState) {
             try {
                 rideManager.completeTrip(rideId, payment);
             } catch (err) {
                 console.warn(`Ride ${rideId} completion already processed:`, err.message);
             }
-        } else if (rideRecord && rideRecord.status === RideStatus.COMPLETED) {
+        } else if (rideRecord && rideRecord.status === completedState) {
             rideRecord.payment = rideRecord.payment || payment;
         }
 
@@ -1218,8 +1318,14 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 rider_npub,
                 ride_id,
                 fare_sats,
-                currency
+                currency,
+                domain
             } = req.body;
+
+            // Use request-specified domain profile if provided, else the server's startup profile
+            const requestProfile = domain && domain !== domainProfile.id
+                ? (() => { try { return loadProfile(domain); } catch { return domainProfile; } })()
+                : domainProfile;
 
             let fiatCurrency = typeof currency === 'string' ? currency.toUpperCase() : 'GBP';
             if (!['USD', 'EUR', 'GBP'].includes(fiatCurrency)) {
@@ -1234,7 +1340,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 });
             }
 
-            if (domainProfile.features.requiresDestination && (!dropoff_lat || !dropoff_lon)) {
+            if (requestProfile.features.requiresDestination && (!dropoff_lat || !dropoff_lon)) {
                 return res.status(400).json({
                     error: 'Missing required parameters',
                     required: ['dropoff_lat', 'dropoff_lon']
@@ -1247,6 +1353,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             const sessionForRide = ride_id ? activeRides.get(ride_id) : null;
             const riderPubkeyHex = (sessionForRide?.riderId || req.body.rider_pubkey || '').toLowerCase() || null;
             rideOptions.currency = fiatCurrency;
+            rideOptions.domain = requestProfile.id;
 
             // Try to get OSRM route for real road routing
             let distance, duration, routeCoordinates = null;
@@ -1444,11 +1551,12 @@ app.post('/api/rides/:rideId/location', async (req, res) => {
             return res.status(404).json({ error: 'Ride not found' });
         }
 
-        // Determine destination based on status
+        // Determine destination based on status (using the ride's domain profile)
+        const rideProfile = rideManager.getProfileForRide(rideId);
         let destination;
-        if (ride.status === RideStatus.DRIVER_EN_ROUTE) {
+        if (ride.status === rideProfile.states.values.PROVIDER_EN_ROUTE) {
             destination = ride.pickup;
-        } else if (ride.status === RideStatus.ACTIVE) {
+        } else if (ride.status === rideProfile.states.values.ACTIVE) {
             destination = ride.dropoff;
         }
 
@@ -1461,12 +1569,16 @@ app.post('/api/rides/:rideId/location', async (req, res) => {
         // Update location
         rideManager.updateDriverLocation(rideId, { lat, lon }, eta);
 
-        // Broadcast to rider
+        // Broadcast to rider (both legacy and React frontend formats)
         broadcastToRide(rideId, {
             type: 'driver_location',
             ride_id: rideId,
             location: { lat, lon },
             eta_seconds: eta
+        });
+        broadcastToRide(rideId, {
+            type: 'location_update',
+            data: { lat, lng: lon, eta_seconds: eta }
         });
 
         res.json({
@@ -1695,8 +1807,9 @@ app.post('/api/rides/:rideId/rate', async (req, res) => {
             return res.status(404).json({ error: 'Ride not found' });
         }
 
-        if (ride.status !== RideStatus.COMPLETED) {
-            return res.status(400).json({ error: 'Ride not completed yet' });
+        const rideProfile = rideManager.getProfileForRide(rideId);
+        if (!rideManager.isTerminal(ride.status) || ride.status === rideProfile.states.values.CANCELLED) {
+            return res.status(400).json({ error: 'Task not completed yet' });
         }
 
         // Path A: Full Nostr event (legacy / advanced clients)
@@ -1821,6 +1934,150 @@ app.post('/api/rides/:rideId/tip', async (req, res) => {
     } catch (error) {
         console.error('Error submitting tip:', error);
         res.status(500).json({ error: 'Failed to submit tip' });
+    }
+});
+
+// ==========================================
+// PROOF & QUOTE ENDPOINTS
+// ==========================================
+
+// Submit completion proof (photo or signature)
+app.post('/api/rides/:rideId/proof', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const ride = rideManager.getRide(rideId);
+
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        ride.proofs = ride.proofs || [];
+
+        // Handle JSON-based signature proofs
+        if (req.body && req.body.type === 'signature') {
+            ride.proofs.push({
+                type: 'signature',
+                data: req.body.signature,
+                timestamp: Date.now(),
+                providerPubkey: req.body.providerPubkey,
+            });
+            return res.json({ success: true, proofCount: ride.proofs.length });
+        }
+
+        // Handle photo proofs (JSON with base64 data URL)
+        // Store metadata only — file storage is an operator concern
+        ride.proofs.push({
+            type: req.body?.type || 'photo',
+            fileName: req.body?.fileName,
+            mimeType: req.body?.mimeType,
+            sizeBytes: req.body?.sizeBytes,
+            timestamp: Date.now(),
+            providerPubkey: req.body?.providerPubkey,
+        });
+
+        res.json({ success: true, proofCount: ride.proofs.length });
+    } catch (error) {
+        console.error('Error submitting proof:', error);
+        res.status(500).json({ error: 'Failed to submit proof' });
+    }
+});
+
+// Provider submits a quote
+app.post('/api/rides/:rideId/quote', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const { amount_sats, description, providerPubkey } = req.body || {};
+
+        if (!Number.isFinite(amount_sats) || amount_sats <= 0) {
+            return res.status(400).json({ error: 'Invalid quote amount' });
+        }
+        if (!description || typeof description !== 'string') {
+            return res.status(400).json({ error: 'Description is required' });
+        }
+
+        const ride = rideManager.getRide(rideId);
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        ride.quote = {
+            amount_sats,
+            description,
+            status: 'pending',
+            submitted_at: new Date().toISOString(),
+            provider_pubkey: providerPubkey,
+        };
+
+        broadcastToRide(rideId, {
+            type: 'quote_submitted',
+            ride_id: rideId,
+            quote: ride.quote,
+        });
+
+        res.json({ success: true, quote: ride.quote });
+    } catch (error) {
+        console.error('Error submitting quote:', error);
+        res.status(500).json({ error: 'Failed to submit quote' });
+    }
+});
+
+// Requester accepts a quote
+app.post('/api/rides/:rideId/quote/accept', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const ride = rideManager.getRide(rideId);
+
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+        if (!ride.quote || ride.quote.status !== 'pending') {
+            return res.status(400).json({ error: 'No pending quote to accept' });
+        }
+
+        ride.quote.status = 'accepted';
+        ride.quote.responded_at = new Date().toISOString();
+        ride.fare = ride.quote.amount_sats;
+
+        broadcastToRide(rideId, {
+            type: 'quote_accepted',
+            ride_id: rideId,
+            quote: ride.quote,
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error accepting quote:', error);
+        res.status(500).json({ error: 'Failed to accept quote' });
+    }
+});
+
+// Requester declines a quote
+app.post('/api/rides/:rideId/quote/decline', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const ride = rideManager.getRide(rideId);
+
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+        if (!ride.quote || ride.quote.status !== 'pending') {
+            return res.status(400).json({ error: 'No pending quote to decline' });
+        }
+
+        ride.quote.status = 'declined';
+        ride.quote.responded_at = new Date().toISOString();
+        if (req.body?.reason) ride.quote.decline_reason = req.body.reason;
+
+        broadcastToRide(rideId, {
+            type: 'quote_declined',
+            ride_id: rideId,
+            quote: ride.quote,
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error declining quote:', error);
+        res.status(500).json({ error: 'Failed to decline quote' });
     }
 });
 
@@ -1990,6 +2247,7 @@ app.get('/api/domains', publicRateLimiter, (req, res) => {
                 id: profile.id,
                 name: profile.name,
                 description: profile.description,
+                emoji: profile.theme?.emoji || '',
                 roles: profile.roles,
                 discoveryMethod: profile.discoveryMethod,
                 pricingModel: profile.pricingModel,
@@ -2024,8 +2282,35 @@ app.get('/api/domains/current', publicRateLimiter, (req, res) => {
         features: domainProfile.features,
         regulatoryBodies: domainProfile.regulatoryBodies,
         states: domainProfile.states,
-        eventKinds: domainProfile.eventKinds
+        eventKinds: domainProfile.eventKinds,
+        theme: domainProfile.theme
     });
+});
+
+// Get a specific domain profile by ID
+app.get('/api/domains/:id', publicRateLimiter, (req, res) => {
+    try {
+        const profile = loadProfile(req.params.id);
+        res.json({
+            id: profile.id,
+            name: profile.name,
+            description: profile.description,
+            roles: profile.roles,
+            labels: profile.labels,
+            discoveryMethod: profile.discoveryMethod,
+            pricingModel: profile.pricingModel,
+            stakingModel: profile.stakingModel,
+            completionProofTypes: profile.completionProofTypes,
+            ratingCriteria: profile.ratingCriteria,
+            features: profile.features,
+            regulatoryBodies: profile.regulatoryBodies,
+            states: profile.states,
+            eventKinds: profile.eventKinds,
+            theme: profile.theme
+        });
+    } catch (error) {
+        res.status(404).json({ error: `Domain profile '${req.params.id}' not found` });
+    }
 });
 
 // ==========================================
@@ -2153,6 +2438,7 @@ async function startServer(options = {}) {
     API Endpoints:
     GET  /api/domains              - List available domain profiles
     GET  /api/domains/current      - Current domain profile details
+    GET  /api/domains/:id          - Get a specific domain profile by ID
     GET  /api/drivers/available    - List online ${domainProfile.roles.provider}s
     POST /api/trips/estimate       - Estimate cost
     GET  /api/prices/btc           - Get BTC prices

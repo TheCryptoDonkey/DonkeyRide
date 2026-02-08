@@ -11,7 +11,7 @@
 
 const profile = {
   id: 'delivery',
-  name: 'Parcel Delivery',
+  name: 'DonkeyPack',
   description: 'Peer-to-peer parcel delivery with real-time tracking, photo proof, and digital signatures.',
 
   discoveryMethod: 'geohash',
@@ -101,6 +101,20 @@ const profile = {
     quoteNegotiation: false,
     guaranteePeriod: false,
     requiresDestination: true
+  },
+
+  theme: {
+    primary: '#0891b2',
+    primaryRgb: '8, 145, 178',
+    secondary: '#06b6d4',
+    secondaryRgb: '6, 182, 212',
+    accent: '#22d3ee',
+    accentRgb: '34, 211, 238',
+    gradientFrom: '#0891b2',
+    gradientTo: '#06b6d4',
+    gradientAngle: '135deg',
+    routeColour: '#0891b2',
+    emoji: '📦',
   },
 
   eventKinds: {

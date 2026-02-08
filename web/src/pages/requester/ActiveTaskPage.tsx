@@ -12,7 +12,8 @@ import { useIdentity } from '../../context/IdentityContext';
 import { useDomain } from '../../context/DomainContext';
 import { useLocation } from '../../hooks/useLocation';
 import { useWebSocket } from '../../hooks/useWebSocket';
-import { triggerPanic, cancelTask, getTask } from '../../services/api';
+import { triggerPanic, cancelTask, getTask, acceptQuote, declineQuote } from '../../services/api';
+import { QuotePanel } from '../../components/task/QuotePanel';
 import type { WsMessage } from '../../types/api';
 
 export function ActiveTaskPage() {
@@ -38,7 +39,9 @@ export function ActiveTaskPage() {
   const handleWsMessage = useCallback((msg: WsMessage) => {
     switch (msg.type) {
       case 'location_update':
-        setProviderLocation({ lat: msg.data.lat, lng: msg.data.lng });
+        if (profile?.features.liveTracking) {
+          setProviderLocation({ lat: msg.data.lat, lng: msg.data.lng });
+        }
         break;
       case 'status_change':
         if (activeTask) {
@@ -61,10 +64,10 @@ export function ActiveTaskPage() {
       try {
         const updated = await getTask(activeTask.id);
         setActiveTask(updated);
-        // Check terminal states from profile or hardcoded fallback
-        const terminalStates = profile?.states.terminal || ['completed', 'cancelled'];
+        const terminalStates = profile?.states.terminal || [];
+        const cancelledValue = profile?.states.values.CANCELLED || 'cancelled';
         if (terminalStates.includes(updated.status)) {
-          if (updated.status !== 'cancelled') navigate('/request/complete');
+          if (updated.status !== cancelledValue) navigate('/request/complete');
           else navigate('/request');
         }
       } catch {
@@ -98,26 +101,41 @@ export function ActiveTaskPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Map */}
-      <div className="flex-1 relative">
-        <MapView centre={centre} zoom={15}>
-          <LocationMarker position={origin} label={originLabel} colour="green" />
-          {requiresDestination && destination && (
-            <LocationMarker position={destination} label={destinationLabel} colour="red" />
-          )}
-          {providerLocation && (
-            <LocationMarker position={providerLocation} label={providerRoleLabel} colour="blue" />
-          )}
-          {activeTask.routeGeometry && (
-            <RoutePolyline geometry={activeTask.routeGeometry} />
-          )}
-        </MapView>
+      {profile?.features.navigation !== false ? (
+        <div className="flex-1 relative">
+          <MapView centre={centre} zoom={15}>
+            <LocationMarker position={origin} label={originLabel} colour="green" />
+            {requiresDestination && destination && (
+              <LocationMarker position={destination} label={destinationLabel} colour="red" />
+            )}
+            {profile?.features.liveTracking && providerLocation && (
+              <LocationMarker position={providerLocation} label={providerRoleLabel} colour="blue" />
+            )}
+            {activeTask.routeGeometry && (
+              <RoutePolyline geometry={activeTask.routeGeometry} />
+            )}
+          </MapView>
 
-        {/* Connection indicator */}
-        <div className="absolute top-3 right-3 z-10">
-          <div className={`status-dot-glow ${connected ? 'glow-green' : 'glow-orange'}`}
-               title={connected ? 'Connected' : 'Reconnecting...'} />
+          {/* Connection indicator */}
+          <div className="absolute top-3 right-3 z-10">
+            <div className={`status-dot-glow ${connected ? 'glow-green' : 'glow-orange'}`}
+                 title={connected ? 'Connected' : 'Reconnecting...'} />
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center bg-donkey-bg">
+          <div className="card text-center max-w-sm">
+            <p className="text-lg font-bold text-donkey-text mb-2">{taskNoun} in progress</p>
+            <p className="text-sm text-donkey-muted">
+              Your {providerRoleLabel.toLowerCase()} is on the way
+            </p>
+            <div className="mt-3">
+              <div className={`status-dot-glow inline-block ${connected ? 'glow-green' : 'glow-orange'}`}
+                   title={connected ? 'Connected' : 'Reconnecting...'} />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Status panel */}
       <div className="bg-donkey-surface border-t-2 border-donkey-border p-5 space-y-3 shadow-panel">
@@ -147,7 +165,7 @@ export function ActiveTaskPage() {
         )}
 
         {/* Streaming payment progress */}
-        {activeTask.streamingPayment && (
+        {profile?.features.streaming && activeTask.streamingPayment && (
           <div className="meta-card">
             <div className="flex justify-between text-xs mb-2">
               <span className="meta-label">Streaming payment</span>
@@ -163,11 +181,35 @@ export function ActiveTaskPage() {
                     (activeTask.streamingPayment.totalPaidSats / activeTask.fareEstimateSats) * 100,
                     100,
                   )}%`,
-                  boxShadow: '0 0 8px rgba(0, 255, 136, 0.5)',
+                  boxShadow: '0 0 8px rgba(var(--theme-accent-rgb), 0.5)',
                 }}
               />
             </div>
           </div>
+        )}
+
+        {/* Quote review — requester sees when provider has submitted a quote */}
+        {profile?.features.quoteNegotiation && activeTask.quote &&
+          activeTask.quote.status === 'pending' && identity && (
+          <QuotePanel
+            mode="requester"
+            taskId={activeTask.id}
+            quote={activeTask.quote}
+            onAccept={async () => {
+              await acceptQuote(activeTask.id, {
+                requesterPubkey: identity.pubKeyHex,
+              });
+              const updated = await getTask(activeTask.id);
+              setActiveTask(updated);
+            }}
+            onDecline={async () => {
+              await declineQuote(activeTask.id, {
+                requesterPubkey: identity.pubKeyHex,
+              });
+              const updated = await getTask(activeTask.id);
+              setActiveTask(updated);
+            }}
+          />
         )}
 
         {/* Actions */}

@@ -6,30 +6,8 @@ import { useLocation } from '../../hooks/useLocation';
 import { useIdentity } from '../../context/IdentityContext';
 import { useTask } from '../../context/TaskContext';
 import { useDomain } from '../../context/DomainContext';
-import { getTaskStats, getOperatorInfo } from '../../services/api';
-import type { LatLng } from '../../types/api';
-
-/** Normalise a ride_request payload into the shape our Task context expects */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function normaliseRideRequest(ride: any) {
-  const normLoc = (loc: { lat: number; lon?: number; lng?: number } | null): LatLng | null => {
-    if (!loc) return null;
-    return { lat: loc.lat, lng: loc.lng ?? loc.lon ?? 0 };
-  };
-
-  return {
-    id: ride.id || '',
-    status: ride.status || 'requested',
-    requesterPubkey: ride.rider?.pubkey || '',
-    pickup: normLoc(ride.pickup) || { lat: 0, lng: 0 },
-    dropoff: normLoc(ride.dropoff),
-    fareEstimateSats: ride.fare ?? ride.estimatedFare?.fare?.sats ?? 0,
-    distanceKm: typeof ride.distance === 'number' ? ride.distance : ride.estimatedFare?.distance?.km,
-    durationMin: ride.estimatedFare?.duration?.minutes,
-    routeGeometry: ride.route,
-    createdAt: new Date().toISOString(),
-  };
-}
+import { getTaskStats, getOperatorInfo, normaliseTask } from '../../services/api';
+import { WS_PROTOCOL } from '../../services/websocket';
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -80,11 +58,11 @@ export function DashboardPage() {
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
-      console.log('[DashboardWS] Connected — registering as driver');
+      console.log('[DashboardWS] Connected — registering as provider');
       setWsConnected(true);
-      // Register as a driver — server uses this to tag us for ride broadcasts
+      // Register as a provider — server uses this to tag us for task broadcasts
       ws.send(JSON.stringify({
-        type: 'register_driver',
+        type: WS_PROTOCOL.registerProvider,
         npub: identity?.npub || '',
       }));
     };
@@ -93,9 +71,9 @@ export function DashboardPage() {
       try {
         const msg = JSON.parse(event.data);
         console.log('[DashboardWS] Message received:', msg.type, msg);
-        // Server broadcasts 'ride_request' to all registered drivers
-        if (msg.type === 'ride_request' && msg.ride) {
-          const task = normaliseRideRequest(msg.ride);
+        // Server broadcasts task requests to all registered providers
+        if (msg.type === WS_PROTOCOL.taskBroadcast && msg.ride) {
+          const task = normaliseTask(msg.ride);
           console.log('[DashboardWS] Incoming task — navigating to /provide/incoming', task);
           setActiveTask(task);
           navigate('/provide/incoming');
@@ -147,21 +125,39 @@ export function DashboardPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Map */}
-      <div className="flex-1 relative">
-        <MapView centre={location} zoom={14}>
-          <LocationMarker position={location} label="You" colour="green" />
-        </MapView>
+      {profile?.features.navigation !== false ? (
+        <div className="flex-1 relative">
+          <MapView centre={location} zoom={14}>
+            <LocationMarker position={location} label="You" colour="green" />
+          </MapView>
 
-        {/* Online status indicator — floating badge with glow */}
-        <div className="absolute top-3 left-3 z-10">
-          <div className={`status-indicator ${online ? (wsConnected ? 'status-online' : 'status-connecting') : 'status-offline'}`}>
-            <div className={`status-dot-glow ${wsConnected ? 'glow-green' : online ? 'glow-orange' : 'glow-red'}`} />
-            <span className="font-semibold tracking-wide text-sm uppercase">
-              {wsConnected ? 'Online' : online ? 'Connecting...' : 'Offline'}
-            </span>
+          {/* Online status indicator — floating badge with glow */}
+          <div className="absolute top-3 left-3 z-10">
+            <div className={`status-indicator ${online ? (wsConnected ? 'status-online' : 'status-connecting') : 'status-offline'}`}>
+              <div className={`status-dot-glow ${wsConnected ? 'glow-green' : online ? 'glow-orange' : 'glow-red'}`} />
+              <span className="font-semibold tracking-wide text-sm uppercase">
+                {wsConnected ? 'Online' : online ? 'Connecting...' : 'Offline'}
+              </span>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center bg-donkey-bg relative">
+          <div className="card text-center max-w-sm">
+            <p className="text-lg font-bold text-donkey-text">{providerLabel} Dashboard</p>
+            <p className="text-sm text-donkey-muted mt-1">Ready to receive {taskNoun} requests</p>
+          </div>
+          {/* Online status indicator */}
+          <div className="absolute top-3 left-3 z-10">
+            <div className={`status-indicator ${online ? (wsConnected ? 'status-online' : 'status-connecting') : 'status-offline'}`}>
+              <div className={`status-dot-glow ${wsConnected ? 'glow-green' : online ? 'glow-orange' : 'glow-red'}`} />
+              <span className="font-semibold tracking-wide text-sm uppercase">
+                {wsConnected ? 'Online' : online ? 'Connecting...' : 'Offline'}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Dashboard panel */}
       <div className="bg-donkey-surface border-t-2 border-donkey-border p-6 space-y-4 shadow-panel">

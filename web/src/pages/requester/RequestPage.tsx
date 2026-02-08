@@ -68,6 +68,7 @@ export function RequestPage() {
         dropoff: requiresDestination ? destination! : null,
         requesterPubkey: identity.pubKeyHex,
         requesterNpub: identity.npub,
+        domain: profile?.id,
       });
       setActiveTask(task);
       navigate('/request/active');
@@ -86,15 +87,24 @@ export function RequestPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Map */}
-      <div className="flex-1 relative">
-        <MapView centre={mapCentre} zoom={13}>
-          <LocationMarker position={origin} label={originLabel} colour="green" />
-          {destination && <LocationMarker position={destination} label={destinationLabel} colour="red" />}
-          {estimate?.routeGeometry && (
-            <RoutePolyline geometry={estimate.routeGeometry} />
-          )}
-        </MapView>
-      </div>
+      {profile?.features.navigation !== false ? (
+        <div className="flex-1 relative">
+          <MapView centre={mapCentre} zoom={13}>
+            <LocationMarker position={origin} label={originLabel} colour="green" />
+            {destination && <LocationMarker position={destination} label={destinationLabel} colour="red" />}
+            {estimate?.routeGeometry && (
+              <RoutePolyline geometry={estimate.routeGeometry} />
+            )}
+          </MapView>
+        </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center bg-donkey-bg">
+          <div className="card text-center max-w-sm">
+            <p className="text-lg font-bold text-donkey-text">{originLabel} set</p>
+            <p className="text-sm text-donkey-muted mt-1">Ready to request a {taskNoun}</p>
+          </div>
+        </div>
+      )}
 
       {/* Estimate panel */}
       <div className="bg-donkey-surface border-t-2 border-donkey-border p-6 shadow-panel">
@@ -155,15 +165,49 @@ export function RequestPage() {
             {error && <p className="text-donkey-red text-sm mt-3">{error}</p>}
           </div>
         ) : !requiresDestination ? (
-          /* Single-location domain — flat-rate / quote-based pricing info */
+          /* Non-distance pricing — display depends on the pricingModel */
           <div>
             <div className="mb-4 text-center">
-              <p className="text-lg font-bold text-donkey-text">
-                {profile?.pricingModel === 'flatRate' ? 'Flat rate pricing' : 'Quote-based pricing'}
-              </p>
-              <p className="text-donkey-muted text-sm mt-1">
-                Price confirmed after {profile?.roles.provider || 'provider'} assessment
-              </p>
+              {profile?.pricingModel === 'flatRate' && (
+                <>
+                  <p className="text-lg font-bold text-donkey-text">Flat rate pricing</p>
+                  <p className="text-donkey-muted text-sm mt-1">
+                    Price confirmed after {profile?.roles.provider || 'provider'} assessment
+                  </p>
+                </>
+              )}
+              {profile?.pricingModel === 'quote' && (
+                <>
+                  <p className="text-lg font-bold text-donkey-text">Quote-based pricing</p>
+                  <p className="text-donkey-muted text-sm mt-1">
+                    {profile?.roles.provider || 'Provider'} will submit a quote for your approval
+                  </p>
+                </>
+              )}
+              {profile?.pricingModel === 'hourly' && (
+                <>
+                  <p className="text-lg font-bold text-donkey-text">Hourly rate</p>
+                  <p className="text-donkey-muted text-sm mt-1">
+                    Billed by the hour — final price based on time spent
+                  </p>
+                </>
+              )}
+              {profile?.pricingModel === 'milestone' && (
+                <>
+                  <p className="text-lg font-bold text-donkey-text">Milestone pricing</p>
+                  <p className="text-donkey-muted text-sm mt-1">
+                    Payment at agreed milestones throughout the {taskNoun}
+                  </p>
+                </>
+              )}
+              {(!profile?.pricingModel || profile?.pricingModel === 'distance_time_surge') && (
+                <>
+                  <p className="text-lg font-bold text-donkey-text">Service request</p>
+                  <p className="text-donkey-muted text-sm mt-1">
+                    Price confirmed after {profile?.roles.provider || 'provider'} assessment
+                  </p>
+                </>
+              )}
             </div>
 
             <div className="flex gap-3">

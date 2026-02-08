@@ -64,80 +64,96 @@ export function HomePage() {
   const taskNoun = profile?.labels?.taskNoun || 'ride';
 
   return (
-    <div className="h-full relative">
-      <MapView centre={location}>
-        {/* Available providers */}
-        {providers.map((d) => (
-          <LocationMarker
-            key={d.pubkey}
-            position={d.location}
-            label={`${providerLabel} (${d.rating?.toFixed(1) || '?'})`}
-            colour="blue"
-          />
-        ))}
+    <div className="h-full flex flex-col">
+      {/* Map section */}
+      {profile?.features.navigation !== false ? (
+        <div className="flex-1 relative">
+          <MapView centre={selectedOrigin || location}>
+            {/* Available providers */}
+            {providers.map((d) => (
+              <LocationMarker
+                key={d.pubkey}
+                position={d.location}
+                label={`${providerLabel} (${d.rating?.toFixed(1) || '?'})`}
+                colour="blue"
+              />
+            ))}
 
-        {/* User location */}
-        <LocationMarker position={location} label="You" colour="green" />
+            {/* User location */}
+            <LocationMarker position={location} label="You" colour="green" />
 
-        {/* Origin marker */}
-        {selectedOrigin && originSet && (
-          <LocationMarker position={selectedOrigin} label={originLabel} colour="orange" />
+            {/* Origin marker */}
+            {selectedOrigin && originSet && (
+              <LocationMarker position={selectedOrigin} label={originLabel} colour="orange" />
+            )}
+
+            {/* Click handler */}
+            <MapClickHandler onClick={handleMapClick} />
+          </MapView>
+        </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center bg-donkey-bg">
+          <div className="card text-center max-w-sm">
+            <p className="text-lg font-bold text-donkey-text mb-2">
+              {providers.length > 0
+                ? `${providers.length} ${providerLabel}${providers.length !== 1 ? 's' : ''} available`
+                : `Searching for ${providerLabel}s...`}
+            </p>
+            <p className="text-sm text-donkey-muted">
+              Location services will be used when your {taskNoun} begins
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Instruction panel — solid bottom section, outside Leaflet's stacking context */}
+      <div className="bg-donkey-surface border-t-2 border-donkey-border p-5 shadow-panel">
+        {/* Step indicator */}
+        {requiresDestination && (
+          <div className="flex items-center gap-2 mb-3">
+            <div className={`w-2 h-2 rounded-full ${originSet ? 'glow-green' : 'glow-orange'}`} />
+            <span className="text-xs uppercase tracking-wider text-donkey-muted">
+              Step {originSet ? '2' : '1'} of 2
+            </span>
+          </div>
         )}
 
-        {/* Click handler */}
-        <MapClickHandler onClick={handleMapClick} />
-      </MapView>
+        <p className="text-sm text-donkey-text font-semibold mb-1">
+          {clickMode === 'origin'
+            ? (profile?.labels?.originInstruction || `Tap the map to set your ${originLabel.toLowerCase()}`)
+            : (profile?.labels?.destinationInstruction || 'Now tap to set your destination')}
+        </p>
 
-      {/* Floating instruction panel */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 w-full max-w-md px-4">
-        <div className="card backdrop-blur-sm" style={{ background: 'rgba(26, 26, 46, 0.92)' }}>
-          {/* Step indicator */}
-          {requiresDestination && (
-            <div className="flex items-center gap-2 mb-3">
-              <div className={`w-2 h-2 rounded-full ${originSet ? 'glow-green' : 'glow-orange'}`} />
-              <span className="text-xs uppercase tracking-wider text-donkey-muted">
-                Step {originSet ? '2' : '1'} of 2
-              </span>
-            </div>
-          )}
+        <p className="text-xs text-donkey-muted mb-3">
+          {clickMode === 'origin'
+            ? `Select where you want your ${taskNoun} to start`
+            : 'Select your destination to get a fare estimate'}
+        </p>
 
-          <p className="text-sm text-donkey-text font-semibold mb-1">
-            {clickMode === 'origin'
-              ? (profile?.labels?.originInstruction || `Tap the map to set your ${originLabel.toLowerCase()}`)
-              : (profile?.labels?.destinationInstruction || 'Now tap to set your destination')}
+        {/* Single-location domain: show confirm button after origin is set */}
+        {!requiresDestination && originSet && (
+          <button
+            className="btn-primary w-full mb-2"
+            onClick={handleConfirmSingleLocation}
+          >
+            Confirm {originLabel}
+          </button>
+        )}
+
+        {originSet && (requiresDestination ? clickMode === 'destination' : true) && (
+          <button
+            className="text-xs text-donkey-purple underline w-full text-center"
+            onClick={() => { setClickMode('origin'); setOriginSet(false); setOrigin(null); setSelectedOrigin(null); }}
+          >
+            Reset {originLabel.toLowerCase()}
+          </button>
+        )}
+
+        {providers.length > 0 && (
+          <p className="text-xs text-donkey-muted text-center mt-3">
+            <span className="text-donkey-green font-bold">{providers.length}</span> {providerLabel}{providers.length !== 1 ? 's' : ''} nearby
           </p>
-
-          <p className="text-xs text-donkey-muted mb-3">
-            {clickMode === 'origin'
-              ? `Select where you want your ${taskNoun} to start`
-              : 'Select your destination to get a fare estimate'}
-          </p>
-
-          {/* Single-location domain: show confirm button after origin is set */}
-          {!requiresDestination && originSet && (
-            <button
-              className="btn-primary w-full mb-2"
-              onClick={handleConfirmSingleLocation}
-            >
-              Confirm {originLabel}
-            </button>
-          )}
-
-          {originSet && (requiresDestination ? clickMode === 'destination' : true) && (
-            <button
-              className="text-xs text-donkey-purple underline w-full text-center"
-              onClick={() => { setClickMode('origin'); setOriginSet(false); setOrigin(null); setSelectedOrigin(null); }}
-            >
-              Reset {originLabel.toLowerCase()}
-            </button>
-          )}
-
-          {providers.length > 0 && (
-            <p className="text-xs text-donkey-muted text-center mt-3">
-              <span className="text-donkey-green font-bold">{providers.length}</span> {providerLabel}{providers.length !== 1 ? 's' : ''} nearby
-            </p>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );

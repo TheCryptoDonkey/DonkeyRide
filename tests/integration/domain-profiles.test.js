@@ -30,7 +30,7 @@ test('profileExists returns false for unknown profiles', () => {
 test('loadProfile loads ridesharing profile by default', () => {
   const profile = loadProfile();
   assert.equal(profile.id, 'ridesharing');
-  assert.equal(profile.name, 'Ridesharing');
+  assert.equal(profile.name, 'DonkeyRide');
   assert.equal(profile.roles.requester, 'rider');
   assert.equal(profile.roles.provider, 'driver');
 });
@@ -551,4 +551,64 @@ test('RideManager backward compat — calculateETA and calculateDistance work', 
 
   const eta = rm.calculateETA({ lat: 51.5, lon: -0.12 }, { lat: 51.52, lon: -0.11 });
   assert.ok(eta > 0);
+});
+
+// ==========================================
+// Domain Theme Tests
+// ==========================================
+
+test('all built-in profiles have theme data with required fields', () => {
+  const requiredFields = [
+    'primary', 'primaryRgb', 'secondary', 'secondaryRgb',
+    'accent', 'accentRgb', 'gradientFrom', 'gradientTo',
+    'gradientAngle', 'routeColour', 'emoji'
+  ];
+
+  for (const id of listProfiles()) {
+    const profile = loadProfile(id);
+    assert.ok(profile.theme, `Profile ${id} must have a theme object`);
+    for (const field of requiredFields) {
+      assert.equal(typeof profile.theme[field], 'string',
+        `Profile ${id} theme.${field} must be a string`);
+    }
+  }
+});
+
+test('schema applies theme defaults when no theme provided', () => {
+  const profile = validateProfile({
+    id: 'notheme',
+    name: 'No Theme',
+    discoveryMethod: 'geohash',
+    pricingModel: 'flatRate',
+    states: {
+      values: { REQUESTED: 'requested', COMPLETED: 'completed', CANCELLED: 'cancelled' },
+      transitions: { 'requested': ['completed', 'cancelled'] },
+      terminal: ['completed', 'cancelled'],
+      initial: 'requested'
+    },
+    roles: { requester: 'client', provider: 'worker' }
+  });
+
+  assert.ok(profile.theme, 'Default theme must be applied');
+  assert.equal(profile.theme.primary, '#b24cf3');
+  assert.equal(profile.theme.primaryRgb, '178, 76, 243');
+  assert.equal(profile.theme.secondary, '#ff6ec7');
+  assert.equal(profile.theme.accent, '#00ff88');
+  assert.equal(profile.theme.emoji, '');
+});
+
+test('each domain has distinct primary colours and correct emoji', () => {
+  const ridesharing = loadProfile('ridesharing');
+  const locksmith = loadProfile('locksmith');
+  const delivery = loadProfile('delivery');
+
+  // Distinct primary colours
+  assert.notEqual(ridesharing.theme.primary, locksmith.theme.primary);
+  assert.notEqual(ridesharing.theme.primary, delivery.theme.primary);
+  assert.notEqual(locksmith.theme.primary, delivery.theme.primary);
+
+  // Correct emojis
+  assert.equal(ridesharing.theme.emoji, '🚗');
+  assert.equal(locksmith.theme.emoji, '🔑');
+  assert.equal(delivery.theme.emoji, '📦');
 });

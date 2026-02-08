@@ -5,6 +5,17 @@ type StatusHandler = (connected: boolean) => void;
 
 const WS_PORT = 3001;
 
+/**
+ * Protocol mapping — isolates server message strings to one place.
+ * The server currently uses ride-centric names; this mapping lets the
+ * frontend use semantic, domain-agnostic names everywhere else.
+ */
+export const WS_PROTOCOL = {
+  subscribeToTask: 'subscribe_ride',    // client → server
+  registerProvider: 'register_driver',  // client → server
+  taskBroadcast: 'ride_request',        // server → client
+} as const;
+
 function getWsBaseUrl(): string {
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
   return `${protocol}://${window.location.hostname}:${WS_PORT}`;
@@ -28,7 +39,7 @@ export class TaskWebSocket {
 
     this.ws.onopen = () => {
       // Subscribe to updates for this specific task/ride
-      this.send({ type: 'subscribe_ride', rideId: taskId });
+      this.send({ type: WS_PROTOCOL.subscribeToTask, rideId: taskId });
       this.notifyStatus(true);
     };
 

@@ -11,7 +11,7 @@
 
 const profile = {
   id: 'locksmith',
-  name: 'Locksmith Dispatch',
+  name: 'DonkeyKnock',
   description: 'Emergency locksmith dispatch with transparent pricing and anti-scam commitment stakes.',
 
   discoveryMethod: 'geohash',
@@ -99,6 +99,20 @@ const profile = {
     quoteNegotiation: true,
     guaranteePeriod: true,
     requiresDestination: false
+  },
+
+  theme: {
+    primary: '#f59e0b',
+    primaryRgb: '245, 158, 11',
+    secondary: '#d97706',
+    secondaryRgb: '217, 119, 6',
+    accent: '#fbbf24',
+    accentRgb: '251, 191, 36',
+    gradientFrom: '#f59e0b',
+    gradientTo: '#d97706',
+    gradientAngle: '135deg',
+    routeColour: '#f59e0b',
+    emoji: '🔑',
   },
 
   eventKinds: {

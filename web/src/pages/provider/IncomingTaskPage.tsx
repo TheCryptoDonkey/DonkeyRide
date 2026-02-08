@@ -53,15 +53,26 @@ export function IncomingTaskPage() {
   return (
     <div className="h-full flex flex-col">
       {/* Map with origin/destination */}
-      <div className="flex-1 relative">
-        <MapView centre={activeTask.pickup} zoom={14}>
-          <LocationMarker position={activeTask.pickup} label={originLabel} colour="green" />
-          {requiresDestination && activeTask.dropoff && (
-            <LocationMarker position={activeTask.dropoff} label={destinationLabel} colour="red" />
-          )}
-          <LocationMarker position={location} label="You" colour="blue" />
-        </MapView>
-      </div>
+      {profile?.features.navigation !== false ? (
+        <div className="flex-1 relative">
+          <MapView centre={activeTask.pickup} zoom={14}>
+            <LocationMarker position={activeTask.pickup} label={originLabel} colour="green" />
+            {requiresDestination && activeTask.dropoff && (
+              <LocationMarker position={activeTask.dropoff} label={destinationLabel} colour="red" />
+            )}
+            <LocationMarker position={location} label="You" colour="blue" />
+          </MapView>
+        </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center bg-donkey-bg">
+          <div className="card text-center max-w-sm">
+            <p className="text-lg font-bold text-donkey-text">Incoming {taskNoun}</p>
+            <p className="text-sm text-donkey-muted mt-1">
+              A {profile?.roles.requester || 'requester'} needs your service
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Incoming task panel */}
       <div className="bg-donkey-surface border-t-2 border-donkey-border p-6 shadow-panel">
