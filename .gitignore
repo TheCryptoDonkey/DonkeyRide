@@ -23,4 +23,4 @@ result
 
 # React frontend build output
 /web/dist/
-/web/node_modules/
+/web/node_modules/.worktrees/
