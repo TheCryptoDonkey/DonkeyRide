@@ -1,23 +1,24 @@
-I f# DonkeyRide Protocol - Frequently Asked Questions
+# DonkeyRide Protocol — Frequently Asked Questions
 
-**Last Updated**: 2025-10-16
-**Protocol Version**: v1.0
+**Last Updated**: 2026-02-08
+**Protocol Version**: v3.0
 
 ---
 
 ## Table of Contents
 
 1. [Basics](#basics)
-2. [Decentralization & Architecture](#decentralization--architecture)
-3. [Comparison to Uber/Lyft](#comparison-to-uberlyft)
-4. [Privacy & Data](#privacy--data)
-5. [Economics & Fees](#economics--fees)
-6. [Legal & Compliance](#legal--compliance)
-7. [Technical Details](#technical-details)
-8. [For Developers](#for-developers)
-9. [For Operators](#for-operators)
-10. [For Drivers](#for-drivers)
-11. [For Riders](#for-riders)
+2. [Use Cases & Domains](#use-cases--domains)
+3. [Payments & Trust Models](#payments--trust-models)
+4. [Decentralisation & Architecture](#decentralisation--architecture)
+5. [Privacy & GDPR](#privacy--gdpr)
+6. [Economics & Fees](#economics--fees)
+7. [Legal & Compliance](#legal--compliance)
+8. [Technical Details](#technical-details)
+9. [For Developers](#for-developers)
+10. [For Operators](#for-operators)
+11. [For Providers](#for-providers)
+12. [For Requesters](#for-requesters)
 
 ---
 
@@ -25,202 +26,196 @@ I f# DonkeyRide Protocol - Frequently Asked Questions
 
 ### What is DonkeyRide?
 
-**DonkeyRide is an open protocol standard** for ridesharing coordination - similar to how HTTP is a standard for the web or SMTP is a standard for email.
+**DonkeyRide is an open protocol standard** for trust-minimised service coordination — similar to how HTTP is a standard for the web or SMTP is a standard for email.
 
-It's **not** a ridesharing company. It's a specification that defines **82 event schemas** (kinds 30500-30599) that enable interoperability between different ridesharing operators, applications, and implementations.
+It's **not** a company. It's a family of modular Nostr NIP specifications that define how requesters, providers, and operators coordinate services — from ridesharing to locksmith dispatch to parcel delivery.
 
-### Why not just use Uber or Lyft?
+### Why not just use Uber, TaskRabbit, or Deliveroo?
 
-Uber and Lyft are centralized platforms with several issues:
-- **High fees**: 25-30% commission (drivers keep 70-75%)
-- **Platform lock-in**: Can't take your reputation elsewhere
-- **Deplatforming risk**: Company can ban you at any time
-- **No transparency**: Black box algorithms for surge pricing
-- **Privacy concerns**: All your data belongs to one company
+Traditional platforms are centralised with several issues:
+- **High fees**: 25-30% commission (providers keep 70-75%)
+- **Platform lock-in**: can't take your reputation elsewhere
+- **Deplatforming risk**: company can ban you at any time
+- **No transparency**: black-box algorithms for pricing
+- **Privacy concerns**: all your data belongs to one company
+- **Single-domain**: each platform serves one use case only
 
-DonkeyRide solves these by providing an **open standard** that allows multiple operators to compete, enabling:
-- **Lower fees**: Typical 0.5% (drivers keep 99.5%)
-- **Reputation portability**: Take your ratings to any operator
-- **No deplatforming**: Can switch operators freely
-- **Transparent pricing**: Auditable surge algorithms
-- **Privacy options**: Choose operators with better privacy policies
-
-### Is this like a blockchain or cryptocurrency?
-
-**No.** DonkeyRide is a protocol standard built on:
-- **Nostr**: Decentralized communication protocol (optional, for discovery/reputation)
-- **Lightning Network**: Bitcoin payment layer (optional, for instant payments)
-
-But operators can implement DonkeyRide **without** using either Nostr or Lightning - they just need to use compatible event schemas for data portability.
+DonkeyRide solves these with an **open standard** that allows multiple operators to compete across multiple domains.
 
 ### Who controls DonkeyRide?
 
-**No one.** It's an open protocol standard released under the MIT License.
+**No one.** It's an open protocol standard released under the MIT Licence.
 
-Anyone can:
-- ✅ Implement it freely
-- ✅ Modify it for their needs
-- ✅ Build commercial services using it
-- ✅ Propose improvements via pull requests
-
-There's no company, no governance board, and no patents. It's similar to HTTP or email protocols.
+Anyone can implement it freely, modify it, build commercial services using it, or propose improvements via pull requests. There's no company, no governance board, and no patents.
 
 ---
 
-## Decentralization & Architecture
+## Use Cases & Domains
 
-### Is DonkeyRide fully decentralized?
+### What services does DonkeyRide support?
 
-**No - it's federated, not fully decentralized.**
+The protocol is **domain-agnostic**. Currently:
 
-**Why federated?**
-- Legal compliance requires accountable operators (background checks, insurance, GDPR)
-- Real-time coordination works better with centralized operator infrastructure
-- Users want Uber-level UX (instant matching, live ETAs, reliable payments)
+| Domain | Status | Description |
+|--------|--------|-------------|
+| Ridesharing | Implemented | Rider/driver, streaming payments, live tracking |
+| Locksmith dispatch | Implemented | Quote negotiation, flat-rate pricing |
+| Parcel delivery | Implemented | Chain of custody, photo/signature proofs |
+| Court serving | Designed | GPS verification, proof of service |
+| Security guard | Designed | Shift-based, heartbeat check-ins |
+| Emergency trades | Designed | Plumber/electrician, milestone payments |
+| Man with van | Designed | Distance-based pricing, inventory |
+| Dog walking | Designed | GPS route sharing, photo check-ins |
+| Car wash | Designed | Before/after photos, lump-sum payment |
+| Companion care | Designed | Session-based, safety monitoring |
 
-**What does federated mean?**
-- Multiple independent operators compete (like email providers)
-- Users can switch operators while keeping their reputation
-- No single company has a monopoly
-- Operators are responsible for legal compliance in their jurisdiction
+### How do I add a new domain?
 
-Think: **Gmail vs Outlook vs ProtonMail** (federated email) not **Bitcoin** (fully decentralized).
+Create a **domain profile** (~100 lines of JavaScript) that defines:
+- State machine (states and valid transitions)
+- Role names (requester/provider labels)
+- Pricing model (per-time, per-distance, flat rate, milestone)
+- Feature flags (which NIP modules to use)
+- Completion proof types (photo, signature, GPS)
+- Rating criteria (domain-specific)
+
+No protocol changes needed. See `src/domain-profiles/` for examples.
+
+### Do all domains use all the NIP specifications?
+
+No. Each domain profile declares which NIPs it uses:
+
+| Domain | core | stakes | reputation | disputes | discovery | safety | navigation | payments |
+|--------|------|--------|------------|----------|-----------|--------|------------|----------|
+| Ridesharing | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Locksmith | Yes | Yes | Yes | Yes | Yes | — | — | — |
+| Delivery | Yes | Yes | Yes | Yes | Yes | — | Yes | Yes |
+| Court serving | Yes | — | Yes | — | Yes | — | Yes | — |
+
+---
+
+## Payments & Trust Models
+
+### Do I need Bitcoin to use DonkeyRide?
+
+**No.** The protocol is currency-neutral. Every monetary event includes explicit `amount`, `currency`, and `trust_model` tags.
+
+You can pay in GBP, USD, EUR, or any supported currency. Payment providers like Strike handle the conversion — you see pounds, the protocol uses Lightning's speed, and neither party has a taxable crypto event.
+
+### What payment methods are supported?
+
+| Provider | Currencies | Trust Model | Best For |
+|----------|-----------|-------------|----------|
+| NIP-47 (hold invoices) | SAT/BTC | Trustless | Sovereignty-minded users |
+| Strike | GBP/USD/EUR/SAT | Custodial third-party | Fiat UX, everyday use |
+| Stripe | Any fiat | Custodial escrow | Fiat-only markets |
+| Cashu / Fedimint | SAT (ecash) | Federated | Privacy-focused users |
+| PayPal | Any fiat | Custodial third-party | Maximum accessibility |
+
+Operators choose which payment methods to offer. Users choose from what's available.
+
+### What is a "trust model"?
+
+Every payment event declares its **trust model** — a tag that tells participants exactly where their money is held and what trust assumptions apply:
+
+- **`trustless`** — funds are in Lightning hold invoices. The operator never has custody. Nobody can steal your money.
+- **`custodial-third-party`** — a third party (Strike, PayPal) holds funds briefly. The operator never has custody.
+- **`custodial-escrow`** — funds sit in Stripe's escrow until the task completes.
+- **`custodial`** — the operator's Lightning node holds funds temporarily. Defence layers apply.
+- **`federated`** — an ecash mint or Fedimint federation holds funds in multi-party custody.
+
+You always see the trust model before committing to a task.
+
+### What are commitment stakes?
+
+Both parties lock a small amount of money before a task begins. If either party misbehaves (cancels, no-shows), they lose their stake. If both behave, both get their money back.
+
+Stakes are typically 10% for requesters and 15% for providers. See [STAKING-EXPLAINED.md](./STAKING-EXPLAINED.md) for the full explanation.
+
+---
+
+## Decentralisation & Architecture
+
+### Is DonkeyRide fully decentralised?
+
+**No — it's federated, not fully decentralised.**
+
+- **Nostr layer**: Decentralised (discovery, reputation, PII exchange, coordination)
+- **Operator layer**: Federated (multiple competing operators, each centralised internally)
+- **Payment layer**: Flexible (trustless to custodial, user chooses)
+
+Think: **Gmail vs Outlook vs ProtonMail** (federated email), not **Bitcoin** (fully decentralised).
+
+### Why not fully decentralised?
+
+Legal requirements make full decentralisation impractical:
+- **GDPR** requires deletable data storage — can't delete from Nostr relays
+- **Safety monitoring** requires 24/7 human teams (legal requirement)
+- **Insurance** requires a legal entity to hold the policy
+- **Background checks** require a company to integrate with screening providers
+
+The federated model is the sweet spot: decentralised discovery and reputation, federated safety and compliance.
 
 ### Do I need to use Nostr?
 
-**No.** Operators can implement DonkeyRide in three ways:
+Nostr is recommended but not required. Operators can implement DonkeyRide in three modes:
 
-**1. Nostr-Native** (Maximum Decentralization):
-- Public Nostr relays for discovery and reputation
-- Best for crypto-native markets with minimal regulation
+1. **Nostr-native** — public relays for everything (crypto-native markets)
+2. **Hybrid** (recommended) — Nostr for discovery and reputation, operator for safety and compliance
+3. **Schema-compatible** — DonkeyRide event schemas without Nostr (enables data portability)
 
-**2. Hybrid** (Recommended for Mainstream):
-- Nostr for public discovery/reputation
-- Private operator infrastructure for PII, real-time updates, payments
-- Best for regulatory compliance (NYC, SF, London)
-
-**3. Schema-Compatible** (Traditional Centralized):
-- No Nostr at all - just use DonkeyRide event schemas
-- Enables data export/import between operators
-- Example: *Uber could adopt this for data portability*
-
-### Why use Nostr at all if it's federated?
-
-**Two main benefits:**
-
-1. **Censorship-resistant reputation**: No single operator controls your ratings
-2. **Discoverability**: Riders can find drivers across multiple operators
-
-But Nostr is **optional** - the core value is the **interoperable event schemas** that enable data portability.
-
-### What's the "sidecar" to Nostr relays?
-
-In the **Hybrid model** (recommended for mainstream markets), operators run:
-
-1. **Public Nostr relays** - Discovery, aggregated reputation (no PII)
-2. **Private operator services** - PII storage, real-time WebSocket, payments, safety
-
-This gives you:
-- ✅ Nostr benefits (censorship-resistant reputation)
-- ✅ GDPR compliance (deletable PII in private database)
-- ✅ Real-time UX (WebSocket for live location updates)
-- ✅ Legal defensibility (accountable operator for background checks)
-
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for diagrams.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full analysis.
 
 ---
 
-## Comparison to Uber/Lyft
+## Privacy & GDPR
 
-### Does DonkeyRide have all the features of Uber/Lyft?
+### What data is stored where?
 
-**Yes - 100% feature parity.**
+**On public Nostr relays (visible to everyone):**
+- Geohash-level availability (~5km precision, not exact addresses)
+- Operator service areas and capabilities
+- Reputation scores and ratings (pseudonymous)
+- Operator bonds and fee structures
 
-DonkeyRide includes all production features:
-- ✅ Real-time matching and tracking
-- ✅ Upfront pricing and surge pricing
-- ✅ Safety features (panic button, trip sharing, check-ins)
-- ✅ Background checks and insurance verification
-- ✅ Ratings and reviews (driver + rider)
-- ✅ Scheduled rides and ride preferences
-- ✅ Tipping and split payments
-- ✅ Corporate accounts and promo codes
-- ✅ Lost & found and customer support
-- ✅ Wheelchair accessibility (ADA compliance)
+**Encrypted on Nostr relays (only parties can read):**
+- Exact addresses (NIP-17 gift-wrapped)
+- Phone numbers and names (NIP-17 gift-wrapped)
+- Coordination messages (NIP-44 encrypted)
 
-See [PLATFORM-COMPARISON.md](./PLATFORM-COMPARISON.md) for detailed comparison.
+**On the operator's private database:**
+- Safety monitoring records
+- Background check results
+- Insurance documentation
+- Compliance audit trails
 
-### What does DonkeyRide do better than Uber/Lyft?
+**Never stored anywhere permanently:**
+- Real-time GPS traces (ephemeral WebSocket or ephemeral Nostr events)
+- Route geometry (deleted after task completion)
 
-**Six key advantages:**
+### Can I delete my data?
 
-1. **10x lower fees** - 0.5% typical vs 25-30%
-2. **Data portability** - Export/import reputation between operators
-3. **No deplatforming** - Can switch operators, can't be banned from protocol
-4. **Transparent pricing** - Auditable surge algorithms
-5. **Privacy options** - Anonymous rides possible (Lightning + pseudonyms)
-6. **Open source** - Anyone can verify, fork, or improve
+**Yes.** GDPR right to erasure is supported at every layer:
 
-### Can Uber/Lyft adopt DonkeyRide?
+1. **Operator data** — standard deletion on request (30-day SLA)
+2. **Encrypted Nostr data** — crypto-shredding: destroy your key pair, and all your encrypted data on relays becomes unreadable
+3. **Public Nostr data** — NIP-62 (Request to Vanish) asks relays to delete all events for a pubkey
+4. **Payment data** — handled by your payment provider's own deletion policy
 
-**Yes!** In fact, we hope they do.
+See [docs/GDPR-COMPLIANCE.md](./docs/GDPR-COMPLIANCE.md) for the full compliance architecture.
 
-Uber could implement DonkeyRide in "Schema-Compatible" mode:
-- Keep their existing infrastructure
-- Export user data in DonkeyRide format
-- Allow drivers/riders to import reputation to competing operators
+### What is crypto-shredding?
 
-This would benefit everyone:
-- **Drivers**: Can leave Uber while keeping ratings
-- **Riders**: Can switch to lower-fee operators
-- **Uber**: Demonstrates commitment to data portability (good PR)
+When you destroy your Nostr key pair, all data encrypted with those keys becomes permanently unreadable — even though the ciphertext remains on relays. This is endorsed by CNIL (French data authority) and EDPB as a valid approach to GDPR right to erasure for blockchain/distributed systems.
 
----
+### Can tasks be anonymous?
 
-## Privacy & Data
+**Yes**, depending on the operator's requirements:
+- Use a separate Nostr key not linked to your social identity
+- Pay via Lightning (pseudonymous) or Cashu (anonymous)
+- No KYC required for trustless payment models
 
-### What personal data is stored on public Nostr relays?
-
-**In the recommended Hybrid model: Only aggregated reputation (no PII).**
-
-**Public Nostr Relays Store:**
-- ✅ Aggregate rating (4.8 stars, 1,200 rides)
-- ✅ Pseudonymous pubkey (not linked to real identity)
-
-**Private Operator Database Stores:**
-- ❌ Real name, phone number, email
-- ❌ Individual ride details (pickup/dropoff addresses)
-- ❌ GPS traces
-- ❌ Payment information
-
-See [NIP-XX-ridesharing.md → Appendix D: Privacy & Reputation Event Lifecycle](./NIP-XX-ridesharing.md) for full specification.
-
-### How does GDPR "Right to be Forgotten" work with Nostr?
-
-**Hybrid privacy model** solves this:
-
-1. **Public Nostr data** - Only aggregated reputation (no PII, not subject to GDPR)
-2. **Private operator data** - Fully deletable (30-day SLA)
-3. **Reputation transfer** - Can move aggregated reputation to new key
-4. **Time-windowed reputation** - Auto-expires after 90 days
-
-**Example deletion flow:**
-1. User requests account deletion
-2. Operator deletes all PII from private database (30 days)
-3. Aggregated reputation on Nostr remains (no PII, legal)
-4. Optional: Transfer reputation to new pseudonymous key
-
-### Can rides be anonymous?
-
-**Yes, in Nostr-Native mode:**
-- Use separate Nostr key for ridesharing (not linked to social identity)
-- Pay with Lightning (pseudonymous Bitcoin)
-- No KYC required (depends on operator policy)
-
-**Limitations:**
-- Operator may require identity verification for legal compliance
-- Safety features (emergency contact) require some identity info
-- Mainstream markets (NYC, SF) typically require driver background checks
+**Limitations:** Operators may require identity verification for legal compliance. Safety features (emergency contacts) require some identity information.
 
 ---
 
@@ -228,59 +223,26 @@ See [NIP-XX-ridesharing.md → Appendix D: Privacy & Reputation Event Lifecycle]
 
 ### What are the fees?
 
-**Typical: 0.5% operator fee** (drivers keep 99.5%)
+**It depends on the operator** — DonkeyRide is a protocol, not a platform. Each operator sets their own fees.
 
-But **it depends on the operator** - DonkeyRide is a protocol standard, not a platform. Each operator sets their own fees.
+Typical range: **1-5%** (compared to 25-30% on traditional platforms). Competition between operators drives fees down.
 
-**Comparison:**
-- Uber/Lyft: 25-30% commission
-- DonkeyRide operators: 0.5-5% typical range
+### How do providers get paid?
 
-**Why so much lower?**
-- No VC debt to repay
-- No monopoly pricing power
-- Competition between operators
-- Lower overhead (open protocol reduces development costs)
+**Streaming payments** during active tasks — providers receive payment incrementally as the service progresses, not as a lump sum days later.
 
-### How do drivers get paid?
+Payment arrives via the operator's chosen payment rail:
+- **NIP-47**: Sats arrive directly in provider's wallet every 30 seconds
+- **Strike**: GBP/USD arrives via Lightning conversion
+- **Stripe**: Fiat held in escrow, released on completion
 
-**Recommended: Lightning Network streaming payments**
+### Can requesters tip providers?
 
-- ✅ Instant settlement (seconds)
-- ✅ No payment processing fees
-- ✅ No chargebacks
-- ✅ Trustless (driver receives payment as ride progresses)
+**Yes — and 100% goes to the provider** (no operator fee on tips).
 
-**Alternative payment methods:**
-- Traditional payment processors (credit cards, ACH)
-- Ecash / Fedimint (future extension)
-- Operator-held balance (prepaid accounts)
-
-See [NIP-XX-ridesharing.md → Event Kind 30510: Streaming Payment](./NIP-XX-ridesharing.md) for details.
-
-### What about surge pricing?
-
-**Operators decide their own surge algorithm**, but DonkeyRide recommends:
-
-1. **Transparent calculation** - Publish the algorithm publicly
-2. **Fair caps** - Maximum 3x multiplier
-3. **Auditable** - Publish surge zones via Event Kind 30590
-
-**Example algorithm:**
-```
-Multiplier = 1 + (active_requests / available_drivers - 1) * 0.5
-Capped at 3.0x
-```
-
-See [NIP-XX-ridesharing.md → Appendix E: Surge Pricing Guidelines](./NIP-XX-ridesharing.md).
-
-### Can riders tip drivers?
-
-**Yes - and 100% goes to the driver.**
-
-- Event Kind 30513 (Driver Tip)
-- No operator fee on tips
-- Instant Lightning payment or traditional methods
+Tips can be sent as:
+- Kind 30513 (Provider Tip event) via the operator
+- NIP-57 Lightning Zap on the task completion event (visible across all Nostr clients)
 
 ---
 
@@ -288,131 +250,68 @@ See [NIP-XX-ridesharing.md → Appendix E: Surge Pricing Guidelines](./NIP-XX-ri
 
 ### Is DonkeyRide legal?
 
-**DonkeyRide is a protocol specification (like HTTP), not a ridesharing service.**
+**DonkeyRide is a protocol specification (like HTTP), not a service.**
 
-The protocol itself is legal everywhere - it's just event schemas and data formats.
-
-**However, operating a ridesharing service has legal requirements:**
-- Background checks for drivers
-- Vehicle inspections
-- Insurance requirements
-- Business licenses
-- Tax reporting
-- GDPR/CCPA compliance
-
-**Who is responsible?** The **operator**, not the protocol.
+The protocol itself is legal everywhere. However, **operating a coordination service** has legal requirements that vary by jurisdiction. Each operator is solely responsible for compliance.
 
 ### Who is liable if something goes wrong?
 
-**The operator is liable**, just like with Uber/Lyft.
-
-DonkeyRide is a protocol standard (like HTTP) - it doesn't provide insurance, legal protection, or safety services.
-
-**Each operator must:**
-- Carry liability insurance
-- Comply with local regulations
-- Implement safety features
-- Handle disputes and arbitration
-- Report to authorities as required
-
-### Can DonkeyRide be used for illegal activities?
-
-**The protocol is neutral** - like HTTP, it can be used for legal or illegal purposes.
-
-**Operators are responsible for:**
-- Legal compliance in their jurisdiction
-- Reporting illegal activity to authorities
-- Refusing service for illegal purposes
-
-**DonkeyRide provides tools for compliance:**
-- Event Kind 30595: Background Check Verification
-- Event Kind 30596: Insurance Verification
-- Event Kind 30540: Age Verification
-- Event Kind 30562: Harassment Report
-
-See [NIP-XX-ridesharing.md → Appendix A: Regulatory Guidance](./NIP-XX-ridesharing.md).
+**The operator is liable**, just like with Uber/Lyft. DonkeyRide is a protocol standard — it doesn't provide insurance, legal protection, or safety services. Each operator must carry appropriate insurance and comply with local regulations.
 
 ### What about GDPR and CCPA?
 
-**Fully supported via hybrid privacy model:**
+Fully supported via the three-layer compliance architecture:
 
-**GDPR Rights:**
-- ✅ **Right to Access**: Operators provide full data export API
-- ✅ **Right to Deletion**: 30-day deletion SLA for private data
-- ✅ **Right to Portability**: Export/import reputation in DonkeyRide format
-- ✅ **Right to Rectification**: Update incorrect data via operator
+- **Public Nostr data**: Only pseudonymous identifiers and geohash-level locations (data minimisation)
+- **Encrypted Nostr data**: Crypto-shredding for right to erasure
+- **Operator data**: Standard GDPR controller obligations (deletion, portability, rectification)
 
-**Data Minimization:**
-- Public Nostr relays: Only aggregated reputation (no PII)
-- Private operator DB: Detailed data with deletion rights
-
-See [NIP-XX-ridesharing.md → Appendix D: Privacy & Reputation Event Lifecycle](./NIP-XX-ridesharing.md).
+See [docs/GDPR-COMPLIANCE.md](./docs/GDPR-COMPLIANCE.md) for details.
 
 ---
 
 ## Technical Details
 
-### How many event kinds are there?
+### How is the protocol structured?
 
-**82 total** (kinds 30500-30599):
+The protocol is a **family of 8 modular NIP specifications**, each covering a specific concern:
 
-- **Core Events**: 15 (ride lifecycle, payments, stakes)
-- **Safety & Emergency**: 6 (panic button, trip sharing, check-ins)
-- **Verification**: 5 (background checks, insurance, vehicle)
-- **Financial**: 4 (tips, wait time, no-show fees, additional charges)
-- **Operational**: 5 (service areas, airport queues, flat rate zones)
-- **UX Features**: 8 (preferences, lost & found, split payment, referrals)
-- **Compliance**: 3 (age verification, wheelchair cert, fatigue warnings)
-- **Advanced**: 36 (scheduled rides, carpooling, surge, delivery, navigation)
+| Spec | Scope |
+|------|-------|
+| NIP-XX-core | Service lifecycle (request, accept, complete, cancel) |
+| NIP-XX-stakes | Commitment stakes (lock, release, forfeit) |
+| NIP-XX-reputation | Ratings and reputation portability |
+| NIP-XX-disputes | Disputes, theft reports, guardian voting |
+| NIP-XX-discovery | Geohash-based service discovery |
+| NIP-XX-safety | Emergency alerts, trip sharing, heartbeat |
+| NIP-XX-navigation | Routes, turn-by-turn, traffic |
+| NIP-XX-payments | Streaming payments, tips, surcharges |
 
-See [QUICK-REFERENCE.md](./QUICK-REFERENCE.md) for complete table.
+Plus **domain extension specs** for ridesharing, locksmith, and delivery.
 
-### What is a "replaceable parameterized event"?
+See [specs/QUICK-REFERENCE.md](./specs/QUICK-REFERENCE.md) for the complete event kind table.
 
-**Most DonkeyRide events use NIP-33 (replaceable parameterized events):**
+### What event kind range does DonkeyRide use?
 
-- **Replaceable**: New event replaces old event (not append-only)
-- **Parameterized**: Identified by `d` tag (unique identifier)
-- **Example**: Driver online status (Kind 30503)
-  - New "online" event replaces previous status
-  - Only one current status exists per driver
+- **30500-30599**: Core protocol + modular NIPs
+- **30600-30639**: Domain extensions (locksmith, delivery)
+- **20500**: Provider availability (ephemeral — relays must not store)
 
-**Why use replaceable events?**
-- Prevents spam (only one current value)
-- Efficient storage (relays don't keep all history)
-- Always get latest state (no need to sort/filter)
+### What's a "replaceable parameterised event"?
 
-### What's the difference between Nostr and Lightning?
+Most DonkeyRide events use **NIP-33** (replaceable parameterised events):
+- **Replaceable**: new event replaces old event (not append-only)
+- **Parameterised**: identified by `d` tag (unique identifier)
+- **Example**: Provider status — new "available" event replaces previous status
 
-**Nostr** (decentralized communication):
-- Used for: Discovery, reputation, ride coordination
-- Think: Decentralized Twitter/Telegram
-
-**Lightning Network** (Bitcoin payments):
-- Used for: Instant ride payments, tips, stakes
-- Think: Instant Bitcoin transactions (like Venmo, but decentralized)
-
-**Can I use one without the other?**
-- ✅ Yes - DonkeyRide supports multiple payment methods
-- ✅ Yes - Operators can skip Nostr (Schema-Compatible mode)
+This prevents spam, ensures efficient storage, and means clients always get the latest state.
 
 ### How does real-time location tracking work?
 
 **Two methods:**
 
-**1. WebSocket (recommended):**
-```
-Rider App ←→ Operator WebSocket Server ←→ Driver App
-(5-10 second updates, instant delivery)
-```
-
-**2. Nostr Polling (fallback):**
-```
-Rider App ←→ Nostr Relays ←→ Driver App
-(5-30 second polling, slower but decentralized)
-```
-
-See [NIP-XX-ridesharing.md → Appendix F: Real-Time Communication Protocol](./NIP-XX-ridesharing.md).
+1. **WebSocket** (recommended for UX) — direct provider → operator → requester, 3-5 second updates
+2. **Ephemeral Nostr events** (privacy-maximising) — NIP-44 encrypted, operator never sees location data
 
 ---
 
@@ -420,72 +319,25 @@ See [NIP-XX-ridesharing.md → Appendix F: Real-Time Communication Protocol](./N
 
 ### Can I build a DonkeyRide app?
 
-**Yes!** The protocol is open and free to use.
+**Yes.** The protocol is open and free to use. No permission needed, no licensing fees, no rate limits.
 
-**You can build:**
-- Rider apps (iOS, Android, web)
-- Driver apps (iOS, Android, web)
-- Operator backends (server infrastructure)
-- Analytics tools (monitoring, reporting)
-- Alternative UIs (accessibility-focused, etc.)
-
-**No permission needed** - just implement the protocol.
-
-### Are there licensing fees or rate limits?
-
-**No.**
-
-- **License**: MIT (free for commercial use)
-- **Rate limits**: None (protocol-level, depends on operator APIs)
-- **Patents**: None (public domain protocol)
+You can build: requester apps, provider apps, operator backends, analytics tools, domain-specific extensions, or alternative UIs.
 
 ### Where do I start?
 
-**Three steps:**
-
-1. **Read specification**: [NIP-XX-ridesharing.md](./NIP-XX-ridesharing.md)
-2. **Check examples**: See event schemas with JSON examples
-3. **Build against test operator**: Set up local test environment
-
-See [QUICK-START.md](./QUICK-START.md) for 5-minute setup guide.
+1. Read [specs/QUICK-REFERENCE.md](./specs/QUICK-REFERENCE.md) for the protocol overview
+2. Read [specs/NIP-XX-core.md](./specs/NIP-XX-core.md) for the core specification
+3. Set up local development: [guides/QUICK-START.md](./guides/QUICK-START.md)
+4. Run the reference implementation with different domains (`DOMAIN=locksmith npm start`)
 
 ### Can I add custom features?
 
-**Yes - the protocol is extensible:**
+**Yes — the protocol is extensible:**
 
-**Option 1: Use existing events with custom tags**
-```json
-{
-  "kind": 30500,
-  "tags": [
-    ["custom_feature", "your_value"]
-  ]
-}
-```
-
-**Option 2: Add new event kinds in your range**
-```json
-{
-  "kind": 40500,
-  "content": "Your custom feature"
-}
-```
-
-**Option 3: Propose additions to protocol**
-- Submit pull request to DonkeyRide repository
-- Community discussion and review
-- Adopted if useful and backward-compatible
-
-### Is there a test network?
-
-**Not yet - coming in v1.1.**
-
-For now, you can:
-1. Run local Nostr relay (e.g., strfry, nostream)
-2. Use test Lightning wallets (regtest mode)
-3. Test operator backend locally (Docker Compose)
-
-See [QUICK-START.md](./QUICK-START.md) for local development setup.
+1. **Custom tags** on existing event kinds (backward-compatible)
+2. **New domain profiles** for new service verticals (~100 lines)
+3. **New event kinds** in reserved ranges (30600-30639 for domain extensions)
+4. **Propose additions** to the protocol via pull requests
 
 ---
 
@@ -493,250 +345,86 @@ See [QUICK-START.md](./QUICK-START.md) for local development setup.
 
 ### How do I launch a DonkeyRide operator?
 
-**Five steps:**
+1. **Choose architecture** (Nostr-native, hybrid, or schema-compatible)
+2. **Choose payment providers** (Strike for fiat, NIP-47 for trustless, or both)
+3. **Choose domains** (ridesharing, locksmith, delivery, or custom)
+4. **Deploy infrastructure** (the reference implementation runs on Node.js + PostgreSQL + Redis)
+5. **Legal compliance** (licences, insurance, background checks for your jurisdiction)
 
-1. **Choose architecture** (Nostr-Native, Hybrid, or Schema-Compatible)
-2. **Build/deploy backend** (Express + Lightning + PostgreSQL recommended)
-3. **Build/deploy apps** (Rider + Driver mobile apps)
-4. **Legal compliance** (licenses, insurance, background checks)
-5. **Launch in single market** (test in one city first)
-
-See [OPERATOR-DEPLOYMENT.md](./OPERATOR-DEPLOYMENT.md) for detailed guide.
-
-### What are the legal requirements?
-
-**Depends on your jurisdiction.**
-
-**Common requirements:**
-- Business license for transportation network company (TNC)
-- Liability insurance ($1M+ typical)
-- Driver background checks (criminal, driving record)
-- Vehicle inspections
-- Tax reporting (1099 for drivers in US)
-- GDPR/CCPA compliance (EU/California)
-
-**Always consult qualified legal counsel** before launching.
-
-See [NIP-XX-ridesharing.md → Appendix A: Regulatory Guidance](./NIP-XX-ridesharing.md) for jurisdiction-specific info (non-normative).
-
-### How much does it cost to operate?
-
-**Rough estimates:**
-
-**Infrastructure:**
-- Servers: $500-2,000/month (AWS/GCP)
-- Lightning node: $100-500/month (liquidity + hosting)
-- Monitoring: $100-300/month (Datadog, Sentry)
-
-**Development:**
-- Initial build: $50K-200K (depends on architecture choice)
-- Ongoing maintenance: $10K-30K/month (engineers, support)
-
-**Legal/Compliance:**
-- Insurance: $50K-200K/year (liability coverage)
-- Legal fees: $20K-100K/year (ongoing compliance)
-- Background checks: $30-50 per driver
-
-**Marketing:**
-- Driver acquisition: $100-500 per driver
-- Rider acquisition: $20-100 per rider
+See [guides/OPERATOR-DEPLOYMENT.md](./guides/OPERATOR-DEPLOYMENT.md) for the detailed guide.
 
 ### Can I use traditional payment processing instead of Lightning?
 
-**Yes - Lightning is recommended but optional.**
+**Yes.** The protocol supports any payment rail. Strike, Stripe, and PayPal are all supported. Lightning is recommended for speed and low fees but is not required.
 
-**Alternative payment methods:**
-- Credit/debit cards (Stripe, Braintree)
-- ACH bank transfers
-- Operator-held balance (prepaid accounts)
-- Cash (if legal in your jurisdiction)
+### How do I compete with established platforms?
 
-DonkeyRide focuses on **event schemas**, not payment methods.
-
-### How do I compete with Uber/Lyft?
-
-**Four competitive advantages:**
-
-1. **Lower fees** (0.5% vs 25-30%) - attract drivers
-2. **Better driver treatment** (no deplatforming, instant payouts)
-3. **Privacy-focused** (minimal data collection, GDPR-friendly)
-4. **Local ownership** (keep profits in community, not VC funds)
-
-**Launch strategy:**
-- Start in single underserved market (college town, suburb)
-- Focus on driver acquisition (lower fees = powerful incentive)
-- Build local brand (community-owned alternative to Uber)
-- Expand gradually (don't compete head-to-head nationwide)
+Four competitive advantages:
+1. **Lower fees** (1-5% vs 25-30%) — powerful incentive for providers
+2. **Multi-domain** — serve ridesharing, locksmith, and delivery from one platform
+3. **Trust transparency** — users see exactly where their money is held
+4. **Open protocol** — lower development costs, interoperability with other operators
 
 ---
 
-## For Drivers
-
-### How do I sign up as a driver?
-
-**Contact an operator using DonkeyRide:**
-
-DonkeyRide is a protocol, not a platform. Individual operators manage driver onboarding.
-
-**Typical requirements:**
-- Valid driver's license
-- Vehicle inspection
-- Background check
-- Insurance verification
-- Nostr keypair (for identity)
-- Lightning wallet (for payments, optional)
+## For Providers
 
 ### Can I work for multiple operators at once?
 
-**Yes!** That's a core benefit of DonkeyRide.
-
-**Example:**
-- Weekdays: Drive for "Operator A" (0.5% fee)
-- Weekends: Drive for "Operator B" (1% fee but better surge)
-- Ratings follow you between operators (reputation portability)
-
-See [NIP-XX-ridesharing.md → Appendix G: Cross-Operator Coordination](./NIP-XX-ridesharing.md).
+**Yes.** That's a core benefit. Your reputation follows you between operators (kind 30521: Reputation Export/Import). You choose which operators to work with based on their fees, trust model, and service areas.
 
 ### What if I get deplatformed from an operator?
 
-**You can switch to another operator and keep your reputation.**
+You can switch to another operator and keep your reputation:
+1. Export reputation (kind 30521)
+2. Sign up with new operator
+3. Import reputation (ratings, task count, badges)
+4. Continue working with history intact
 
-**Example:**
-1. Operator A bans you (their right as private business)
-2. Export your reputation (Event Kind 30521: Reputation Export)
-3. Sign up with Operator B
-4. Import your reputation (4.8 stars, 1,200 rides)
-5. Continue driving with ratings intact
+### How do instant payouts work?
 
-**Note:** Serious safety violations (assault, fraud) may be shared between operators via reputation system.
-
-### How do instant Lightning payouts work?
-
-**Streaming payments during the ride:**
-
-1. Ride starts - rider locks payment in Lightning invoice
-2. Every 30 seconds - operator releases portion to driver
-3. Ride ends - final payment released automatically
-4. Driver receives payment instantly (no withdrawal delays)
-
-**Benefits:**
-- ✅ No waiting for weekly payouts (Uber's model)
-- ✅ No $0.50-1.50 instant payout fee (Lyft's model)
-- ✅ Trustless - rider can't chargeback after ride
-- ✅ Free - Lightning has minimal fees (<1 cent)
-
-See [NIP-XX-ridesharing.md → Event Kind 30510: Streaming Payment](./NIP-XX-ridesharing.md).
+**Streaming payments during the task:**
+1. Task starts — requester's payment is authorised
+2. Every 30 seconds — a portion is released to your wallet
+3. Task ends — final payment released automatically
+4. You receive payment instantly — no waiting for weekly payouts
 
 ---
 
-## For Riders
+## For Requesters
 
-### How do I request a ride?
+### How do I request a service?
 
-**Download an app from a DonkeyRide-compatible operator:**
-
-DonkeyRide is the protocol - operators build the apps.
-
-**Look for apps that mention:**
-- "Built on DonkeyRide protocol"
-- "Supports DonkeyRide reputation export"
-- "Nostr-compatible ridesharing"
-
-### Can I use my Uber/Lyft rating on DonkeyRide?
-
-**Not automatically** (Uber/Lyft don't export ratings).
-
-But if Uber/Lyft adopt DonkeyRide schemas for data export, you could import your reputation.
-
-**For now:**
-- Start fresh with a DonkeyRide operator
-- Build reputation through rides
-- Export reputation if switching operators
+Download an app from a DonkeyRide-compatible operator. DonkeyRide is the protocol — operators build the apps. Look for apps that mention "built on DonkeyRide" or "Nostr-compatible service coordination".
 
 ### How do I switch operators?
 
-**Three steps:**
-
-1. **Export reputation** from current operator (Event Kind 30521)
+Three steps:
+1. **Export reputation** from current operator (kind 30521)
 2. **Sign up** with new operator
-3. **Import reputation** (Event Kind 30521)
-
-Your ratings, ride count, and aggregate statistics transfer over.
+3. **Import reputation** — your ratings and task count transfer
 
 ### Is it safe?
 
-**Same safety features as Uber/Lyft:**
-
-- ✅ Background checks for drivers (Event Kind 30595)
-- ✅ Vehicle inspections (Event Kind 30597)
-- ✅ Panic button (Event Kind 30559)
-- ✅ Trip sharing / Follow My Ride (Event Kind 30560)
-- ✅ Safety check-ins (Events 30561-30563)
-- ✅ Two-way ratings (driver rates rider, rider rates driver)
-- ✅ Insurance verification (Event Kind 30596)
-
-**Additional benefits:**
-- Transparent operator policies (open protocol)
-- Can choose operators with better safety records
-- Harassment reporting (Event Kind 30564)
-
-See [PLATFORM-COMPARISON.md](./PLATFORM-COMPARISON.md) for safety comparison.
-
-### Can I pay with cash or credit card?
-
-**Depends on the operator.**
-
-DonkeyRide protocol supports:
-- Lightning Network (instant Bitcoin)
-- Traditional payment processing (credit/debit cards)
-- Cash (if operator allows)
-- Operator-held balance (prepaid accounts)
+Same safety features as traditional platforms, plus additional benefits:
+- Emergency button (kind 30559 — panic, medical, accident, threat)
+- Trip sharing with trusted contacts (kind 30560)
+- Safety check-ins during long tasks (kinds 30561-30563)
+- Background checks published as NIP-58 badges (verifiable)
+- Harassment reporting (kind 30564)
+- 24/7 operator safety monitoring (for operators with `safety_monitoring: true`)
+- Choose operators with better safety records (transparent on Nostr)
 
 ---
 
 ## Additional Questions?
 
-### Where can I learn more?
-
-**Documentation:**
-- [NIP-XX-ridesharing.md](./NIP-XX-ridesharing.md) - Complete protocol specification
-- [QUICK-REFERENCE.md](./QUICK-REFERENCE.md) - One-page event kind table
-- [PLATFORM-COMPARISON.md](./PLATFORM-COMPARISON.md) - Uber vs Lyft vs DonkeyRide
-- [ARCHITECTURE.md](./ARCHITECTURE.md) - Federated model explanation
-- [QUICK-START.md](./QUICK-START.md) - 5-minute setup guide
-
-**Community:**
-- GitHub: https://github.com/donkeyride/donkeyride (submit issues)
-- Nostr: `npub1...` (TBD - after NIP submission)
-
-### How can I contribute?
-
-**Ways to help:**
-
-1. **Protocol improvements** - Submit pull requests
-2. **Documentation** - Clarify explanations, add examples
-3. **Reference implementations** - Build operator backends, mobile apps
-4. **Testing** - Report bugs and edge cases
-5. **Spread the word** - Tell developers and operators about DonkeyRide
-
-See [README.md → Contributing](./README.md#contributing) for guidelines.
-
-### Is this a VC-backed startup?
-
-**No.** DonkeyRide is an open protocol developed by the community.
-
-There's no company, no funding, no cap table. It's a public good like HTTP or email protocols.
-
-### Will you submit this to Nostr NIP repository?
-
-**Yes - planned for v1.0 launch.**
-
-DonkeyRide will be submitted as **NIP-XX** to the [Nostr NIP repository](https://github.com/nostr-protocol/nips) for community review and adoption.
+- **Protocol specification**: [specs/QUICK-REFERENCE.md](./specs/QUICK-REFERENCE.md)
+- **Architecture**: [ARCHITECTURE.md](./ARCHITECTURE.md)
+- **Trust mechanisms**: [TRUST-MECHANISMS.md](./TRUST-MECHANISMS.md)
+- **Quick start**: [guides/QUICK-START.md](./guides/QUICK-START.md)
+- **GitHub**: Submit issues for questions not covered here
 
 ---
 
-**Questions not answered here?** Open an issue on GitHub or contact via Nostr (after NIP submission).
-
----
-
-*"The best protocols are the ones everyone can use. Let's build an open future for ridesharing."*
+*"The best protocols are the ones everyone can use. Let's build an open future for service coordination."*
