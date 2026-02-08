@@ -35,6 +35,8 @@ WEBSOCKET (ephemeral)         →  Real-time tracking + Live updates
 
 ## Part 2: Use Case Catalogue
 
+> **Detailed state machines** for the top 10 use cases (with Mermaid diagrams, payment triggers, and protocol gap analysis) are in [USE-CASE-STATE-MACHINES.md](USE-CASE-STATE-MACHINES.md).
+
 ### Tier 1 — Immediate Wins (minimal protocol changes)
 
 #### 1. Locksmith Dispatch — Protocol Fit: 10/10
@@ -61,7 +63,7 @@ moves.
 
 - State machine: removal_requested → mover_matched → en_route_to_pickup → arrived → loading → in_transit →
   arrived_at_delivery → unloading → completed
-- AnyVan charges 15-25% commission; protocol's 0.5% operator fee is transformative
+- AnyVan charges 15-25% commission; protocol's 1-5% operator fee is transformative
 - Market: ~£1.5bn. AnyVan established but unpopular with providers
 - Regulatory: Low (standard driving licence under 3.5 tonnes)
 
@@ -164,7 +166,7 @@ mechanisms: automatic forfeit if delivery exceeds agreed window.
 #### 13. Volunteer Coordination — Protocol Fit: 8/10
 
 Works WITHOUT payments (zero-value sessions). Reputation stakes instead of financial — volunteers who no-show lose
-reputation rather than sats. Multiple charities sharing the protocol can share volunteer pools via cross-operator
+reputation rather than money. Multiple charities sharing the protocol can share volunteer pools via cross-operator
 coordination (kind 30505).
 
 - Market: Non-commercial but massive social impact
@@ -267,8 +269,8 @@ The UK domiciliary care market is £6.7 billion in 2026, growing at 6.8% CAGR. C
 grew from 8,414 (2017) to 13,733 (2024) — 63% increase. 2 million people aged 65+ are not getting needed care due to
 staff shortages. Skills for Care estimates 440,000 additional care workers needed by 2035.
 
-Private agencies charge 30-40% of the nurse's rate. The protocol's 0.5% operator fee combined with instant Lightning
-settlement (vs 30-60 day payment cycles) is a compelling value proposition.
+Private agencies charge 30-40% of the nurse's rate. The protocol's 1-5% operator fee combined with instant settlement
+(vs 30-60 day payment cycles) is a compelling value proposition.
 
 ### The CQC Question — Can You Avoid Registration?
 
@@ -297,7 +299,7 @@ PUBLIC NOSTR RELAYS (safe)                    PRIVATE OPERATOR DB (encrypted, au
 ├─ Service area definitions                   ├─ Vital signs history
 └─ Scheduling coordination (time only)        ├─ Visit photographs
                                               ├─ Consent records
-ENCRYPTED DMs (NIP-04, post-match)            └─ Full audit trail
+ENCRYPTED DMs (NIP-17, post-match)            └─ Full audit trail
 ├─ Exact patient address
 ├─ Patient name and contact                   NHS SPINE (if NHS-adjacent)
 └─ Visit-specific instructions                ├─ Summary Care Record updates
@@ -495,11 +497,14 @@ Gaps identified across all use cases:
 
 | Primitive                         | Needed By                             | Description                                                       |
 |-----------------------------------|---------------------------------------|-------------------------------------------------------------------|
-| Quote Negotiation (~kind 30601)   | Trades, mechanic, surveyor            | Provider issues quote after assessment; customer accepts/declines |
-| Multi-Day Session (~kind 30602)   | Photography, farm labour, archaeology | Engagements spanning days/weeks                                   |
-| Deliverable Handoff (~kind 30603) | Surveyor, photography, environmental  | Completion triggered by document delivery, not co-location        |
-| Bulk Matching (~kind 30604)       | Farm labour, events, volunteers       | One request, many acceptors                                       |
-| Guarantee Period (~kind 30605)    | Trades, mechanic                      | Warranty tracking as long-lived replaceable event                 |
+| Quote Negotiation (~kind 30601)   | Locksmith, trades, mechanic, surveyor | Provider issues quote after assessment; customer accepts/declines |
+| Inventory/Manifest (~kind 30602)  | Man with van, delivery                | Itemised manifest with condition tracking and dispute evidence     |
+| Multi-Attempt Loop (~kind 30603)  | Court serving, roadside assistance    | Structured retry loop with attempt records and escalation          |
+| Three-Party Coordination (~kind 30604) | Food delivery, marketplace       | Restaurant → courier → customer coordination with split payments   |
+| Heartbeat Protocol (~kind 30605)  | Security guard, companion care        | Session-based check-ins with auto-escalation on missed heartbeat   |
+| Guarantee Period (~kind 30606)    | Emergency trades, mechanic            | Warranty tracking as long-lived replaceable event                  |
+
+> **Detailed gap analysis** with Mermaid diagrams showing where each gap appears in the state machine: [USE-CASE-STATE-MACHINES.md](USE-CASE-STATE-MACHINES.md#protocol-gaps-identified).
 
 ### F. Implementation Effort
 
@@ -514,18 +519,18 @@ Gaps identified across all use cases:
 
 ### Top 10 by Overall Score (Protocol Fit x Market x Competitive Gap / Regulatory Complexity)
 
-| Rank | Use Case                | Protocol Fit | Market (UK)    | Regulatory | Competitive Gap | Priority    |
-|------|-------------------------|--------------|----------------|------------|-----------------|-------------|
-| 1    | Locksmith Dispatch      | 10/10        | £700m          | Very Low   | Very Wide       | Immediate   |
-| 2    | Man with a Van          | 9/10         | £1.5bn         | Low        | Wide            | Immediate   |
-| 3    | Parcel Delivery         | 9/10         | Very Large     | Low        | Moderate        | Immediate   |
-| 4    | Mobile Car Wash         | 9/10         | £1.2bn         | Very Low   | Wide            | Immediate   |
-| 5    | Court Process Serving   | 9/10         | £100-200m      | Low        | Very Wide       | Immediate   |
-| 6    | Roadside Assistance     | 9/10         | £2bn+          | Low-Med    | Moderate        | Near-term   |
-| 7    | Emergency Trades        | 8/10         | £4-6bn         | High       | Moderate        | Near-term   |
-| 8    | Food Delivery           | 8/10         | Very Large     | Medium     | Moderate        | Near-term   |
-| 9    | Volunteer Coordination  | 8/10         | Non-commercial | Medium     | Very Wide       | Near-term   |
-| 10   | Security Guard Dispatch | 8/10         | £500m-1bn      | High       | Moderate        | Medium-term |
+| Rank | Use Case                | Protocol Fit | Market (UK)    | Regulatory | Competitive Gap | Protocol Gaps Surfaced | State Machine | Priority    |
+|------|-------------------------|--------------|----------------|------------|-----------------|------------------------|---------------|-------------|
+| 1    | Locksmith Dispatch      | 10/10        | £700m          | Very Low   | Very Wide       | Quote negotiation | [DonkeyKnock](USE-CASE-STATE-MACHINES.md#2-locksmith-donkeyknock) | Immediate   |
+| 2    | Man with a Van          | 9/10         | £1.5bn         | Low        | Wide            | Inventory/manifest, requote loop | [DonkeyHaul](USE-CASE-STATE-MACHINES.md#4-man-with-van-donkeyhaul) | Immediate   |
+| 3    | Parcel Delivery         | 9/10         | Very Large     | Low        | Moderate        | Chain of custody | [DonkeyPack](USE-CASE-STATE-MACHINES.md#3-parcel-delivery-donkeypack) | Immediate   |
+| 4    | Mobile Car Wash         | 9/10         | £1.2bn         | Very Low   | Wide            | None (simple) | [DonkeyShine](USE-CASE-STATE-MACHINES.md#5-mobile-car-wash-donkeyshine) | Immediate   |
+| 5    | Court Process Serving   | 9/10         | £100-200m      | Low        | Very Wide       | Multi-attempt loop | [DonkeyServe](USE-CASE-STATE-MACHINES.md#6-court-process-serving-donkeyserve) | Immediate   |
+| 6    | Roadside Assistance     | 9/10         | £2bn+          | Low-Med    | Moderate        | Diagnostic fork | [DonkeyRescue](USE-CASE-STATE-MACHINES.md#7-roadside-assistance-donkeyrescue) | Near-term   |
+| 7    | Emergency Trades        | 8/10         | £4-6bn         | High       | Moderate        | Milestone escrow, guarantee period | [DonkeyFix](USE-CASE-STATE-MACHINES.md#9-emergency-trades-donkeyfix) | Near-term   |
+| 8    | Food Delivery           | 8/10         | Very Large     | Medium     | Moderate        | Three-party coordination | [DonkeyEats](USE-CASE-STATE-MACHINES.md#8-food-delivery-donkeyeats) | Near-term   |
+| 9    | Volunteer Coordination  | 8/10         | Non-commercial | Medium     | Very Wide       | Zero-value sessions | — | Near-term   |
+| 10   | Security Guard Dispatch | 8/10         | £500m-1bn      | High       | Moderate        | Heartbeat protocol | [DonkeyGuard](USE-CASE-STATE-MACHINES.md#10-security-guard-dispatch-donkeyguard) | Medium-term |
 
 ### Strategic Sequencing
 
@@ -562,6 +567,16 @@ that exist in every service marketplace. The industries where trust is most brok
 removals) are where the protocol's value is most immediately obvious. Healthcare is the highest-value long-term
 opportunity but requires the most careful regulatory navigation.
 
-The generalisation architecture (domain profiles) means adding a new use case requires ~500 lines of configuration and
-routes rather than a fork. The payment providers, reputation system, authentication middleware, and dispute resolution
+The generalisation architecture (domain profiles) means adding a new use case requires ~100 lines of configuration
+rather than a fork. The payment providers, reputation system, authentication middleware, and dispute resolution
 all work unchanged across every domain.
+
+---
+
+## See Also
+
+- **[USE-CASE-STATE-MACHINES.md](USE-CASE-STATE-MACHINES.md)** — Detailed state machines for top 10 use cases (Mermaid diagrams, payment triggers, protocol gaps)
+- **[PAYMENT-PROVIDERS.md](PAYMENT-PROVIDERS.md)** — Payment provider integration (currency-neutral, trust model taxonomy)
+- **[GDPR-COMPLIANCE.md](GDPR-COMPLIANCE.md)** — GDPR compliance architecture (crypto-shredding, three-layer data model)
+- **[../ARCHITECTURE.md](../ARCHITECTURE.md)** — Three-layer federated architecture
+- **[../specs/QUICK-REFERENCE.md](../specs/QUICK-REFERENCE.md)** — Complete event kind reference table
