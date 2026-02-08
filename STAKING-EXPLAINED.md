@@ -1,250 +1,245 @@
 # DonkeyRide Staking Mechanism Explained
 
 ## The Core Problem
+
 Without a central authority (like Uber), how do we ensure:
-1. Riders don't request fake rides?
-2. Drivers don't accept then cancel?
+1. Requesters don't submit fake service requests?
+2. Providers don't accept then cancel?
 3. Both parties complete the transaction?
 
 ## The Solution: Commitment Stakes
 
-### 1. Initial Stakes (Before Ride)
+Both parties lock a small amount of money before the task begins. If either party misbehaves, they lose their stake. If both behave, both get their money back.
 
-#### Rider Stakes (10% of fare)
-```javascript
-// When requesting a ride for 1000 sats
-Rider Balance: 50,000 sats
-Stake Required: 100 sats (10%)
+The protocol is **currency-neutral** — stakes work in GBP, USD, EUR, BTC, or any supported currency. The `trust_model` tag on every stake event tells participants exactly where their money is held.
 
-// After requesting:
-Rider Balance: 49,900 sats
-Locked in Escrow: 100 sats
+---
+
+### 1. Initial Stakes (Before Task)
+
+#### Requester Stakes (10% of estimated fare)
+```
+Requesting a service estimated at £10.00:
+  Requester balance:  £500.00
+  Stake required:     £1.00 (10%)
+
+  After requesting:
+  Requester balance:  £499.00
+  Locked in escrow:   £1.00
 ```
 
-#### Driver Stakes (15% of fare)
-```javascript
-// When accepting a 1000 sat ride
-Driver Balance: 100,000 sats  
-Stake Required: 150 sats (15%)
+#### Provider Stakes (15% of estimated fare)
+```
+Accepting a £10.00 service:
+  Provider balance:   £1,000.00
+  Stake required:     £1.50 (15%)
 
-// After accepting:
-Driver Balance: 99,850 sats
-Locked in Escrow: 150 sats
+  After accepting:
+  Provider balance:   £998.50
+  Locked in escrow:   £1.50
 ```
 
 ### 2. Where Do Stakes Go?
 
-Stakes are held in **Lightning Network HODL invoices** or **2-of-2 multisig contracts**:
+It depends on the **trust model** — the user chooses:
 
-```javascript
-// Simplified flow
-const escrowContract = {
-    riderStake: 100,      // Locked until ride completes
-    driverStake: 150,     // Locked until ride completes
-    conditions: {
-        onComplete: "Return both stakes",
-        onRiderCancel: "Driver gets rider's stake",
-        onDriverCancel: "Rider gets driver's stake"
-    }
-};
-```
+| Trust Model | Where Stakes Are Held | Can Operator Steal? |
+|------------|----------------------|---------------------|
+| `trustless` (NIP-47) | Lightning Network hold invoices, user wallets | No — operator never has custody |
+| `custodial-third-party` (Strike) | Strike holds funds during conversion | No — operator never has custody |
+| `custodial-escrow` (Stripe) | Stripe escrow account | No — operator never has custody |
+| `custodial` (operator LND node) | Operator's Lightning node | Possible — see [TRUST-MECHANISMS.md](./TRUST-MECHANISMS.md) |
+| `federated` (Cashu/Fedimint) | Ecash mint or federation | Requires federation collusion |
+
+**Recommended for most users:** `trustless` (NIP-47) or `custodial-third-party` (Strike). The operator never touches your money.
 
 ### 3. Stake Resolution Scenarios
 
-#### Scenario A: Successful Ride Completion ✅
-```javascript
-// Ride completes successfully
-Rider pays: 1000 sats (via streaming)
-Rider gets back: 100 sats (stake returned)
-Net cost to rider: 1000 sats
+#### Scenario A: Successful Completion
 
-Driver receives: 1000 sats (payment)
-Driver gets back: 150 sats (stake returned)
-Net earning for driver: 1000 sats
+```
+Task completes successfully:
+  Requester pays:     £10.00 (service fee)
+  Requester gets back: £1.00 (stake returned)
+  Net cost:           £10.00
+
+  Provider receives:  £10.00 (payment)
+  Provider gets back:  £1.50 (stake returned)
+  Net earning:        £10.00 (minus operator fee)
 ```
 
-#### Scenario B: Driver Cancels ❌
-```javascript
-// Driver cancels after accepting
-Driver loses: 150 sats (entire stake)
-Rider receives: 120 sats (80% of driver's stake)
-Protocol fee: 30 sats (20% - prevents gaming)
+#### Scenario B: Provider Cancels
 
-// Final balances:
-Rider: Compensated 120 sats + stake back (100) = +220 sats
-Driver: Lost 150 sats
+```
+Provider cancels after accepting:
+  Provider loses:     £1.50 (entire stake)
+  Requester receives: £1.20 (80% of provider's stake)
+  Operator fee:       £0.30 (20% — prevents gaming)
+
+  Final:
+  Requester: compensated £1.20 + stake back (£1.00) = +£2.20
+  Provider:  lost £1.50
 ```
 
-#### Scenario C: Rider Cancels ❌
-```javascript
-// Rider cancels after driver accepts
-Rider loses: 100 sats (entire stake)
-Driver receives: 80 sats (80% of rider's stake)
-Protocol fee: 20 sats (20%)
+#### Scenario C: Requester Cancels
 
-// Final balances:
-Rider: Lost 100 sats
-Driver: Compensated 80 sats + stake back (150) = +230 sats
+```
+Requester cancels after provider accepts:
+  Requester loses:    £1.00 (entire stake)
+  Provider receives:  £0.80 (80% of requester's stake)
+  Operator fee:       £0.20 (20%)
+
+  Final:
+  Requester: lost £1.00
+  Provider:  compensated £0.80 + stake back (£1.50) = +£2.30
 ```
 
-### 4. Technical Implementation
+#### Scenario D: No-Show
 
-#### Using Lightning HODL Invoices
-```javascript
-// Step 1: Create HODL invoice for stakes
-const stakeInvoice = {
-    amount: 250,  // Total stakes (100 + 150)
-    preimage: generateSecret(),
-    hash: sha256(preimage),
-    timeout: 3600  // 1 hour
-};
+```
+Requester doesn't appear (no_show state):
+  Requester loses:    £1.00 (stake automatically forfeited)
+  Provider receives:  £0.80 (80% of forfeited stake)
+  No-show fee:        £5.00 (kind 30515, additional charge)
+  Provider gets back:  £1.50 (own stake returned)
 
-// Step 2: Both parties pay into HODL invoice
-await rider.payInvoice(stakeInvoice, 100);
-await driver.payInvoice(stakeInvoice, 150);
-
-// Step 3: On ride completion
-if (rideCompleted) {
-    releasePreimage(preimage);  // Unlocks funds
-    refundStakes(rider, driver);
-}
-
-// Step 4: On cancellation
-if (driverCancelled) {
-    rider.claim(120);  // From driver's stake
-    protocolFee.claim(30);
-    driver.loses(150);
-}
+  Final:
+  Requester: lost £1.00 stake + £5.00 no-show fee
+  Provider:  compensated for wasted time
 ```
 
-#### Using 2-of-2 Multisig (Alternative)
-```javascript
-// Create multisig address requiring both signatures
-const multisigAddress = createMultisig([riderPubkey, driverPubkey]);
+### 4. How Each Trust Model Works
 
-// Both fund the multisig
-await rider.sendToMultisig(100);
-await driver.sendToMultisig(150);
+#### NIP-47 (Trustless — Recommended)
 
-// Resolution requires both signatures OR timeout conditions
-const resolutionTx = {
-    inputs: [multisigUTXO],
-    outputs: [
-        {to: rider, amount: 100},  // Rider stake back
-        {to: driver, amount: 150}   // Driver stake back
-    ],
-    signatures: [riderSig, driverSig]
-};
+The operator **never has custody**. Stakes flow directly between user wallets via Nostr Wallet Connect:
+
+```
+1. Provider's wallet creates a hold invoice via NIP-47
+2. Requester's wallet pays → funds LOCKED in Lightning Network
+3. Task completes → operator publishes signed completion event
+4. Completion triggers settlement (NIP-47 settle_hold_invoice)
+5. Or timeout → automatic refund (NIP-47 cancel_hold_invoice)
+
+Operator's role: publishes completion event — never touches funds
 ```
 
-### 5. Scheduled Rides (Higher Stakes)
+#### Strike (Fiat UX)
 
-For scheduled rides, stakes DOUBLE because reliability is critical:
+For users who want to pay in pounds, dollars, or euros:
 
-```javascript
-// 5am Airport ride for 2000 sats
-Rider stake: 400 sats (20%)
-Driver stake: 600 sats (30%)
+```
+1. Requester pays £1.00 stake via Strike
+2. Strike holds £1.00 (not the operator)
+3. Task completes → operator confirms → Strike releases
+4. Provider receives payment (GBP or sats, their choice)
 
-// If driver no-shows:
-Driver loses: 600 sats (stake)
-Driver pays: 2000 sats (penalty = full fare)
-Total driver loss: 2600 sats
-
-Rider receives: 2400 sats (compensation)
-Protocol/insurance: 200 sats
+Operator's role: confirms completion — never holds funds
+Trust model: custodial-third-party
 ```
 
-### 6. Reputation-Based Stake Adjustment
+#### Operator Lightning Node (Custodial)
 
-```javascript
-function calculateStake(baseFare, basePercent, reputation) {
-    // New user (0 reputation): 2x stake
-    // Good user (100 reputation): 0.5x stake
-    
-    const multiplier = 2.0 - (reputation / 100);
-    const stakePercent = basePercent * multiplier;
-    return baseFare * (stakePercent / 100);
-}
+For operators running their own Lightning infrastructure:
 
-// Examples:
-// New driver (0 rep): 1000 * 30% = 300 sats stake
-// Veteran (95 rep): 1000 * 8% = 80 sats stake
+```
+1. Requester pays hold invoice → operator's LND node holds funds
+2. Provider pays hold invoice → operator's LND node holds funds
+3. Task completes → operator settles both invoices
+4. Cancellation → operator releases/forfeits as appropriate
+
+Operator's role: holds funds temporarily — trust layers 1-6 apply
+Trust model: custodial
 ```
 
-### 7. The Protocol Fee Question
+### 5. Milestone Escrow
 
-**Where do the 20% of forfeited stakes go?**
+For multi-stage tasks (emergency plumber, multi-stop delivery), stakes can be released in milestones:
 
-Options:
-1. **Burn** - Destroyed, creating deflationary pressure
-2. **Insurance Pool** - Covers extreme dispute cases
-3. **Development Fund** - Supports protocol development
-4. **Distributed** - Shared among relay operators
+```
+Emergency plumber job — £200 total:
+  Milestone 1: Diagnosis (20%)     → £40 released on diagnosis
+  Milestone 2: Parts sourced (30%) → £60 released when parts arrive
+  Milestone 3: Work complete (50%) → £100 released on completion
+
+Each milestone triggers a kind 30506 event.
+Provider doesn't wait until the end to get paid.
+Requester can verify each stage before funds release.
+```
+
+### 6. Scheduled Tasks (Higher Stakes)
+
+For scheduled tasks, stakes increase because reliability is critical:
+
+```
+5am airport pickup for £20.00:
+  Requester stake:  £4.00 (20% — doubled)
+  Provider stake:   £6.00 (30% — doubled)
+
+  If provider no-shows:
+  Provider loses:   £6.00 (stake)
+  Provider pays:    £20.00 (penalty = full fare)
+  Total loss:       £26.00
+
+  Requester receives compensation for the missed pickup.
+```
+
+### 7. Reputation-Based Stake Adjustment
+
+Trusted users stake less. New users stake more.
+
+```
+New user (0 tasks completed):   2× base stake
+Established (50+ tasks, 4.5+):  1× base stake
+Veteran (200+ tasks, 4.8+):     0.5× base stake
+```
+
+This means a veteran provider with hundreds of completed tasks and excellent ratings stakes half as much as a new provider — they've earned the trust.
+
+### 8. The Protocol Fee Question
+
+**Where does the 20% of forfeited stakes go?**
 
 Current implementation: **Insurance Pool**
-```javascript
-const insurancePool = {
-    balance: 0,
-    
-    collectPenalty: function(amount) {
-        this.balance += amount * 0.2;  // 20% of penalties
-    },
-    
-    handleDispute: function(case) {
-        if (case.isValid() && this.balance >= case.amount) {
-            this.balance -= case.amount;
-            return case.resolve();
-        }
-    }
-};
-```
+- Funds disputes where both parties have legitimate claims
+- Covers edge cases (breakdown, accident, force majeure)
+- Governed by operator policy
 
-### 8. Why This Works
+### 9. Why This Works
 
-1. **Immediate Consequences**: Bad behavior costs money instantly
-2. **Proportional Risk**: Higher value rides = higher stakes
-3. **Market-Driven**: No arbitrary bans, just economic reality
-4. **Self-Enforcing**: Smart contracts execute automatically
-5. **Reputation Matters**: Good actors pay less over time
-
-### 9. Attack Vectors & Defenses
-
-#### Sybil Attacks (Fake Accounts)
-- **Defense**: New accounts require 2x stakes
-- **Cost**: Attacking becomes economically unfeasible
-
-#### Griefing (Intentional Cancellations)
-- **Defense**: Canceller loses more than victim gains
-- **Math**: Attacker loses 100%, victim gets 80%
-
-#### Collusion (Rider + Driver Conspire)
-- **Defense**: Streaming payments during ride
-- **Reality**: Can't fake actual transportation
+1. **Immediate consequences** — bad behaviour costs money instantly
+2. **Proportional risk** — higher-value tasks require higher stakes
+3. **Market-driven** — no arbitrary bans, just economic reality
+4. **Trust model choice** — users pick their risk tolerance
+5. **Reputation matters** — good actors stake less over time
+6. **Currency-neutral** — works in any currency, any payment rail
 
 ### 10. Comparison with Traditional Systems
 
-| System | Trust Mechanism | Cost | Resolution Time |
-|--------|----------------|------|-----------------|
-| Uber | Corporate authority | 25-30% commission | Days/weeks |
+| System | Trust Mechanism | Fee | Settlement |
+|--------|----------------|-----|------------|
+| Uber/Lyft | Corporate authority | 25-30% | Days/weeks |
 | Cash | Physical presence | 0% but risky | Immediate |
-| DonkeyRide | Economic stakes | 0% commission | Instant |
-
-### The Beautiful Part
-
-**No one holds these funds long-term**. They're either:
-- Returned (successful ride)
-- Redistributed (cancellation)
-- Never centrally controlled
-
-The protocol doesn't "own" anything. It just defines the rules that Lightning Network or smart contracts execute automatically.
+| DonkeyRide (trustless) | Economic stakes + NIP-47 | Operator fee (1-5%) | Instant |
+| DonkeyRide (fiat) | Economic stakes + Strike | Operator fee (1-5%) | Seconds |
 
 ---
 
 ## TL;DR
 
-- **Stakes**: Temporary locks ensuring good behavior
-- **Location**: Lightning HODL invoices or multisig contracts  
-- **Resolution**: Automatic based on ride outcome
-- **No middleman**: Protocol defines rules, crypto enforces them
+- **Stakes**: Temporary locks ensuring good behaviour
+- **Location**: Depends on trust model — hold invoices, Strike, Stripe, or operator node
+- **Resolution**: Automatic based on task outcome
+- **No-show**: Automatic forfeiture when `no_show` state is reached
+- **Milestones**: Partial release at each stage for multi-step tasks
+- **Trust choice**: Users see the trust model and choose their risk tolerance
 - **Result**: Trust through economics, not corporations
+
+---
+
+## See Also
+
+- **[specs/NIP-XX-stakes.md](./specs/NIP-XX-stakes.md)** — Stake event kinds and lifecycle
+- **[TRUST-MECHANISMS.md](./TRUST-MECHANISMS.md)** — 6 layers of trust (defence in depth)
+- **[specs/NIP-XX-payments.md](./specs/NIP-XX-payments.md)** — Payment events and streaming payments
+- **[docs/PAYMENT-PROVIDERS.md](./docs/PAYMENT-PROVIDERS.md)** — Payment provider integration guide
