@@ -10,7 +10,7 @@
 
 ## Abstract
 
-This NIP defines the **ridesharing domain extension** to NIP-XX-core. It specifies role aliases, tag aliases, ridesharing-specific event kinds, state machine mappings, and domain-specific behaviours for peer-to-peer ridesharing coordination over Nostr with Lightning Network payments.
+This NIP defines the **ridesharing domain extension** to NIP-XX-core. It specifies role aliases, tag aliases, ridesharing-specific event kinds, state machine mappings, and domain-specific behaviours for peer-to-peer ridesharing coordination over Nostr with payment-agnostic financial rails.
 
 All core event kinds and mechanisms defined in NIP-XX-core apply unchanged when the `domain` tag is set to `"ridesharing"`. This extension adds ridesharing-specific event kinds in the 30514-30516 and 30529-30599 ranges covering financial charges, operational management, driver management, navigation, surge pricing, compliance, accessibility, and more.
 
@@ -59,6 +59,20 @@ Example — the following are semantically equivalent:
 
 ---
 
+## Currency-Neutral Amounts
+
+All monetary amounts in ridesharing events are **currency-neutral**. The `amount` value is always in the smallest unit of the specified currency (pence for GBP, cents for USD, satoshis for SAT). Every event with a monetary value MUST include `currency` and `trust_model` tags:
+
+```json
+["amount", "1500"],
+["currency", "GBP"],
+["trust_model", "custodial-third-party"]
+```
+
+See [NIP-XX-payments.md](NIP-XX-payments.md) for the full payment specification and [NIP-XX-stakes.md](NIP-XX-stakes.md) for stake lifecycle.
+
+---
+
 ## State Machine
 
 The ridesharing state machine maps directly onto the NIP-XX-core lifecycle with domain-specific state names.
@@ -66,9 +80,13 @@ The ridesharing state machine maps directly onto the NIP-XX-core lifecycle with 
 ```
 requested ──→ matched ──→ en_route ──→ arrived ──→ active ──→ completed
     │             │            │            │          │
-    └─────────────┴────────────┴────────────┴──────────┘
-                        cancelled (from any non-terminal state)
+    │             │            │            │          └──→ cancelled
+    │             │            │            └──→ no_show
+    │             │            │            └──→ cancelled
+    └─────────────┴────────────┴──→ cancelled
 ```
+
+Terminal states: `completed`, `cancelled`, `no_show`.
 
 ### State Mapping
 
@@ -81,6 +99,7 @@ requested ──→ matched ──→ en_route ──→ arrived ──→ activ
 | `active` | `active` | Ride is in progress (rider aboard) |
 | `completed` | `completed` | Ride has been completed, rider dropped off |
 | `cancelled` | `cancelled` | Ride was cancelled (valid from any non-terminal state) |
+| `no_show` | `no_show` | Rider failed to appear within the waiting limit; triggers automatic stake forfeiture |
 
 ### Allowed Transitions
 
@@ -89,7 +108,7 @@ requested ──→ matched ──→ en_route ──→ arrived ──→ activ
 | `requested` | `matched`, `cancelled` |
 | `matched` | `en_route`, `cancelled` |
 | `en_route` | `arrived`, `cancelled` |
-| `arrived` | `active`, `cancelled` |
+| `arrived` | `active`, `no_show`, `cancelled` |
 | `active` | `completed`, `cancelled` |
 
 ---
@@ -119,13 +138,15 @@ Ridesharing uses a **distance + time + surge** pricing model.
 **Base fare calculation:**
 
 ```
-fare_sats = base_fare + (distance_metres * per_metre_rate) + (duration_seconds * per_second_rate)
+fare = base_fare + (distance_metres * per_metre_rate) + (duration_seconds * per_second_rate)
 ```
+
+All values in the smallest unit of the operator's configured currency (pence, cents, satoshis).
 
 **Surge multiplier** (when demand exceeds supply):
 
 ```
-final_fare = fare_sats * surge_multiplier
+final_fare = fare * surge_multiplier
 ```
 
 Surge pricing zones and multipliers are published transparently as kind 30590 events, ensuring riders can verify pricing before requesting a ride.
@@ -345,13 +366,15 @@ The following event kinds are defined by this extension for ridesharing-specific
     ["g", "gcpuu"],
     ["g", "gcpu"],
     ["g", "gcp"],
-    ["fare_sats", "45000"],
-    ["requester_stake", "4500"],
+    ["amount", "1500"],
+    ["currency", "GBP"],
+    ["trust_model", "custodial-third-party"],
+    ["requester_stake", "150"],
     ["vehicle_type", "sedan"],
     ["passenger_count", "2"],
     ["luggage", "small"],
     ["quiet_ride", "true"],
-    ["expiry", "1698769032"]
+    ["expiration", "1698769032"]
   ]
 }
 ```
@@ -368,9 +391,10 @@ The following event kinds are defined by this extension for ridesharing-specific
     ["domain", "ridesharing"],
     ["e", "<request-event-id>", "wss://relay.example.com"],
     ["driver_pubkey", "<driver-hex-pubkey>"],
-    ["provider_stake", "6750"],
+    ["provider_stake", "225"],
     ["estimated_arrival", "8"],
-    ["quoted_fare", "45000"],
+    ["amount", "1500"],
+    ["currency", "GBP"],
     ["vehicle_make", "Toyota"],
     ["vehicle_model", "Camry"],
     ["vehicle_colour", "Silver"],
@@ -418,8 +442,9 @@ Published by the driver when a rider exceeds the free waiting period at pickup.
     ["rider_pubkey", "<rider-hex-pubkey>"],
     ["wait_seconds", "420"],
     ["free_wait_seconds", "300"],
-    ["charge_sats", "1200"],
-    ["rate_sats_per_minute", "600"]
+    ["amount", "200"],
+    ["currency", "GBP"],
+    ["rate_per_minute", "100"]
   ]
 }
 ```
@@ -439,7 +464,8 @@ Published when the rider fails to appear within the allowed waiting period.
     ["ride_id", "ride_abc123"],
     ["rider_pubkey", "<rider-hex-pubkey>"],
     ["wait_seconds", "600"],
-    ["fee_sats", "5000"],
+    ["amount", "500"],
+    ["currency", "GBP"],
     ["driver_pubkey", "<driver-hex-pubkey>"]
   ]
 }
@@ -459,7 +485,8 @@ Published for incidental charges during a ride (tolls, parking, cleaning fees).
     ["domain", "ridesharing"],
     ["ride_id", "ride_abc123"],
     ["charge_type", "toll"],
-    ["amount_sats", "2500"],
+    ["amount", "1500"],
+    ["currency", "GBP"],
     ["description", "Central London congestion charge"]
   ]
 }
@@ -482,7 +509,8 @@ Published for incidental charges during a ride (tolls, parking, cleaning fees).
     ["dropoff_lon", "-0.1278"],
     ["pickup_time", "1699000800"],
     ["vehicle_type", "sedan"],
-    ["fare_sats", "85000"]
+    ["amount", "2500"],
+    ["currency", "GBP"]
   ]
 }
 ```
@@ -523,7 +551,8 @@ Published for incidental charges during a ride (tolls, parking, cleaning fees).
     ["available_seats", "2"],
     ["route_geohashes", "gcpvj,gcpvm,gcpvn"],
     ["departure_time", "1698765600"],
-    ["fare_per_seat_sats", "15000"]
+    ["amount_per_seat", "500"],
+    ["currency", "GBP"]
   ]
 }
 ```
@@ -583,7 +612,8 @@ Published for incidental charges during a ride (tolls, parking, cleaning fees).
     ["new_dropoff_lon", "-0.1132"],
     ["original_dropoff_lat", "51.5155"],
     ["original_dropoff_lon", "-0.1416"],
-    ["fare_adjustment_sats", "-5000"]
+    ["fare_adjustment", "-500"],
+    ["currency", "GBP"]
   ]
 }
 ```
@@ -603,7 +633,8 @@ Published for incidental charges during a ride (tolls, parking, cleaning fees).
     ["boundary_geohashes", "gcpv,gcpw,gcpu,gcps"],
     ["active", "true"],
     ["surge_enabled", "true"],
-    ["min_fare_sats", "5000"]
+    ["min_fare", "500"],
+    ["currency", "GBP"]
   ]
 }
 ```
@@ -643,8 +674,9 @@ Published for incidental charges during a ride (tolls, parking, cleaning fees).
     ["split_with", "<pubkey_2>"],
     ["split_with", "<pubkey_3>"],
     ["split_type", "equal"],
-    ["total_fare_sats", "45000"],
-    ["per_person_sats", "15000"]
+    ["total_amount", "1500"],
+    ["per_person_amount", "500"],
+    ["currency", "GBP"]
   ]
 }
 ```
@@ -760,8 +792,9 @@ Published for incidental charges during a ride (tolls, parking, cleaning fees).
     ["rider_pubkey", "<rider-hex-pubkey>"],
     ["period", "2024"],
     ["total_rides", "156"],
-    ["total_spent_sats", "4250000"],
-    ["average_fare_sats", "27244"],
+    ["total_spent", "425000"],
+    ["currency", "GBP"],
+    ["average_fare", "2724"],
     ["total_distance_metres", "2340000"],
     ["favourite_destination", "51.5320,-0.1240"]
   ]
@@ -874,8 +907,9 @@ Ridesharing uses the following default stake parameters:
 | Requester (rider) stake | 10% of estimated fare |
 | Provider (driver) stake | 15% of estimated fare |
 | Cancellation penalty | 80% of staked amount |
-| Minimum stake | 500 sats |
-| Maximum stake | 100,000 sats |
+| No-show penalty | 100% of staked amount (automatic on `no_show` transition) |
+| Minimum stake | Operator-configured (e.g. £1.00 / 500 sats) |
+| Maximum stake | Operator-configured (e.g. £100.00 / 100,000 sats) |
 | Free cancellation grace period | 300 seconds (5 minutes) |
 | No-show waiting limit | 600 seconds (10 minutes) |
 
@@ -932,13 +966,19 @@ Add these for feature parity with traditional ridesharing platforms:
 
 ## See Also
 
-- **NIP-XX-core** — Domain-agnostic core protocol (this extension's parent)
-- **QUICK-REFERENCE.md** — Summary table of all 82 ridesharing event kinds
-- **ARCHITECTURE.md** — Federated operator model and decentralisation analysis
-- **TRUST-MECHANISMS.md** — Six layers of trust
+- **[NIP-XX-core.md](NIP-XX-core.md)** — Domain-agnostic core protocol (this extension's parent)
+- **[NIP-XX-stakes.md](NIP-XX-stakes.md)** — Commitment stakes (lock, release, forfeit, milestones)
+- **[NIP-XX-payments.md](NIP-XX-payments.md)** — Streaming payments, tips, surcharges
+- **[NIP-XX-reputation.md](NIP-XX-reputation.md)** — Ratings and reputation portability
+- **[NIP-XX-safety.md](NIP-XX-safety.md)** — Emergency alerts, trip sharing, heartbeat
+- **[NIP-XX-navigation.md](NIP-XX-navigation.md)** — Routes, turn-by-turn, traffic
+- **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** — Summary table of all event kinds
+- **[../ARCHITECTURE.md](../ARCHITECTURE.md)** — Federated operator model and decentralisation analysis
+- **[../TRUST-MECHANISMS.md](../TRUST-MECHANISMS.md)** — Six layers of trust
+- **[../docs/PAYMENT-PROVIDERS.md](../docs/PAYMENT-PROVIDERS.md)** — Payment provider integration guide
 
 ---
 
-**Protocol Version**: v1.0
+**Protocol Version**: v3.0 (Payment-Agnostic)
 **Domain**: ridesharing
 **Total Event Kinds**: 82 (30500-30599)

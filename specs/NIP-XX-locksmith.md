@@ -11,7 +11,7 @@
 
 ## Abstract
 
-This document defines the **locksmith dispatch** domain extension to NIP-XX-core. It specifies role aliases, an extended state machine, domain-specific tags, pricing semantics, and rating criteria for coordinating emergency and scheduled locksmith callouts over the Nostr protocol with Lightning Network payments.
+This document defines the **locksmith dispatch** domain extension to NIP-XX-core. It specifies role aliases, an extended state machine, domain-specific tags, pricing semantics, and rating criteria for coordinating emergency and scheduled locksmith callouts over the Nostr protocol with payment-agnostic financial rails.
 
 The locksmith domain is a near-perfect fit for the NIP-XX protocol. The UK locksmith industry, in particular, is plagued by scam operators who quote low prices over the telephone and demand vastly inflated sums upon arrival — exploiting the customer's urgency and vulnerability. Commitment stakes directly address this by requiring the locksmith to lock funds against the quoted price, creating a verifiable, enforceable price commitment before the customer is in a position of weakness.
 
@@ -22,6 +22,12 @@ The locksmith domain is a near-perfect fit for the NIP-XX protocol. The UK locks
 Voluntary industry bodies exist (e.g., the Master Locksmiths Association) but membership is not required by law. Operators MAY choose to verify MLA membership or equivalent credentials, but this is at their discretion.
 
 Operators in other jurisdictions MUST verify local licensing requirements. Some countries and states do regulate locksmithing.
+
+---
+
+## Currency-Neutral Amounts
+
+All monetary amounts in locksmith events are **currency-neutral**. The `amount` value is always in the smallest unit of the specified currency (pence for GBP, cents for USD, satoshis for SAT). Every event with a monetary value MUST include `currency` and `trust_model` tags. See [NIP-XX-payments.md](NIP-XX-payments.md) and [NIP-XX-stakes.md](NIP-XX-stakes.md).
 
 ---
 
@@ -74,12 +80,12 @@ This flow protects customers from the bait-and-switch pricing that plagues the i
 {
   "pricing_model": "flatRate",
   "quote_negotiation": true,
-  "initial_estimate_sats": 75000,
+  "initial_estimate": 7500,
   "estimate_range": {
-    "min_sats": 50000,
-    "max_sats": 150000
+    "min": 5000,
+    "max": 15000
   },
-  "currency_display": "GBP"
+  "currency": "GBP"
 }
 ```
 
@@ -103,6 +109,9 @@ lockout_reported ──> locksmith_matched ──> en_route ──> arrived
        │                    │                 │
        └────────────────────┴─────────────────┴──── cancelled
                    (from any non-terminal state)
+
+Terminal states: access_gained, cancelled, no_show.
+no_show: customer not present when locksmith arrives (triggers automatic stake forfeiture).
 ```
 
 ### State Definitions
@@ -129,6 +138,7 @@ lockout_reported ──> locksmith_matched ──> en_route ──> arrived
 | `en_route` | `arrived` | Locksmith GPS confirms arrival |
 | `en_route` | `cancelled` | Either party cancels |
 | `arrived` | `access_method_confirmed` | Locksmith issues quote; customer accepts |
+| `arrived` | `no_show` | Customer not present within waiting limit |
 | `arrived` | `cancelled` | Customer declines quote or either party cancels |
 | `access_method_confirmed` | `work_active` | Locksmith begins work |
 | `access_method_confirmed` | `cancelled` | Either party cancels (stake penalties may apply) |
@@ -146,7 +156,7 @@ The following tags are specific to the locksmith domain and SHOULD be included o
 | `lock_type` | RECOMMENDED | Type of lock being serviced | `yale`, `mortice`, `euro_cylinder`, `padlock`, `digital`, `safe`, `vehicle`, `unknown` |
 | `service_urgency` | RECOMMENDED | Urgency level of the callout | `emergency` (locked out now), `urgent` (within hours), `scheduled` (pre-booked) |
 | `access_method` | After assessment | Method the locksmith will use to gain entry | `picking`, `drilling`, `bumping`, `bypass`, `key_cutting`, `replacement`, `decoding` |
-| `quoted_price` | After assessment | Confirmed price in satoshis after on-site assessment | `85000` (integer, satoshis) |
+| `quoted_price` | After assessment | Confirmed price in smallest currency unit after on-site assessment | `8500` (integer, e.g. pence for GBP) |
 
 ### Tag Examples
 
@@ -247,11 +257,13 @@ Published by the locksmith after arriving and assessing the lock. Contains the c
     ["d", "callout_abc123"],
     ["e", "<original_request_event_id>"],
     ["access_method", "drilling"],
-    ["quoted_price", "120000"],
+    ["quoted_price", "12000"],
+    ["currency", "GBP"],
+    ["trust_model", "custodial-third-party"],
     ["parts_required", "true"],
     ["parts_description", "Euro cylinder replacement"],
-    ["parts_cost_sats", "35000"],
-    ["labour_cost_sats", "85000"],
+    ["parts_cost", "3500"],
+    ["labour_cost", "8500"],
     ["estimate_minutes", "30"],
     ["valid_for_seconds", "600"]
   ],
@@ -260,7 +272,7 @@ Published by the locksmith after arriving and assessing the lock. Contains the c
 ```
 
 **Semantics:**
-- `quoted_price` is the total binding price (labour + parts) in satoshis
+- `quoted_price` is the total binding price (labour + parts) in the smallest unit of the operator's currency
 - `valid_for_seconds` indicates how long the quote remains valid (default: 600 seconds / 10 minutes)
 - The locksmith's stake is adjusted to cover the quoted price upon acceptance
 - If the customer declines, the callout transitions to `cancelled` with no penalty to the customer
@@ -277,7 +289,8 @@ Published by the customer to accept or decline a quote.
     ["e", "<quote_event_id>"],
     ["d", "callout_abc123"],
     ["accepted", "true"],
-    ["quoted_price", "120000"]
+    ["quoted_price", "12000"],
+    ["currency", "GBP"]
   ],
   "content": ""
 }
@@ -383,7 +396,7 @@ The locksmith domain uses all core NIP-XX event kinds for task lifecycle managem
 
 ## Security Considerations
 
-1. **Location privacy** — Callout requests reveal the customer's home or business address. Implementations SHOULD use NIP-04 or NIP-44 encryption for the precise address, with only the geohash visible publicly.
+1. **Location privacy** — Callout requests reveal the customer's home or business address. Implementations SHOULD use NIP-17 gift wrap or NIP-44 encryption for the precise address, with only the geohash visible publicly.
 2. **Vulnerability exploitation** — Customers locked out are in a vulnerable state. The quote negotiation flow with commitment stakes is specifically designed to prevent exploitation.
 3. **Property access** — Locksmiths gain access to properties. Operators SHOULD consider identity verification requirements even though they are not legally mandated.
 
@@ -400,9 +413,14 @@ The locksmith domain uses all core NIP-XX event kinds for task lifecycle managem
 
 ---
 
-## References
+## See Also
 
-- **NIP-XX-core**: Decentralised Service Coordination Protocol (core specification)
+- **[NIP-XX-core.md](NIP-XX-core.md)** — Domain-agnostic core protocol (this extension's parent)
+- **[NIP-XX-stakes.md](NIP-XX-stakes.md)** — Commitment stakes (lock, release, forfeit)
+- **[NIP-XX-payments.md](NIP-XX-payments.md)** — Payment events and streaming models
+- **[NIP-XX-reputation.md](NIP-XX-reputation.md)** — Ratings and reputation portability
+- **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** — Summary table of all event kinds
+- **[../docs/PAYMENT-PROVIDERS.md](../docs/PAYMENT-PROVIDERS.md)** — Payment provider integration guide
 - **Reference implementation**: `src/domain-profiles/locksmith.js`
 - **Master Locksmiths Association**: https://www.locksmiths.co.uk/ (voluntary industry body)
 - **UK Gov — Locksmith regulation**: No statutory regulation exists as of 2025

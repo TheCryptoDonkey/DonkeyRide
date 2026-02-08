@@ -18,6 +18,12 @@ Parcel delivery is structurally near-identical to ridesharing — pick up at loc
 
 ---
 
+## Currency-Neutral Amounts
+
+All monetary amounts in delivery events are **currency-neutral**. The `amount` value is always in the smallest unit of the specified currency (pence for GBP, cents for USD, satoshis for SAT). Every event with a monetary value MUST include `currency` and `trust_model` tags. See [NIP-XX-payments.md](NIP-XX-payments.md) and [NIP-XX-stakes.md](NIP-XX-stakes.md).
+
+---
+
 ## Terminology
 
 | Generic Term (NIP-XX-core) | Delivery Domain Alias | Description |
@@ -56,8 +62,9 @@ Delivery pricing is calculated from two primary factors: the distance between co
 ```json
 {
   "pricing_model": "distance_weight",
-  "base_fee_sats": 5000,
-  "per_km_sats": 1500,
+  "base_fee": 500,
+  "per_km": 150,
+  "currency": "GBP",
   "weight_tiers": [
     { "max_grams": 1000, "multiplier": 1.0 },
     { "max_grams": 5000, "multiplier": 1.5 },
@@ -65,18 +72,17 @@ Delivery pricing is calculated from two primary factors: the distance between co
     { "max_grams": 30000, "multiplier": 3.0 }
   ],
   "fragile_surcharge_percent": 20,
-  "signature_required_surcharge_sats": 2000,
-  "currency_display": "GBP"
+  "signature_required_surcharge": 200
 }
 ```
 
 ### Price Calculation Example
 
-A 3 kg parcel travelling 8 km:
-- Base fee: 5,000 sats
-- Distance: 8 km x 1,500 sats = 12,000 sats
+A 3 kg parcel travelling 8 km (GBP):
+- Base fee: 500p (£5.00)
+- Distance: 8 km x 150p = 1,200p (£12.00)
 - Weight multiplier (1-5 kg tier): x 1.5
-- Total: (5,000 + 12,000) x 1.5 = **25,500 sats**
+- Total: (500 + 1,200) x 1.5 = **2,550p (£25.50)**
 
 ---
 
@@ -100,6 +106,8 @@ requested ──> matched ──> courier_en_route ──> courier_arrived ─�
                         (from any non-terminal state)
 ```
 
+Terminal states: `completed`, `cancelled`, `no_show`, `delivery_failed`, `returned_to_sender`.
+
 ### State Definitions
 
 | Core State | Delivery State | Description |
@@ -113,6 +121,9 @@ requested ──> matched ──> courier_en_route ──> courier_arrived ─�
 | *(extension)* | `arrived_at_delivery` | Courier has arrived at the delivery address; awaiting handover |
 | `completed` | `completed` | Parcel has been delivered; proof of delivery captured |
 | `cancelled` | `cancelled` | Delivery was cancelled (valid from any non-terminal state) |
+| `no_show` | `no_show` | Sender not present at collection within waiting limit; triggers automatic stake forfeiture |
+| *(extension)* | `delivery_failed` | Recipient unavailable after maximum attempts; triggers return |
+| *(extension)* | `returned_to_sender` | Parcel returned to sender after failed delivery |
 
 ### State Transitions
 
@@ -125,13 +136,16 @@ requested ──> matched ──> courier_en_route ──> courier_arrived ─�
 | `courier_en_route` | `courier_arrived` | Courier GPS confirms arrival at collection point |
 | `courier_en_route` | `cancelled` | Either party cancels |
 | `courier_arrived` | `collected` | Courier scans/photographs parcel and confirms collection |
+| `courier_arrived` | `no_show` | Sender not present within waiting limit |
 | `courier_arrived` | `cancelled` | Parcel not available or either party cancels |
 | `collected` | `in_transit` | Courier departs collection point towards destination |
 | `collected` | `cancelled` | Exceptional cancellation (parcel returned to sender) |
 | `in_transit` | `arrived_at_delivery` | Courier GPS confirms arrival at delivery address |
 | `in_transit` | `cancelled` | Exceptional cancellation (parcel returned to sender) |
 | `arrived_at_delivery` | `completed` | Recipient accepts parcel; proof of delivery captured |
-| `arrived_at_delivery` | `cancelled` | Recipient refuses parcel or not available (re-delivery or return) |
+| `arrived_at_delivery` | `delivery_failed` | Recipient unavailable after maximum attempts |
+| `arrived_at_delivery` | `cancelled` | Recipient refuses parcel |
+| `delivery_failed` | `returned_to_sender` | Parcel returned to sender |
 
 ---
 
@@ -153,11 +167,11 @@ The following tags are specific to the delivery domain and SHOULD be included on
 
 | Tag | Description | Example Values |
 |-----|-------------|----------------|
-| `recipient_name` | Name of the intended recipient (encrypted) | NIP-04/NIP-44 encrypted |
+| `recipient_name` | Name of the intended recipient (encrypted) | NIP-17/NIP-44 encrypted |
 | `delivery_instructions` | Special instructions for the courier | `"Leave with neighbour at no. 42 if not home"` |
 | `collection_window` | Time window for collection | `"2025-10-20T09:00:00Z/2025-10-20T12:00:00Z"` |
 | `delivery_window` | Requested delivery time window | `"2025-10-20T14:00:00Z/2025-10-20T18:00:00Z"` |
-| `parcel_value_sats` | Declared value for insurance purposes | `500000` (integer) |
+| `parcel_value` | Declared value for insurance purposes (smallest currency unit) | `50000` (integer, e.g. pence) |
 | `temperature_sensitive` | Requires temperature control | `"chilled"`, `"frozen"`, `"ambient"` |
 
 ### Tag Examples
@@ -421,7 +435,7 @@ The delivery domain uses symmetric staking since both parties have roughly equal
 | Provider (courier) stake | 15% of delivery fee | Deters parcel theft and no-shows |
 | Penalty on cancellation | 80% of stake | Strong deterrent against ghosting |
 
-For high-value parcels (declared `parcel_value_sats` above a threshold), operators MAY require increased provider stakes proportional to the parcel value.
+For high-value parcels (declared `parcel_value` above a threshold), operators MAY require increased provider stakes proportional to the parcel value.
 
 ---
 
@@ -465,7 +479,7 @@ The dual-photo system (collection + delivery) provides particularly strong evide
 
 ## Security Considerations
 
-1. **Address privacy** — Delivery requests contain both collection and delivery addresses. Implementations MUST encrypt precise addresses using NIP-04 or NIP-44. Only geohashes should be visible publicly.
+1. **Address privacy** — Delivery requests contain both collection and delivery addresses. Implementations MUST encrypt precise addresses using NIP-17 gift wrap or NIP-44. Only geohashes should be visible publicly.
 2. **Parcel contents** — The `package_description` tag may reveal sensitive information about the sender's possessions. Senders SHOULD keep descriptions general.
 3. **Recipient privacy** — The recipient is a third party who has not necessarily consented to protocol participation. Recipient names SHOULD be hashed, not stored in plaintext.
 4. **High-value parcels** — Deliveries of high-value items create theft incentives. Operators SHOULD implement enhanced identity verification for high-value deliveries.
@@ -484,9 +498,15 @@ The dual-photo system (collection + delivery) provides particularly strong evide
 
 ---
 
-## References
+## See Also
 
-- **NIP-XX-core**: Decentralised Service Coordination Protocol (core specification)
+- **[NIP-XX-core.md](NIP-XX-core.md)** — Domain-agnostic core protocol (this extension's parent)
+- **[NIP-XX-stakes.md](NIP-XX-stakes.md)** — Commitment stakes (lock, release, forfeit)
+- **[NIP-XX-payments.md](NIP-XX-payments.md)** — Payment events and streaming models
+- **[NIP-XX-reputation.md](NIP-XX-reputation.md)** — Ratings and reputation portability
+- **[NIP-XX-navigation.md](NIP-XX-navigation.md)** — Routes, turn-by-turn, traffic
+- **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** — Summary table of all event kinds
+- **[../docs/PAYMENT-PROVIDERS.md](../docs/PAYMENT-PROVIDERS.md)** — Payment provider integration guide
 - **NIP-XX-ridesharing**: Ridesharing domain extension (structural reference)
 - **Reference implementation**: `src/domain-profiles/delivery.js`
 - **Original delivery event kinds**: NIP-XX-ridesharing kinds 30546-30548
