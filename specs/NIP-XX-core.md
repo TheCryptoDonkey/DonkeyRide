@@ -4,7 +4,7 @@
 
 ## Abstract
 
-This NIP defines an **open protocol standard** for trust-minimised service coordination between strangers over Nostr with Lightning Network payments. It specifies domain-agnostic event schemas (kinds 30500-30599) that enable interoperability between different service operators, applications, and implementations across any service domain (ridesharing, locksmith dispatch, parcel delivery, etc.).
+This NIP defines an **open protocol standard** for trust-minimised service coordination between strangers over Nostr with cryptographic commitment stakes and flexible payment settlement. It specifies domain-agnostic event schemas (kinds 30500-30599) that enable interoperability between different service operators, applications, and implementations across any service domain (ridesharing, locksmith dispatch, parcel delivery, etc.).
 
 Like HTTP for the web or SMTP for email, NIP-XX provides a common data format for service coordination, allowing:
 - **User data portability** — Switch operators while preserving reputation and history
@@ -31,7 +31,7 @@ Traditional service platforms extract 15-30% commission, can arbitrarily deplatf
 
 - **Direct peer-to-peer coordination** between requesters and providers
 - **Economic incentives** through commitment stakes to prevent ghosting by either party
-- **Instant settlement** via Lightning Network streaming payments
+- **Flexible settlement** via currency-neutral payment providers (Lightning, fiat, or hybrid)
 - **Reputation without manipulation** through cryptographically signed events
 - **No deplatforming** — providers cannot be banned from the protocol itself
 - **Fee competition** between relay operators driving fees towards zero
@@ -176,6 +176,7 @@ All tasks follow this core lifecycle. Domain extensions MAY define additional in
 ```
 requested ──→ matched ──→ provider_en_route ──→ provider_arrived ──→ active ──→ completed
     │             │              │                     │               │
+    │             │              │                     ├───────────────→ no_show
     └─────────────┴──────────────┴─────────────────────┴───────────────┘
                               cancelled (from any non-terminal state)
 ```
@@ -190,7 +191,10 @@ requested ──→ matched ──→ provider_en_route ──→ provider_arriv
 | `provider_arrived` | Provider has arrived at the task location |
 | `active` | Service is being performed |
 | `completed` | Service has been completed successfully |
+| `no_show` | One party failed to appear after commitment (triggers stake forfeiture) |
 | `cancelled` | Task was cancelled (valid from any non-terminal state) |
+
+**Terminal states**: `completed`, `no_show`, `cancelled`. The distinction between `no_show` and `cancelled` is critical: `no_show` triggers automatic stake forfeiture for the absent party, whilst `cancelled` triggers mutual stake release.
 
 Domain extensions define additional states by inserting them between `provider_arrived` and `active`. For example, the locksmith extension adds `access_method_confirmed` and `work_active` between arrival and completion.
 
@@ -214,16 +218,18 @@ Published by a requester to request a service.
     ["origin_geohash", "<geohash>"],
     ["destination_lat", "<latitude>"],
     ["destination_lon", "<longitude>"],
-    ["fare_sats", "<estimated_fare>"],
+    ["amount", "<estimated_fare>"],
+    ["currency", "<iso_4217_or_crypto_code>"],
+    ["trust_model", "<provider_trust_model>"],
     ["requester_stake", "<stake_amount>"],
-    ["expiry", "<unix_timestamp>"]
+    ["expiration", "<unix_timestamp>"]
   ],
   "content": "<optional_notes>"
 }
 ```
 
 **Required tags**: `d`, `requester_pubkey`, `origin_lat`, `origin_lon`
-**Optional tags**: `domain`, `destination_*`, `fare_sats`, `requester_stake`, `expiry`
+**Optional tags**: `domain`, `destination_*`, `amount`, `currency`, `trust_model`, `requester_stake`, `expiration`
 
 Domain extensions MAY define additional required/optional tags (e.g., `vehicle_type` for ridesharing, `lock_type` for locksmith).
 
@@ -241,7 +247,9 @@ Published by a provider to accept a task.
     ["provider_pubkey", "<hex_pubkey>"],
     ["provider_stake", "<stake_amount>"],
     ["estimated_arrival", "<minutes>"],
-    ["quoted_fare", "<sats>"]
+    ["amount", "<quoted_fare>"],
+    ["currency", "<iso_4217_or_crypto_code>"],
+    ["trust_model", "<provider_trust_model>"]
   ],
   "content": "<optional_notes>"
 }
@@ -258,11 +266,13 @@ Published by the operator when a commitment stake is locked.
     ["d", "<task_id>"],
     ["domain", "<domain_id>"],
     ["party", "requester|provider"],
-    ["amount", "<sats>"],
+    ["amount", "<value>"],
+    ["currency", "<iso_4217_or_crypto_code>"],
+    ["trust_model", "trustless|custodial|custodial-escrow|custodial-third-party|federated|smart-contract"],
     ["payment_hash", "<hex>"],
-    ["invoice", "<bolt11>"],
-    ["mechanism", "hodl_invoice|custodial|escrow"],
-    ["expiry", "<unix_timestamp>"]
+    ["invoice", "<bolt11_or_provider_reference>"],
+    ["mechanism", "hodl_invoice|custodial|escrow|nip47"],
+    ["expiration", "<unix_timestamp>"]
   ],
   "content": ""
 }
@@ -278,7 +288,8 @@ Published by the operator when a commitment stake is locked.
     ["domain", "<domain_id>"],
     ["cancelled_by", "requester|provider|operator"],
     ["reason", "<cancellation_reason>"],
-    ["penalty_sats", "<amount>"],
+    ["amount", "<penalty_value>"],
+    ["currency", "<iso_4217_or_crypto_code>"],
     ["e", "<original_request_event_id>"]
   ],
   "content": "<optional_details>"
@@ -295,9 +306,11 @@ Published by the requester (or operator on behalf) during an active task for ong
   "tags": [
     ["d", "<task_id>"],
     ["domain", "<domain_id>"],
-    ["amount", "<sats>"],
+    ["amount", "<value>"],
+    ["currency", "<iso_4217_or_crypto_code>"],
+    ["trust_model", "<provider_trust_model>"],
     ["payment_hash", "<hex>"],
-    ["cumulative_total", "<sats>"],
+    ["cumulative_total", "<value>"],
     ["interval_seconds", "<seconds>"]
   ],
   "content": ""
@@ -357,7 +370,8 @@ The `categories` tag contains a JSON object with domain-specific rating criteria
     ["complainant_pubkey", "<hex>"],
     ["accused_pubkey", "<hex>"],
     ["dispute_type", "payment|conduct|safety|quality"],
-    ["amount_disputed", "<sats>"],
+    ["amount", "<disputed_value>"],
+    ["currency", "<iso_4217_or_crypto_code>"],
     ["evidence", "<json_array>"]
   ],
   "content": "<dispute_description>"
@@ -374,9 +388,11 @@ Published by an operator to demonstrate financial commitment and trustworthiness
   "tags": [
     ["d", "<operator_pubkey>"],
     ["domain", "<domain_id>"],
-    ["bond_amount", "<sats>"],
-    ["bond_txid", "<bitcoin_txid>"],
-    ["bond_address", "<bitcoin_address>"],
+    ["amount", "<bond_value>"],
+    ["currency", "<iso_4217_or_crypto_code>"],
+    ["trust_model", "<provider_trust_model>"],
+    ["bond_txid", "<transaction_reference>"],
+    ["bond_address", "<address_or_reference>"],
     ["fee_percent", "<decimal>"],
     ["service_area", "<geojson_or_geohash>"]
   ],
@@ -406,7 +422,7 @@ Published by an operator to demonstrate financial commitment and trustworthiness
 
 ## Stake Mechanism
 
-Commitment stakes are the primary trust primitive. Both parties lock satoshis via Lightning hodl invoices (or equivalent) before the service begins. Stakes are:
+Commitment stakes are the primary trust primitive. Both parties lock a currency-neutral value via the configured payment provider (Lightning hold invoices, fiat escrow, or equivalent) before the service begins. Stakes are:
 
 - **Released** on successful task completion
 - **Forfeited** on no-show, cancellation after commitment, or proven misconduct
@@ -420,8 +436,8 @@ Operators define stake parameters per domain profile:
 {
   "requester_stake_percent": 10,
   "provider_stake_percent": 15,
-  "minimum_stake_sats": 500,
-  "maximum_stake_sats": 100000,
+  "minimum_stake": { "value": 500, "currency": "GBP" },
+  "maximum_stake": { "value": 10000, "currency": "GBP" },
   "cancellation_penalty_percent": 50,
   "no_show_penalty_percent": 100,
   "grace_period_seconds": 300
@@ -482,12 +498,71 @@ Domain extensions add domain-specific criteria (e.g., `driving` for ridesharing,
 | `destination_lat` | Destination latitude | `["destination_lat", "51.5155"]` |
 | `destination_lon` | Destination longitude | `["destination_lon", "-0.1416"]` |
 | `origin_geohash` | Geohash for privacy-preserving discovery | `["origin_geohash", "gcpuuz"]` |
-| `fare_sats` | Fare in satoshis | `["fare_sats", "50000"]` |
-| `payment_hash` | Lightning payment hash | `["payment_hash", "<hex>"]` |
+| `amount` | Value in the specified currency | `["amount", "1500"]` |
+| `currency` | ISO 4217 fiat code or crypto code (BTC, SAT) | `["currency", "GBP"]` |
+| `trust_model` | Payment provider trust model | `["trust_model", "custodial-escrow"]` |
+| `payment_hash` | Payment reference (Lightning hash or provider ID) | `["payment_hash", "<hex>"]` |
 | `timestamp` | Unix timestamp | `["timestamp", "1698765432"]` |
-| `expiry` | Event expiration time | `["expiry", "1698769032"]` |
+| `expiration` | Event expiration time (NIP-40) | `["expiration", "1698769032"]` |
+| `linked_task` | Reference to a related task | `["linked_task", "<task_id>", "<relationship>"]` |
 | `e` | Reference to another event | `["e", "<event-id>", "<relay>"]` |
 | `p` | Reference to pubkey | `["p", "<pubkey>"]` |
+
+---
+
+## Payment Agnosticism
+
+This protocol is **currency-neutral**. All event schemas that reference monetary values use explicit `amount`, `currency`, and `trust_model` tags rather than assuming a specific currency or payment rail.
+
+### Design Principle
+
+The protocol specifies *what* needs to be paid, not *how*. Payment settlement is delegated to payment providers, each of which declares its trust model. This enables:
+
+- **Fiat UX with Bitcoin rails** — A customer pays £12.50 via Strike, which converts to sats and settles over Lightning. Neither party touches cryptocurrency directly.
+- **Full sovereignty** — A Bitcoin-native user connects their own wallet via NIP-47 (Nostr Wallet Connect) for trustless hold invoices with no intermediary.
+- **Fiat-only markets** — An operator runs Stripe for traditional card payments with escrow.
+- **Mixed methods** — An operator offers multiple payment methods; the user chooses, seeing the trust trade-off for each.
+
+### Trust Model Taxonomy
+
+Every payment provider declares one of these trust models via the `trust_model` tag:
+
+| Trust Model | Description | Example Provider |
+|-------------|-------------|-----------------|
+| `trustless` | User wallet ↔ user wallet. No intermediary custody. | NIP-47 + hold invoices |
+| `custodial` | Operator holds funds temporarily. | LND (operator node) |
+| `custodial-escrow` | Third party holds funds in escrow until completion. | Stripe Escrow |
+| `custodial-third-party` | Third-party processor holds funds briefly. Operator never has custody. | Strike, PayPal |
+| `federated` | Multi-party custody via ecash mint or federation. | Cashu, Fedimint |
+| `smart-contract` | Programmatic escrow via smart contract. | Future providers |
+
+### Currency Tags
+
+The `currency` tag uses:
+- **ISO 4217 codes** for fiat: `GBP`, `USD`, `EUR`, `JPY`
+- **Well-known codes** for cryptocurrency: `BTC`, `SAT`, `ETH`
+
+Implementations MUST include `currency` on all events with an `amount` tag. Implementations SHOULD include `trust_model` on all events involving payment or stake operations.
+
+---
+
+## Linked Tasks
+
+Tasks MAY reference other tasks using the `linked_task` tag to model follow-up work, guarantees, and escalations:
+
+```json
+["linked_task", "<original_task_id>", "follow_up"]
+["linked_task", "<original_task_id>", "guarantee"]
+["linked_task", "<original_task_id>", "escalation"]
+```
+
+| Relationship | Semantics |
+|-------------|-----------|
+| `follow_up` | Scheduled work arising from a completed task (e.g. emergency plumber fix → proper repair next week) |
+| `guarantee` | Reopened task under original terms (e.g. locksmith guarantee — lock fails within 30 days) |
+| `escalation` | Escalated task when original service was insufficient (e.g. roadside fix failed → tow → taxi) |
+
+Guarantee links inherit the original task's terms. Escalation links form a chain that can be audited for accountability.
 
 ---
 
@@ -532,10 +607,44 @@ To launch a basic service operator, implement **at minimum**:
 
 ---
 
+## Referenced NIPs
+
+This specification references the following Nostr Implementation Possibilities:
+
+| NIP | Name | Usage in This Protocol |
+|-----|------|----------------------|
+| **NIP-33** | Parameterised Replaceable Events | All replaceable events use `d` tags for unique identification |
+| **NIP-40** | Expiration Timestamp | All time-limited events use `["expiration", "<unix_timestamp>"]` |
+| **NIP-44** | Encrypted Payloads | All private coordination messages between parties |
+| **NIP-17 + NIP-59** | Private Messages (Gift Wrap) | PII exchange (addresses, phone numbers) between requester and provider |
+| **NIP-47** | Nostr Wallet Connect | Trustless stake management via hold invoices directly between user wallets |
+| **NIP-57** | Lightning Zaps | Tips MAY be implemented as standard Nostr zaps on completion events |
+| **NIP-58** | Badges | Verification credentials (background check, insurance, licensing) |
+| **NIP-85** | Trusted Assertions | Operators SHOULD publish computed reputation summaries |
+| **NIP-89** | App Handlers | Operators publish handler events declaring support for kinds 30500-30599 |
+
+---
+
 ## See Also
 
-- **NIP-XX-ridesharing**: Ridesharing domain extension (original 82-kind specification)
+### Modular NIP Specifications
+
+- **NIP-XX-stakes**: Commitment stakes, escrow, and operator bonds
+- **NIP-XX-reputation**: Ratings, reputation, and verification badges
+- **NIP-XX-disputes**: Dispute resolution, guardian voting, and operator accountability
+- **NIP-XX-discovery**: Geohash-based provider discovery and operator advertising
+- **NIP-XX-safety**: Emergency alerts, trip sharing, and safety check-ins
+- **NIP-XX-navigation**: Routes, turn-by-turn navigation, and traffic
+- **NIP-XX-payments**: Streaming payments, tips, and surcharges
+
+### Domain Extensions
+
+- **NIP-XX-ridesharing**: Ridesharing domain extension
 - **NIP-XX-locksmith**: Locksmith dispatch domain extension
 - **NIP-XX-delivery**: Parcel delivery domain extension
+
+### Documentation
+
 - **ARCHITECTURE.md**: Federated operator model
 - **TRUST-MECHANISMS.md**: Six layers of trust
+- **docs/PAYMENT-PROVIDERS.md**: Payment provider integration guide
