@@ -2,36 +2,54 @@
 
 ## The Critical Question
 
-**"What stops a relay operator from running away with everyone's stakes?"**
+**"What stops an operator from running away with everyone's stakes?"**
 
 This is the most important question for DonkeyRide. If operators can steal funds, the system fails.
 
 ## The Trust Problem
 
 ```
-Rider stakes 100 sats
-Driver stakes 150 sats
-Operator holds 250 sats
+Requester stakes £10.00
+Provider stakes £15.00
+Operator holds £25.00
 ───────────────────────
-Total at risk: 250 sats
+Total at risk: £25.00
 
-Multiply by 1000 active rides:
-Operator holds: 250,000 sats ≈ $100
+Multiply by 1,000 active tasks:
+Operator holds: £25,000
 
 Temptation: Shut down and keep the money
 ```
 
+But this problem only arises under **custodial** trust models. With NIP-47 (trustless), the operator never has custody at all. The trust mechanisms below address the full spectrum — from fully trustless to custodial arrangements.
+
+## Trust Model Transparency
+
+Before examining the defence layers, understand that every payment event in the protocol declares its trust model via the `trust_model` tag. Users see exactly what trust assumptions apply:
+
+| Provider | Trust Model | Custody | Stake Safety |
+|----------|------------|---------|--------------|
+| NIP-47 (hold invoices) | `trustless` | None — user wallets only | Operator cannot touch funds |
+| Strike | `custodial-third-party` | Strike holds briefly | Operator never has custody |
+| Stripe Escrow | `custodial-escrow` | Stripe holds in escrow | Operator never has custody |
+| LND (operator node) | `custodial` | Operator's Lightning node | Layers 1-6 apply |
+| Cashu | `federated` | Ecash mint | Multi-party custody |
+| Fedimint | `federated` | Federation | Multi-sig custody |
+| PayPal | `custodial-third-party` | PayPal | Operator never has custody |
+
+**Key insight:** For `trustless` and `custodial-third-party` models, the operator physically cannot steal funds. The trust layers below are most critical for `custodial` models where the operator does hold funds.
+
 ## Multi-Layered Solution
 
-No single mechanism solves this. We need **defense in depth**:
+No single mechanism solves this. We need **defence in depth**:
 
 ```
-Layer 1: Reputation (Social trust)
-Layer 2: Bonds (Financial stake)
-Layer 3: Insurance (Coverage)
-Layer 4: Progressive Limits (Minimize exposure)
-Layer 5: Multi-Sig (Distributed trust)
-Layer 6: Trustless Mechanisms (Zero trust)
+Layer 1: Reputation (Social trust)           — NIP-85 summaries, NIP-58 badges
+Layer 2: Bonds (Financial stake)             — Nostr-published, slashable
+Layer 3: Insurance (Coverage)                — Shared risk pool
+Layer 4: Progressive Limits (Minimise exposure) — Currency-neutral limits
+Layer 5: Multi-Sig (Distributed trust)       — Fedimint, multi-party custody
+Layer 6: Trustless (Zero trust)              — NIP-47 hold invoices
 ```
 
 ---
@@ -40,81 +58,74 @@ Layer 6: Trustless Mechanisms (Zero trust)
 
 ### How It Works
 
-Every stake operation is published to Nostr:
+Every stake operation is published to Nostr as cryptographically signed events:
 
 ```json
-// Lock event
 {
   "kind": 30502,
   "pubkey": "<operator-pubkey>",
   "tags": [
+    ["d", "task_abc123_stake"],
     ["action", "stake_locked"],
-    ["session", "ride_123"],
-    ["amount", "250"]
+    ["task_id", "task_abc123"],
+    ["amount", "2500"],
+    ["currency", "GBP"],
+    ["trust_model", "custodial"]
   ]
 }
+```
 
-// Release event
+```json
 {
   "kind": 30520,
   "tags": [
+    ["d", "task_abc123_release"],
     ["action", "stake_released"],
-    ["session", "ride_123"],
-    ["amount", "250"]
+    ["task_id", "task_abc123"],
+    ["amount", "2500"],
+    ["currency", "GBP"]
   ]
 }
 ```
 
 Users verify:
 - Did operator release stakes when expected?
-- How many rides completed successfully?
-- Any theft reports?
+- How many tasks completed successfully?
+- Any theft reports (kind 30525)?
 
-### Reputation Score
+### NIP-85 Integration
 
-```javascript
-function calculateReputation(operatorPubkey) {
-  const locks = getAllLockEvents(operatorPubkey);
-  const releases = getAllReleaseEvents(operatorPubkey);
-  const disputes = getDisputeEvents(operatorPubkey);
-  const thefts = getTheftReports(operatorPubkey);
+Reputation summaries are published as **NIP-85 trusted assertions** (kind 30382), making operator trustworthiness visible across the Nostr ecosystem — not just within DonkeyRide apps.
 
-  // Any theft = score drops to 0
-  if (thefts.length > 0) return 0;
+### NIP-58 Badges
 
-  const releaseRate = releases.length / locks.length;
-  const volumeRate = sumAmounts(releases) / sumAmounts(locks);
-  const disputeRate = disputes.length / locks.length;
+Operators and providers can earn verifiable **NIP-58 badges**:
+- "Background Check Passed"
+- "SIA Licensed" (security guard)
+- "Gas Safe Registered" (plumber)
+- "1,000 Tasks Completed"
 
-  const score = (
-    (releaseRate * 40) +        // Did they release?
-    (volumeRate * 40) +          // Full amounts?
-    ((1 - disputeRate) * 20)     // Low disputes?
-  );
-
-  return Math.round(score);
-}
-```
+These badges are visible across all Nostr clients, not just DonkeyRide.
 
 ### UI Display
 
-```javascript
-Available Stake Operators:
-┌──────────────┬──────┬────────────┬──────────┐
-│ Operator     │ Fee  │ Reputation │ Volume   │
-├──────────────┼──────┼────────────┼──────────┤
-│ relay-a.com  │ 0.3% │ ⭐⭐⭐⭐⭐ 99.8% │ 15M sats │ ← Safe
-│ relay-b.com  │ 0.1% │ ⭐⭐⭐ 89.2%    │ 100k sats│ ← RISKY!
-│ relay-c.com  │ 0.5% │ ⭐⭐⭐⭐⭐ 99.9% │ 50M sats │ ← Safe
-└──────────────┴──────┴────────────┴──────────┘
+```
+Available Operators:
+┌──────────────────┬──────┬────────────────┬──────────────┬───────────────┐
+│ Operator         │ Fee  │ Reputation     │ Volume       │ Trust Model   │
+├──────────────────┼──────┼────────────────┼──────────────┼───────────────┤
+│ london.ride.com  │ 3.0% │ ★★★★★ 99.8%   │ £1.5M        │ trustless     │
+│ budget.ride.com  │ 1.0% │ ★★★ 89.2%     │ £10k         │ custodial     │
+│ safe.ride.com    │ 5.0% │ ★★★★★ 99.9%   │ £5.0M        │ escrow        │
+└──────────────────┴──────┴────────────────┴──────────────┴───────────────┘
 ```
 
-Users avoid low-reputation operators even with lower fees.
+Users see both reputation and trust model — and can make informed choices.
 
 **Effectiveness**:
-- ✅ Prevents repeat scams
-- ✅ Builds trust gradually
-- ❌ Doesn't prevent exit scams
+- Prevents repeat scams
+- Builds trust gradually
+- Does not prevent exit scams (need bonds for that)
 
 ---
 
@@ -122,55 +133,53 @@ Users avoid low-reputation operators even with lower fees.
 
 ### How It Works
 
-Operators post a **bond** - their own money at risk - that gets slashed if they steal.
+Operators post a **bond** — their own funds at risk — that gets slashed if they steal.
 
-```javascript
-// Operator publishes bond event
+```json
 {
   "kind": 30540,
   "pubkey": "<operator-pubkey>",
   "tags": [
-    ["bond_amount", "1000000"],  // 1M sats
-    ["bond_address", "bc1q..."],
-    ["bond_proof", "signature"]
+    ["d", "<operator_pubkey>_bond"],
+    ["bond_amount", "50000"],
+    ["currency", "GBP"],
+    ["trust_model", "custodial"],
+    ["bond_proof", "<signature>"],
+    ["expiration", "1730000000"]
   ],
-  "content": "Operator bond: 1M sats provably locked"
+  "content": "Operator bond: £50,000 provably locked"
 }
 ```
 
 ### Bond Size Requirements
 
-```javascript
-// Bond must cover maximum daily exposure
-function requiredBond(dailyVolume) {
-  return dailyVolume * 2; // 2x daily volume
-}
+The bond must cover maximum daily exposure, denominated in the operator's settlement currency:
 
-// Examples:
-// 100 rides/day × 250 sats = 25k sats/day
-// Required bond: 50k sats
+```
+100 tasks/day × £25 average stake = £2,500/day
+Required bond: £5,000 (2× daily volume)
 
-// 1000 rides/day = 250k sats/day
-// Required bond: 500k sats
+1,000 tasks/day × £25 average stake = £25,000/day
+Required bond: £50,000 (2× daily volume)
 ```
 
 ### Slashing
 
-If operator steals:
-- Bond is slashed 100%
+If an operator steals:
+- Bond is slashed 100% via guardian network (kinds 30553-30554)
 - Funds distributed to victims
 - Operator loses more than they stole
 
 **Who enforces slashing?**
-- Multi-sig federation of trusted arbiters
-- Smart contract with oracles
-- Fedimint guardians
+- Guardian network (kinds 30553-30554) — multi-party voting
+- Fedimint guardians (for `federated` trust model)
+- Automated for simple cases (GPS proves no-show, stake auto-forfeits)
 
 **Effectiveness**:
-- ✅ Makes theft unprofitable
-- ✅ Scales with volume
-- ⚠️ Requires capital
-- ❌ Needs trusted slashing mechanism
+- Makes theft unprofitable (lose bond > gain from theft)
+- Scales with volume
+- Requires capital (barrier to entry for operators)
+- Needs trusted slashing mechanism
 
 ---
 
@@ -178,57 +187,23 @@ If operator steals:
 
 ### How It Works
 
-Operators pay premiums into shared pool. If any operator steals, victims compensated from pool.
+Operators pay premiums into a shared pool. If any operator steals, victims are compensated from the pool.
 
-```javascript
-class InsurancePool {
-  join(operatorPubkey, dailyVolume) {
-    // Premium = 0.1% of monthly volume
-    const monthlyPremium = dailyVolume * 30 * 0.001;
-
-    this.operators.set(operatorPubkey, {
-      coverage: dailyVolume * 2,
-      premium: monthlyPremium
-    });
-  }
-
-  async fileClaim(operatorPubkey, amount, proof) {
-    if (await verifyTheft(proof)) {
-      // Pay from pool
-      this.poolBalance -= amount;
-
-      // Remove bad operator
-      this.operators.delete(operatorPubkey);
-
-      return { payout: amount };
-    }
-  }
-}
 ```
+Premium = 0.1% of monthly volume
 
-### Premium Calculation
-
-```javascript
-// Lower reputation = higher premium
-function calculatePremium(operator) {
-  const base = operator.dailyVolume * 0.001;
-
-  const multipliers = {
-    'excellent': 1.0,   // 99%+ reputation
-    'good': 1.5,
-    'acceptable': 2.0,
-    'caution': 3.0
-  };
-
-  return base * multipliers[operator.reputation];
-}
+Lower reputation = higher premium:
+  excellent (99%+):  1.0× base
+  good:              1.5× base
+  acceptable:        2.0× base
+  caution:           3.0× base
 ```
 
 **Effectiveness**:
-- ✅ Victims made whole
-- ✅ Socializes risk
-- ⚠️ Pool could be drained
-- ⚠️ Requires governance
+- Victims made whole
+- Socialises risk across operators
+- Pool could be drained (need reinsurance for catastrophic events)
+- Requires governance
 
 ---
 
@@ -236,45 +211,33 @@ function calculatePremium(operator) {
 
 ### How It Works
 
-New operators start with very low limits. Increase as reputation grows.
+New operators start with very low limits. Limits increase as reputation grows. All limits are denominated in the operator's settlement currency.
 
-```javascript
-function getLimits(reputation) {
-  // New operator (< 10 rides)
-  if (reputation.totalRides < 10) {
-    return {
-      maxStakePerUser: 100,
-      maxTotalExposure: 1000,
-      maxDailyVolume: 5000
-    };
-  }
+```
+New operator (< 10 tasks):
+  Max stake per user:    £10
+  Max total exposure:    £100
+  Max daily volume:      £500
 
-  // Established (10-100 rides)
-  if (reputation.totalRides < 100) {
-    return {
-      maxStakePerUser: 500,
-      maxTotalExposure: 10000,
-      maxDailyVolume: 50000,
-      requiresBond: true
-    };
-  }
+Established (10-100 tasks):
+  Max stake per user:    £50
+  Max total exposure:    £1,000
+  Max daily volume:      £5,000
+  Requires bond:         Yes
 
-  // Veteran (100+ rides, 99%+ success)
-  return {
-    maxStakePerUser: 5000,
-    maxTotalExposure: 100000,
-    maxDailyVolume: 500000,
-    requiresBond: true,
-    requiresInsurance: true
-  };
-}
+Veteran (100+ tasks, 99%+ success):
+  Max stake per user:    £500
+  Max total exposure:    £10,000
+  Max daily volume:      £50,000
+  Requires bond:         Yes
+  Requires insurance:    Yes
 ```
 
 **Effectiveness**:
-- ✅ Limits damage from new operators
-- ✅ Gradual trust building
-- ✅ No capital requirements
-- ⚠️ Limits growth for legitimate operators
+- Limits damage from new operators
+- Gradual trust building
+- No capital requirements (good for new entrants)
+- Limits growth for legitimate new operators
 
 ---
 
@@ -282,108 +245,107 @@ function getLimits(reputation) {
 
 ### How It Works
 
-For large amounts, multiple operators coordinate via multi-sig.
+For large amounts, stakes are held in multi-party custody rather than by a single operator.
 
-```javascript
-// High-value ride requires 3-of-5 operators
-{
-  "session_id": "airport_ride_123",
-  "total_escrowed": 5000, // HIGH VALUE
+**Option A: Fedimint**
 
-  "operators": [
-    "operator-1.com",
-    "operator-2.com",
-    "operator-3.com",
-    "operator-4.com",
-    "operator-5.com"
-  ],
+Fedimint federations provide multi-sig custody for ecash stakes. A 3-of-5 federation means no single party can steal funds.
 
-  "multisig": {
-    "address": "bc1q...",
-    "threshold": 3,
-    "total": 5
-  }
-}
+```
+Trust model: "federated"
+Federation: 5 guardians (3-of-5 threshold)
+Stake locked in federation → 3 signatures required to release
 ```
 
-Stakes locked in multi-sig address. Need 3-of-5 signatures to release.
+**Option B: Multi-operator coordination**
+
+For high-value tasks, multiple operators coordinate via multi-sig:
+
+```
+High-value task (£5,000 stake):
+  Operators: 5 (3-of-5 threshold)
+  Multi-sig address holds the stake
+  3 operators must agree to release
+```
 
 **Effectiveness**:
-- ✅ No single operator can steal
-- ✅ Trustless
-- ✅ Good for high-value
-- ❌ Complex coordination
-- ❌ Higher fees (5 operators)
+- No single operator can steal
+- Good for high-value tasks
+- Complex coordination overhead
+- Higher fees (multiple parties)
 
 ---
 
 ## Layer 6: Trustless Mechanisms
 
-### Lightning Hodl Invoices
+### NIP-47 Hold Invoices
 
-Completely trustless - operator physically cannot steal.
+Completely trustless — operator physically cannot steal.
 
-```javascript
-// Driver creates hodl invoice
-const invoice = driver.createHodlInvoice({
-  amount: 150,
-  hash: hashOf(secret),
-  memo: 'Driver stake'
-});
-
-// Rider pays → Funds LOCKED in Lightning Network
-// Operator CANNOT access funds
-
-// On completion:
-driver.revealSecret(secret);
-// → Payment automatically settles
-
-// On cancellation:
-// → Timeout → Automatic refund
+```
+1. Provider creates hold invoice via NIP-47
+2. Requester pays → Funds LOCKED IN LIGHTNING NETWORK (not with operator)
+3. Task completes → Operator publishes signed completion event
+4. Completion event triggers settlement (NIP-47 settle_hold_invoice)
+5. Or timeout → Automatic refund (NIP-47 cancel_hold_invoice)
 ```
 
-**Flow:**
-```
-1. Hodl invoice created
-2. Payment locked IN LIGHTNING NETWORK (not with operator!)
-3. Ride completes → Secret revealed → Payment settles
-4. Or timeout → Automatic refund
-```
+NIP-47 maps directly to the DonkeyRide stake lifecycle:
+- `make_hold_invoice` → lock stake
+- `settle_hold_invoice` → release stake
+- `cancel_hold_invoice` → forfeit/refund stake
+
+**For fiat users:** Strike or similar providers hold funds during conversion — the operator never has custody. Trust model: `custodial-third-party`.
 
 **Effectiveness**:
-- ✅ **Completely trustless**
-- ✅ Automatic refunds
-- ✅ Zero custody risk
-- ❌ Requires Lightning nodes
-- ❌ More complex UX
+- **Completely trustless** — zero custody risk
+- Automatic refunds on timeout
+- Requires Lightning-capable wallets
+- More complex UX than custodial options
 
 ---
 
 ## Recommended Strategy
 
-Use **multiple layers** based on amount:
+Use **multiple layers** based on the trust model and amount:
 
-### Small (< 500 sats)
+### Trustless (NIP-47)
 ```
-✓ Reputation
-✓ Progressive Limits
+✓ Layer 6: Hold invoices (zero custody risk)
+✓ Layer 1: Reputation (for service quality, not fund safety)
+```
+No further layers needed — operator cannot steal.
+
+### Custodial-Third-Party (Strike, PayPal)
+```
+✓ Layer 1: Reputation
+✓ Layer 4: Progressive Limits
+```
+Third party holds funds, not the operator. Low risk.
+
+### Custodial (Operator Lightning Node)
+
+**Small (< £50)**:
+```
+✓ Layer 1: Reputation
+✓ Layer 4: Progressive Limits
 ```
 Theft not worth reputational damage.
 
-### Medium (500-2000 sats)
+**Medium (£50-£200)**:
 ```
-✓ Reputation
-✓ Operator Bonds (required)
-✓ Insurance (required)
-✓ Progressive Limits
+✓ Layer 1: Reputation
+✓ Layer 2: Operator Bonds (required)
+✓ Layer 3: Insurance (required)
+✓ Layer 4: Progressive Limits
 ```
 Bond + insurance covers losses.
 
-### Large (> 2000 sats)
+**Large (> £200)**:
 ```
-✓ Multi-Sig (3-of-5 operators)
+✓ Layer 5: Multi-Sig (3-of-5 operators or Fedimint)
 OR
-✓ Lightning Hodl Invoices (trustless)
+✓ Layer 6: NIP-47 Hold Invoices (trustless)
 ```
 Zero trust in single operator.
 
@@ -395,25 +357,25 @@ Zero trust in single operator.
 
 ```
 1. New operator joins
-2. Progressive limits: 100 sat max
-3. Steals from 10 users = 1000 sats
+2. Progressive limits: £10 max stake
+3. Steals from 10 users = £100
 4. Reputation destroyed
 5. No future business
-6. Profit: $0.40
+6. Profit: £100
 
-Conclusion: Not worth it
+Conclusion: Not worth it — reputation loss far exceeds gain
 ```
 
 ### Scenario: Exit Scam
 
 ```
-1. Build reputation (6 months)
-2. Process 100 simultaneous rides
-3. Hold 25k sats
+1. Build reputation (6 months, 500 tasks)
+2. Process 100 simultaneous tasks
+3. Hold £2,500 in stakes
 4. Steal everything
 
 But:
-- Posted 50k sat bond → Lose 50k to steal 25k (net -25k)
+- Posted £5,000 bond → Lose £5,000 to steal £2,500 (net -£2,500)
 - Insurance pays victims
 - Reputation destroyed forever
 - Criminal liability
@@ -421,28 +383,23 @@ But:
 Conclusion: Unprofitable
 ```
 
-### Scenario: Coordinated Attack
+### Scenario: Trustless User
 
 ```
-10 operators collude:
-1. Each builds reputation
-2. Simultaneously exit scam
-3. Combined theft: 250k sats
+1. User selects NIP-47 (trustless) payment method
+2. Stakes locked as hold invoices in Lightning Network
+3. Operator has zero custody at any point
+4. Task completes → Operator publishes signed event → Auto-settles
+5. Task cancelled → Timeout → Auto-refunds
 
-But:
-- Combined bonds: 500k sats (net -250k loss)
-- Insurance covers victims
-- All reputations destroyed
-- Criminal conspiracy charges
-
-Conclusion: Not profitable
+Theft vector: NONE
 ```
 
 ---
 
 ## Key Insight
 
-The layers create **antifragile** system:
+The layers create an **antifragile** system:
 
 Each attack makes it stronger by:
 - Destroying attacker reputation
@@ -452,14 +409,16 @@ Each attack makes it stronger by:
 
 **Most importantly:** Users have choice.
 
-Don't trust custodial? Use Lightning hodl invoices.
+Don't trust custodial? Use NIP-47 hold invoices (`trustless`).
 Want insurance? Choose insured operators.
-Want lowest fees? Take more risk.
+Want the lowest fees? Accept more risk.
+Want fiat? Use Strike (`custodial-third-party`).
 
-This is dramatically better than Uber:
-- Trust one company
+This is dramatically better than traditional platforms:
+- Trust one company with everything
 - No alternatives
 - No recourse
+- No visibility into trust model
 
 ---
 
@@ -467,23 +426,21 @@ This is dramatically better than Uber:
 
 1. **Phase 1**: Reputation + Progressive Limits (MVP)
 2. **Phase 2**: Add Bonds requirement
-3. **Phase 3**: Launch Insurance pool
-4. **Phase 4**: Support Lightning hodl invoices
-5. **Phase 5**: Multi-sig for high-value
+3. **Phase 3**: NIP-47 trustless option
+4. **Phase 4**: Launch Insurance pool
+5. **Phase 5**: Multi-sig / Fedimint for high-value
 
-Start simple, add layers as network grows.
+Start simple, add layers as the network grows.
 
-## Conclusion
+---
 
-No single solution is perfect, but **defense in depth works**:
+## See Also
 
-- Casual theft: Prevented by reputation
-- Opportunistic theft: Prevented by bonds
-- Determined theft: Victims covered by insurance
-- All theft: Unprofitable after layers
-
-The key is making theft **more expensive than it's worth**.
-
-Combined with permissionless competition (anyone can run operator), this creates a sustainable, trustworthy escrow system without requiring trust in any single party.
-
-**Welcome to unstoppable, trust-minimized ridesharing.**
+- **[specs/NIP-XX-stakes.md](./specs/NIP-XX-stakes.md)** — Commitment stake event kinds and lifecycle
+- **[specs/NIP-XX-disputes.md](./specs/NIP-XX-disputes.md)** — Dispute resolution and guardian voting
+- **[specs/NIP-XX-reputation.md](./specs/NIP-XX-reputation.md)** — Reputation system and NIP-85 integration
+- **[ARCHITECTURE.md](./ARCHITECTURE.md)** — Three-layer federated architecture
+- **[STAKING-EXPLAINED.md](./STAKING-EXPLAINED.md)** — Commitment stakes explained for non-technical readers
+- **[docs/PAYMENT-PROVIDERS.md](./docs/PAYMENT-PROVIDERS.md)** — Payment provider integration guide
+- **[WATCHDOG-INCENTIVES.md](./WATCHDOG-INCENTIVES.md)** — Game theory for monitoring
+- **[OPERATOR-MISBEHAVIOR-PROTOCOL.md](./OPERATOR-MISBEHAVIOR-PROTOCOL.md)** — Theft detection and slashing
