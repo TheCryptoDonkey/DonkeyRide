@@ -311,6 +311,8 @@ This achieves `trustless` trust model — the operator facilitates payment flow 
 
 - **NIP-XX-core**: Core protocol (payment agnosticism, currency tags, trust model taxonomy)
 - **NIP-XX-stakes**: Commitment stakes (lock, release, forfeit)
+- **NIP-XX-disputes**: Dispute resolution (payment disputes, fare disagreements)
+- **NIP-XX-reputation**: Ratings and reputation (tip behaviour visible in reputation)
 - **NIP-47**: Nostr Wallet Connect (trustless payments)
 - **NIP-57**: Lightning Zaps (tip integration)
 - **docs/PAYMENT-PROVIDERS.md**: Payment provider integration guide

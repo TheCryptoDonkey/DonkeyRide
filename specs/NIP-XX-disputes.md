@@ -517,7 +517,10 @@ Operators who publish frivolous NIP-56 reports risk damaging their own reputatio
 
 - **NIP-XX-core**: Core protocol (state machine, lifecycle)
 - **NIP-XX-stakes**: Commitment stakes (lock, release, forfeit, operator bonds)
+- **NIP-XX-payments**: Payment events (payment disputes reference fare and charge events)
 - **NIP-XX-reputation**: Ratings and reputation (anti-gaming, cross-domain portability)
+- **NIP-XX-safety**: Safety infrastructure (safety incidents trigger disputes)
+- **NIP-32**: Structured labels (report categorisation via NIP-32 namespaced labels)
 - **NIP-56**: Reporting (standard Nostr reporting)
 - **OPERATOR-MISBEHAVIOR-PROTOCOL.md**: Detailed theft detection and enforcement mechanisms
 - **WATCHDOG-INCENTIVES.md**: Game-theoretic analysis of watchdog and verifier incentives

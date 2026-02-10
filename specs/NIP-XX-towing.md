@@ -466,6 +466,9 @@ The towing domain uses all core NIP-XX event kinds for task lifecycle management
 - **[NIP-XX-stakes.md](NIP-XX-stakes.md)** — Commitment stakes (lock, release, forfeit)
 - **[NIP-XX-payments.md](NIP-XX-payments.md)** — Payment events and streaming models
 - **[NIP-XX-reputation.md](NIP-XX-reputation.md)** — Ratings and reputation portability
+- **[NIP-XX-discovery.md](NIP-XX-discovery.md)** — Service discovery (geohash-based matching)
+- **[NIP-XX-disputes.md](NIP-XX-disputes.md)** — Dispute resolution (quote and delivery disputes)
+- **[NIP-XX-safety.md](NIP-XX-safety.md)** — Safety infrastructure (roadside emergency alerts)
 - **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** — Summary table of all event kinds
 - **[../docs/PAYMENT-PROVIDERS.md](../docs/PAYMENT-PROVIDERS.md)** — Payment provider integration guide
 - **Reference implementation**: `src/domain-profiles/towing.js`

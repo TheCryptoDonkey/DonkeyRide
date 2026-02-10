@@ -361,7 +361,9 @@ Series cancellation (kind 30506 with `["cancels_recurrence", "<series_id>"]`) re
 ## See Also
 
 - **NIP-XX-core**: Core protocol (state machine, lifecycle, payment agnosticism)
-- **NIP-XX-disputes**: Dispute resolution, guardian voting, operator accountability
 - **NIP-XX-payments**: Streaming payments, tips, and surcharges
+- **NIP-XX-disputes**: Dispute resolution, guardian voting, operator accountability
+- **NIP-XX-reputation**: Ratings and reputation (stake history informs trust scoring)
+- **NIP-XX-safety**: Safety infrastructure (no-show detection triggers stake forfeiture)
 - **NIP-47**: Nostr Wallet Connect (trustless hold invoices)
 - **docs/PAYMENT-PROVIDERS.md**: Payment provider integration guide

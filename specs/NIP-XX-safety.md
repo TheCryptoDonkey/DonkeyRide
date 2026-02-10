@@ -322,7 +322,10 @@ Operators declaring `safety_monitoring: true` in their service area MUST:
 ## See Also
 
 - **NIP-XX-core**: Core protocol (state machine, lifecycle)
+- **NIP-XX-stakes**: Commitment stakes (no-show detection triggers stake forfeiture)
+- **NIP-XX-reputation**: Ratings and reputation (safety_flag on rating events)
 - **NIP-XX-discovery**: Service area definition (safety_monitoring flag)
 - **NIP-XX-disputes**: Dispute resolution (for post-incident complaints)
+- **NIP-56**: Reporting (cross-ecosystem safety reporting for confirmed misconduct)
 - **NIP-17 + NIP-59**: Private messages (gift wrap) for emergency contact notifications
 - **NIP-44**: Encrypted payloads for sensitive safety data

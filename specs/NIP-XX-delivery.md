@@ -504,6 +504,9 @@ The dual-photo system (collection + delivery) provides particularly strong evide
 - **[NIP-XX-stakes.md](NIP-XX-stakes.md)** — Commitment stakes (lock, release, forfeit)
 - **[NIP-XX-payments.md](NIP-XX-payments.md)** — Payment events and streaming models
 - **[NIP-XX-reputation.md](NIP-XX-reputation.md)** — Ratings and reputation portability
+- **[NIP-XX-discovery.md](NIP-XX-discovery.md)** — Service discovery (geohash-based courier matching)
+- **[NIP-XX-disputes.md](NIP-XX-disputes.md)** — Dispute resolution (delivery and package disputes)
+- **[NIP-XX-safety.md](NIP-XX-safety.md)** — Safety infrastructure (courier safety and tracking)
 - **[NIP-XX-navigation.md](NIP-XX-navigation.md)** — Routes, turn-by-turn, traffic
 - **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** — Summary table of all event kinds
 - **[../docs/PAYMENT-PROVIDERS.md](../docs/PAYMENT-PROVIDERS.md)** — Payment provider integration guide

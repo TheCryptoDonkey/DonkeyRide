@@ -592,6 +592,8 @@ Guards MAY publish their SIA licence details as part of their profile. Operators
 - **[NIP-XX-stakes.md](NIP-XX-stakes.md)** — Commitment stakes (lock, release, forfeit)
 - **[NIP-XX-payments.md](NIP-XX-payments.md)** — Payment events and streaming models
 - **[NIP-XX-reputation.md](NIP-XX-reputation.md)** — Ratings and reputation portability
+- **[NIP-XX-discovery.md](NIP-XX-discovery.md)** — Service discovery (geohash-based guard matching)
+- **[NIP-XX-disputes.md](NIP-XX-disputes.md)** — Dispute resolution (shift and conduct disputes)
 - **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** — Summary table of all event kinds
 - **[../docs/PAYMENT-PROVIDERS.md](../docs/PAYMENT-PROVIDERS.md)** — Payment provider integration guide
 - **Reference implementation**: `src/domain-profiles/security.js`

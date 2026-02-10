@@ -625,6 +625,9 @@ The pet services domain uses all core NIP-XX event kinds for task lifecycle mana
 - **[NIP-XX-stakes.md](NIP-XX-stakes.md)** — Commitment stakes (lock, release, forfeit)
 - **[NIP-XX-payments.md](NIP-XX-payments.md)** — Payment events and streaming models
 - **[NIP-XX-reputation.md](NIP-XX-reputation.md)** — Ratings and reputation portability
+- **[NIP-XX-discovery.md](NIP-XX-discovery.md)** — Service discovery (geohash + category matching)
+- **[NIP-XX-disputes.md](NIP-XX-disputes.md)** — Dispute resolution (pet injury and service quality disputes)
+- **[NIP-XX-safety.md](NIP-XX-safety.md)** — Safety infrastructure (emergency vet incidents)
 - **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** — Summary table of all event kinds
 - **[../docs/PAYMENT-PROVIDERS.md](../docs/PAYMENT-PROVIDERS.md)** — Payment provider integration guide
 - **Reference implementation**: `src/domain-profiles/pet-services.js`

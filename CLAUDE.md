@@ -66,6 +66,8 @@ src/domain-profiles/
 
 Each profile defines: state machine (states + valid transitions), role names (requester/provider), UI labels (origin/destination/task noun/instructions), pricing model, discovery method, completion proof types, rating criteria, feature flags, regulatory bodies, and Nostr event kind mappings.
 
+**Spec-only domains:** Four additional domains have NIP specs but not yet implementation profiles — towing (`specs/NIP-XX-towing.md`), emergency trades (`specs/NIP-XX-emergency-trades.md`), pet services (`specs/NIP-XX-pet-services.md`), and security (`specs/NIP-XX-security.md`). These define event kinds, state machines, and domain-specific tags but await `src/domain-profiles/` implementations.
+
 **To add a new domain:** create `src/domain-profiles/{name}.js` exporting a profile object (~100 lines). The schema validates it on load.
 
 ### Task Manager (Generalised State Machine)
@@ -132,7 +134,7 @@ WEBSOCKET (ephemeral)         →  Real-time tracking + Live updates
 
 ### Modular NIP Specifications
 
-The protocol is defined as a family of 8 modular NIP specifications plus domain extension specs in `specs/`. Covers: core lifecycle (30500-30509), payments (30510-30519), stakes (30520-30529), reputation (30530-30539), discovery (30540-30549), safety (30559-30564), navigation (30570-30574), and disputes. See `specs/QUICK-REFERENCE.md` for the complete event kind table.
+The protocol is defined as a family of **8 core NIP specifications** plus **7 domain extension specs** in `specs/`, spanning event kinds **30500-30719**. Core specs cover: lifecycle (NIP-XX-core), payments (NIP-XX-payments), stakes (NIP-XX-stakes), reputation (NIP-XX-reputation), discovery (NIP-XX-discovery), safety (NIP-XX-safety), navigation (NIP-XX-navigation), and disputes (NIP-XX-disputes). Domain extensions: ridesharing (30505+30529-30599), locksmith (30600-30619), delivery (30620-30639), towing (30640-30659), emergency trades (30660-30679), pet services (30680-30699), and security (30700-30719). See `specs/QUICK-REFERENCE.md` for the complete event kind table.
 
 ### GDPR Compliance
 
@@ -171,12 +173,14 @@ All code, comments, documentation, commit messages, and user-facing strings must
 - **Payment agnosticism:** All monetary amounts are currency-neutral (smallest unit of specified currency). Every payment event includes `amount`, `currency`, and `trust_model` tags. Never assume sats or any specific currency.
 - **NIP-40 expiration:** Use `expiration` tag (not `expiry`) for all time-limited events, per NIP-40 specification.
 - **NIP-44 encryption:** Use NIP-44 for encrypted payloads and NIP-17 (gift wrap) for private PII exchange. NIP-04 is deprecated — do not use it.
+- **Social graph integration:** The protocol references NIP-02 (contact lists for trust weighting), NIP-32 (labelling for domain/trade categorisation), and NIP-56 (reporting for abuse flagging). These are optional but recommended for enhanced trust signals.
+- **Generic location tags:** Domain extension specs use `location_lat`/`location_lon` tags (not geohash-only) for location data. Geohash discovery (NIP-XX-discovery) remains the primary public discovery mechanism.
 - **No linter configured:** There is no ESLint or Prettier setup. Follow existing code style.
 - **Two Nostr library versions:** Backend uses `nostr-tools` v1 (`^1.17.0`); the React frontend uses `nostr-tools` v2 (`^2.10.4`). APIs differ between versions — check which context you're in.
 - **Dual API paths:** `/api/tasks/*` and `/api/rides/*` are interchangeable (server rewrites tasks→rides). Frontend uses `/api/tasks/`; backend handlers use `/api/rides/`. Similarly `/api/providers/*` aliases `/api/drivers/*`.
 
 ## Protocol Reference
 
-The protocol is defined as **8 modular NIP specifications** in `specs/`. See `specs/QUICK-REFERENCE.md` for the complete event kind table. `ARCHITECTURE.md` explains the federated model. `TRUST-MECHANISMS.md` details the 6 layers of trust. `docs/PAYMENT-PROVIDERS.md` covers payment provider integration. `docs/GDPR-COMPLIANCE.md` covers GDPR compliance.
+The protocol is defined as **8 core NIP specifications** and **7 domain extension specs** in `specs/`, covering event kinds 30500-30719. See `specs/QUICK-REFERENCE.md` for the complete event kind table. `ARCHITECTURE.md` explains the federated model. `TRUST-MECHANISMS.md` details the 6 layers of trust. `docs/PAYMENT-PROVIDERS.md` covers payment provider integration. `docs/GDPR-COMPLIANCE.md` covers GDPR compliance. `docs/USE-CASES.md` catalogues supported use cases across all domains. `docs/INTEROPERABILITY.md` covers cross-domain interoperability and social graph integration (NIP-02 contact lists, NIP-32 labelling, NIP-56 reporting).
 
 The original monolithic spec is archived at `specs/NIP-XX-v1-archive.md` (7,895 lines) for historical reference.

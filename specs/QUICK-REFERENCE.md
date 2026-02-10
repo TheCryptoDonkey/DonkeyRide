@@ -230,11 +230,14 @@ requested → matched → provider_en_route → provider_arrived → [domain sta
 
 | NIP | Name | Usage |
 |-----|------|-------|
+| NIP-02 | Contact List / Follow List | Social discovery (BatPhone pattern), WoT-weighted reputation |
+| NIP-32 | Structured Labels | Provider verification labels, task outcome categorisation |
 | NIP-33 | Parameterised Replaceable Events | All replaceable events use `d` tags |
 | NIP-40 | Expiration Timestamp | `["expiration", "<unix>"]` on time-limited events |
 | NIP-44 | Encrypted Payloads | Private coordination messages |
 | NIP-17/59 | Private Messages (Gift Wrap) | PII exchange, emergency contact notifications |
 | NIP-47 | Nostr Wallet Connect | Trustless stake management via hold invoices |
+| NIP-56 | Reporting | Cross-ecosystem safety reporting for confirmed misconduct |
 | NIP-57 | Lightning Zaps | Tips as standard Nostr zaps |
 | NIP-58 | Badges | Verification credentials |
 | NIP-85 | Trusted Assertions | Computed reputation summaries |

@@ -609,9 +609,12 @@ The emergency trades domain uses all core NIP-XX event kinds for task lifecycle 
 ## See Also
 
 - **[NIP-XX-core.md](NIP-XX-core.md)** — Domain-agnostic core protocol (this extension's parent)
-- **[NIP-XX-stakes.md](NIP-XX-stakes.md)** — Commitment stakes (lock, release, forfeit)
+- **[NIP-XX-stakes.md](NIP-XX-stakes.md)** — Commitment stakes (lock, release, forfeit, milestone escrow)
 - **[NIP-XX-payments.md](NIP-XX-payments.md)** — Payment events and streaming models
 - **[NIP-XX-reputation.md](NIP-XX-reputation.md)** — Ratings and reputation portability
+- **[NIP-XX-discovery.md](NIP-XX-discovery.md)** — Service discovery (geohash + skill tag matching)
+- **[NIP-XX-disputes.md](NIP-XX-disputes.md)** — Dispute resolution (workmanship and pricing disputes)
+- **[NIP-XX-safety.md](NIP-XX-safety.md)** — Safety infrastructure (gas leak emergency alerts)
 - **[NIP-XX-locksmith.md](NIP-XX-locksmith.md)** — Locksmith domain extension (closely related trade domain)
 - **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** — Summary table of all event kinds
 - **[../docs/PAYMENT-PROVIDERS.md](../docs/PAYMENT-PROVIDERS.md)** — Payment provider integration guide

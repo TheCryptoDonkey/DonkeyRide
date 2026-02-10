@@ -759,7 +759,11 @@ Extension NIPs MUST NOT redefine the semantics of core event kinds. They MAY def
 | 30570-30599 | Ridesharing-specific | NIP-XX-ridesharing |
 | 30600-30619 | Locksmith-specific | NIP-XX-locksmith |
 | 30620-30639 | Delivery-specific | NIP-XX-delivery |
-| 30640-30699 | Reserved for future domains | TBD |
+| 30640-30659 | Towing-specific | NIP-XX-towing |
+| 30660-30679 | Emergency trades-specific | NIP-XX-emergency-trades |
+| 30680-30699 | Pet services-specific | NIP-XX-pet-services |
+| 30700-30719 | Security guard dispatch-specific | NIP-XX-security |
+| 30720-30999 | Reserved for future domains | TBD |
 
 ---
 
@@ -783,11 +787,14 @@ This specification references the following Nostr Implementation Possibilities:
 
 | NIP | Name | Usage in This Protocol |
 |-----|------|----------------------|
+| **NIP-02** | Contact List / Follow List | Social discovery (BatPhone pattern), WoT-weighted reputation scoring |
+| **NIP-32** | Structured Labels | Provider verification labels, task outcome categorisation |
 | **NIP-33** | Parameterised Replaceable Events | All replaceable events use `d` tags for unique identification |
 | **NIP-40** | Expiration Timestamp | All time-limited events use `["expiration", "<unix_timestamp>"]` |
 | **NIP-44** | Encrypted Payloads | All private coordination messages between parties |
 | **NIP-17 + NIP-59** | Private Messages (Gift Wrap) | PII exchange (addresses, phone numbers) between requester and provider |
 | **NIP-47** | Nostr Wallet Connect | Trustless stake management via hold invoices directly between user wallets |
+| **NIP-56** | Reporting | Cross-ecosystem safety reporting for confirmed misconduct |
 | **NIP-57** | Lightning Zaps | Tips MAY be implemented as standard Nostr zaps on completion events |
 | **NIP-58** | Badges | Verification credentials (background check, insurance, licensing) |
 | **NIP-85** | Trusted Assertions | Operators SHOULD publish computed reputation summaries |
@@ -812,6 +819,10 @@ This specification references the following Nostr Implementation Possibilities:
 - **NIP-XX-ridesharing**: Ridesharing domain extension
 - **NIP-XX-locksmith**: Locksmith dispatch domain extension
 - **NIP-XX-delivery**: Parcel delivery domain extension
+- **NIP-XX-towing**: Vehicle recovery and towing domain extension
+- **NIP-XX-emergency-trades**: Emergency trades domain extension (plumber, electrician, gas engineer)
+- **NIP-XX-pet-services**: Pet services domain extension (walking, sitting, grooming)
+- **NIP-XX-security**: Security guard dispatch domain extension
 
 ### Documentation
 

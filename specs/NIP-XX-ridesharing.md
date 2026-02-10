@@ -975,6 +975,8 @@ Add these for feature parity with traditional ridesharing platforms:
 - **[NIP-XX-stakes.md](NIP-XX-stakes.md)** — Commitment stakes (lock, release, forfeit, milestones)
 - **[NIP-XX-payments.md](NIP-XX-payments.md)** — Streaming payments, tips, surcharges
 - **[NIP-XX-reputation.md](NIP-XX-reputation.md)** — Ratings and reputation portability
+- **[NIP-XX-discovery.md](NIP-XX-discovery.md)** — Service discovery (geohash-based driver matching)
+- **[NIP-XX-disputes.md](NIP-XX-disputes.md)** — Dispute resolution (fare and conduct disputes)
 - **[NIP-XX-safety.md](NIP-XX-safety.md)** — Emergency alerts, trip sharing, heartbeat
 - **[NIP-XX-navigation.md](NIP-XX-navigation.md)** — Routes, turn-by-turn, traffic
 - **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** — Summary table of all event kinds

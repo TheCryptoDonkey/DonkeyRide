@@ -467,6 +467,8 @@ Crypto-shredding is endorsed by CNIL (French data protection authority) as an ap
 ## See Also
 
 - **NIP-XX-core**: Core protocol (state machine, lifecycle)
+- **NIP-XX-stakes**: Commitment stakes (stake history informs trust scoring)
+- **NIP-XX-payments**: Payment events (tip behaviour visible in reputation)
 - **NIP-XX-disputes**: Dispute resolution and guardian voting
 - **NIP-XX-discovery**: Service discovery (social discovery / BatPhone pattern)
 - **NIP-02**: Follow lists (WoT-weighted reputation)

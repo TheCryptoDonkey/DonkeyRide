@@ -451,6 +451,7 @@ Operators MAY publish **NIP-99 classified listing events** (kind 30402) for serv
 
 - **NIP-XX-core**: Core protocol (state machine, lifecycle)
 - **NIP-XX-stakes**: Operator bonds (kind 30540)
+- **NIP-XX-payments**: Payment events (operator fee structures advertised in discovery)
 - **NIP-XX-reputation**: Ratings, reputation, and social proof (WoT-weighted scoring)
 - **NIP-XX-safety**: Emergency alerts and trip sharing
 - **NIP-02**: Follow lists (social discovery / BatPhone pattern)
