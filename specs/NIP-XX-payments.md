@@ -27,7 +27,7 @@ Service coordination requires flexible payment mechanics: per-second streaming d
 | 30514 | Wait Time Charge | No (append-only) | Provider |
 | 30515 | No-Show Fee | No (append-only) | Provider/Operator |
 | 30516 | Additional Charge | No (append-only) | Provider |
-| 30523 | Payment Failure | No (append-only) | Provider/Operator |
+| 30538 | Payment Failure | No (append-only) | Provider/Operator |
 
 ---
 
@@ -232,13 +232,13 @@ Published by the provider for charges beyond the original fare (e.g. tolls, clea
 | `parking` | Parking charges incurred | Auto-approved |
 | `surcharge` | Peak/holiday/distance surcharge | Auto-approved |
 
-### Kind 30523: Payment Failure
+### Kind 30538: Payment Failure
 
 Published by the provider or operator when a payment fails.
 
 ```json
 {
-  "kind": 30523,
+  "kind": 30538,
   "tags": [
     ["d", "task_abc123_payment_failure"],
     ["domain", "ridesharing"],

@@ -132,7 +132,7 @@ The protocol is organised as a **family of focused specifications**. Each NIP st
 | [NIP-XX-discovery](./specs/NIP-XX-discovery.md) | 30540, 30565, 20500 | Geohash-based service discovery |
 | [NIP-XX-safety](./specs/NIP-XX-safety.md) | 30559-30564 | Emergency alerts, trip sharing, heartbeat |
 | [NIP-XX-navigation](./specs/NIP-XX-navigation.md) | 30583-30587 | Routes, turn-by-turn, traffic alerts |
-| [NIP-XX-payments](./specs/NIP-XX-payments.md) | 30510-30516, 30523 | Streaming payments, tips, surcharges |
+| [NIP-XX-payments](./specs/NIP-XX-payments.md) | 30510-30516, 30538 | Streaming payments, tips, surcharges |
 
 ### Domain Extensions
 

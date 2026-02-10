@@ -43,7 +43,7 @@ correct — and that convergence is achievable.
 | **Disputes**              | 30522-30527, 30549-30554                    | —                                                     | **Ridestr has no dispute resolution.**                                                                                                               |
 | **Safety**                | 30559-30564                                 | —                                                     | **Ridestr has no safety features.**                                                                                                                  |
 | **Stakes/escrow**         | 30502/30503/30509/30520                     | Cashu NUT-14 HTLC via 3175 content                    | DonkeyRide: operator-mediated, payment-agnostic. Ridestr: trustless P2P HTLC.                                                                        |
-| **Payments**              | 30510-30516, 30523                          | Settlement proof in 30180                             | DonkeyRide: streaming payments, tips, surcharges as separate events. Ridestr: single settlement action.                                              |
+| **Payments**              | 30510-30516, 30538                          | Settlement proof in 30180                             | DonkeyRide: streaming payments, tips, surcharges as separate events. Ridestr: single settlement action.                                              |
 | **Discovery**             | 30565 (service area) + 20500 (availability) | 30173 (availability with geohash)                     | Both use geohash `g` tags. DonkeyRide adds operator service area declarations.                                                                       |
 | **Navigation**            | 30583-30587                                 | Valhalla tiles via 30078                              | DonkeyRide: operator-pushed routes. Ridestr: client-side offline routing with Blossom-hosted tiles.                                                  |
 | **Profile backup**        | —                                           | 30174 (ride history) + 30177 (profile)                | NIP-44 self-encrypted. DonkeyRide stores this operator-side.                                                                                         |
@@ -483,7 +483,7 @@ NIPs immediately while the core lifecycle converges over time.
 | 30520 | Stake Release                               | Stakes              |
 | 30521 | Reputation Export/Import                    | Reputation          |
 | 30522 | Dispute Filing                              | Disputes            |
-| 30523 | Arbiter Assignment / Payment Failure        | Disputes + Payments |
+| 30523 | Arbiter Assignment                          | Disputes            |
 | 30524 | Dispute Resolution                          | Disputes            |
 | 30525 | Theft Report                                | Disputes            |
 | 30526 | Watchdog Claim                              | Disputes            |
@@ -491,6 +491,7 @@ NIPs immediately while the core lifecycle converges over time.
 | 30528 | Operator Reputation                         | Reputation          |
 | 30530 | Reputation Rating                           | Reputation          |
 | 30537 | Milestone Completion                        | Stakes              |
+| 30538 | Payment Failure                             | Payments            |
 | 30540 | Operator Bond                               | Stakes + Discovery  |
 | 30549 | Suspicious Activity Report                  | Disputes            |
 | 30550 | Account Suspension                          | Disputes            |

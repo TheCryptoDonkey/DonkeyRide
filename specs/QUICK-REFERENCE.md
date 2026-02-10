@@ -21,7 +21,7 @@ The protocol is organised as a **family of focused specifications**. Each NIP st
 | **[NIP-XX-discovery](./NIP-XX-discovery.md)** | 30540, 30565, 20500 | Service areas, operator bonds, provider availability. Geohash-based discovery. References NIP-89 for app handlers. |
 | **[NIP-XX-safety](./NIP-XX-safety.md)** | 30559-30564 | Emergency alerts, trip sharing, safety check-ins, heartbeat protocol, harassment reports. |
 | **[NIP-XX-navigation](./NIP-XX-navigation.md)** | 30583-30587 | Routes, turn-by-turn navigation, traffic alerts, reroutes. |
-| **[NIP-XX-payments](./NIP-XX-payments.md)** | 30510-30511, 30513-30516, 30523 | Streaming payments, tips, surcharges, no-show fees. Currency-neutral. References NIP-57 for zap-based tips. |
+| **[NIP-XX-payments](./NIP-XX-payments.md)** | 30510-30511, 30513-30516, 30538 | Streaming payments, tips, surcharges, no-show fees. Currency-neutral. References NIP-57 for zap-based tips. |
 
 ### Domain Extension Specifications
 
@@ -82,7 +82,7 @@ All domains share these kinds. The `domain` tag identifies which extension appli
 | 30514 | Wait Time Charge | No | Provider |
 | 30515 | No-Show Fee | No | Provider/Operator |
 | 30516 | Additional Charge | No | Provider |
-| 30523 | Payment Failure | No | Provider/Operator |
+| 30538 | Payment Failure | No | Provider/Operator |
 
 ### Trust & Reputation (NIP-XX-reputation)
 

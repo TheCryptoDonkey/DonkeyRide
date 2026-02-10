@@ -125,7 +125,7 @@ The monolithic spec becomes a family of focused specifications. The naming shift
 | **NIP-XX-discovery** | 30525, 30540 | Service areas, operator bonds, provider availability. Geohash-based discovery. References NIP-89 for app handlers. | ~300 |
 | **NIP-XX-safety** | 30560-30565 | Emergency alerts, trip sharing, safety check-ins, harassment reports. | ~400 |
 | **NIP-XX-navigation** | 30580-30585 | Routes, instructions, traffic, reroutes. | ~300 |
-| **NIP-XX-payments** | 30510, 30523 | Streaming payments, payment failures, tips, surcharges. Currency-neutral. References NIP-57 for zap-based tips. | ~300 |
+| **NIP-XX-payments** | 30510, 30538 | Streaming payments, payment failures, tips, surcharges. Currency-neutral. References NIP-57 for zap-based tips. | ~300 |
 
 Each NIP stands alone and can be implemented independently. Each domain profile declares which NIPs it uses:
 

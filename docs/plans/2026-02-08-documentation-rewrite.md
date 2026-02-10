@@ -246,13 +246,13 @@ git commit -m "Add modular navigation NIP specification"
 
 **Step 1: Read source material**
 
-Read design document section 2 (Payment Agnosticism). Read kinds 30510-30511, 30513-30516, 30523 from `specs/QUICK-REFERENCE.md`. Read `payment-providers/base.js` for current interface.
+Read design document section 2 (Payment Agnosticism). Read kinds 30510-30511, 30513-30516, 30538 from `specs/QUICK-REFERENCE.md`. Read `payment-providers/base.js` for current interface.
 
 **Step 2: Write the spec**
 
 Create `specs/NIP-XX-payments.md` with:
 - Abstract: currency-neutral payment events for service coordination
-- Event kinds: 30510 (Streaming Payment), 30511 (Payment Confirmation), 30513 (Provider Tip), 30514 (Wait Time Charge), 30515 (No-Show Fee), 30516 (Additional Charge), 30523 (Payment Failure)
+- Event kinds: 30510 (Streaming Payment), 30511 (Payment Confirmation), 30513 (Provider Tip), 30514 (Wait Time Charge), 30515 (No-Show Fee), 30516 (Additional Charge), 30538 (Payment Failure)
 - All events include `amount`, `currency`, `trust_model` tags
 - Streaming payments: per-second or per-metre increments, currency-neutral
 - NIP-47 integration: how Nostr Wallet Connect enables direct wallet-to-wallet payments

@@ -119,7 +119,7 @@ Traditional centralised architecture using DonkeyRide-compatible schemas for dat
 | 30510 | Streaming Payment | No (append-only) | Requester |
 | 30511 | Payment Confirmation | Yes (NIP-33) | Operator |
 | 30513 | Provider Tip | No (append-only) | Requester |
-| 30523 | Payment Failure | No (append-only) | Provider/Operator |
+| 30538 | Payment Failure | No (append-only) | Provider/Operator |
 
 ### Trust & Reputation Events
 
