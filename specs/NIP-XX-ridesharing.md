@@ -4,7 +4,7 @@
 
 **Extends**: NIP-XX-core (Decentralised Service Coordination Protocol)
 **Domain Identifier**: `ridesharing`
-**Event Kind Range**: 30500-30599 (82 total)
+**Event Kind Range**: 30500-30599 (80 total)
 
 ---
 
@@ -261,12 +261,17 @@ The following event kinds are defined by this extension for ridesharing-specific
 |------|------|-------------|-----------|
 | 30544 | Medical Emergency | No (append-only) | Either party |
 | 30545 | Accident Report | No (append-only) | Driver |
-| 30553 | Location Clarification | Yes (NIP-33) | Either party |
-| 30554 | Pickup Delay Notification | No (append-only) | Driver |
 | 30555 | Driver Break Request | No (append-only) | Driver |
 | 30556 | Ride Extension Request | No (append-only) | Rider |
 | 30557 | Destination Change | No (append-only) | Rider |
 | 30558 | Route Update | Yes (NIP-33) | Driver |
+
+> **Note**: Location clarification and pickup delay notification do not use dedicated event kinds. Instead, use kind 30512 (Status Update) with specific `update_type` tags:
+>
+> - **Location clarification**: `["update_type", "location_clarification"]` — either party clarifies an ambiguous pickup or dropoff location.
+> - **Pickup delay notification**: `["update_type", "pickup_delay"]` — driver notifies the rider of a delay en route to the pickup.
+>
+> Kinds 30553 and 30554 are reserved for the guardian voting protocol (Slashing Proposal and Guardian Vote) defined in [NIP-XX-disputes.md](NIP-XX-disputes.md).
 
 ### Accessibility
 
@@ -959,7 +964,7 @@ Add these for feature parity with traditional ridesharing platforms:
 - **Accessibility**: 30541, 30542, 30552, 30588, 30589
 - **Verification**: 30595-30599 (background, insurance, inspection, licence, training)
 - **History**: 30593, 30594 (ride history, tax reports)
-- **Edge cases**: 30544, 30545, 30553-30558 (emergencies, delays, destination changes)
+- **Edge cases**: 30544, 30545, 30555-30558 (emergencies, breaks, destination changes)
 - **Cross-operator**: 30505 (multi-operator coordination)
 
 ---
@@ -970,6 +975,8 @@ Add these for feature parity with traditional ridesharing platforms:
 - **[NIP-XX-stakes.md](NIP-XX-stakes.md)** — Commitment stakes (lock, release, forfeit, milestones)
 - **[NIP-XX-payments.md](NIP-XX-payments.md)** — Streaming payments, tips, surcharges
 - **[NIP-XX-reputation.md](NIP-XX-reputation.md)** — Ratings and reputation portability
+- **[NIP-XX-discovery.md](NIP-XX-discovery.md)** — Service discovery (geohash-based driver matching)
+- **[NIP-XX-disputes.md](NIP-XX-disputes.md)** — Dispute resolution (fare and conduct disputes)
 - **[NIP-XX-safety.md](NIP-XX-safety.md)** — Emergency alerts, trip sharing, heartbeat
 - **[NIP-XX-navigation.md](NIP-XX-navigation.md)** — Routes, turn-by-turn, traffic
 - **[QUICK-REFERENCE.md](QUICK-REFERENCE.md)** — Summary table of all event kinds
@@ -981,4 +988,4 @@ Add these for feature parity with traditional ridesharing platforms:
 
 **Protocol Version**: v3.0 (Payment-Agnostic)
 **Domain**: ridesharing
-**Total Event Kinds**: 82 (30500-30599)
+**Total Event Kinds**: 80 (30500-30599)

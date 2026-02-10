@@ -1,8 +1,8 @@
 # DonkeyRide Protocol — Quick Reference
 
 **Protocol Version**: v3.0 (Payment-Agnostic, Modular NIPs)
-**Event Kind Range**: 30500-30599 (primary) + 30600-30639 (domain extensions)
-**Last Updated**: 2026-02-08
+**Event Kind Range**: 30500-30599 (primary) + 30600-30719 (domain extensions)
+**Last Updated**: 2026-02-10
 
 ---
 
@@ -15,21 +15,25 @@ The protocol is organised as a **family of focused specifications**. Each NIP st
 | Spec | Kinds | Scope |
 |------|-------|-------|
 | **[NIP-XX-core](./NIP-XX-core.md)** | 30500-30512 | Service request, acceptance, status updates, completion, cancellation. The minimum viable protocol. Currency-neutral. |
-| **[NIP-XX-stakes](./NIP-XX-stakes.md)** | 30502-30503, 30506, 30509, 30520, 30540 | Commitment stakes — lock, negotiate, milestone, release, forfeit. Trust model tags. Payment-provider-agnostic. |
+| **[NIP-XX-stakes](./NIP-XX-stakes.md)** | 30502-30503, 30509, 30520, 30537, 30540 | Commitment stakes — lock, negotiate, milestone, release, forfeit. Trust model tags. Payment-provider-agnostic. |
 | **[NIP-XX-reputation](./NIP-XX-reputation.md)** | 30517-30519, 30521, 30528, 30530 | Ratings, reputation summaries, cross-domain portability. References NIP-85 for computed summaries, NIP-58 for badges. |
-| **[NIP-XX-disputes](./NIP-XX-disputes.md)** | 30522-30527, 30549-30554 | Disputes, resolutions, theft reports, guardian voting, operator slashing, abuse detection. |
+| **[NIP-XX-disputes](./NIP-XX-disputes.md)** | 30522-30527, 30549-30551, 30553-30554 | Disputes, resolutions, theft reports, guardian voting, operator slashing, abuse detection. |
 | **[NIP-XX-discovery](./NIP-XX-discovery.md)** | 30540, 30565, 20500 | Service areas, operator bonds, provider availability. Geohash-based discovery. References NIP-89 for app handlers. |
 | **[NIP-XX-safety](./NIP-XX-safety.md)** | 30559-30564 | Emergency alerts, trip sharing, safety check-ins, heartbeat protocol, harassment reports. |
 | **[NIP-XX-navigation](./NIP-XX-navigation.md)** | 30583-30587 | Routes, turn-by-turn navigation, traffic alerts, reroutes. |
-| **[NIP-XX-payments](./NIP-XX-payments.md)** | 30510-30511, 30513-30516, 30523 | Streaming payments, tips, surcharges, no-show fees. Currency-neutral. References NIP-57 for zap-based tips. |
+| **[NIP-XX-payments](./NIP-XX-payments.md)** | 30510-30511, 30513-30516, 30538 | Streaming payments, tips, surcharges, no-show fees. Currency-neutral. References NIP-57 for zap-based tips. |
 
 ### Domain Extension Specifications
 
 | Spec | Kind Range | Domain |
 |------|-----------|--------|
-| **[NIP-XX-ridesharing](./NIP-XX-ridesharing.md)** | 30570-30599 | Ridesharing: vehicle tracking, surge pricing, driver management |
+| **[NIP-XX-ridesharing](./NIP-XX-ridesharing.md)** | 30505, 30529, 30532-30535, 30541-30545, 30552, 30555-30558, 30565-30569, 30570-30599 | Ridesharing: cross-operator, scheduling, carpooling, compliance, edge cases, operational, UX, driver management, navigation, surge, verification |
 | **[NIP-XX-locksmith](./NIP-XX-locksmith.md)** | 30600-30619 | Locksmith: quote negotiation, access methods, workmanship |
 | **[NIP-XX-delivery](./NIP-XX-delivery.md)** | 30620-30639 | Delivery: chain of custody, photo proofs, package tracking |
+| **[NIP-XX-towing](./NIP-XX-towing.md)** | 30640-30659 | Towing: vehicle assessment, recovery quotes, flatbed coordination, photo proof of delivery |
+| **[NIP-XX-emergency-trades](./NIP-XX-emergency-trades.md)** | 30660-30679 | Emergency trades: diagnosis, milestone pricing, certification verification, guarantee management |
+| **[NIP-XX-pet-services](./NIP-XX-pet-services.md)** | 30680-30699 | Pet services: pet profiles, session reports, medication logging, emergency vet reports |
+| **[NIP-XX-security](./NIP-XX-security.md)** | 30700-30719 | Security: shift management, heartbeat protocol, patrol logging, incident reporting |
 | **[NIP-XX-v1-archive](./NIP-XX-v1-archive.md)** | — | Archive: original monolithic 82-kind spec (preserved for reference) |
 
 ### Which NIPs Does Each Domain Use?
@@ -39,9 +43,11 @@ The protocol is organised as a **family of focused specifications**. Each NIP st
 | Ridesharing | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Locksmith | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — |
 | Delivery | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ |
-| Court serving | ✅ | — | ✅ | — | ✅ | — | ✅ | — |
-| Security guard | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| Towing | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | Emergency trades | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Pet services | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | ✅ |
+| Security guard | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| Court serving | ✅ | — | ✅ | — | ✅ | — | ✅ | — |
 
 ---
 
@@ -67,12 +73,10 @@ All domains share these kinds. The `domain` tag identifies which extension appli
 |------|------|-------------|-----------|
 | 30502 | Stake Lock | Yes | Operator |
 | 30503 | Stake Negotiation | Yes | Either |
-| 30506 | Milestone Completion | No | Provider |
 | 30509 | Commitment Stake | Yes | Either |
 | 30520 | Stake Release | No | Operator |
+| 30537 | Milestone Completion | No | Provider |
 | 30540 | Operator Bond | Yes | Operator |
-
-> **Note**: Kind 30506 is shared between Service Cancellation (NIP-XX-core) and Milestone Completion (NIP-XX-stakes). Implementations distinguish by the presence of `milestone_id` tag.
 
 ### Payments (NIP-XX-payments)
 
@@ -84,7 +88,7 @@ All domains share these kinds. The `domain` tag identifies which extension appli
 | 30514 | Wait Time Charge | No | Provider |
 | 30515 | No-Show Fee | No | Provider/Operator |
 | 30516 | Additional Charge | No | Provider |
-| 30523 | Payment Failure | No | Provider/Operator |
+| 30538 | Payment Failure | No | Provider/Operator |
 
 ### Trust & Reputation (NIP-XX-reputation)
 
@@ -138,8 +142,11 @@ All domains share these kinds. The `domain` tag identifies which extension appli
 
 | Kind | Name | Replaceable | Publisher |
 |------|------|-------------|-----------|
+| 30540 | Operator Bond | Yes | Operator |
 | 30565 | Service Area Definition | Yes | Operator |
 | 20500 | Provider Availability (ephemeral) | No | Provider |
+
+> **Note**: Kind 30540 (Operator Bond) is defined in detail in NIP-XX-stakes. NIP-XX-discovery covers its discovery and advertising aspects.
 
 ### Navigation (NIP-XX-navigation)
 
@@ -192,11 +199,16 @@ requested → matched → provider_en_route → provider_arrived → [domain sta
 | Range | Domain | Status |
 |-------|--------|--------|
 | 30500-30529 | Core protocol + stakes + payments | Active |
-| 30530-30549 | Reputation + compliance | Active |
-| 30549-30569 | Safety, abuse, discovery | Active |
-| 30570-30599 | Ridesharing extension | Active |
-| 30600-30619 | Locksmith extension | Reserved |
-| 30620-30639 | Delivery extension | Reserved |
+| 30530-30548 | Reputation, milestones, compliance, delivery shared | Active |
+| 30549-30569 | Abuse detection, guardian voting, safety, discovery, ridesharing operational | Active |
+| 30570-30599 | Ridesharing extension (UX, drivers, navigation, surge, verification) | Active |
+| 30600-30619 | Locksmith extension | Draft |
+| 30620-30639 | Delivery extension | Draft |
+| 30640-30659 | Towing extension | Draft |
+| 30660-30679 | Emergency trades extension | Draft |
+| 30680-30699 | Pet services extension | Draft |
+| 30700-30719 | Security guard dispatch extension | Draft |
+| 30720-30999 | Reserved for future domains | Reserved |
 | 20500 | Provider availability (ephemeral) | Active |
 
 ---
@@ -218,11 +230,14 @@ requested → matched → provider_en_route → provider_arrived → [domain sta
 
 | NIP | Name | Usage |
 |-----|------|-------|
+| NIP-02 | Contact List / Follow List | Social discovery (BatPhone pattern), WoT-weighted reputation |
+| NIP-32 | Structured Labels | Provider verification labels, task outcome categorisation |
 | NIP-33 | Parameterised Replaceable Events | All replaceable events use `d` tags |
 | NIP-40 | Expiration Timestamp | `["expiration", "<unix>"]` on time-limited events |
 | NIP-44 | Encrypted Payloads | Private coordination messages |
 | NIP-17/59 | Private Messages (Gift Wrap) | PII exchange, emergency contact notifications |
 | NIP-47 | Nostr Wallet Connect | Trustless stake management via hold invoices |
+| NIP-56 | Reporting | Cross-ecosystem safety reporting for confirmed misconduct |
 | NIP-57 | Lightning Zaps | Tips as standard Nostr zaps |
 | NIP-58 | Badges | Verification credentials |
 | NIP-85 | Trusted Assertions | Computed reputation summaries |
@@ -246,6 +261,10 @@ requested → matched → provider_en_route → provider_arrived → [domain sta
 - **Ridesharing**: [NIP-XX-ridesharing.md](./NIP-XX-ridesharing.md)
 - **Locksmith**: [NIP-XX-locksmith.md](./NIP-XX-locksmith.md)
 - **Delivery**: [NIP-XX-delivery.md](./NIP-XX-delivery.md)
+- **Towing**: [NIP-XX-towing.md](./NIP-XX-towing.md)
+- **Emergency Trades**: [NIP-XX-emergency-trades.md](./NIP-XX-emergency-trades.md)
+- **Pet Services**: [NIP-XX-pet-services.md](./NIP-XX-pet-services.md)
+- **Security Guard**: [NIP-XX-security.md](./NIP-XX-security.md)
 
 ### Documentation
 - **Architecture**: [../ARCHITECTURE.md](../ARCHITECTURE.md)

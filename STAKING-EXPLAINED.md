@@ -162,7 +162,7 @@ Emergency plumber job — £200 total:
   Milestone 2: Parts sourced (30%) → £60 released when parts arrive
   Milestone 3: Work complete (50%) → £100 released on completion
 
-Each milestone triggers a kind 30506 event.
+Each milestone triggers a kind 30537 event.
 Provider doesn't wait until the end to get paid.
 Requester can verify each stage before funds release.
 ```

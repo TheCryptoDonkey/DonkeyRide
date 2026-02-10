@@ -284,6 +284,8 @@ The heartbeat is configured in the domain profile:
 }
 ```
 
+> **Duration tasks** (see NIP-XX-core, Duration Tasks) configure heartbeat parameters directly on the service request using `heartbeat_required` and `heartbeat_interval_minutes` tags. When these tags are present on the task request, they override the domain profile defaults for that specific task instance.
+
 ### Flow
 
 ```
@@ -320,7 +322,10 @@ Operators declaring `safety_monitoring: true` in their service area MUST:
 ## See Also
 
 - **NIP-XX-core**: Core protocol (state machine, lifecycle)
+- **NIP-XX-stakes**: Commitment stakes (no-show detection triggers stake forfeiture)
+- **NIP-XX-reputation**: Ratings and reputation (safety_flag on rating events)
 - **NIP-XX-discovery**: Service area definition (safety_monitoring flag)
 - **NIP-XX-disputes**: Dispute resolution (for post-incident complaints)
+- **NIP-56**: Reporting (cross-ecosystem safety reporting for confirmed misconduct)
 - **NIP-17 + NIP-59**: Private messages (gift wrap) for emergency contact notifications
 - **NIP-44**: Encrypted payloads for sensitive safety data

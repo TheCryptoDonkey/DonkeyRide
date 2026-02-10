@@ -24,7 +24,7 @@ Service coordination between strangers requires a mechanism to prevent ghosting,
 |------|------|-------------|-----------|
 | 30502 | Stake Lock | Yes (NIP-33) | Operator |
 | 30503 | Stake Negotiation | Yes (NIP-33) | Either party |
-| 30506 | Milestone Completion | No (append-only) | Provider |
+| 30537 | Milestone Completion | No (append-only) | Provider |
 | 30509 | Commitment Stake | Yes (NIP-33) | Requester/Provider |
 | 30520 | Stake Release | No (append-only) | Operator |
 | 30540 | Operator Bond | Yes (NIP-33) | Operator |
@@ -97,13 +97,13 @@ Published by either party to propose or counter-propose stake terms. Enables neg
 **Required tags**: `d`, `task_id`, `proposed_by`, `requester_stake`, `provider_stake`, `currency`
 **Optional tags**: `domain`, `trust_model`, `e` (previous negotiation), `message`, `expiration`
 
-### Kind 30506: Milestone Completion
+### Kind 30537: Milestone Completion
 
 Published by the provider when a milestone is reached during multi-stage work. Triggers partial stake release.
 
 ```json
 {
-  "kind": 30506,
+  "kind": 30537,
   "tags": [
     ["d", "task_abc123_milestone_2"],
     ["domain", "emergency_trades"],
@@ -340,10 +340,30 @@ The `milestones` array is optional — only domain profiles with milestone-based
 
 ---
 
+## Recurring Task Stakes
+
+When a task is configured as recurring (see NIP-XX-core, Recurring Tasks), stakes are locked **per-instance**, not for the entire series. Each individual task instance created by the operator follows the standard stake lifecycle independently:
+
+1. Operator creates a task instance (kind 30500 with `["linked_task", "<series_id>", "recurrence"]`)
+2. Stakes are locked for that instance (kind 30502) using the operator's standard stake configuration
+3. On completion, stakes are released for that instance (kind 30520)
+4. If a single instance results in no-show or cancellation, only that instance's stakes are affected — other instances in the series are unaffected
+
+This per-instance approach ensures that:
+- Neither party needs to lock capital for the entire duration of a recurring arrangement
+- A single failed instance does not cascade to forfeit stakes across the series
+- Each instance can use a different payment provider or trust model if conditions change
+
+Series cancellation (kind 30506 with `["cancels_recurrence", "<series_id>"]`) releases stakes for any not-yet-started instances but does not affect instances already in progress or completed.
+
+---
+
 ## See Also
 
 - **NIP-XX-core**: Core protocol (state machine, lifecycle, payment agnosticism)
-- **NIP-XX-disputes**: Dispute resolution, guardian voting, operator accountability
 - **NIP-XX-payments**: Streaming payments, tips, and surcharges
+- **NIP-XX-disputes**: Dispute resolution, guardian voting, operator accountability
+- **NIP-XX-reputation**: Ratings and reputation (stake history informs trust scoring)
+- **NIP-XX-safety**: Safety infrastructure (no-show detection triggers stake forfeiture)
 - **NIP-47**: Nostr Wallet Connect (trustless hold invoices)
 - **docs/PAYMENT-PROVIDERS.md**: Payment provider integration guide

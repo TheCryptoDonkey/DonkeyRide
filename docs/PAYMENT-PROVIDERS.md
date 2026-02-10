@@ -123,7 +123,7 @@ async getMilestones(taskId)
 // → Returns: [{ milestoneId, description, amount, status }]
 ```
 
-Each milestone triggers a kind 30506 event. The domain profile defines milestones for the use case. The final milestone releases the remainder.
+Each milestone triggers a kind 30537 event. The domain profile defines milestones for the use case. The final milestone releases the remainder.
 
 ---
 

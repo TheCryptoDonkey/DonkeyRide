@@ -27,7 +27,7 @@ Service coordination requires flexible payment mechanics: per-second streaming d
 | 30514 | Wait Time Charge | No (append-only) | Provider |
 | 30515 | No-Show Fee | No (append-only) | Provider/Operator |
 | 30516 | Additional Charge | No (append-only) | Provider |
-| 30523 | Payment Failure | No (append-only) | Provider/Operator |
+| 30538 | Payment Failure | No (append-only) | Provider/Operator |
 
 ---
 
@@ -63,7 +63,8 @@ Published by the requester (or the operator on their behalf) during an active ta
 
 | Model | Interval | Best For |
 |-------|----------|----------|
-| Per-time | Every 30 seconds | Ridesharing, security guard, companion care |
+| Per-time (fine) | Every 30 seconds | Ridesharing (active metering) |
+| Per-time (hourly) | Every 3600 seconds | Duration tasks: security guard, companion care, babysitting |
 | Per-distance | Every 100 metres | Delivery, man with van |
 | Per-milestone | At milestone completion | Emergency trades, multi-stage work |
 | Lump sum | At task completion | Locksmith, car wash, process serving |
@@ -232,13 +233,13 @@ Published by the provider for charges beyond the original fare (e.g. tolls, clea
 | `parking` | Parking charges incurred | Auto-approved |
 | `surcharge` | Peak/holiday/distance surcharge | Auto-approved |
 
-### Kind 30523: Payment Failure
+### Kind 30538: Payment Failure
 
 Published by the provider or operator when a payment fails.
 
 ```json
 {
-  "kind": 30523,
+  "kind": 30538,
   "tags": [
     ["d", "task_abc123_payment_failure"],
     ["domain", "ridesharing"],
@@ -310,6 +311,8 @@ This achieves `trustless` trust model — the operator facilitates payment flow 
 
 - **NIP-XX-core**: Core protocol (payment agnosticism, currency tags, trust model taxonomy)
 - **NIP-XX-stakes**: Commitment stakes (lock, release, forfeit)
+- **NIP-XX-disputes**: Dispute resolution (payment disputes, fare disagreements)
+- **NIP-XX-reputation**: Ratings and reputation (tip behaviour visible in reputation)
 - **NIP-47**: Nostr Wallet Connect (trustless payments)
 - **NIP-57**: Lightning Zaps (tip integration)
 - **docs/PAYMENT-PROVIDERS.md**: Payment provider integration guide

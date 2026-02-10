@@ -119,7 +119,7 @@ Traditional centralised architecture using DonkeyRide-compatible schemas for dat
 | 30510 | Streaming Payment | No (append-only) | Requester |
 | 30511 | Payment Confirmation | Yes (NIP-33) | Operator |
 | 30513 | Provider Tip | No (append-only) | Requester |
-| 30523 | Payment Failure | No (append-only) | Provider/Operator |
+| 30538 | Payment Failure | No (append-only) | Provider/Operator |
 
 ### Trust & Reputation Events
 
@@ -171,32 +171,51 @@ Traditional centralised architecture using DonkeyRide-compatible schemas for dat
 
 ## Core State Machine
 
-All tasks follow this core lifecycle. Domain extensions MAY define additional intermediate states between `provider_arrived` and `active`.
+All tasks follow this core lifecycle. The state machine distinguishes between **required states** that all domains MUST implement and **optional states** that domains declare based on their service model.
+
+**Required states** (all domains): `requested`, `matched`, `active`, `completed`, `cancelled`, `no_show`
+
+**Optional states** (domain declares which): `provider_en_route`, `provider_arrived`
 
 ```
-requested ──→ matched ──→ provider_en_route ──→ provider_arrived ──→ active ──→ completed
-    │             │              │                     │               │
-    │             │              │                     ├───────────────→ no_show
-    └─────────────┴──────────────┴─────────────────────┴───────────────┘
-                              cancelled (from any non-terminal state)
+requested ──→ matched ──→ [provider_en_route] ──→ [provider_arrived] ──→ active ──→ completed
+    │             │              │                       │                  │
+    │             │              │                       ├──────────────→ no_show
+    └─────────────┴──────────────┴───────────────────────┴──────────────→ cancelled
+
+States in [brackets] are optional — domain profiles declare which states are used.
+Domains MAY transition directly from matched → active when physical transit is not applicable.
 ```
 
 ### State Definitions
 
-| State | Description |
-|-------|-------------|
-| `requested` | Requester has submitted a task request |
-| `matched` | A provider has accepted the task |
-| `provider_en_route` | Provider is travelling to the requester/task location |
-| `provider_arrived` | Provider has arrived at the task location |
-| `active` | Service is being performed |
-| `completed` | Service has been completed successfully |
-| `no_show` | One party failed to appear after commitment (triggers stake forfeiture) |
-| `cancelled` | Task was cancelled (valid from any non-terminal state) |
+| State | Required | Description |
+|-------|----------|-------------|
+| `requested` | Yes | Requester has submitted a task request |
+| `matched` | Yes | A provider has accepted the task |
+| `provider_en_route` | No | Provider is travelling to the requester/task location |
+| `provider_arrived` | No | Provider has arrived at the task location |
+| `active` | Yes | Service is being performed |
+| `completed` | Yes | Service has been completed successfully |
+| `no_show` | Yes | One party failed to appear after commitment (triggers stake forfeiture) |
+| `cancelled` | Yes | Task was cancelled (valid from any non-terminal state) |
 
 **Terminal states**: `completed`, `no_show`, `cancelled`. The distinction between `no_show` and `cancelled` is critical: `no_show` triggers automatic stake forfeiture for the absent party, whilst `cancelled` triggers mutual stake release.
 
-Domain extensions define additional states by inserting them between `provider_arrived` and `active`. For example, the locksmith extension adds `access_method_confirmed` and `work_active` between arrival and completion.
+Domain extensions MAY define additional states by inserting them between `provider_arrived` and `active`. For example, the locksmith extension adds `access_method_confirmed` and `work_active` between arrival and completion. Domains that do not involve physical transit (e.g., virtual consultations) MAY omit `provider_en_route` and `provider_arrived` entirely, transitioning directly from `matched` to `active`.
+
+### Domain State Aliases
+
+Domain extensions MAY define aliases for core states to improve domain-specific readability. Implementations MUST map aliases back to the corresponding core state for protocol-level processing.
+
+| Core State | Alias Pattern | Examples |
+|------------|--------------|---------|
+| `requested` | `{task_noun}_requested` | `lockout_reported`, `delivery_requested` |
+| `matched` | `{provider}_matched` | `locksmith_matched`, `courier_matched` |
+| `provider_en_route` | `{provider}_en_route` | `en_route`, `courier_en_route` |
+| `provider_arrived` | `{provider}_arrived` | `arrived`, `courier_arrived` |
+| `active` | `work_active`, `in_progress`, `on_duty` | `work_active`, `in_transit`, `on_duty` |
+| `completed` | `{domain}_completed` | `access_gained`, `delivered`, `shift_ended` |
 
 ---
 
@@ -212,10 +231,11 @@ Published by a requester to request a service.
   "tags": [
     ["d", "<task_id>"],
     ["domain", "<domain_id>"],
+    ["discovery_method", "<method_list>"],
     ["requester_pubkey", "<hex_pubkey>"],
-    ["origin_lat", "<latitude>"],
-    ["origin_lon", "<longitude>"],
-    ["origin_geohash", "<geohash>"],
+    ["location_lat", "<latitude>"],
+    ["location_lon", "<longitude>"],
+    ["g", "<geohash>"],
     ["destination_lat", "<latitude>"],
     ["destination_lon", "<longitude>"],
     ["amount", "<estimated_fare>"],
@@ -228,8 +248,13 @@ Published by a requester to request a service.
 }
 ```
 
-**Required tags**: `d`, `requester_pubkey`, `origin_lat`, `origin_lon`
-**Optional tags**: `domain`, `destination_*`, `amount`, `currency`, `trust_model`, `requester_stake`, `expiration`
+**Required tags**: `d`, `requester_pubkey`
+**Conditionally required**: `location_lat`, `location_lon` (REQUIRED for geohash-discovered services, OPTIONAL for virtual/category-discovered services)
+**Optional tags**: `domain`, `discovery_method`, `g`, `destination_*`, `amount`, `currency`, `trust_model`, `requester_stake`, `expiration`
+
+> **Domain aliases:** Domain extensions define aliases for location tags: ridesharing uses `pickup_lat`/`dropoff_lat`, delivery uses `collection_lat`/`delivery_lat`, locksmith uses `lockout_lat`/`lockout_lon`. Implementations MUST accept both the generic and domain-aliased forms.
+
+The `discovery_method` tag declares how providers should be matched for this request. See NIP-XX-discovery for the full discovery method taxonomy (geohash, skill tags, categories, availability, jurisdiction). If omitted, implementations SHOULD default to `geohash`.
 
 Domain extensions MAY define additional required/optional tags (e.g., `vehicle_type` for ridesharing, `lock_type` for locksmith).
 
@@ -394,7 +419,7 @@ Published by an operator to demonstrate financial commitment and trustworthiness
     ["bond_txid", "<transaction_reference>"],
     ["bond_address", "<address_or_reference>"],
     ["fee_percent", "<decimal>"],
-    ["service_area", "<geojson_or_geohash>"]
+    ["service_area", "<geojson_or_geohash_or_virtual>"]
   ],
   "content": "<operator_description>"
 }
@@ -485,28 +510,30 @@ Domain extensions add domain-specific criteria (e.g., `driving` for ridesharing,
 
 ## Common Tags Reference
 
-| Tag | Description | Example |
-|-----|-------------|---------|
-| `d` | Unique identifier (NIP-33) | `["d", "task_abc123"]` |
-| `domain` | Service domain identifier | `["domain", "ridesharing"]` |
-| `task_id` | Reference to specific task | `["task_id", "task_abc123"]` |
-| `requester_pubkey` | Requester's Nostr pubkey | `["requester_pubkey", "<hex>"]` |
-| `provider_pubkey` | Provider's Nostr pubkey | `["provider_pubkey", "<hex>"]` |
-| `operator_pubkey` | Operator's Nostr pubkey | `["operator_pubkey", "<hex>"]` |
-| `origin_lat` | Origin latitude | `["origin_lat", "51.5074"]` |
-| `origin_lon` | Origin longitude | `["origin_lon", "-0.1278"]` |
-| `destination_lat` | Destination latitude | `["destination_lat", "51.5155"]` |
-| `destination_lon` | Destination longitude | `["destination_lon", "-0.1416"]` |
-| `origin_geohash` | Geohash for privacy-preserving discovery | `["origin_geohash", "gcpuuz"]` |
-| `amount` | Value in the specified currency | `["amount", "1500"]` |
-| `currency` | ISO 4217 fiat code or crypto code (BTC, SAT) | `["currency", "GBP"]` |
-| `trust_model` | Payment provider trust model | `["trust_model", "custodial-escrow"]` |
-| `payment_hash` | Payment reference (Lightning hash or provider ID) | `["payment_hash", "<hex>"]` |
-| `timestamp` | Unix timestamp | `["timestamp", "1698765432"]` |
-| `expiration` | Event expiration time (NIP-40) | `["expiration", "1698769032"]` |
-| `linked_task` | Reference to a related task | `["linked_task", "<task_id>", "<relationship>"]` |
-| `e` | Reference to another event | `["e", "<event-id>", "<relay>"]` |
-| `p` | Reference to pubkey | `["p", "<pubkey>"]` |
+| Tag | Description | Domain Aliases | Example |
+|-----|-------------|---------------|---------|
+| `d` | Unique identifier (NIP-33) | | `["d", "task_abc123"]` |
+| `domain` | Service domain identifier | | `["domain", "ridesharing"]` |
+| `task_id` | Reference to specific task | | `["task_id", "task_abc123"]` |
+| `requester_pubkey` | Requester's Nostr pubkey | `rider_pubkey` (ridesharing), `customer_pubkey` (locksmith), `sender_pubkey` (delivery) | `["requester_pubkey", "<hex>"]` |
+| `provider_pubkey` | Provider's Nostr pubkey | `driver_pubkey` (ridesharing), `locksmith_pubkey` (locksmith), `courier_pubkey` (delivery) | `["provider_pubkey", "<hex>"]` |
+| `operator_pubkey` | Operator's Nostr pubkey | | `["operator_pubkey", "<hex>"]` |
+| `location_lat` | Primary task location latitude | `pickup_lat` (ridesharing), `collection_lat` (delivery), `lockout_lat` (locksmith) | `["location_lat", "51.5074"]` |
+| `location_lon` | Primary task location longitude | `pickup_lon` (ridesharing), `collection_lon` (delivery), `lockout_lon` (locksmith) | `["location_lon", "-0.1278"]` |
+| `destination_lat` | Destination latitude (if applicable) | `dropoff_lat` (ridesharing), `delivery_lat` (delivery) | `["destination_lat", "51.5155"]` |
+| `destination_lon` | Destination longitude (if applicable) | `dropoff_lon` (ridesharing), `delivery_lon` (delivery) | `["destination_lon", "-0.1416"]` |
+| `g` | Standard Nostr geohash tag for privacy-preserving discovery | | `["g", "gcpuuz"]` |
+| `amount` | Value in the specified currency | | `["amount", "1500"]` |
+| `currency` | ISO 4217 fiat code or crypto code (BTC, SAT) | | `["currency", "GBP"]` |
+| `trust_model` | Payment provider trust model | | `["trust_model", "custodial-escrow"]` |
+| `payment_hash` | Payment reference (Lightning hash or provider ID) | | `["payment_hash", "<hex>"]` |
+| `timestamp` | Unix timestamp | | `["timestamp", "1698765432"]` |
+| `expiration` | Event expiration time (NIP-40) | | `["expiration", "1698769032"]` |
+| `linked_task` | Reference to a related task | | `["linked_task", "<task_id>", "<relationship>"]` |
+| `e` | Reference to another event | | `["e", "<event-id>", "<relay>"]` |
+| `p` | Reference to pubkey | | `["p", "<pubkey>"]` |
+
+The `location_*` tags are REQUIRED for geohash-discovered services and OPTIONAL for virtual/category-discovered services. Implementations MUST accept both the generic tag names and any domain-aliased forms listed above.
 
 ---
 
@@ -566,16 +593,159 @@ Guarantee links inherit the original task's terms. Escalation links form a chain
 
 ---
 
+## Recurring Tasks
+
+Tasks MAY be configured as recurring, creating a series of linked tasks on a schedule. Recurrence is defined on the initial service request (kind 30500) using recurrence tags:
+
+| Tag | Description | Example |
+|-----|-------------|---------|
+| `recurrence` | Recurrence frequency | `["recurrence", "weekly"]` |
+| `recurrence_until` | End date (unix timestamp) | `["recurrence_until", "1730000000"]` |
+| `recurrence_days` | Days of week (comma-separated) | `["recurrence_days", "mon,wed,fri"]` |
+| `recurrence_time` | Preferred time (HH:MM, local timezone) | `["recurrence_time", "09:00"]` |
+| `recurrence_timezone` | Timezone for scheduling | `["recurrence_timezone", "Europe/London"]` |
+| `recurrence_exceptions` | Dates to skip (comma-separated ISO dates) | `["recurrence_exceptions", "2026-03-15,2026-03-22"]` |
+
+### Recurrence Frequencies
+
+| Frequency | Description |
+|-----------|-------------|
+| `daily` | Every day |
+| `weekdays` | Monday to Friday |
+| `weekly` | Once per week |
+| `biweekly` | Every two weeks |
+| `monthly` | Once per month |
+
+### Recurring Task Lifecycle
+
+1. Requester publishes kind 30500 with recurrence tags
+2. Provider accepts the series (kind 30501 with `["accepts_recurrence", "true"]`)
+3. Operator creates individual task instances ahead of schedule (each a new kind 30500 with `["linked_task", "<series_id>", "recurrence"]`)
+4. Each instance follows the normal task lifecycle independently
+5. Either party MAY cancel the series by publishing kind 30506 with `["cancels_recurrence", "<series_id>"]`
+
+### Recurring Stake Semantics
+
+For recurring tasks, stakes are locked per-instance, not for the entire series. Each individual task instance created by the operator has its own independent stake lifecycle (kind 30502 lock, kind 30520 release). This ensures that a single failed instance does not affect the stakes of other instances in the series. See NIP-XX-stakes for further details on recurring stake handling.
+
+---
+
+## Duration Tasks (Time-Block Services)
+
+Some services are billed by duration rather than by completion of a discrete task. Examples: security guard dispatch (8-hour shift), babysitting (4 hours), companion care (overnight). Duration tasks use additional tags on the service request (kind 30500):
+
+| Tag | Description | Example |
+|-----|-------------|---------|
+| `service_model` | `instant` (default), `duration`, `scheduled` | `["service_model", "duration"]` |
+| `scheduled_start` | Planned start time (unix timestamp) | `["scheduled_start", "1698765600"]` |
+| `scheduled_duration_seconds` | Planned duration in seconds | `["scheduled_duration_seconds", "28800"]` |
+| `hourly_rate` | Rate per hour (smallest currency unit) | `["hourly_rate", "1500"]` |
+| `heartbeat_required` | Whether periodic check-ins are required | `["heartbeat_required", "true"]` |
+| `heartbeat_interval_minutes` | Minutes between check-ins | `["heartbeat_interval_minutes", "30"]` |
+
+### Duration Task State Machine
+
+Duration tasks extend the core state machine with an `on_duty` state:
+
+```
+requested → matched → [provider_en_route] → [provider_arrived] → on_duty → completed
+```
+
+The `on_duty` state maps to `active` in the core state machine but has different semantics:
+- `active` (instant services): provider is performing work, task completes when work is done
+- `on_duty` (duration services): provider is present and available, task completes when scheduled duration expires
+
+### Heartbeat Integration
+
+Duration tasks SHOULD use the heartbeat protocol (NIP-XX-safety, kinds 30561-30563) with the `heartbeat_interval_minutes` from the task request. Missed check-ins trigger the standard escalation procedure. Duration tasks configure heartbeat parameters directly on the service request rather than relying solely on the domain profile defaults — see NIP-XX-safety for the full heartbeat protocol.
+
+### Billing
+
+Duration tasks use hourly billing via kind 30510 (Streaming Payment) with `interval_seconds` set to 3600 (1 hour). The `cumulative_total` tag tracks the running total. See NIP-XX-payments for details on the hourly streaming model.
+
+---
+
+## Virtual Services
+
+Services that do not require physical co-location (online tutoring, remote tech support, consulting) are supported as virtual tasks. Virtual tasks:
+
+- MUST include `["service_model", "virtual"]` on the service request
+- MUST NOT include `location_lat` / `location_lon` tags (no physical location)
+- SHOULD include `["meeting_method", "video_call|phone|chat|async"]`
+- MAY include `["meeting_url", "<url>"]` (encrypted via NIP-44 or NIP-17)
+- Skip `provider_en_route` and `provider_arrived` states (transition directly from `matched` to `active`)
+- Use `counterparty_ack` as the default completion proof type
+
+### Virtual Service Discovery
+
+Virtual services are discovered via category tags and availability windows rather than geohash. See NIP-XX-discovery for the `category` and `availability` discovery methods.
+
+### Example: Virtual Tutoring Request
+
+```json
+{
+  "kind": 30500,
+  "tags": [
+    ["d", "session_abc123"],
+    ["domain", "tutoring"],
+    ["service_model", "virtual"],
+    ["meeting_method", "video_call"],
+    ["category", "education"],
+    ["subcategory", "maths"],
+    ["t", "gcse_maths"],
+    ["scheduled_start", "1698765600"],
+    ["scheduled_duration_seconds", "3600"],
+    ["hourly_rate", "3500"],
+    ["currency", "GBP"],
+    ["timezone", "Europe/London"]
+  ],
+  "content": "GCSE maths tutoring — need help with algebra and trigonometry"
+}
+```
+
+---
+
+## Completion Proof Types
+
+Domain profiles declare which proof types are required for task completion. The core protocol defines the following proof types:
+
+| Proof Type | Description | Applicable To |
+|------------|-------------|---------------|
+| `gps_trace` | GPS route trace during active task | Location-based transit (ridesharing, delivery) |
+| `gps_arrival` | GPS coordinates confirming arrival | All location-based services |
+| `photo` | Geotagged photographic evidence | Physical services (locksmith, delivery, cleaning) |
+| `photo_before_after` | Before and after photos | Transformation services (cleaning, repair, grooming) |
+| `signature` | Digital signature from counterparty | Delivery, legal services |
+| `document` | Document or file handover | Legal services, virtual services |
+| `checkin` | Heartbeat check-in confirmations | Duration services (security guard, companion care) |
+| `video` | Video evidence | High-value or safety-critical services |
+| `receipt` | External receipt or confirmation | Purchases, toll payments |
+| `counterparty_ack` | Explicit acknowledgement from the other party | All services (universal fallback) |
+
+Domain profiles specify required proof types as an array:
+
+```json
+["completion_proof", "gps_arrival", "photo"]
+```
+
+All proof types are verified by the operator before triggering stake release (kind 30520). Domain extensions MAY define additional proof types beyond this core list.
+
+---
+
 ## Extension Mechanism
 
 New service domains are added via **extension NIPs** that:
 
 1. Define a `domain` identifier (e.g., `"locksmith"`, `"delivery"`)
 2. Specify role aliases for `requester` and `provider`
-3. Define additional states inserted between `provider_arrived` and `active` in the core state machine
+3. Declare which optional states are used (`provider_en_route`, `provider_arrived`) and define any additional states inserted between `provider_arrived` and `active` in the core state machine
 4. Specify domain-specific tags for service request events (kind 30500)
 5. Define domain-specific rating criteria
-6. Optionally define new event kinds for domain-specific operations
+6. Declare discovery method(s) appropriate for the domain (see NIP-XX-discovery for the taxonomy)
+7. Declare required completion proof types (see Completion Proof Types)
+8. Optionally define new event kinds for domain-specific operations
+
+Discovery methods are extensible — domains are not limited to geohash-based geographic matching. Virtual and scheduled services (tutoring, consulting, skilled trades) use skill tags, categories, and availability windows for discovery. See NIP-XX-discovery for the full taxonomy and relay filter patterns.
 
 Extension NIPs MUST NOT redefine the semantics of core event kinds. They MAY define additional event kinds in allocated ranges.
 
@@ -589,7 +759,11 @@ Extension NIPs MUST NOT redefine the semantics of core event kinds. They MAY def
 | 30570-30599 | Ridesharing-specific | NIP-XX-ridesharing |
 | 30600-30619 | Locksmith-specific | NIP-XX-locksmith |
 | 30620-30639 | Delivery-specific | NIP-XX-delivery |
-| 30640-30699 | Reserved for future domains | TBD |
+| 30640-30659 | Towing-specific | NIP-XX-towing |
+| 30660-30679 | Emergency trades-specific | NIP-XX-emergency-trades |
+| 30680-30699 | Pet services-specific | NIP-XX-pet-services |
+| 30700-30719 | Security guard dispatch-specific | NIP-XX-security |
+| 30720-30999 | Reserved for future domains | TBD |
 
 ---
 
@@ -613,11 +787,14 @@ This specification references the following Nostr Implementation Possibilities:
 
 | NIP | Name | Usage in This Protocol |
 |-----|------|----------------------|
+| **NIP-02** | Contact List / Follow List | Social discovery (BatPhone pattern), WoT-weighted reputation scoring |
+| **NIP-32** | Structured Labels | Provider verification labels, task outcome categorisation |
 | **NIP-33** | Parameterised Replaceable Events | All replaceable events use `d` tags for unique identification |
 | **NIP-40** | Expiration Timestamp | All time-limited events use `["expiration", "<unix_timestamp>"]` |
 | **NIP-44** | Encrypted Payloads | All private coordination messages between parties |
 | **NIP-17 + NIP-59** | Private Messages (Gift Wrap) | PII exchange (addresses, phone numbers) between requester and provider |
 | **NIP-47** | Nostr Wallet Connect | Trustless stake management via hold invoices directly between user wallets |
+| **NIP-56** | Reporting | Cross-ecosystem safety reporting for confirmed misconduct |
 | **NIP-57** | Lightning Zaps | Tips MAY be implemented as standard Nostr zaps on completion events |
 | **NIP-58** | Badges | Verification credentials (background check, insurance, licensing) |
 | **NIP-85** | Trusted Assertions | Operators SHOULD publish computed reputation summaries |
@@ -632,7 +809,7 @@ This specification references the following Nostr Implementation Possibilities:
 - **NIP-XX-stakes**: Commitment stakes, escrow, and operator bonds
 - **NIP-XX-reputation**: Ratings, reputation, and verification badges
 - **NIP-XX-disputes**: Dispute resolution, guardian voting, and operator accountability
-- **NIP-XX-discovery**: Geohash-based provider discovery and operator advertising
+- **NIP-XX-discovery**: Extensible provider discovery (geohash, skill tags, categories, availability, jurisdiction) and operator advertising
 - **NIP-XX-safety**: Emergency alerts, trip sharing, and safety check-ins
 - **NIP-XX-navigation**: Routes, turn-by-turn navigation, and traffic
 - **NIP-XX-payments**: Streaming payments, tips, and surcharges
@@ -642,6 +819,10 @@ This specification references the following Nostr Implementation Possibilities:
 - **NIP-XX-ridesharing**: Ridesharing domain extension
 - **NIP-XX-locksmith**: Locksmith dispatch domain extension
 - **NIP-XX-delivery**: Parcel delivery domain extension
+- **NIP-XX-towing**: Vehicle recovery and towing domain extension
+- **NIP-XX-emergency-trades**: Emergency trades domain extension (plumber, electrician, gas engineer)
+- **NIP-XX-pet-services**: Pet services domain extension (walking, sitting, grooming)
+- **NIP-XX-security**: Security guard dispatch domain extension
 
 ### Documentation
 

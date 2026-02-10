@@ -8,6 +8,7 @@ const {
 
 const reputation = require('../../src/nostr/reputation');
 const { RideManager } = require('../../src/ride-manager');
+const { TaskManager } = require('../../src/task-manager');
 const { validateNIP98Auth } = require('../../middleware/nip98-auth');
 
 const RIDER_PRIV_HEX = 'f4b31f1248bfa5e603a1c1d73c6f9d1286f5fb7c1d3aa4c9bd4a62d2a6a4a2f1';
@@ -209,6 +210,170 @@ test('reputation module caches events when relays fail', async () => {
   const riderProfile = await reputation.getProfile(riderPubKey);
   assert.equal(riderProfile.pubkey, riderPubKey);
   assert.equal(riderProfile.panicCount, 1);
+  } finally {
+    console.log = originalLog;
+    console.warn = originalWarn;
+  }
+});
+
+test('locksmith-domain ratings work with role=customer', async () => {
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  try {
+    console.log = () => {};
+    console.warn = () => {};
+
+    reputation.setRelays(['mock://fail']);
+    reputation.clearCacheFor(riderPubKey);
+    reputation.clearCacheFor(driverPubKey);
+
+    // Create a locksmith-domain task via TaskManager
+    const taskManager = new TaskManager('locksmith');
+    const task = taskManager.createTask(
+      { pubkey: riderPubKey },
+      { lat: 51.5, lon: -0.12 },
+      null,
+      5000,
+      { taskId: `task_locksmith_${Date.now().toString(36)}` }
+    );
+
+    taskManager.acceptTask(task.id, driverPubKey, {
+      name: 'Integration Locksmith',
+      location: { lat: 51.49, lon: -0.13 },
+      rating: 4.8,
+      pubkey: driverPubKey
+    });
+    taskManager.startEnRoute(task.id);
+    taskManager.arriveAtPickup(task.id);
+    // Locksmith domain has METHOD_CONFIRMED intermediate state
+    taskManager.transitionTo(task.id, 'access_method_confirmed');
+    taskManager.startTrip(task.id);
+
+    const originalSetTimeout = global.setTimeout;
+    try {
+      global.setTimeout = (fn, ms, ...args) => {
+        if (ms === 300000) {
+          return 0;
+        }
+        return originalSetTimeout(fn, ms, ...args);
+      };
+      taskManager.completeTrip(task.id, { success: true, payment_hash: 'lockhash' });
+    } finally {
+      global.setTimeout = originalSetTimeout;
+    }
+    const completedTask = taskManager.getTask(task.id);
+
+    // Simulate a pure domain-agnostic task: strip legacy rider/driver fields
+    // to verify the reputation system works with only requester/provider
+    delete completedTask.rider;
+    delete completedTask.driver;
+
+    // Build a rating event with role='customer' (locksmith domain requester role)
+    const ratingEvent = {
+      kind: 30530,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ['ride', completedTask.id],
+        ['p', driverPubKey.toLowerCase()],
+        ['rating', '4'],
+        ['role', 'customer']
+      ],
+      content: ''
+    };
+    ratingEvent.pubkey = riderPubKey;
+    ratingEvent.id = getEventHash(ratingEvent);
+    ratingEvent.sig = getSignature(ratingEvent, riderPrivBytes);
+
+    // This should succeed — a customer rating their locksmith
+    const ratingResult = await reputation.publishRating(ratingEvent, completedTask);
+    assert.equal(ratingResult.cachedLocally, true);
+    assert.ok(Array.isArray(ratingResult.relayStatuses));
+    // The returned role should be 'customer', not coerced to 'rider'
+    assert.equal(ratingResult.role, 'customer');
+    assert.equal(ratingResult.rating, 4);
+    assert.equal(ratingResult.targetHex, driverPubKey.toLowerCase());
+
+    // Also verify a locksmith (provider) can rate back with role='locksmith'
+    reputation.clearCacheFor(riderPubKey);
+    const providerRatingEvent = {
+      kind: 30530,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ['ride', completedTask.id],
+        ['p', riderPubKey.toLowerCase()],
+        ['rating', '5'],
+        ['role', 'locksmith']
+      ],
+      content: ''
+    };
+    providerRatingEvent.pubkey = driverPubKey;
+    providerRatingEvent.id = getEventHash(providerRatingEvent);
+    providerRatingEvent.sig = getSignature(providerRatingEvent, driverPrivBytes);
+
+    const providerRatingResult = await reputation.publishRating(providerRatingEvent, completedTask);
+    assert.equal(providerRatingResult.cachedLocally, true);
+    assert.equal(providerRatingResult.role, 'locksmith');
+    assert.equal(providerRatingResult.rating, 5);
+    assert.equal(providerRatingResult.targetHex, riderPubKey.toLowerCase());
+  } finally {
+    console.log = originalLog;
+    console.warn = originalWarn;
+  }
+});
+
+test('locksmith-domain panic events work with role=customer', async () => {
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  try {
+    console.log = () => {};
+    console.warn = () => {};
+
+    reputation.setRelays(['mock://fail']);
+
+    // Create a locksmith-domain task and advance to active state
+    const taskManager = new TaskManager('locksmith');
+    const task = taskManager.createTask(
+      { pubkey: riderPubKey },
+      { lat: 51.5, lon: -0.12 },
+      null,
+      5000,
+      { taskId: `task_panic_${Date.now().toString(36)}` }
+    );
+
+    taskManager.acceptTask(task.id, driverPubKey, {
+      name: 'Panic Locksmith',
+      location: { lat: 51.49, lon: -0.13 },
+      rating: 4.8,
+      pubkey: driverPubKey
+    });
+    taskManager.startEnRoute(task.id);
+    taskManager.arriveAtPickup(task.id);
+    taskManager.transitionTo(task.id, 'access_method_confirmed');
+    taskManager.startTrip(task.id);
+
+    const activeTask = taskManager.getTask(task.id);
+    // Strip legacy fields to verify domain-agnostic behaviour
+    delete activeTask.rider;
+    delete activeTask.driver;
+
+    // Build a panic event with role='customer'
+    const panicEvent = {
+      kind: 30560,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ['ride', activeTask.id],
+        ['role', 'customer'],
+        ['p', driverPubKey.toLowerCase()]
+      ],
+      content: 'emergency'
+    };
+    panicEvent.pubkey = riderPubKey;
+    panicEvent.id = getEventHash(panicEvent);
+    panicEvent.sig = getSignature(panicEvent, riderPrivBytes);
+
+    const panicResult = await reputation.publishPanic(panicEvent, activeTask);
+    assert.equal(panicResult.cachedLocally, true);
+    assert.equal(panicResult.role, 'customer');
   } finally {
     console.log = originalLog;
     console.warn = originalWarn;

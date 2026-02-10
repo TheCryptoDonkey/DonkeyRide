@@ -299,52 +299,99 @@ async function exportEvents(npubOrHex, sinceMillis) {
   };
 }
 
-function enforceRideParticipation(eventPubkey, ride, role) {
-  const riderHex = ride?.rider?.pubkey ? ride.rider.pubkey.toLowerCase() : null;
-  const riderNpub = ride?.rider?.npub ? ride.rider.npub.toLowerCase() : null;
-  const driverHex = ride?.driver?.pubkey ? ride.driver.pubkey.toLowerCase() : null;
-  const driverNpub = ride?.driver?.npub ? ride.driver.npub.toLowerCase() : null;
+/**
+ * Determine whether a role tag value represents the requester side or provider side.
+ *
+ * Recognises generic names ('requester', 'rider') and domain-specific names
+ * ('customer', 'sender', etc.). If the role name is not recognised, falls back
+ * to matching the event pubkey against task participants.
+ *
+ * @param {string} role - Role tag value from the rating/panic event
+ * @param {string} eventPubkey - Hex pubkey of the event author (lowercase)
+ * @param {Object} task - The task/ride object
+ * @returns {'requester'|'provider'} Normalised side
+ */
+function resolveRoleSide(role, eventPubkey, task) {
+  // Known requester-side role names (generic + all domain-specific requester roles)
+  const requesterRoles = ['requester', 'rider', 'customer', 'sender'];
+  // Known provider-side role names (generic + all domain-specific provider roles)
+  const providerRoles = ['provider', 'driver', 'locksmith', 'courier'];
 
-  if (role === 'rider') {
-    if (riderHex) {
-      if (eventPubkey !== riderHex) {
-        throw new Error('Rating initiator does not match rider');
+  if (requesterRoles.includes(role)) {
+    return 'requester';
+  }
+  if (providerRoles.includes(role)) {
+    return 'provider';
+  }
+
+  // Fallback: match event pubkey against task participants
+  const requesterHex = (task?.requester?.pubkey || task?.rider?.pubkey || '').toLowerCase();
+  const providerHex = (task?.provider?.pubkey || task?.driver?.pubkey || '').toLowerCase();
+
+  if (eventPubkey === requesterHex) {
+    return 'requester';
+  }
+  if (eventPubkey === providerHex) {
+    return 'provider';
+  }
+
+  throw new Error('Unable to determine role side from event');
+}
+
+function enforceRideParticipation(eventPubkey, ride, role) {
+  // Use generic fields first, fall back to legacy rider/driver fields
+  const requesterHex = ride?.requester?.pubkey ? ride.requester.pubkey.toLowerCase()
+    : ride?.rider?.pubkey ? ride.rider.pubkey.toLowerCase() : null;
+  const requesterNpub = ride?.requester?.npub ? ride.requester.npub.toLowerCase()
+    : ride?.rider?.npub ? ride.rider.npub.toLowerCase() : null;
+  const providerHex = ride?.provider?.pubkey ? ride.provider.pubkey.toLowerCase()
+    : ride?.driver?.pubkey ? ride.driver.pubkey.toLowerCase() : null;
+  const providerNpub = ride?.provider?.npub ? ride.provider.npub.toLowerCase()
+    : ride?.driver?.npub ? ride.driver.npub.toLowerCase() : null;
+
+  const side = resolveRoleSide(role, eventPubkey, ride);
+
+  if (side === 'requester') {
+    if (requesterHex) {
+      if (eventPubkey !== requesterHex) {
+        throw new Error('Rating initiator does not match requester');
       }
-    } else if (riderNpub && resolveHexPubkey(riderNpub) !== eventPubkey) {
-      throw new Error('Rating initiator does not match rider');
-    } else if (!riderHex && !riderNpub) {
-      throw new Error('Missing rider identity for ride');
+    } else if (requesterNpub && resolveHexPubkey(requesterNpub) !== eventPubkey) {
+      throw new Error('Rating initiator does not match requester');
+    } else if (!requesterHex && !requesterNpub) {
+      throw new Error('Missing requester identity for task');
     }
-    if (!driverHex && !driverNpub) {
-      throw new Error('Missing driver identity for ride');
+    if (!providerHex && !providerNpub) {
+      throw new Error('Missing provider identity for task');
     }
     return {
-      targetHex: driverHex || resolveHexPubkey(driverNpub),
-      targetNpub: driverNpub || (driverHex && nip19?.npubEncode ? nip19.npubEncode(driverHex) : null),
-      subjectHex: riderHex || eventPubkey,
-      subjectNpub: riderNpub || (riderHex && nip19?.npubEncode ? nip19.npubEncode(riderHex) : null)
+      targetHex: providerHex || resolveHexPubkey(providerNpub),
+      targetNpub: providerNpub || (providerHex && nip19?.npubEncode ? nip19.npubEncode(providerHex) : null),
+      subjectHex: requesterHex || eventPubkey,
+      subjectNpub: requesterNpub || (requesterHex && nip19?.npubEncode ? nip19.npubEncode(requesterHex) : null)
     };
   }
 
-  if (driverHex) {
-    if (eventPubkey !== driverHex) {
-      throw new Error('Rating initiator does not match driver');
+  // Provider side
+  if (providerHex) {
+    if (eventPubkey !== providerHex) {
+      throw new Error('Rating initiator does not match provider');
     }
-  } else if (driverNpub && resolveHexPubkey(driverNpub) !== eventPubkey) {
-    throw new Error('Rating initiator does not match driver');
-  } else if (!driverHex && !driverNpub) {
-    throw new Error('Missing driver identity for ride');
+  } else if (providerNpub && resolveHexPubkey(providerNpub) !== eventPubkey) {
+    throw new Error('Rating initiator does not match provider');
+  } else if (!providerHex && !providerNpub) {
+    throw new Error('Missing provider identity for task');
   }
 
-  if (!riderHex && !riderNpub) {
-    throw new Error('Missing rider identity for ride');
+  if (!requesterHex && !requesterNpub) {
+    throw new Error('Missing requester identity for task');
   }
 
   return {
-    targetHex: riderHex || resolveHexPubkey(riderNpub),
-    targetNpub: riderNpub || (riderHex && nip19?.npubEncode ? nip19.npubEncode(riderHex) : null),
-    subjectHex: driverHex || eventPubkey,
-    subjectNpub: driverNpub || (driverHex && nip19?.npubEncode ? nip19.npubEncode(driverHex) : null)
+    targetHex: requesterHex || resolveHexPubkey(requesterNpub),
+    targetNpub: requesterNpub || (requesterHex && nip19?.npubEncode ? nip19.npubEncode(requesterHex) : null),
+    subjectHex: providerHex || eventPubkey,
+    subjectNpub: providerNpub || (providerHex && nip19?.npubEncode ? nip19.npubEncode(providerHex) : null)
   };
 }
 
@@ -367,7 +414,7 @@ function parseRatingEvent(event, ride) {
     throw new Error('Rating value must be between 1 and 5');
   }
   const roleTag = event.tags.find(t => t[0] === 'role');
-  const role = roleTag?.[1] === 'driver' ? 'driver' : 'rider';
+  const role = roleTag?.[1] || 'requester';
   const { targetHex, targetNpub } = enforceRideParticipation(event.pubkey.toLowerCase(), ride, role);
   const targetTag = event.tags.find(t => t[0] === 'p');
   if (!targetTag) {
@@ -411,7 +458,7 @@ function parsePanicEvent(event, ride) {
     throw new Error('Panic event ride tag mismatch');
   }
   const roleTag = event.tags.find(t => t[0] === 'role');
-  const role = roleTag?.[1] === 'driver' ? 'driver' : 'rider';
+  const role = roleTag?.[1] || 'requester';
   enforceRideParticipation(event.pubkey.toLowerCase(), ride, role);
   return { role };
 }

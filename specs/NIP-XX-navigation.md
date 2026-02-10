@@ -258,6 +258,8 @@ Route data is sensitive — it reveals exact travel patterns. The protocol prote
 ## See Also
 
 - **NIP-XX-core**: Core protocol (status updates with ETA)
+- **NIP-XX-payments**: Payment events (route deviations affect fare calculations)
+- **NIP-XX-disputes**: Dispute resolution (route evidence in fare disputes)
 - **NIP-XX-discovery**: Service area definitions
 - **NIP-44**: Encrypted payloads for route data privacy
 - **implementation/NAVIGATION-README.md**: Navigation provider configuration and API reference
