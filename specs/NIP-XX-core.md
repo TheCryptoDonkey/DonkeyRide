@@ -212,6 +212,7 @@ Published by a requester to request a service.
   "tags": [
     ["d", "<task_id>"],
     ["domain", "<domain_id>"],
+    ["discovery_method", "<method_list>"],
     ["requester_pubkey", "<hex_pubkey>"],
     ["origin_lat", "<latitude>"],
     ["origin_lon", "<longitude>"],
@@ -228,8 +229,11 @@ Published by a requester to request a service.
 }
 ```
 
-**Required tags**: `d`, `requester_pubkey`, `origin_lat`, `origin_lon`
-**Optional tags**: `domain`, `destination_*`, `amount`, `currency`, `trust_model`, `requester_stake`, `expiration`
+**Required tags**: `d`, `requester_pubkey`
+**Conditionally required**: `origin_lat`, `origin_lon` (REQUIRED for geographic discovery methods, OPTIONAL for virtual services)
+**Optional tags**: `domain`, `discovery_method`, `origin_geohash`, `destination_*`, `amount`, `currency`, `trust_model`, `requester_stake`, `expiration`
+
+The `discovery_method` tag declares how providers should be matched for this request. See NIP-XX-discovery for the full discovery method taxonomy (geohash, skill tags, categories, availability, jurisdiction). If omitted, implementations SHOULD default to `geohash`.
 
 Domain extensions MAY define additional required/optional tags (e.g., `vehicle_type` for ridesharing, `lock_type` for locksmith).
 
@@ -394,7 +398,7 @@ Published by an operator to demonstrate financial commitment and trustworthiness
     ["bond_txid", "<transaction_reference>"],
     ["bond_address", "<address_or_reference>"],
     ["fee_percent", "<decimal>"],
-    ["service_area", "<geojson_or_geohash>"]
+    ["service_area", "<geojson_or_geohash_or_virtual>"]
   ],
   "content": "<operator_description>"
 }
@@ -575,7 +579,10 @@ New service domains are added via **extension NIPs** that:
 3. Define additional states inserted between `provider_arrived` and `active` in the core state machine
 4. Specify domain-specific tags for service request events (kind 30500)
 5. Define domain-specific rating criteria
-6. Optionally define new event kinds for domain-specific operations
+6. Declare discovery method(s) appropriate for the domain (see NIP-XX-discovery for the taxonomy)
+7. Optionally define new event kinds for domain-specific operations
+
+Discovery methods are extensible — domains are not limited to geohash-based geographic matching. Virtual and scheduled services (tutoring, consulting, skilled trades) use skill tags, categories, and availability windows for discovery. See NIP-XX-discovery for the full taxonomy and relay filter patterns.
 
 Extension NIPs MUST NOT redefine the semantics of core event kinds. They MAY define additional event kinds in allocated ranges.
 
@@ -632,7 +639,7 @@ This specification references the following Nostr Implementation Possibilities:
 - **NIP-XX-stakes**: Commitment stakes, escrow, and operator bonds
 - **NIP-XX-reputation**: Ratings, reputation, and verification badges
 - **NIP-XX-disputes**: Dispute resolution, guardian voting, and operator accountability
-- **NIP-XX-discovery**: Geohash-based provider discovery and operator advertising
+- **NIP-XX-discovery**: Extensible provider discovery (geohash, skill tags, categories, availability, jurisdiction) and operator advertising
 - **NIP-XX-safety**: Emergency alerts, trip sharing, and safety check-ins
 - **NIP-XX-navigation**: Routes, turn-by-turn navigation, and traffic
 - **NIP-XX-payments**: Streaming payments, tips, and surcharges

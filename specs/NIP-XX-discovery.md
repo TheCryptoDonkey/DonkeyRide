@@ -4,11 +4,11 @@
 
 ## Abstract
 
-This NIP defines **geohash-based provider discovery and operator advertising** for trust-minimised service coordination. It specifies how providers broadcast availability, how requesters find nearby providers, and how operators advertise their services to the wider Nostr ecosystem — all whilst preserving location privacy through geohash obfuscation.
+This NIP defines **extensible provider discovery and operator advertising** for trust-minimised service coordination. It specifies how providers broadcast availability, how requesters find matching providers, and how operators advertise their services to the wider Nostr ecosystem. Discovery methods range from **geohash-based geographic matching** (for location-bound services like ridesharing and locksmith dispatch) to **skill tags, categories, and availability windows** (for virtual and scheduled services like tutoring, consulting, and skilled trades).
 
 ## Motivation
 
-Decentralised service coordination requires a discovery mechanism that doesn't depend on a single platform's matching algorithm. By using geohash-based discovery on public Nostr relays, any client can find available providers in any area, compare multiple operators, and select based on transparent criteria (fee, reputation, trust model).
+Decentralised service coordination requires a discovery mechanism that doesn't depend on a single platform's matching algorithm. By using structured discovery on public Nostr relays, any client can find available providers in any area or category, compare multiple operators, and select based on transparent criteria (fee, reputation, trust model). Not all service domains are geographic — tutoring, consulting, and many skilled trades operate virtually or across wide regions. The protocol therefore supports multiple discovery methods, with geohash remaining the default for location-bound services.
 
 ## Depends On
 
@@ -17,6 +17,41 @@ Decentralised service coordination requires a discovery mechanism that doesn't d
 - **NIP-40**: Expiration timestamps
 - **NIP-89**: App handler registration
 - **NIP-99**: Classified listings (optional, for service advertising)
+
+## Discovery Method Taxonomy
+
+The protocol supports multiple discovery methods. Each service domain declares one or more methods via a `discovery_method` tag on service requests (kind 30500). Most location-bound domains use `geohash` as their primary method, but domains MAY declare multiple methods for richer matching.
+
+| Method | Tags Used | Best For |
+|--------|-----------|----------|
+| `geohash` | `g` (geohash) | Location-based services (ridesharing, locksmith, delivery) |
+| `skill_tags` | `t` (NIP-12 hashtags) | Trades and skilled services (plumber, electrician, tutor) |
+| `category` | `category`, `subcategory` | Browsable service directories (cleaning, pet care) |
+| `availability` | `available_from`, `available_until`, `timezone` | Scheduled/virtual services (tutoring, consulting) |
+| `jurisdiction` | `jurisdiction`, `court_id` | Legal services (process serving, notary) |
+
+### Combining Discovery Methods
+
+Domains commonly combine multiple methods. For example:
+
+- **Pet walking** uses `geohash` + `category` — providers must be nearby *and* offer the right service type.
+- **Emergency plumber** uses `geohash` + `skill_tags` — providers must be nearby *and* have the relevant qualifications.
+- **Online tutoring** uses `skill_tags` + `availability` — no geographic constraint, but the provider must have the right subject expertise and be available at the requested time.
+- **Process serving** uses `jurisdiction` + `geohash` — the server must be authorised in the correct court jurisdiction *and* be within travel distance.
+
+### Declaring Discovery Methods
+
+Domain profiles declare their supported discovery method(s) via the `discovery_method` tag on kind 30500 (Service Request):
+
+```json
+["discovery_method", "geohash"]
+["discovery_method", "geohash,category"]
+["discovery_method", "skill_tags,availability"]
+```
+
+When multiple methods are declared (comma-separated), relay filters SHOULD match on all specified methods (logical AND). Clients SHOULD display appropriate search interfaces based on the active domain's discovery method(s).
+
+---
 
 ## Event Kinds
 
@@ -34,7 +69,7 @@ Decentralised service coordination requires a discovery mechanism that doesn't d
 
 ### Kind 30565: Service Area Definition
 
-Published by an operator to declare the geographic areas they serve and the domains they support.
+Published by an operator to declare the areas or service scopes they serve and the domains they support. For location-based services, this includes geohash-defined geographic areas. For virtual services, this declares categories, languages, and availability instead.
 
 ```json
 {
@@ -65,8 +100,50 @@ Published by an operator to declare the geographic areas they serve and the doma
 }
 ```
 
-**Required tags**: `d`, `operator_pubkey`, `g` (at least one geohash)
-**Optional tags**: `domain`, `service_name`, `fee_percent`, `supported_domains`, `payment_providers`, `trust_models`, `supported_currencies`, `min_provider_rating`, `safety_monitoring`, `background_checks`, `insurance`, `api_url`, `ws_url`, `expiration`
+**Required tags**: `d`, `operator_pubkey`
+**Conditionally required**: `g` (at least one geohash — REQUIRED for location-based services, OPTIONAL for virtual services)
+**Optional tags**: `domain`, `service_name`, `fee_percent`, `supported_domains`, `payment_providers`, `trust_models`, `supported_currencies`, `min_provider_rating`, `safety_monitoring`, `background_checks`, `insurance`, `api_url`, `ws_url`, `expiration`, `service_type`, `categories`, `languages`, `timezone`, `operating_hours`
+
+#### Virtual/Non-Geographic Service Areas
+
+For operators serving virtual or non-geographic domains (tutoring, consulting, remote technical support), an alternative form omits geohash tags and instead declares service scope via categories, languages, and availability:
+
+```json
+{
+  "kind": 30565,
+  "tags": [
+    ["d", "<operator_pubkey>_virtual"],
+    ["domain", "tutoring"],
+    ["operator_pubkey", "<hex>"],
+    ["service_type", "virtual"],
+    ["categories", "maths,physics,chemistry"],
+    ["languages", "en,fr"],
+    ["timezone", "Europe/London"],
+    ["operating_hours", "09:00-21:00"],
+    ["service_name", "DonkeyLearn Online Tutoring"],
+    ["fee_percent", "8.0"],
+    ["supported_domains", "tutoring"],
+    ["payment_providers", "strike,stripe"],
+    ["trust_models", "custodial-third-party,custodial-escrow"],
+    ["supported_currencies", "GBP,USD,EUR"],
+    ["min_provider_rating", "4.5"],
+    ["api_url", "https://learn.donkeyride.example.com"],
+    ["ws_url", "wss://learn.donkeyride.example.com/ws"],
+    ["expiration", "1730000000"]
+  ],
+  "content": "DonkeyLearn — online tutoring in maths, physics, and chemistry for GCSE and A-level students."
+}
+```
+
+The `service_type` tag distinguishes geographic from virtual service areas:
+
+| Service Type | Description |
+|-------------|-------------|
+| `geographic` | Location-bound services — requires `g` tags (default if omitted) |
+| `virtual` | Remote/online services — no `g` tags required |
+| `hybrid` | Services available both in-person and remotely — `g` tags define the in-person area |
+
+The `categories` tag is a comma-separated list of service categories the operator supports. The `languages` tag lists ISO 639-1 language codes. The `operating_hours` tag specifies the operator's service window in the declared `timezone` (IANA identifier).
 
 #### Geohash Precision
 
@@ -83,7 +160,11 @@ Operators publish one event per service area, with multiple `g` tags covering th
 
 ### Kind 20500: Provider Availability (Ephemeral)
 
-Published by providers to broadcast real-time availability. These are **ephemeral events** — relays MUST NOT persist them. They signal "I'm available for work near geohash X right now."
+Published by providers to broadcast real-time availability. These are **ephemeral events** — relays MUST NOT persist them. They signal "I'm available for work right now" with discovery-relevant metadata.
+
+#### Location-Based Availability
+
+For geographic discovery methods (`geohash`), providers broadcast their current area:
 
 ```json
 {
@@ -103,8 +184,34 @@ Published by providers to broadcast real-time availability. These are **ephemera
 }
 ```
 
-**Required tags**: `g` (current geohash), `provider_pubkey`, `status`
-**Optional tags**: `domain`, `operator_pubkey`, `vehicle_type`, `rating`, `completed_tasks`, `expiration`
+#### Extended Availability (Multiple Discovery Methods)
+
+For domains using non-geohash or combined discovery methods, providers include additional tags:
+
+```json
+{
+  "kind": 20500,
+  "tags": [
+    ["g", "gcpuuz"],
+    ["domain", "pet_walking"],
+    ["provider_pubkey", "<hex>"],
+    ["status", "available"],
+    ["t", "dog_walking"],
+    ["t", "large_dogs"],
+    ["category", "pet_services"],
+    ["subcategory", "dog_walking"],
+    ["available_from", "1698765600"],
+    ["available_until", "1698787200"],
+    ["timezone", "Europe/London"],
+    ["expiration", "1698765732"]
+  ],
+  "content": ""
+}
+```
+
+**Required tags**: `provider_pubkey`, `status`
+**Conditionally required**: `g` (REQUIRED for location-based services, OPTIONAL for virtual services)
+**Optional tags**: `domain`, `operator_pubkey`, `vehicle_type`, `rating`, `completed_tasks`, `expiration`, `t` (NIP-12 hashtags for skill/service tags), `category`, `subcategory`, `available_from`, `available_until`, `timezone`, `jurisdiction`, `court_id`
 
 The `status` tag indicates availability:
 
@@ -116,21 +223,65 @@ The `status` tag indicates availability:
 
 Providers SHOULD publish availability events at regular intervals (every 30-60 seconds) whilst on shift. The `expiration` tag (NIP-40) ensures stale events are automatically cleaned up.
 
+#### Virtual Service Discovery
+
+For domains that do not require geographic proximity (online tutoring, virtual consulting, remote technical support), the `g` tag is OPTIONAL. Discovery relies instead on skill tags, categories, and availability windows.
+
+A virtual-only provider availability event:
+
+```json
+{
+  "kind": 20500,
+  "tags": [
+    ["domain", "tutoring"],
+    ["provider_pubkey", "<hex>"],
+    ["operator_pubkey", "<operator_hex>"],
+    ["status", "available"],
+    ["t", "maths"],
+    ["t", "physics"],
+    ["t", "a_level"],
+    ["category", "academic_tutoring"],
+    ["subcategory", "sciences"],
+    ["available_from", "1698771000"],
+    ["available_until", "1698782400"],
+    ["timezone", "Europe/London"],
+    ["rating", "4.9"],
+    ["completed_tasks", "128"],
+    ["expiration", "1698771060"]
+  ],
+  "content": ""
+}
+```
+
+Clients discovering virtual providers filter on `#t` (skill tags), `#category`, or time-range overlap rather than `#g` (geohash). Relay implementations SHOULD support filtering on these tags for efficient virtual service discovery.
+
 ---
 
 ## Multi-Operator Discovery
 
-When a requester wants to find a service, the discovery flow is:
+When a requester wants to find a service, the discovery flow varies by discovery method. The steps below describe the general pattern, with method-specific filter examples.
 
-### Step 1: Find Operators in Area
+### Step 1: Find Operators
 
-Query relays for kind 30565 events matching the requester's geohash:
+Query relays for kind 30565 events matching the requester's discovery criteria.
 
+**Geographic discovery** (geohash):
 ```
 Filter: { kinds: [30565], "#g": ["gcpuu"] }
 ```
-
 This returns all operators serving the requester's ~5km area.
+
+**Category-based discovery**:
+```
+Filter: { kinds: [30565], "#domain": ["pet_walking"] }
+```
+Client-side filtering on `categories` tag narrows results to matching service types.
+
+**Virtual/skill-based discovery**:
+```
+Filter: { kinds: [30565], "#domain": ["tutoring"] }
+```
+Client-side filtering on `categories`, `languages`, and `timezone` tags narrows results.
 
 ### Step 2: Compare Operators
 
@@ -144,20 +295,33 @@ The requester (or their client app) compares operators on:
 | Safety infrastructure | `safety_monitoring`, `background_checks`, `insurance` tags |
 | Operator reputation | Kind 30528 events for the operator's pubkey |
 | Operator bond size | Kind 30540 events for the operator's pubkey |
+| Service categories | `categories` tag (for category/virtual discovery) |
+| Languages supported | `languages` tag (for virtual discovery) |
 
 ### Step 3: Find Available Providers
 
-Query relays for kind 20500 ephemeral events in the area:
+Query relays for kind 20500 ephemeral events matching the discovery method:
 
+**Geographic discovery**:
 ```
 Filter: { kinds: [20500], "#g": ["gcpuuz"], "#operator_pubkey": ["<chosen_operator>"] }
 ```
 
-This returns providers currently available through the chosen operator.
+**Skill-based discovery**:
+```
+Filter: { kinds: [20500], "#t": ["maths"], "#operator_pubkey": ["<chosen_operator>"] }
+```
+
+**Category-based discovery**:
+```
+Filter: { kinds: [20500], "#category": ["pet_services"], "#operator_pubkey": ["<chosen_operator>"] }
+```
+
+This returns providers currently available through the chosen operator that match the requester's criteria.
 
 ### Step 4: Submit Request
 
-The requester publishes a kind 30500 (Service Request) event with their geohash, and connects to the chosen operator's API for coordination.
+The requester publishes a kind 30500 (Service Request) event with appropriate discovery tags (geohash for geographic services, skill tags for skill-based services, etc.) and connects to the chosen operator's API for coordination.
 
 ---
 
@@ -212,7 +376,8 @@ Operators MAY publish **NIP-99 classified listing events** (kind 30402) for serv
 
 ### Location Obfuscation
 
-- **Public events** (kinds 30500, 30565, 20500) use geohash precision 5 (~5km), never exact coordinates
+- **Geographic public events** (kinds 30500, 30565, 20500) use geohash precision 5 (~5km), never exact coordinates
+- **Virtual services** avoid location data entirely — discovery uses skill tags, categories, and availability instead
 - **Exact addresses** are exchanged only via NIP-17 encrypted gift-wrapped messages after matching
 - **Provider availability** events are ephemeral — relays do not persist them
 - **GPS traces** during active tasks go via the operator's WebSocket (or NIP-44 encrypted ephemeral events), never in plain text on public relays
