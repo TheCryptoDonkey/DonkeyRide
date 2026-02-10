@@ -18,7 +18,7 @@ export interface DomainProfile {
   name: string;
   description?: string;
   discoveryMethod: 'geohash' | 'skillTags' | 'availability';
-  pricingModel: 'distance_time_surge' | 'hourly' | 'milestone' | 'flatRate' | 'quote';
+  pricingModel: 'distance_time_surge' | 'distance_weight' | 'hourly' | 'milestone' | 'flatRate' | 'quote';
   states: {
     values: Record<string, string>;
     transitions: Record<string, string[]>;
