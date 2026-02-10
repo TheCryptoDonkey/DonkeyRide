@@ -340,6 +340,24 @@ The `milestones` array is optional — only domain profiles with milestone-based
 
 ---
 
+## Recurring Task Stakes
+
+When a task is configured as recurring (see NIP-XX-core, Recurring Tasks), stakes are locked **per-instance**, not for the entire series. Each individual task instance created by the operator follows the standard stake lifecycle independently:
+
+1. Operator creates a task instance (kind 30500 with `["linked_task", "<series_id>", "recurrence"]`)
+2. Stakes are locked for that instance (kind 30502) using the operator's standard stake configuration
+3. On completion, stakes are released for that instance (kind 30520)
+4. If a single instance results in no-show or cancellation, only that instance's stakes are affected — other instances in the series are unaffected
+
+This per-instance approach ensures that:
+- Neither party needs to lock capital for the entire duration of a recurring arrangement
+- A single failed instance does not cascade to forfeit stakes across the series
+- Each instance can use a different payment provider or trust model if conditions change
+
+Series cancellation (kind 30506 with `["cancels_recurrence", "<series_id>"]`) releases stakes for any not-yet-started instances but does not affect instances already in progress or completed.
+
+---
+
 ## See Also
 
 - **NIP-XX-core**: Core protocol (state machine, lifecycle, payment agnosticism)

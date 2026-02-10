@@ -63,7 +63,8 @@ Published by the requester (or the operator on their behalf) during an active ta
 
 | Model | Interval | Best For |
 |-------|----------|----------|
-| Per-time | Every 30 seconds | Ridesharing, security guard, companion care |
+| Per-time (fine) | Every 30 seconds | Ridesharing (active metering) |
+| Per-time (hourly) | Every 3600 seconds | Duration tasks: security guard, companion care, babysitting |
 | Per-distance | Every 100 metres | Delivery, man with van |
 | Per-milestone | At milestone completion | Emergency trades, multi-stage work |
 | Lump sum | At task completion | Locksmith, car wash, process serving |

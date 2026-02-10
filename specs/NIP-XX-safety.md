@@ -284,6 +284,8 @@ The heartbeat is configured in the domain profile:
 }
 ```
 
+> **Duration tasks** (see NIP-XX-core, Duration Tasks) configure heartbeat parameters directly on the service request using `heartbeat_required` and `heartbeat_interval_minutes` tags. When these tags are present on the task request, they override the domain profile defaults for that specific task instance.
+
 ### Flow
 
 ```

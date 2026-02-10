@@ -593,6 +593,118 @@ Guarantee links inherit the original task's terms. Escalation links form a chain
 
 ---
 
+## Recurring Tasks
+
+Tasks MAY be configured as recurring, creating a series of linked tasks on a schedule. Recurrence is defined on the initial service request (kind 30500) using recurrence tags:
+
+| Tag | Description | Example |
+|-----|-------------|---------|
+| `recurrence` | Recurrence frequency | `["recurrence", "weekly"]` |
+| `recurrence_until` | End date (unix timestamp) | `["recurrence_until", "1730000000"]` |
+| `recurrence_days` | Days of week (comma-separated) | `["recurrence_days", "mon,wed,fri"]` |
+| `recurrence_time` | Preferred time (HH:MM, local timezone) | `["recurrence_time", "09:00"]` |
+| `recurrence_timezone` | Timezone for scheduling | `["recurrence_timezone", "Europe/London"]` |
+| `recurrence_exceptions` | Dates to skip (comma-separated ISO dates) | `["recurrence_exceptions", "2026-03-15,2026-03-22"]` |
+
+### Recurrence Frequencies
+
+| Frequency | Description |
+|-----------|-------------|
+| `daily` | Every day |
+| `weekdays` | Monday to Friday |
+| `weekly` | Once per week |
+| `biweekly` | Every two weeks |
+| `monthly` | Once per month |
+
+### Recurring Task Lifecycle
+
+1. Requester publishes kind 30500 with recurrence tags
+2. Provider accepts the series (kind 30501 with `["accepts_recurrence", "true"]`)
+3. Operator creates individual task instances ahead of schedule (each a new kind 30500 with `["linked_task", "<series_id>", "recurrence"]`)
+4. Each instance follows the normal task lifecycle independently
+5. Either party MAY cancel the series by publishing kind 30506 with `["cancels_recurrence", "<series_id>"]`
+
+### Recurring Stake Semantics
+
+For recurring tasks, stakes are locked per-instance, not for the entire series. Each individual task instance created by the operator has its own independent stake lifecycle (kind 30502 lock, kind 30520 release). This ensures that a single failed instance does not affect the stakes of other instances in the series. See NIP-XX-stakes for further details on recurring stake handling.
+
+---
+
+## Duration Tasks (Time-Block Services)
+
+Some services are billed by duration rather than by completion of a discrete task. Examples: security guard dispatch (8-hour shift), babysitting (4 hours), companion care (overnight). Duration tasks use additional tags on the service request (kind 30500):
+
+| Tag | Description | Example |
+|-----|-------------|---------|
+| `service_model` | `instant` (default), `duration`, `scheduled` | `["service_model", "duration"]` |
+| `scheduled_start` | Planned start time (unix timestamp) | `["scheduled_start", "1698765600"]` |
+| `scheduled_duration_seconds` | Planned duration in seconds | `["scheduled_duration_seconds", "28800"]` |
+| `hourly_rate` | Rate per hour (smallest currency unit) | `["hourly_rate", "1500"]` |
+| `heartbeat_required` | Whether periodic check-ins are required | `["heartbeat_required", "true"]` |
+| `heartbeat_interval_minutes` | Minutes between check-ins | `["heartbeat_interval_minutes", "30"]` |
+
+### Duration Task State Machine
+
+Duration tasks extend the core state machine with an `on_duty` state:
+
+```
+requested → matched → [provider_en_route] → [provider_arrived] → on_duty → completed
+```
+
+The `on_duty` state maps to `active` in the core state machine but has different semantics:
+- `active` (instant services): provider is performing work, task completes when work is done
+- `on_duty` (duration services): provider is present and available, task completes when scheduled duration expires
+
+### Heartbeat Integration
+
+Duration tasks SHOULD use the heartbeat protocol (NIP-XX-safety, kinds 30561-30563) with the `heartbeat_interval_minutes` from the task request. Missed check-ins trigger the standard escalation procedure. Duration tasks configure heartbeat parameters directly on the service request rather than relying solely on the domain profile defaults — see NIP-XX-safety for the full heartbeat protocol.
+
+### Billing
+
+Duration tasks use hourly billing via kind 30510 (Streaming Payment) with `interval_seconds` set to 3600 (1 hour). The `cumulative_total` tag tracks the running total. See NIP-XX-payments for details on the hourly streaming model.
+
+---
+
+## Virtual Services
+
+Services that do not require physical co-location (online tutoring, remote tech support, consulting) are supported as virtual tasks. Virtual tasks:
+
+- MUST include `["service_model", "virtual"]` on the service request
+- MUST NOT include `location_lat` / `location_lon` tags (no physical location)
+- SHOULD include `["meeting_method", "video_call|phone|chat|async"]`
+- MAY include `["meeting_url", "<url>"]` (encrypted via NIP-44 or NIP-17)
+- Skip `provider_en_route` and `provider_arrived` states (transition directly from `matched` to `active`)
+- Use `counterparty_ack` as the default completion proof type
+
+### Virtual Service Discovery
+
+Virtual services are discovered via category tags and availability windows rather than geohash. See NIP-XX-discovery for the `category` and `availability` discovery methods.
+
+### Example: Virtual Tutoring Request
+
+```json
+{
+  "kind": 30500,
+  "tags": [
+    ["d", "session_abc123"],
+    ["domain", "tutoring"],
+    ["service_model", "virtual"],
+    ["meeting_method", "video_call"],
+    ["category", "education"],
+    ["subcategory", "maths"],
+    ["t", "gcse_maths"],
+    ["scheduled_start", "1698765600"],
+    ["scheduled_duration_seconds", "3600"],
+    ["hourly_rate", "3500"],
+    ["currency", "GBP"],
+    ["timezone", "Europe/London"]
+  ],
+  "content": "GCSE maths tutoring — need help with algebra and trigonometry"
+}
+```
+
+---
+
 ## Completion Proof Types
 
 Domain profiles declare which proof types are required for task completion. The core protocol defines the following proof types:
