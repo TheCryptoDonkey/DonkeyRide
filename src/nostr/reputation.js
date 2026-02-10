@@ -449,6 +449,7 @@ module.exports = {
   exportEvents,
   publishGeneric,
   clearCacheFor,
+  ensureEventIntegrity,
   shutdown: () => {
     try {
       pool.close(getRelays());

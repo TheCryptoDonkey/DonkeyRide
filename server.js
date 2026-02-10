@@ -14,6 +14,7 @@ const Redis = require('redis');
 const { PaymentProviderFactory, ResilientStakeManager } = require('./payment-providers/factory');
 const reputation = require('./src/nostr/reputation');
 const stakeEvents = require('./src/nostr/stake-events');
+const disputeEvents = require('./src/nostr/dispute-events');
 const { validateNIP98Auth } = require('./middleware/nip98-auth');
 const { getPublicKey: nostrGetPublicKey } = require('nostr-tools');
 const {
@@ -212,6 +213,17 @@ async function initializeRedis() {
 const activeRides = new Map();
 const stakeBalances = new Map();
 const rideStreamingTimers = new Map();
+const disputes = new Map();
+const suspensions = new Map();
+const theftReports = new Map();
+const guardianState = {
+    bond: null,
+    guardians: new Set(
+        (process.env.GUARDIAN_PUBKEYS || '').split(',').map(s => s.trim()).filter(Boolean)
+    ),
+    proposals: new Map(),
+    watchdogClaims: new Map()
+};
 
 const STREAM_INTERVAL_MS = 1000;
 const STREAM_STEPS = 15;
@@ -319,6 +331,10 @@ const relayConfig = (process.env.REPUTATION_RELAYS || `${process.env.NOSTR_RELAY
     .filter(Boolean);
 reputation.setRelays(relayConfig);
 stakeEvents.configure({
+    operatorPrivkey: config.operatorPrivkey,
+    publishGeneric: (event) => reputation.publishGeneric(event, config.operatorPubkey || event.pubkey)
+});
+disputeEvents.configure({
     operatorPrivkey: config.operatorPrivkey,
     publishGeneric: (event) => reputation.publishGeneric(event, config.operatorPubkey || event.pubkey)
 });
@@ -2094,6 +2110,974 @@ app.post('/api/rides/:rideId/quote/decline', async (req, res) => {
     } catch (error) {
         console.error('Error declining quote:', error);
         res.status(500).json({ error: 'Failed to decline quote' });
+    }
+});
+
+// ==========================================
+// DISPUTE RESOLUTION ENDPOINTS
+// ==========================================
+
+// A1. File a dispute
+app.post('/api/rides/:rideId/dispute', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const { event } = req.body || {};
+
+        if (!event) {
+            return res.status(400).json({ error: 'Missing dispute event payload' });
+        }
+
+        const ride = rideManager.getRide(rideId);
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        // Validate event integrity
+        reputation.setRelays(reputation.getRelays()); // ensure relays initialised
+        reputation.ensureEventIntegrity(event);
+
+        if (event.kind !== 30522) {
+            return res.status(400).json({ error: 'Event kind must be 30522' });
+        }
+
+        // Validate complainant is a participant
+        const eventPubkey = event.pubkey.toLowerCase();
+        const rideProfile = rideManager.getProfileForRide(rideId);
+        const requesterPub = (ride.rider?.pubkey || ride.requester?.pubkey || '').toLowerCase();
+        const providerPub = (ride.driver?.pubkey || ride.provider?.pubkey || '').toLowerCase();
+
+        if (eventPubkey !== requesterPub && eventPubkey !== providerPub) {
+            return res.status(403).json({ error: 'Complainant must be a task participant' });
+        }
+
+        // Validate ride is post-requested state
+        if (ride.status === rideProfile.states.initial) {
+            return res.status(400).json({ error: 'Cannot dispute a task that has only just been requested' });
+        }
+
+        // Validate dispute_type tag
+        const disputeTypeTag = event.tags.find(t => t[0] === 'dispute_type');
+        const disputeType = disputeTypeTag?.[1];
+        if (!disputeType || !disputeEvents.VALID_DISPUTE_TYPES.includes(disputeType)) {
+            return res.status(400).json({ error: `Invalid dispute_type. Must be one of: ${disputeEvents.VALID_DISPUTE_TYPES.join(', ')}` });
+        }
+
+        // Check for existing unresolved dispute from same complainant
+        const existingDisputes = Array.from(disputes.values()).filter(
+            d => d.taskId === rideId && d.complainantPubkey === eventPubkey && d.status !== 'resolved'
+        );
+        if (existingDisputes.length > 0) {
+            return res.status(409).json({ error: 'An unresolved dispute from this complainant already exists for this task' });
+        }
+
+        // Determine accused pubkey
+        const accusedPubkey = eventPubkey === requesterPub ? providerPub : requesterPub;
+
+        // Publish client-signed event
+        const publishResult = await reputation.publishGeneric(event, event.pubkey);
+
+        // Create dispute object
+        const disputeId = `dispute_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+        const amountTag = event.tags.find(t => t[0] === 'amount');
+        const currencyTag = event.tags.find(t => t[0] === 'currency');
+        const evidenceTags = event.tags.filter(t => t[0] === 'evidence');
+
+        const dispute = {
+            id: disputeId,
+            taskId: rideId,
+            status: 'filed',
+            filingEventId: event.id,
+            complainantPubkey: eventPubkey,
+            accusedPubkey,
+            disputeType,
+            amount: amountTag ? Number(amountTag[1]) : null,
+            currency: currencyTag?.[1] || null,
+            evidence: evidenceTags.map(t => t[1]),
+            content: event.content || '',
+            domain: rideProfile.id,
+            filedAt: Date.now(),
+            arbiter: null,
+            resolution: null,
+            counterEvidence: [],
+            appeal: null,
+            stakeEffects: null
+        };
+        disputes.set(disputeId, dispute);
+
+        // Link to ride
+        ride.disputes = ride.disputes || [];
+        ride.disputes.push(disputeId);
+
+        // Auto-assign operator as arbiter
+        let arbiterEvent = null;
+        if (config.operatorPubkey) {
+            arbiterEvent = await disputeEvents.publishArbiterAssignment({
+                disputeId,
+                arbiterPubkey: config.operatorPubkey,
+                arbiterType: 'operator',
+                deadline: Math.floor(Date.now() / 1000) + 86400 // 24h deadline
+            });
+            if (arbiterEvent) {
+                dispute.arbiter = {
+                    pubkey: config.operatorPubkey,
+                    type: 'operator',
+                    assignedAt: Date.now(),
+                    deadline: Math.floor(Date.now() / 1000) + 86400,
+                    eventId: arbiterEvent.id
+                };
+                dispute.status = 'assigned';
+            }
+        }
+
+        broadcastToRide(rideId, {
+            type: 'dispute_filed',
+            ride_id: rideId,
+            dispute_id: disputeId,
+            dispute_type: disputeType,
+            complainant_pubkey: eventPubkey
+        });
+
+        res.json({
+            success: true,
+            dispute_id: disputeId,
+            relay_statuses: publishResult.relayStatuses || [],
+            cached_locally: !!publishResult.cachedLocally
+        });
+    } catch (error) {
+        console.error('Error filing dispute:', error);
+        res.status(500).json({ error: 'Failed to file dispute', details: error.message });
+    }
+});
+
+// A2. Counter-evidence
+app.post('/api/rides/:rideId/dispute/:disputeId/evidence', async (req, res) => {
+    try {
+        const { rideId, disputeId } = req.params;
+        const { event } = req.body || {};
+
+        if (!event) {
+            return res.status(400).json({ error: 'Missing evidence event payload' });
+        }
+
+        const dispute = disputes.get(disputeId);
+        if (!dispute) {
+            return res.status(404).json({ error: 'Dispute not found' });
+        }
+
+        if (dispute.taskId !== rideId) {
+            return res.status(400).json({ error: 'Dispute does not belong to this ride' });
+        }
+
+        if (!['filed', 'assigned'].includes(dispute.status)) {
+            return res.status(400).json({ error: 'Dispute is not in a state that accepts evidence' });
+        }
+
+        reputation.ensureEventIntegrity(event);
+
+        // Validate e tag references original filing
+        const eTag = event.tags.find(t => t[0] === 'e');
+        if (!eTag || eTag[1] !== dispute.filingEventId) {
+            return res.status(400).json({ error: 'Evidence event must reference the original filing event via e tag' });
+        }
+
+        const publishResult = await reputation.publishGeneric(event, event.pubkey);
+
+        dispute.counterEvidence.push({
+            eventId: event.id,
+            pubkey: event.pubkey,
+            evidence: event.tags.filter(t => t[0] === 'evidence').map(t => t[1]),
+            content: event.content || '',
+            filedAt: Date.now()
+        });
+
+        broadcastToRide(rideId, {
+            type: 'dispute_evidence',
+            ride_id: rideId,
+            dispute_id: disputeId,
+            from_pubkey: event.pubkey
+        });
+
+        res.json({
+            success: true,
+            relay_statuses: publishResult.relayStatuses || [],
+            cached_locally: !!publishResult.cachedLocally
+        });
+    } catch (error) {
+        console.error('Error submitting counter-evidence:', error);
+        res.status(500).json({ error: 'Failed to submit evidence', details: error.message });
+    }
+});
+
+// A3. Assign arbiter
+app.post('/api/disputes/:disputeId/assign', async (req, res) => {
+    try {
+        const { disputeId } = req.params;
+        const { arbiterPubkey, arbiterType, deadline } = req.body || {};
+
+        const dispute = disputes.get(disputeId);
+        if (!dispute) {
+            return res.status(404).json({ error: 'Dispute not found' });
+        }
+
+        if (dispute.status !== 'filed') {
+            return res.status(400).json({ error: 'Dispute already has an arbiter assigned' });
+        }
+
+        if (!arbiterPubkey || !arbiterType) {
+            return res.status(400).json({ error: 'arbiterPubkey and arbiterType are required' });
+        }
+
+        if (!disputeEvents.VALID_ARBITER_TYPES.includes(arbiterType)) {
+            return res.status(400).json({ error: `Invalid arbiterType. Must be one of: ${disputeEvents.VALID_ARBITER_TYPES.join(', ')}` });
+        }
+
+        if (arbiterType === 'guardian' && !guardianState.guardians.has(arbiterPubkey)) {
+            return res.status(400).json({ error: 'Specified pubkey is not a registered guardian' });
+        }
+
+        const arbiterEvent = await disputeEvents.publishArbiterAssignment({
+            disputeId,
+            arbiterPubkey,
+            arbiterType,
+            deadline: deadline || Math.floor(Date.now() / 1000) + 86400
+        });
+
+        dispute.arbiter = {
+            pubkey: arbiterPubkey,
+            type: arbiterType,
+            assignedAt: Date.now(),
+            deadline: deadline || Math.floor(Date.now() / 1000) + 86400,
+            eventId: arbiterEvent?.id || null
+        };
+        dispute.status = 'assigned';
+
+        broadcastToRide(dispute.taskId, {
+            type: 'arbiter_assigned',
+            dispute_id: disputeId,
+            arbiter_pubkey: arbiterPubkey,
+            arbiter_type: arbiterType
+        });
+
+        res.json({
+            success: true,
+            event_id: arbiterEvent?.id || null
+        });
+    } catch (error) {
+        console.error('Error assigning arbiter:', error);
+        res.status(500).json({ error: 'Failed to assign arbiter', details: error.message });
+    }
+});
+
+// A4. Resolve dispute
+app.post('/api/disputes/:disputeId/resolve', async (req, res) => {
+    try {
+        const { disputeId } = req.params;
+        const {
+            outcome,
+            amount,
+            currency,
+            complainantStake,
+            accusedStake,
+            forfeitAmount,
+            forfeitCurrency,
+            reasoning
+        } = req.body || {};
+
+        const dispute = disputes.get(disputeId);
+        if (!dispute) {
+            return res.status(404).json({ error: 'Dispute not found' });
+        }
+
+        if (!['filed', 'assigned'].includes(dispute.status)) {
+            return res.status(400).json({ error: 'Dispute cannot be resolved in its current state' });
+        }
+
+        if (!outcome || !disputeEvents.VALID_OUTCOMES.includes(outcome)) {
+            return res.status(400).json({ error: `Invalid outcome. Must be one of: ${disputeEvents.VALID_OUTCOMES.join(', ')}` });
+        }
+
+        const arbiterPubkey = dispute.arbiter?.pubkey || config.operatorPubkey || 'unknown';
+
+        const resolutionEvent = await disputeEvents.publishDisputeResolution({
+            disputeId,
+            outcome,
+            arbiterPubkey,
+            amount: amount || dispute.amount,
+            currency: currency || dispute.currency,
+            complainantStake: complainantStake || 'released',
+            accusedStake: accusedStake || (outcome === 'dismissed' ? 'released' : 'forfeited'),
+            forfeitAmount,
+            reasoning: reasoning || ''
+        });
+
+        // Execute stake effects
+        const rideId = dispute.taskId;
+        const ride = rideManager.getRide(rideId);
+        const cStake = complainantStake || 'released';
+        const aStake = accusedStake || (outcome === 'dismissed' ? 'released' : 'forfeited');
+
+        dispute.stakeEffects = {
+            complainantStake: cStake,
+            accusedStake: aStake,
+            forfeitAmount: forfeitAmount || null
+        };
+
+        if (ride && stakeManager) {
+            try {
+                const trustModel = stakeManager.currentProvider?.getTrustModel() || 'unknown';
+                const complainantRole = dispute.complainantPubkey === (ride.rider?.pubkey || ride.requester?.pubkey || '').toLowerCase() ? 'rider' : 'driver';
+                const accusedRole = complainantRole === 'rider' ? 'driver' : 'rider';
+
+                if (outcome === 'escalation') {
+                    // Stakes held — do nothing
+                } else {
+                    // Release complainant stake
+                    if (cStake === 'released') {
+                        try {
+                            const releaseResult = await stakeManager.releaseStakes(`${rideId}_${complainantRole}`);
+                            await stakeEvents.publishStakeRelease({
+                                rideId,
+                                role: complainantRole,
+                                amount: releaseResult?.amount,
+                                providerEvent: releaseResult,
+                                reason: 'dispute_resolved',
+                                trustModel
+                            });
+                        } catch (stakeErr) {
+                            console.warn(`[Dispute] Failed to release complainant stake for ${rideId}:`, stakeErr.message);
+                        }
+                    }
+
+                    // Handle accused stake
+                    if (aStake === 'forfeited' || aStake === 'partial_forfeit') {
+                        try {
+                            const penaltyResult = await stakeManager.forfeitStake(
+                                `${rideId}_${accusedRole}`,
+                                forfeitAmount || undefined
+                            );
+                            await stakeEvents.publishStakePenalty({
+                                rideId,
+                                reason: `dispute_${outcome}`,
+                                penalty: penaltyResult?.penalty || forfeitAmount,
+                                refund: penaltyResult?.refund || 0,
+                                providerEvent: penaltyResult,
+                                currency: forfeitCurrency || currency || 'SAT',
+                                trustModel
+                            });
+                        } catch (stakeErr) {
+                            console.warn(`[Dispute] Failed to forfeit accused stake for ${rideId}:`, stakeErr.message);
+                        }
+                    } else if (aStake === 'released') {
+                        try {
+                            const releaseResult = await stakeManager.releaseStakes(`${rideId}_${accusedRole}`);
+                            await stakeEvents.publishStakeRelease({
+                                rideId,
+                                role: accusedRole,
+                                amount: releaseResult?.amount,
+                                providerEvent: releaseResult,
+                                reason: 'dispute_dismissed',
+                                trustModel
+                            });
+                        } catch (stakeErr) {
+                            console.warn(`[Dispute] Failed to release accused stake for ${rideId}:`, stakeErr.message);
+                        }
+                    }
+                }
+            } catch (stakeError) {
+                console.warn(`[Dispute] Stake operations failed for ${rideId}:`, stakeError.message);
+            }
+        }
+
+        dispute.resolution = {
+            outcome,
+            amount: amount || dispute.amount,
+            currency: currency || dispute.currency,
+            reasoning: reasoning || '',
+            eventId: resolutionEvent?.id || null,
+            resolvedAt: Date.now()
+        };
+        dispute.status = outcome === 'escalation' ? 'escalated' : 'resolved';
+
+        broadcastToRide(rideId, {
+            type: 'dispute_resolved',
+            dispute_id: disputeId,
+            outcome,
+            amount: amount || dispute.amount,
+            currency: currency || dispute.currency
+        });
+
+        res.json({
+            success: true,
+            outcome,
+            event_id: resolutionEvent?.id || null,
+            status: dispute.status
+        });
+    } catch (error) {
+        console.error('Error resolving dispute:', error);
+        res.status(500).json({ error: 'Failed to resolve dispute', details: error.message });
+    }
+});
+
+// A5. Appeal a resolution
+app.post('/api/disputes/:disputeId/appeal', async (req, res) => {
+    try {
+        const { disputeId } = req.params;
+        const { event } = req.body || {};
+
+        if (!event) {
+            return res.status(400).json({ error: 'Missing appeal event payload' });
+        }
+
+        const dispute = disputes.get(disputeId);
+        if (!dispute) {
+            return res.status(404).json({ error: 'Dispute not found' });
+        }
+
+        if (dispute.status !== 'resolved') {
+            return res.status(400).json({ error: 'Only resolved disputes can be appealed' });
+        }
+
+        reputation.ensureEventIntegrity(event);
+
+        if (event.kind !== 30551) {
+            return res.status(400).json({ error: 'Event kind must be 30551' });
+        }
+
+        // Validate appellant is a dispute participant
+        const eventPubkey = event.pubkey.toLowerCase();
+        if (eventPubkey !== dispute.complainantPubkey && eventPubkey !== dispute.accusedPubkey) {
+            return res.status(403).json({ error: 'Appellant must be a dispute participant' });
+        }
+
+        // Validate e tag references resolution event
+        const eTag = event.tags.find(t => t[0] === 'e');
+        if (!eTag || eTag[1] !== dispute.resolution?.eventId) {
+            return res.status(400).json({ error: 'Appeal must reference the resolution event via e tag' });
+        }
+
+        // Check no existing appeal
+        if (dispute.appeal) {
+            return res.status(409).json({ error: 'This dispute has already been appealed' });
+        }
+
+        const publishResult = await reputation.publishGeneric(event, event.pubkey);
+
+        const appealTypeTag = event.tags.find(t => t[0] === 'appeal_type');
+        const defenceTag = event.tags.find(t => t[0] === 'defence');
+
+        dispute.appeal = {
+            eventId: event.id,
+            appellantPubkey: eventPubkey,
+            appealType: appealTypeTag?.[1] || 'standard',
+            defence: defenceTag?.[1] || event.content || '',
+            filedAt: Date.now()
+        };
+        dispute.status = 'appealed';
+
+        broadcastToRide(dispute.taskId, {
+            type: 'dispute_appealed',
+            dispute_id: disputeId,
+            appellant_pubkey: eventPubkey
+        });
+
+        res.json({
+            success: true,
+            relay_statuses: publishResult.relayStatuses || [],
+            cached_locally: !!publishResult.cachedLocally
+        });
+    } catch (error) {
+        console.error('Error filing appeal:', error);
+        res.status(500).json({ error: 'Failed to file appeal', details: error.message });
+    }
+});
+
+// B1. Suspicious activity report
+app.post('/api/abuse/report', async (req, res) => {
+    try {
+        const { suspectPubkey, activityType, description, confidence, evidence } = req.body || {};
+
+        if (!suspectPubkey || !activityType) {
+            return res.status(400).json({ error: 'suspectPubkey and activityType are required' });
+        }
+
+        const event = await disputeEvents.publishSuspiciousActivity({
+            suspectPubkey,
+            activityType,
+            domain: domainProfile.id,
+            description: description || '',
+            confidence,
+            evidence
+        });
+
+        res.json({
+            success: true,
+            report_id: event?.id || null,
+            event_id: event?.id || null
+        });
+    } catch (error) {
+        console.error('Error reporting suspicious activity:', error);
+        res.status(500).json({ error: 'Failed to report suspicious activity', details: error.message });
+    }
+});
+
+// B2. Suspend account
+app.post('/api/abuse/suspend', async (req, res) => {
+    try {
+        const { pubkey, reason, duration, relatedEventId } = req.body || {};
+
+        if (!pubkey || !reason) {
+            return res.status(400).json({ error: 'pubkey and reason are required' });
+        }
+
+        const effectiveFrom = Math.floor(Date.now() / 1000);
+
+        const event = await disputeEvents.publishAccountSuspension({
+            pubkey,
+            reason,
+            duration,
+            effectiveFrom
+        });
+
+        suspensions.set(pubkey.toLowerCase(), {
+            pubkey: pubkey.toLowerCase(),
+            reason,
+            duration: duration || null,
+            effectiveFrom,
+            eventId: event?.id || null,
+            relatedEventId: relatedEventId || null,
+            createdAt: Date.now()
+        });
+
+        broadcastToAll({
+            type: 'account_suspended',
+            pubkey: pubkey.toLowerCase(),
+            reason
+        });
+
+        res.json({
+            success: true,
+            event_id: event?.id || null
+        });
+    } catch (error) {
+        console.error('Error suspending account:', error);
+        res.status(500).json({ error: 'Failed to suspend account', details: error.message });
+    }
+});
+
+// B3. Check suspension
+app.get('/api/abuse/suspensions/:pubkey', (req, res) => {
+    try {
+        const pubkey = req.params.pubkey.toLowerCase();
+        const suspension = suspensions.get(pubkey);
+
+        if (!suspension) {
+            return res.json({ suspended: false, details: null });
+        }
+
+        // Check if duration-based suspension has expired
+        if (suspension.duration && suspension.effectiveFrom) {
+            const expiresAt = suspension.effectiveFrom + suspension.duration;
+            if (Math.floor(Date.now() / 1000) > expiresAt) {
+                suspensions.delete(pubkey);
+                return res.json({ suspended: false, details: null });
+            }
+        }
+
+        res.json({ suspended: true, details: suspension });
+    } catch (error) {
+        console.error('Error checking suspension:', error);
+        res.status(500).json({ error: 'Failed to check suspension', details: error.message });
+    }
+});
+
+// C1. Declare operator bond
+app.post('/api/operator/bond', async (req, res) => {
+    try {
+        const { amount, currency, trustModel, guardianThreshold, feePercent, serviceArea, expiration } = req.body || {};
+
+        if (!amount || !currency) {
+            return res.status(400).json({ error: 'amount and currency are required' });
+        }
+
+        const event = await disputeEvents.publishOperatorBond({
+            amount,
+            currency,
+            trustModel,
+            guardianThreshold,
+            feePercent,
+            serviceArea,
+            expiration
+        });
+
+        guardianState.bond = {
+            amount: Number(amount),
+            currency,
+            trustModel: trustModel || 'custodial',
+            guardianThreshold: guardianThreshold || 3,
+            feePercent: feePercent || null,
+            serviceArea: serviceArea || null,
+            expiration: expiration || null,
+            eventId: event?.id || null,
+            createdAt: Date.now()
+        };
+
+        res.json({
+            success: true,
+            event_id: event?.id || null
+        });
+    } catch (error) {
+        console.error('Error publishing operator bond:', error);
+        res.status(500).json({ error: 'Failed to publish operator bond', details: error.message });
+    }
+});
+
+// C2. File theft report
+app.post('/api/guardian/theft-report', async (req, res) => {
+    try {
+        const { event } = req.body || {};
+
+        if (!event) {
+            return res.status(400).json({ error: 'Missing theft report event payload' });
+        }
+
+        reputation.ensureEventIntegrity(event);
+
+        if (event.kind !== 30525) {
+            return res.status(400).json({ error: 'Event kind must be 30525' });
+        }
+
+        // Validate required tags
+        const requiredTags = ['operator', 'lock_event', 'completion_event', 'overdue_seconds'];
+        for (const tagName of requiredTags) {
+            const tag = event.tags.find(t => t[0] === tagName);
+            if (!tag || !tag[1]) {
+                return res.status(400).json({ error: `Missing required tag: ${tagName}` });
+            }
+        }
+
+        const publishResult = await reputation.publishGeneric(event, event.pubkey);
+
+        const reportId = `theft_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+        theftReports.set(reportId, {
+            id: reportId,
+            eventId: event.id,
+            reporterPubkey: event.pubkey,
+            operatorPubkey: event.tags.find(t => t[0] === 'operator')?.[1],
+            lockEventId: event.tags.find(t => t[0] === 'lock_event')?.[1],
+            completionEventId: event.tags.find(t => t[0] === 'completion_event')?.[1],
+            overdueSeconds: Number(event.tags.find(t => t[0] === 'overdue_seconds')?.[1]),
+            filedAt: Date.now(),
+            watchdogThresholdMet: false
+        });
+
+        // Initialise watchdog claim tracking
+        guardianState.watchdogClaims.set(reportId, []);
+
+        res.json({
+            success: true,
+            report_id: reportId,
+            relay_statuses: publishResult.relayStatuses || [],
+            cached_locally: !!publishResult.cachedLocally
+        });
+    } catch (error) {
+        console.error('Error filing theft report:', error);
+        res.status(500).json({ error: 'Failed to file theft report', details: error.message });
+    }
+});
+
+// C3. Watchdog claim (verify theft report)
+app.post('/api/guardian/watchdog-claim', async (req, res) => {
+    try {
+        const { event } = req.body || {};
+
+        if (!event) {
+            return res.status(400).json({ error: 'Missing watchdog claim event payload' });
+        }
+
+        reputation.ensureEventIntegrity(event);
+
+        if (event.kind !== 30526) {
+            return res.status(400).json({ error: 'Event kind must be 30526' });
+        }
+
+        // Find referenced theft report via e tag
+        const eTag = event.tags.find(t => t[0] === 'e');
+        if (!eTag || !eTag[1]) {
+            return res.status(400).json({ error: 'Missing e tag referencing theft report' });
+        }
+
+        // Find the theft report by event ID
+        let targetReportId = null;
+        for (const [id, report] of theftReports) {
+            if (report.eventId === eTag[1]) {
+                targetReportId = id;
+                break;
+            }
+        }
+
+        if (!targetReportId) {
+            return res.status(404).json({ error: 'Referenced theft report not found' });
+        }
+
+        const report = theftReports.get(targetReportId);
+
+        // Verifier must not be the original reporter
+        if (event.pubkey.toLowerCase() === report.reporterPubkey.toLowerCase()) {
+            return res.status(400).json({ error: 'Verifier cannot be the original reporter' });
+        }
+
+        const publishResult = await reputation.publishGeneric(event, event.pubkey);
+
+        const claims = guardianState.watchdogClaims.get(targetReportId) || [];
+        const verifiedTag = event.tags.find(t => t[0] === 'verified');
+        claims.push({
+            eventId: event.id,
+            verifierPubkey: event.pubkey,
+            verified: verifiedTag?.[1] === 'true',
+            filedAt: Date.now()
+        });
+        guardianState.watchdogClaims.set(targetReportId, claims);
+
+        // Check verification consensus (3-of-5 verified claims by default)
+        const verifiedCount = claims.filter(c => c.verified).length;
+        const threshold = 3;
+        const thresholdMet = verifiedCount >= threshold;
+
+        if (thresholdMet) {
+            report.watchdogThresholdMet = true;
+        }
+
+        res.json({
+            success: true,
+            threshold_met: thresholdMet,
+            claims_count: claims.length,
+            verified_count: verifiedCount,
+            relay_statuses: publishResult.relayStatuses || [],
+            cached_locally: !!publishResult.cachedLocally
+        });
+    } catch (error) {
+        console.error('Error filing watchdog claim:', error);
+        res.status(500).json({ error: 'Failed to file watchdog claim', details: error.message });
+    }
+});
+
+// C4. Slashing proposal
+app.post('/api/guardian/slashing-proposal', async (req, res) => {
+    try {
+        const { event } = req.body || {};
+
+        if (!event) {
+            return res.status(400).json({ error: 'Missing slashing proposal event payload' });
+        }
+
+        reputation.ensureEventIntegrity(event);
+
+        if (event.kind !== 30553) {
+            return res.status(400).json({ error: 'Event kind must be 30553' });
+        }
+
+        // Validate proposer is a guardian
+        if (!guardianState.guardians.has(event.pubkey)) {
+            return res.status(403).json({ error: 'Proposer must be a registered guardian' });
+        }
+
+        // Validate referenced theft report has met watchdog threshold
+        const eTag = event.tags.find(t => t[0] === 'e');
+        if (!eTag || !eTag[1]) {
+            return res.status(400).json({ error: 'Missing e tag referencing theft report' });
+        }
+
+        let targetReportId = null;
+        for (const [id, report] of theftReports) {
+            if (report.eventId === eTag[1]) {
+                targetReportId = id;
+                break;
+            }
+        }
+
+        if (!targetReportId) {
+            return res.status(404).json({ error: 'Referenced theft report not found' });
+        }
+
+        const report = theftReports.get(targetReportId);
+        if (!report.watchdogThresholdMet) {
+            return res.status(400).json({ error: 'Theft report has not met watchdog verification threshold' });
+        }
+
+        // Check no active proposal for same report
+        for (const [, proposal] of guardianState.proposals) {
+            if (proposal.theftReportId === targetReportId && proposal.status === 'active') {
+                return res.status(409).json({ error: 'An active slashing proposal already exists for this theft report' });
+            }
+        }
+
+        const publishResult = await reputation.publishGeneric(event, event.pubkey);
+
+        const proposalId = `proposal_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+        const thresholdTag = event.tags.find(t => t[0] === 'threshold');
+        const slashAmountTag = event.tags.find(t => t[0] === 'slash_amount');
+        const slashCurrencyTag = event.tags.find(t => t[0] === 'slash_currency');
+
+        guardianState.proposals.set(proposalId, {
+            id: proposalId,
+            eventId: event.id,
+            proposerPubkey: event.pubkey,
+            theftReportId: targetReportId,
+            theftReportEventId: eTag[1],
+            slashAmount: slashAmountTag ? Number(slashAmountTag[1]) : 0,
+            slashCurrency: slashCurrencyTag?.[1] || 'SAT',
+            threshold: thresholdTag ? Number(thresholdTag[1]) : 3,
+            votes: new Map(),
+            status: 'active',
+            createdAt: Date.now()
+        });
+
+        res.json({
+            success: true,
+            proposal_id: proposalId,
+            relay_statuses: publishResult.relayStatuses || [],
+            cached_locally: !!publishResult.cachedLocally
+        });
+    } catch (error) {
+        console.error('Error creating slashing proposal:', error);
+        res.status(500).json({ error: 'Failed to create slashing proposal', details: error.message });
+    }
+});
+
+// C5. Guardian vote
+app.post('/api/guardian/vote', async (req, res) => {
+    try {
+        const { event } = req.body || {};
+
+        if (!event) {
+            return res.status(400).json({ error: 'Missing vote event payload' });
+        }
+
+        reputation.ensureEventIntegrity(event);
+
+        if (event.kind !== 30554) {
+            return res.status(400).json({ error: 'Event kind must be 30554' });
+        }
+
+        // Validate voter is a guardian
+        if (!guardianState.guardians.has(event.pubkey)) {
+            return res.status(403).json({ error: 'Voter must be a registered guardian' });
+        }
+
+        // Find proposal via e tag
+        const eTag = event.tags.find(t => t[0] === 'e');
+        if (!eTag || !eTag[1]) {
+            return res.status(400).json({ error: 'Missing e tag referencing proposal' });
+        }
+
+        let targetProposalId = null;
+        for (const [id, proposal] of guardianState.proposals) {
+            if (proposal.eventId === eTag[1]) {
+                targetProposalId = id;
+                break;
+            }
+        }
+
+        if (!targetProposalId) {
+            return res.status(404).json({ error: 'Referenced proposal not found' });
+        }
+
+        const proposal = guardianState.proposals.get(targetProposalId);
+
+        if (proposal.status !== 'active') {
+            return res.status(400).json({ error: 'Proposal is no longer active' });
+        }
+
+        // Check voter hasn't already voted
+        if (proposal.votes.has(event.pubkey)) {
+            return res.status(409).json({ error: 'Guardian has already voted on this proposal' });
+        }
+
+        // Validate vote tag
+        const voteTag = event.tags.find(t => t[0] === 'vote');
+        const vote = voteTag?.[1];
+        if (!vote || !disputeEvents.VALID_VOTES.includes(vote)) {
+            return res.status(400).json({ error: `Invalid vote. Must be one of: ${disputeEvents.VALID_VOTES.join(', ')}` });
+        }
+
+        const publishResult = await reputation.publishGeneric(event, event.pubkey);
+
+        proposal.votes.set(event.pubkey, {
+            vote,
+            eventId: event.id,
+            castAt: Date.now()
+        });
+
+        // Count votes
+        const approvals = Array.from(proposal.votes.values()).filter(v => v.vote === 'approve').length;
+        const rejections = Array.from(proposal.votes.values()).filter(v => v.vote === 'reject').length;
+        const totalGuardians = guardianState.guardians.size;
+        const thresholdMet = approvals >= proposal.threshold;
+        const approvalImpossible = rejections > (totalGuardians - proposal.threshold);
+
+        let slashingExecuted = false;
+
+        if (thresholdMet) {
+            // Execute slashing
+            const slashingEvent = await disputeEvents.publishOperatorSlashing({
+                slashingId: `slash_${Date.now().toString(36)}`,
+                operatorPubkey: config.operatorPubkey,
+                slashAmount: proposal.slashAmount,
+                slashCurrency: proposal.slashCurrency,
+                guardianVotes: approvals,
+                theftReportEventId: proposal.theftReportEventId,
+                proposalEventId: proposal.eventId
+            });
+
+            // Reduce bond
+            if (guardianState.bond) {
+                guardianState.bond.amount = Math.max(0, guardianState.bond.amount - proposal.slashAmount);
+            }
+
+            proposal.status = 'executed';
+            proposal.slashingEventId = slashingEvent?.id || null;
+            slashingExecuted = true;
+        } else if (approvalImpossible) {
+            proposal.status = 'rejected';
+        }
+
+        res.json({
+            success: true,
+            current_tally: { approve: approvals, reject: rejections, total: proposal.votes.size },
+            threshold_met: thresholdMet,
+            slashing_executed: slashingExecuted,
+            relay_statuses: publishResult.relayStatuses || [],
+            cached_locally: !!publishResult.cachedLocally
+        });
+    } catch (error) {
+        console.error('Error casting guardian vote:', error);
+        res.status(500).json({ error: 'Failed to cast vote', details: error.message });
+    }
+});
+
+// D1. Get dispute details
+app.get('/api/disputes/:disputeId', (req, res) => {
+    try {
+        const dispute = disputes.get(req.params.disputeId);
+        if (!dispute) {
+            return res.status(404).json({ error: 'Dispute not found' });
+        }
+        res.json({ success: true, dispute });
+    } catch (error) {
+        console.error('Error fetching dispute:', error);
+        res.status(500).json({ error: 'Failed to fetch dispute', details: error.message });
+    }
+});
+
+// D2. List disputes for a ride
+app.get('/api/rides/:rideId/disputes', (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const rideDisputes = Array.from(disputes.values()).filter(d => d.taskId === rideId);
+        res.json({ success: true, disputes: rideDisputes });
+    } catch (error) {
+        console.error('Error listing disputes:', error);
+        res.status(500).json({ error: 'Failed to list disputes', details: error.message });
     }
 });
 

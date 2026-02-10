@@ -138,8 +138,17 @@ function validateProfile(profile) {
       stakeRelease: 30520,
       stakeCancel: 30521,
       dispute: 30522,
+      arbiterAssignment: 30523,
       resolution: 30524,
+      theftReport: 30525,
+      watchdogClaim: 30526,
+      operatorSlashing: 30527,
       rating: 30530,
+      suspiciousActivity: 30549,
+      accountSuspension: 30550,
+      appealRequest: 30551,
+      slashingProposal: 30553,
+      guardianVote: 30554,
       ...profile.eventKinds
     },
     theme: {
@@ -173,7 +182,7 @@ function getSchemaTemplate() {
     name: '(string) Human-readable domain name, e.g. "Ridesharing"',
     description: '(string) Brief description of the domain',
     discoveryMethod: '(string) "geohash" | "skillTags" | "availability"',
-    pricingModel: '(string) "distance_time_surge" | "hourly" | "milestone" | "flatRate" | "quote"',
+    pricingModel: '(string) "distance_time_surge" | "distance_weight" | "hourly" | "milestone" | "flatRate" | "quote"',
     states: {
       values: '(object) Map of STATE_KEY to state string value',
       transitions: '(object) Map of state string to array of valid next states',

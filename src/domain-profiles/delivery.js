@@ -15,7 +15,7 @@ const profile = {
   description: 'Peer-to-peer parcel delivery with real-time tracking, photo proof, and digital signatures.',
 
   discoveryMethod: 'geohash',
-  pricingModel: 'distance_time_surge',
+  pricingModel: 'distance_weight',
 
   states: {
     values: {
@@ -27,6 +27,8 @@ const profile = {
       ACTIVE: 'in_transit',
       ARRIVED_AT_DELIVERY: 'arrived_at_delivery',
       COMPLETED: 'delivered',
+      DELIVERY_FAILED: 'delivery_failed',
+      RETURNED_TO_SENDER: 'returned_to_sender',
       CANCELLED: 'cancelled',
       NO_SHOW: 'no_show'
     },
@@ -37,9 +39,10 @@ const profile = {
       'arrived_at_pickup': ['collected', 'no_show', 'cancelled'],
       'collected': ['in_transit', 'cancelled'],
       'in_transit': ['arrived_at_delivery', 'cancelled'],
-      'arrived_at_delivery': ['delivered', 'no_show', 'cancelled']
+      'arrived_at_delivery': ['delivered', 'delivery_failed', 'no_show', 'cancelled'],
+      'delivery_failed': ['returned_to_sender']
     },
-    terminal: ['delivered', 'no_show', 'cancelled'],
+    terminal: ['delivered', 'delivery_failed', 'returned_to_sender', 'no_show', 'cancelled'],
     initial: 'collection_requested'
   },
 
@@ -71,7 +74,7 @@ const profile = {
   ratingCriteria: [
     { tag: 'overall', label: 'Overall', weight: 0.3 },
     { tag: 'punctuality', label: 'Punctuality', weight: 0.25 },
-    { tag: 'care', label: 'Package care', weight: 0.25 },
+    { tag: 'package_care', label: 'Package care', weight: 0.25 },
     { tag: 'communication', label: 'Communication', weight: 0.2 }
   ],
 
@@ -129,11 +132,23 @@ const profile = {
     stakeRelease: 30520,
     stakeCancel: 30521,
     dispute: 30522,
+    arbiterAssignment: 30523,
     resolution: 30524,
+    theftReport: 30525,
+    watchdogClaim: 30526,
+    operatorSlashing: 30527,
     rating: 30530,
+    suspiciousActivity: 30549,
+    accountSuspension: 30550,
+    appealRequest: 30551,
+    slashingProposal: 30553,
+    guardianVote: 30554,
     proofOfCollection: 30620,
     proofOfDelivery: 30621,
     conditionReport: 30622,
+    deliveryAttemptFailed: 30623,
+    redeliveryScheduled: 30624,
+    returnToSender: 30625,
     panic: 30560
   }
 };
