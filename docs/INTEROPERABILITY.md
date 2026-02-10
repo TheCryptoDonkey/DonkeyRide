@@ -1,16 +1,59 @@
-# Interoperability Analysis: DonkeyRide & Ridestr
+# Interoperability Guide: DonkeyRide Protocol
 
-**Version**: 1.0
+**Version**: 2.0
 **Date**: 2026-02-10
 **Status**: Proposal for discussion
 
 ---
 
+## What Changed (Spec Universalisation)
+
+The DonkeyRide protocol has undergone a **spec universalisation** effort to support any service domain — not just ridesharing. These changes affect interoperability:
+
+### Kind Collision Fixes
+
+- **Kind 30506** was previously dual-purpose (cancellation + milestone). Milestone completion has moved to **kind 30537**. Kind 30506 is now single-purpose: Service Cancellation only.
+- **Kind 30523** was previously dual-purpose (arbiter assignment + payment failure). Payment failure has moved to **kind 30538**. Kind 30523 is now single-purpose: Arbiter Assignment only.
+- **Kinds 30553/30554** were previously allocated to both guardian voting and ridesharing extension events. The ridesharing extension events have been relocated, freeing 30553/30554 exclusively for **guardian voting** (Slashing Proposal and Guardian Vote).
+
+### Discovery Generalisation
+
+- Discovery is no longer geohash-only. The protocol supports five discovery methods: `geohash`, `skill_tags`, `category`, `availability`, and `jurisdiction`.
+- Service requests (kind 30500) now carry a `discovery_method` tag declaring how providers should be matched.
+- Kind 20500 (Provider Availability) supports non-geographic discovery via skill tags, categories, and availability windows.
+- Kind 30565 (Service Area) supports virtual/non-geographic service declarations.
+
+### Optional State Machine States
+
+- `provider_en_route` and `provider_arrived` are now **optional** states. Domains that do not involve physical transit (e.g., virtual consultations, online tutoring) may omit them entirely, transitioning directly from `matched` to `active`.
+- All domains share six required states: `requested`, `matched`, `active`, `completed`, `cancelled`, `no_show`.
+
+### Generic Tag Naming
+
+- Location tags are now generic: `location_lat`/`location_lon` (primary), `destination_lat`/`destination_lon`.
+- Domain extensions define aliases (e.g., `pickup_lat` for ridesharing, `lockout_lat` for locksmith). Implementations MUST accept both generic and domain-aliased forms.
+- Identity tags use generic names: `requester_pubkey`, `provider_pubkey`. Domain aliases (`rider_pubkey`, `driver_pubkey`) remain valid.
+
+### Service Model Extensions
+
+- **Recurring/subscription tasks**: Service requests may include `recurrence_rule`, `recurrence_count`, and `linked_task` tags for scheduled repeat services.
+- **Duration/time-block tasks**: A `service_model` tag value of `duration` with `scheduled_duration_seconds` supports shift-based or hourly services (security guard dispatch, babysitting).
+- **Virtual tasks**: A `service_model` tag value of `virtual` with `meeting_method` supports non-physical services (tutoring, consulting, remote support). Virtual tasks omit location tags and skip en_route/arrived states.
+
+### NIP Integration Additions
+
+- **NIP-02 (Follow Lists)**: Social discovery via follow lists — the "BatPhone" pattern where requesters can discover preferred providers through their social graph, complementing relay-based discovery.
+- **NIP-32 (Labelling)**: Structured labels for service categorisation, compliance markers, and machine-readable metadata on service events.
+- **NIP-56 (Reporting)**: Standardised abuse/spam reporting for service events, integrated with the dispute resolution pipeline.
+
+---
+
 ## Overview
 
-DonkeyRide and Ridestr are both building decentralised ridesharing on Nostr. We use incompatible event kinds but share
-fundamental design patterns. This document analyses both protocols, identifies common ground, and proposes a concrete
-path toward interoperability — where both projects benefit.
+This document serves two audiences:
+
+1. **Any third-party developer** building a client, operator, or general-purpose Nostr app that wants to interact with DonkeyRide-compatible services. See the **Third-Party Implementation Guide** below.
+2. **The Ridestr team** specifically, for bilateral interoperability analysis. See **Sections 1-6** below.
 
 **DonkeyRide**: Node.js operator server + React SPA, domain-agnostic (ridesharing, locksmith, delivery, security guard,
 and more), payment-agnostic (8 providers), 8 modular NIP specifications across kinds 30500-30599.
@@ -21,6 +64,175 @@ and more), payment-agnostic (8 providers), 8 modular NIP specifications across k
 Despite different architectures, both projects independently converged on the same Nostr primitives: geohash discovery,
 NIP-44 encryption, NIP-40 expiration, and progressive location privacy. This is a strong signal that these patterns are
 correct — and that convergence is achievable.
+
+---
+
+## Third-Party Implementation Guide
+
+This section is for any third-party developer — whether building a new client, a competing operator, or integrating service events into a general-purpose Nostr app. It is independent of the DonkeyRide↔Ridestr specifics that follow in later sections.
+
+### Levels of Interoperability
+
+Third-party implementations can participate at three progressively deeper levels:
+
+| Level | Name | What It Means | Requirements |
+|-------|------|---------------|--------------|
+| **1** | **Data Portability** | Accept NIP-XX event schemas; export and import reputation across apps | Parse kinds 30500-30512; publish/consume kind 30530 ratings; support kind 30521 reputation export/import |
+| **2** | **Cross-Operator Discovery** | Visible to other operators and clients on the Nostr relay network | Publish kind 30565 service area declarations; publish kind 20500 provider availability; include `domain` and discovery tags on all events |
+| **3** | **Full Federation** | Cross-operator task handoff, shared dispute resolution, guardian network participation | Support kind 30522-30527 disputes; participate in kind 30553/30554 guardian voting; implement cross-operator task references via `linked_task` tags |
+
+**Level 1** is the minimum for meaningful interoperability. A client that reads and writes the core event kinds can participate in the ecosystem without running an operator server. **Level 2** makes your service discoverable by any compliant client on public relays. **Level 3** enables true multi-operator federation where tasks, disputes, and trust flow across operator boundaries.
+
+### Minimum Implementation for a Third-Party Client
+
+A third-party client (mobile app, web app, or CLI tool) that wishes to interact with DonkeyRide-compatible operators needs to:
+
+1. **Subscribe to core event kinds on public relays:**
+   - Kinds 30500-30512 (task lifecycle: requests, acceptances, confirmations, cancellations, starts, ends, status updates)
+   - Kind 30530 (reputation ratings) and kind 30519 (reputation summaries) for trust signals
+   - Kind 30565 (service area definitions) to discover available operators
+   - Kind 20500 (provider availability, ephemeral) for real-time provider discovery
+
+2. **Accept both generic and domain-aliased tags:**
+   - Generic: `requester_pubkey`, `provider_pubkey`, `location_lat`, `location_lon`, `destination_lat`, `destination_lon`
+   - Domain aliases: `rider_pubkey`/`driver_pubkey` (ridesharing), `sender_pubkey`/`courier_pubkey` (delivery), `customer_pubkey`/`locksmith_pubkey` (locksmith)
+   - Implementations MUST accept both forms — never reject an event because it uses an alias instead of the generic tag name
+
+3. **Include `domain` tags on all published events:**
+   ```json
+   ["domain", "ridesharing"]
+   ```
+   Valid domain identifiers include: `ridesharing`, `locksmith`, `delivery`, `court_serving`, `security_guard`, `emergency_trades`, and any domain defined by an extension spec. If the domain is unknown, omit the tag rather than inventing an identifier.
+
+4. **Include monetary tags on all payment-related events:**
+   ```json
+   ["amount", "1500"],
+   ["currency", "GBP"],
+   ["trust_model", "custodial-escrow"]
+   ```
+   Amounts are in the **smallest unit** of the specified currency (pence for GBP, cents for USD, satoshis for SAT). Never assume a specific currency.
+
+5. **Use NIP-33 `d` tags on all replaceable events:**
+   ```json
+   ["d", "task_abc123"]
+   ```
+   The `d` tag value format varies by event kind (task ID, operator pubkey, composite keys). Check the relevant spec for each kind.
+
+6. **Use NIP-40 `expiration` tags on time-limited events:**
+   ```json
+   ["expiration", "1698769032"]
+   ```
+   Use `expiration` (not `expiry`). Relays MAY refuse to store events past their expiration. Clients SHOULD filter out expired events.
+
+7. **Support multiple discovery methods:**
+   - Check the `discovery_method` tag on kind 30500 requests to determine how to filter providers
+   - `geohash`: filter by `g` tags at precisions 3-5
+   - `skill_tags`: filter by `t` (hashtag) tags
+   - `category`/`availability`/`jurisdiction`: filter by the corresponding tags
+   - If `discovery_method` is absent, default to `geohash`
+
+### Minimum Implementation for a Third-Party Operator
+
+A third-party operator (relay/server that coordinates tasks and processes payments) needs to:
+
+1. **Publish kind 30565 (Service Area Definition):**
+   ```json
+   {
+     "kind": 30565,
+     "tags": [
+       ["d", "<operator_pubkey>_<region>"],
+       ["domain", "ridesharing"],
+       ["operator_pubkey", "<hex>"],
+       ["supported_domains", "ridesharing,locksmith"],
+       ["fee_percent", "5.0"],
+       ["trust_models", "custodial-escrow,trustless"],
+       ["payment_providers", "strike,nip47"],
+       ["supported_currencies", "GBP,SAT"],
+       ["g", "<geohash_1>"],
+       ["g", "<geohash_2>"],
+       ["api_url", "https://operator.example.com"],
+       ["expiration", "<unix_timestamp>"]
+     ],
+     "content": "Service description"
+   }
+   ```
+   This advertises the operator's presence to any client scanning public relays. Include geohash `g` tags for geographic services, or `category`/`skill_tags` tags for non-geographic services.
+
+2. **Publish kind 31990 (NIP-89 App Handler):**
+   Declare which event kinds the operator handles, so general-purpose Nostr clients can route service events to the correct operator:
+   ```json
+   {
+     "kind": 31990,
+     "tags": [
+       ["d", "<operator_identifier>"],
+       ["k", "30500"],
+       ["k", "30501"],
+       ["k", "30506"],
+       ["k", "30507"],
+       ["k", "30508"],
+       ["k", "30512"],
+       ["web", "https://operator.example.com", "nevent"]
+     ],
+     "content": "Operator name and description"
+   }
+   ```
+
+3. **Publish kind 30540 (Operator Bond) if accepting stakes:**
+   ```json
+   {
+     "kind": 30540,
+     "tags": [
+       ["d", "<operator_pubkey>"],
+       ["operator_pubkey", "<hex>"],
+       ["amount", "1000000"],
+       ["currency", "SAT"],
+       ["trust_model", "custodial-escrow"],
+       ["expiration", "<unix_timestamp>"]
+     ],
+     "content": "Bond details and terms"
+   }
+   ```
+   The operator bond signals financial commitment to the network. Guardians and clients use bond size as a trust indicator.
+
+4. **Accept kind 30500 (Service Request) from any client:**
+   Do not restrict requests to your own client application. Any Nostr event with a valid kind 30500 structure targeting your service area should be processed. This is the foundation of interoperability.
+
+5. **Publish kind 30519 (Reputation Summary):**
+   Aggregate provider and requester ratings into a machine-readable summary:
+   ```json
+   {
+     "kind": 30519,
+     "tags": [
+       ["d", "<subject_pubkey>"],
+       ["p", "<subject_pubkey>"],
+       ["domain", "ridesharing"],
+       ["average_rating", "4.7"],
+       ["total_tasks", "142"],
+       ["completion_rate", "0.97"]
+     ],
+     "content": ""
+   }
+   ```
+
+6. **Participate in guardian voting (optional but recommended):**
+   - Monitor kind 30553 (Slashing Proposal) events referencing your operator
+   - Respond with kind 30554 (Guardian Vote) events when nominated as a guardian
+   - Guardian participation strengthens the network's dispute resolution and builds operator credibility
+
+### How a General-Purpose Nostr Client Can Display Service Events
+
+A general-purpose Nostr client (like Amethyst, Damus, or Primal) does not need to implement the full service coordination protocol. It can still display service events meaningfully:
+
+| Kind | Event Name | Display Suggestion |
+|------|------------|-------------------|
+| **30500** | Service Request | Show as a **"looking for service" card**. Extract the `domain` tag for context (e.g., "Looking for a rideshare" or "Needs a locksmith"). Display geohash `g` tags as an approximate location. Link to the operator's client app via the `api_url` in the operator's kind 30565 event. |
+| **30519** | Reputation Summary | Show as a **profile badge**. When viewing a Nostr profile, check for kind 30519 events where the `p` tag matches the profile pubkey. Display the `average_rating` and `total_tasks` as a trust indicator (e.g., "4.7/5 across 142 services"). |
+| **30540** | Operator Bond | Show as an **operator trust indicator**. When viewing an operator's profile, display the bond `amount` and `currency` as evidence of financial commitment. Larger bonds with longer durations signal greater trustworthiness. |
+| **30559** | Emergency Alert | Show as a **high-priority notification**. If the viewing user's pubkey appears in the `p` tags, this is a direct emergency alert — display it prominently with the `alert_type` tag (panic, medical, accident, threat) and location coordinates. |
+| **30530** | Reputation Rating | Show as a **review/testimonial**. Display the `rating` tag value (1-5) and the event `content` as review text. Link the `p` tag to the rated user's profile. |
+| **30565** | Service Area Definition | Show as a **service listing**. Display the `service_name`, `supported_domains`, `fee_percent`, and geographic coverage. Link to the operator's `api_url`. |
+
+**Implementation tip**: Subscribe to kinds `[30500, 30519, 30530, 30540, 30559, 30565]` with a `#p` filter matching the viewed profile's pubkey. This gives you all service-related events for any Nostr user without implementing the full protocol.
 
 ---
 
@@ -42,7 +254,7 @@ correct — and that convergence is achievable.
 | **Ratings**               | 30517/30518/30530                           | —                                                     | **Ridestr has no rating system.**                                                                                                                    |
 | **Disputes**              | 30522-30527, 30549-30554                    | —                                                     | **Ridestr has no dispute resolution.**                                                                                                               |
 | **Safety**                | 30559-30564                                 | —                                                     | **Ridestr has no safety features.**                                                                                                                  |
-| **Stakes/escrow**         | 30502/30503/30509/30520                     | Cashu NUT-14 HTLC via 3175 content                    | DonkeyRide: operator-mediated, payment-agnostic. Ridestr: trustless P2P HTLC.                                                                        |
+| **Stakes/escrow**         | 30502/30503/30509/30520/30537/30540         | Cashu NUT-14 HTLC via 3175 content                    | DonkeyRide: operator-mediated, payment-agnostic. 30537 = milestone, 30540 = operator bond. Ridestr: trustless P2P HTLC.                              |
 | **Payments**              | 30510-30516, 30538                          | Settlement proof in 30180                             | DonkeyRide: streaming payments, tips, surcharges as separate events. Ridestr: single settlement action.                                              |
 | **Discovery**             | 30565 (service area) + 20500 (availability) | 30173 (availability with geohash)                     | Both use geohash `g` tags. DonkeyRide adds operator service area declarations.                                                                       |
 | **Navigation**            | 30583-30587                                 | Valhalla tiles via 30078                              | DonkeyRide: operator-pushed routes. Ridestr: client-side offline routing with Blossom-hosted tiles.                                                  |
@@ -593,5 +805,7 @@ Rider                           Cashu Mint                        Driver
 
 ---
 
-*This document was prepared by the DonkeyRide team as a basis for technical discussion. We welcome feedback,
-corrections, and counter-proposals from the Ridestr team.*
+*This document was prepared by the DonkeyRide team as a basis for technical discussion. The Third-Party Implementation
+Guide (above) is intended for any developer building on the protocol. The DonkeyRide↔Ridestr analysis sections are
+specific to that bilateral relationship. We welcome feedback, corrections, and counter-proposals from the Ridestr team
+and any other implementers.*
