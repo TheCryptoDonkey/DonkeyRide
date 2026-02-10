@@ -4,7 +4,7 @@
 
 The DonkeyRide protocol is built on primitives that are fundamentally not about ridesharing — they're about
 trust-minimised coordination between strangers with asymmetric information, using cryptographic proof instead of
-institutional authority. This document analyses what's universal, maps 20+ concrete use cases with UK regulatory
+institutional authority. This document analyses what's universal, maps 33 concrete use cases with UK regulatory
 considerations, deep-dives into healthcare, and designs a concrete generalisation architecture.
 
 ---
@@ -95,9 +95,22 @@ admissible in court.
 - Process serving is unregulated in England and Wales (CPR Part 6)
 - Market: Small-medium (~£100-200m) but no technology platform exists
 
+#### 6. Notary Public — Protocol Fit: 8/10
+
+Mobile notarisation shares the dispatch + document-centric pattern with court process serving. The notary travels to the
+client, verifies identity, witnesses signatures, and applies their seal. Cryptographically signed Nostr events provide
+an immutable record of the notarisation act — time, location, parties present, document hash.
+
+- State machine: notarisation_requested → notary_matched → en_route → arrived → identity_verified →
+  documents_reviewed → notarisation_complete → completed
+- Photo proof of identity documents + signed attestation event
+- Market: ~£200-400m (UK). Growing demand for mobile notarisation
+- Regulatory: Notaries Public are regulated by the Faculty Office of the Archbishop of Canterbury. Must hold a current
+  practising certificate. Scrivener notaries (London) are additionally regulated
+
 ### Tier 2 — Strong Fit (needs quote/deliverable primitives)
 
-#### 6. Roadside Assistance (AA/RAC Alternative) — Protocol Fit: 9/10
+#### 7. Roadside Assistance (AA/RAC Alternative) — Protocol Fit: 9/10
 
 A stranded motorist is functionally identical to a rider. Commitment stakes are more valuable here than in ridesharing —
 a no-show mechanic leaves someone on a motorway hard shoulder. Streaming payments per minute are ideal for
@@ -108,7 +121,7 @@ variable-duration repairs.
 - Market: ~£2bn+. AA/RAC have ~25m members combined. Customer satisfaction chronically poor
 - Regulatory: Low-medium (Traffic Commissioner licence for vehicles >3.5t)
 
-#### 7. Emergency Plumber/Electrician — Protocol Fit: 8/10
+#### 8. Emergency Plumber/Electrician — Protocol Fit: 8/10
 
 Emergency trade callouts share the locksmith pattern — urgent, trust-sensitive, prone to price-gouging. Adds a
 guarantee_period state tracked as a long-lived replaceable event (NIP-33).
@@ -118,7 +131,7 @@ guarantee_period state tracked as a long-lived replaceable event (NIP-33).
 - Market: Very large (~£4-6bn combined)
 - Regulatory: High (Gas Safe, Part P, NICEIC)
 
-#### 8. Food Delivery (Deliveroo / Uber Eats Alternative) — Protocol Fit: 8/10
+#### 9. Food Delivery (Deliveroo / Uber Eats Alternative) — Protocol Fit: 8/10
 
 Introduces a three-party model (restaurant → courier → customer). Tipping already exists (kind 30513). Surge pricing
 already implemented.
@@ -129,7 +142,7 @@ already implemented.
 - Market: Very large
 - Regulatory: Medium (FSA, food hygiene, allergen law)
 
-#### 9. Security Guard Dispatch — Protocol Fit: 8/10
+#### 10. Security Guard Dispatch — Protocol Fit: 8/10
 
 Ad-hoc security dispatch. Safety check-in events (kinds 30561-30562) serve double duty — confirming guard safety AND
 presence on-site (proof of service).
@@ -137,7 +150,7 @@ presence on-site (proof of service).
 - SIA licence verification mandatory (Private Security Industry Act 2001)
 - Market: Large (~£6bn total, ad-hoc segment £500m-1bn)
 
-#### 10. Personal Trainer / Fitness Coaching — Protocol Fit: 8/10
+#### 11. Personal Trainer / Fitness Coaching — Protocol Fit: 8/10
 
 Commitment stakes address the chronic no-show problem. 80% forfeit for cancellation directly from existing STAKE_CONFIG.
 Recurring relationships (2-3x/week) need strong scheduling support.
@@ -146,7 +159,7 @@ Recurring relationships (2-3x/week) need strong scheduling support.
 - Health-related data = special category under UK GDPR
 - Market: ~£1-1.5bn
 
-#### 11. Environmental Sampling / Monitoring — Protocol Fit: 8/10
+#### 12. Environmental Sampling / Monitoring — Protocol Fit: 8/10
 
 Environmental sampling data used in court (pollution prosecutions, planning appeals) requires legally defensible chain
 of custody. Cryptographically signed, GPS-stamped events provide stronger evidence than paper forms.
@@ -154,7 +167,7 @@ of custody. Cryptographically signed, GPS-stamped events provide stronger eviden
 - MCERTS/UKAS accreditation as credential verification
 - Market: Medium (~£200-500m addressable)
 
-#### 12. Blood / Organ / Specimen Transport — Protocol Fit: 8/10
+#### 13. Blood / Organ / Specimen Transport — Protocol Fit: 8/10
 
 Append-only Nostr events create an immutable chain-of-custody record exceeding traditional paper forms. Time-penalty
 mechanisms: automatic forfeit if delivery exceeds agreed window.
@@ -163,7 +176,7 @@ mechanisms: automatic forfeit if delivery exceeds agreed window.
 - Market: ~£200-400m. NHS contracts dominate
 - Regulatory: Very high
 
-#### 13. Volunteer Coordination — Protocol Fit: 8/10
+#### 14. Volunteer Coordination — Protocol Fit: 8/10
 
 Works WITHOUT payments (zero-value sessions). Reputation stakes instead of financial — volunteers who no-show lose
 reputation rather than money. Multiple charities sharing the protocol can share volunteer pools via cross-operator
@@ -174,14 +187,28 @@ coordination (kind 30505).
 
 ### Tier 3 — Good Fit (needs more adaptation)
 
-#### 14. Pet Services — Protocol Fit: 7/10
+#### 15. Pet Services — Protocol Fit: 7/10
 
 GPS tracking particularly valuable (owner watches walk route). Photo updates during walk via safety check-ins.
 
 - Animal Welfare Act 2006, Animal Welfare Regulations 2018 for boarding
 - Market: Medium
 
-#### 15. Tradesperson Marketplace — Protocol Fit: 7/10
+#### 16. Dog Grooming — Protocol Fit: 7/10
+
+Distinct from general pet services. The groomer either travels to the client (mobile grooming van) or the client brings
+the dog to the groomer. Photo proof of before/after condition protects both parties. Commitment stakes address the
+chronic no-show problem — groomers lose significant income from last-minute cancellations because appointment slots
+cannot easily be refilled.
+
+- State machine: grooming_requested → groomer_matched → en_route → arrived → pet_assessed → grooming_active →
+  grooming_complete → completed
+- Before/after photo proof standard practice
+- Needs duration-based pricing (small dog 45 min vs large dog 2+ hours)
+- Market: ~£400-600m (UK). Highly fragmented, mostly sole traders
+- Regulatory: Very low. Animal Welfare Act 2006 applies. No mandatory licensing for groomers
+
+#### 17. Tradesperson Marketplace — Protocol Fit: 7/10
 
 Needs quote negotiation primitive (mechanic arrives, assesses, issues quote, customer accepts/declines). Needs milestone
 payments.
@@ -189,7 +216,7 @@ payments.
 - Gas Safe, NICEIC/NAPIT, CIS tax scheme
 - Market: Large
 
-#### 16. Mobile Hairdresser / Beautician — Protocol Fit: 7/10
+#### 18. Mobile Hairdresser / Beautician — Protocol Fit: 7/10
 
 Favourite driver event (kind 30577) maps to "favourite stylist". Additional charge event (kind 30516) covers product
 costs.
@@ -197,14 +224,14 @@ costs.
 - No mandatory licensing (England/Wales). Scotland requires registration
 - Market: ~£800m-1.2bn mobile segment
 
-#### 17. Tutoring / Skills Coaching — Protocol Fit: 7/10
+#### 19. Tutoring / Skills Coaching — Protocol Fit: 7/10
 
 Discovery shifts from geohash to skill tags. Location optional (in-person or video).
 
 - Enhanced DBS mandatory for under-18s
 - Market: Medium
 
-#### 18. Childminder / Babysitter — Protocol Fit: 7/10
+#### 20. Childminder / Babysitter — Protocol Fit: 7/10
 
 Handover moments are legally significant — timestamped, signed events create auditable records of when responsibility
 transferred.
@@ -212,7 +239,7 @@ transferred.
 - Ofsted registration MANDATORY for >2 hours/day childcare for reward
 - Regulatory: Very high
 
-#### 19. Farm Labour Coordination — Protocol Fit: 7/10
+#### 21. Farm Labour Coordination — Protocol Fit: 7/10
 
 Portable reputation is transformative — picker's track record travels between farms. Transparent payment records support
 anti-exploitation goals.
@@ -220,44 +247,118 @@ anti-exploitation goals.
 - GLAA licensing is criminal law — operating without licence carries up to 10 years imprisonment
 - Market: ~£500m-1bn. Weak technology
 
-#### 20. P2P Community Energy — Protocol Fit: 7/10
+#### 22. P2P Community Energy — Protocol Fit: 7/10
 
 Streaming payments per kWh as energy flows. Technically elegant but regulatory barrier is massive.
 
 - Ofgem licensing required (Licence Lite regime gradually opening)
 - Market: Nascent but potentially very large
 
-#### 21. Equipment / Tool Rental — Protocol Fit: 7/10
+#### 23. Equipment / Tool Rental — Protocol Fit: 7/10
 
 Two-phase lifecycle (rental out + return). Stakes become damage deposits.
 
 - Market: Medium
 
-#### 22. Mobile Mechanic — Protocol Fit: 7/10
+#### 24. Mobile Mechanic — Protocol Fit: 7/10
 
 Needs quote-then-accept flow (assess → quote → accept → repair).
 
 - Market: ~£1-2bn mobile segment
 
+#### 25. Window Cleaning — Protocol Fit: 7/10
+
+Follows the mobile car wash pattern but introduces height-work considerations and recurring scheduling. Most window
+cleaning is repeat business — the same cleaner visits every 4-8 weeks. Commitment stakes protect both parties: the
+cleaner who turns up to a locked gate loses income, the customer who waits in all morning for a no-show loses time.
+
+- State machine: clean_requested → cleaner_matched → en_route → arrived → work_active → completed
+- Before/after photo proof for dispute resolution
+- Recurring scheduling is the dominant pattern (monthly/bi-monthly)
+- Height work may require Working at Height Regulations 2005 compliance for commercial premises
+- Market: ~£500-800m (UK). Extremely fragmented — mostly sole traders and small firms
+- Regulatory: Very low. Working at Height Regulations for commercial. Consumer Rights Act 2015
+
+#### 26. Pest Control — Protocol Fit: 7/10
+
+Shares the emergency trades pattern — urgent dispatch, on-site assessment, quote, treatment. Often requires multiple
+visits (initial treatment + follow-up inspection). The guarantee period primitive is essential — pest control companies
+typically guarantee treatment for 3-12 months.
+
+- State machine: pest_reported → controller_matched → en_route → arrived → inspection → quote_issued →
+  quote_accepted → treatment_active → treatment_complete → follow_up_scheduled → verified_clear → completed
+- Multi-visit lifecycle (treatment + follow-up inspection)
+- Guarantee period: 3-12 months depending on pest type
+- Photo/video evidence of infestation and treatment
+- Market: ~£600m-1bn (UK). Mix of national chains and independents
+- Regulatory: Low-medium. BPCA membership voluntary but widely expected. Use of pesticides regulated under
+  Plant Protection Products Regulation. Some treatments require RSPH Level 2 qualification
+
+#### 27. Tour Guide — Protocol Fit: 7/10
+
+Duration-based service with strong location and scheduling components. Discovery shifts to skill/language/speciality
+tags alongside geohash. The favourite provider event (kind 30577) maps to "favourite guide" for repeat tourists.
+Streaming payments per hour work naturally for variable-duration tours.
+
+- State machine: tour_requested → guide_matched → en_route → met_at_point → tour_active → tour_complete → completed
+- Duration-based pricing (hourly rate, streaming payments)
+- Discovery by speciality tags: ['speciality', 'history'], ['language', 'mandarin'], etc.
+- Location-based but not navigation-dependent (walking tours, museum tours)
+- Market: ~£200-500m (UK). Highly seasonal. Fragmented with few dominant platforms
+- Regulatory: Very low. Blue Badge (official tourist guide qualification) is voluntary but prestigious.
+  No mandatory licensing in the UK
+
+#### 28. Ski / Surf Instructor — Protocol Fit: 7/10
+
+Follows the personal trainer pattern — hourly rate, commitment stakes for no-shows, recurring lessons. Discovery
+combines geohash (resort/beach location) with skill level tags. Safety events are particularly relevant given the
+inherent risk of the activity.
+
+- State machine: lesson_requested → instructor_matched → en_route → met_at_point → lesson_active →
+  lesson_complete → completed
+- Hourly/half-day/full-day pricing tiers
+- Skill-level matching: ['level', 'beginner'], ['level', 'intermediate'], ['level', 'advanced']
+- Safety check-in events critical (avalanche risk, sea conditions)
+- Equipment rental as linked task
+- Market: ~£100-300m (UK, seasonal). Larger globally
+- Regulatory: Low. BASI (British Association of Snowsport Instructors) for ski. ISA/Surfing England for surf.
+  No mandatory licensing but industry certifications expected. DBS if working with under-18s
+
 ### Tier 4 — Moderate Fit
 
-#### 23. Photography / Videography — Protocol Fit: 6/10
+#### 29. Photography / Videography — Protocol Fit: 6/10
 
 Extended lifecycle spanning days/weeks (shoot + editing + delivery). Needs multi-day session tracking.
 
-#### 24. Building Surveyor — Protocol Fit: 7/10
+#### 30. Building Surveyor — Protocol Fit: 7/10
 
 Deliverable (survey report) extends lifecycle beyond physical visit. Needs deliverable-tracking primitive.
 
-#### 25. Elderly Companion Care — Protocol Fit: 7/10
+#### 31. Elderly Companion Care — Protocol Fit: 7/10
 
 Non-clinical variant. If companionship only → no CQC. If personal care → CQC mandatory.
 
 - Market: High (ageing population, £6.7bn domiciliary care market)
 
-#### 26. Clinical Healthcare — Protocol Fit: 7/10 (see Part 3 deep dive)
+#### 32. Clinical Healthcare — Protocol Fit: 7/10 (see Part 3 deep dive)
 
 Most complex. Requires significant adaptation. See dedicated section below.
+
+#### 33. Mystery Shopping — Protocol Fit: 6/10
+
+Unusual model — the "provider" (mystery shopper) visits a business and reports back to the "requester" (brand/retailer).
+The service is inherently covert, which creates unique protocol requirements: the shopper's identity must never be
+linked to the task on public Nostr relays. Deliverable is a structured report rather than a physical service.
+
+- State machine: assignment_posted → shopper_matched → visit_scheduled → visit_completed → report_submitted →
+  report_reviewed → completed
+- Virtual/deliverable-based: the visit is physical but the output is a digital report
+- No real-time tracking (covert operation — tracking would blow cover)
+- Discovery by location + skill tags (retail experience, restaurant knowledge)
+- Milestone payments: partial on visit completion, remainder on report acceptance
+- Market: ~£200-400m (UK). Dominated by agencies (Ipsos, BVA BDRC)
+- Regulatory: Very low. Data Protection Act 2018 applies to personal data collected.
+  Market Research Society Code of Conduct (voluntary)
 
 ---
 
@@ -560,6 +661,213 @@ Long-term / moonshots:
 
 ---
 
+## Part 6: Capability Matrix
+
+This matrix maps which protocol capabilities each domain requires. Use it to prioritise spec work — capabilities needed by many domains should be implemented first.
+
+**Legend**: Yes = required, Opt = optional/beneficial, No = not applicable
+
+| # | Domain | Location | Streaming Pay | Flat Rate | Hourly | Milestone | Photo Proof | Signature | Duration | Recurring | Virtual | Navigation | Quote | Three-Party | Heartbeat | Guarantee |
+|---|--------|----------|---------------|-----------|--------|-----------|-------------|-----------|----------|-----------|---------|------------|-------|-------------|-----------|-----------|
+| — | Ridesharing (base protocol) | Yes | Yes | No | No | No | No | No | Yes | No | No | Yes | No | No | No | No |
+| 1 | Locksmith Dispatch | Yes | No | Yes | No | Yes | Yes | No | No | No | No | No | Yes | No | No | Yes |
+| 2 | Man with a Van | Yes | No | No | No | Yes | Yes | Yes | Yes | No | No | Yes | Yes | No | No | No |
+| 3 | Mobile Car Wash | Yes | No | Yes | No | No | Yes | No | No | Opt | No | Yes | No | No | No | No |
+| 4 | Parcel Delivery | Yes | No | Yes | No | No | Yes | Yes | No | No | No | Yes | No | No | No | No |
+| 5 | Court Process Serving | Yes | No | Yes | No | No | Yes | No | No | No | No | Yes | No | No | No | No |
+| 6 | Notary Public | Yes | No | Yes | No | No | Yes | Yes | No | No | No | Yes | No | No | No | No |
+| 7 | Roadside Assistance | Yes | Yes | No | No | No | Yes | No | Yes | No | No | Yes | Yes | No | No | No |
+| 8 | Emergency Plumber/Electrician | Yes | No | No | No | Yes | Yes | No | Yes | No | No | Yes | Yes | No | No | Yes |
+| 9 | Food Delivery | Yes | No | Yes | No | No | Yes | No | No | No | No | Yes | No | Yes | No | No |
+| 10 | Security Guard Dispatch | Yes | Yes | No | Yes | No | Yes | No | Yes | Opt | No | No | No | No | Yes | No |
+| 11 | Personal Trainer | Yes | No | No | Yes | No | No | No | Yes | Yes | Opt | No | No | No | No | No |
+| 12 | Environmental Sampling | Yes | No | Yes | No | No | Yes | Yes | No | Opt | No | Yes | No | No | No | No |
+| 13 | Blood/Specimen Transport | Yes | No | Yes | No | No | Yes | Yes | Yes | No | No | Yes | No | No | No | No |
+| 14 | Volunteer Coordination | Yes | No | No | No | No | Opt | No | Yes | Yes | Opt | No | No | No | No | No |
+| 15 | Pet Services | Yes | No | No | Yes | No | Yes | No | Yes | Yes | No | Yes | No | No | No | No |
+| 16 | Dog Grooming | Yes | No | No | No | No | Yes | No | Yes | Yes | No | No | No | No | No | No |
+| 17 | Tradesperson Marketplace | Yes | No | No | No | Yes | Yes | No | Yes | No | No | No | Yes | No | No | Yes |
+| 18 | Mobile Hairdresser | Yes | No | No | Yes | No | Opt | No | Yes | Yes | No | No | No | No | No | No |
+| 19 | Tutoring / Skills Coaching | Opt | No | No | Yes | No | No | No | Yes | Yes | Yes | No | No | No | No | No |
+| 20 | Childminder / Babysitter | Yes | No | No | Yes | No | No | No | Yes | Yes | No | No | No | No | No | No |
+| 21 | Farm Labour | Yes | No | No | Yes | No | Opt | No | Yes | Yes | No | No | No | No | No | No |
+| 22 | P2P Community Energy | Opt | Yes | No | No | No | No | No | Yes | Yes | No | No | No | No | No | No |
+| 23 | Equipment / Tool Rental | Yes | No | Yes | No | No | Yes | Yes | Yes | Opt | No | No | No | No | No | No |
+| 24 | Mobile Mechanic | Yes | No | No | No | Yes | Yes | No | Yes | No | No | Yes | Yes | No | No | Yes |
+| 25 | Window Cleaning | Yes | No | Yes | No | No | Yes | No | No | Yes | No | No | No | No | No | No |
+| 26 | Pest Control | Yes | No | No | No | Yes | Yes | No | No | Opt | No | Yes | Yes | No | No | Yes |
+| 27 | Tour Guide | Yes | No | No | Yes | No | Opt | No | Yes | No | Opt | No | No | No | No | No |
+| 28 | Ski / Surf Instructor | Yes | No | No | Yes | No | No | No | Yes | Opt | No | No | No | No | No | No |
+| 29 | Photography / Videography | Yes | No | No | No | Yes | Yes | No | Yes | No | No | No | No | No | No | No |
+| 30 | Building Surveyor | Yes | No | Yes | No | No | No | No | No | No | No | Yes | No | No | No | No |
+| 31 | Elderly Companion Care | Yes | No | No | Yes | No | No | No | Yes | Yes | No | No | No | No | Yes | No |
+| 32 | Clinical Healthcare | Yes | No | No | Yes | No | No | Yes | Yes | Yes | No | Yes | No | No | No | No |
+| 33 | Mystery Shopping | Yes | No | Yes | No | Yes | Yes | No | No | Opt | No | No | No | No | No | No |
+
+### Capability Demand Summary
+
+Counts include the base ridesharing protocol plus all 33 numbered use cases (34 domains total).
+
+| Capability | Domains Requiring (Yes) | Domains Optional (Opt) | Total Demand |
+|------------|------------------------|----------------------|--------------|
+| Location-based discovery | 32 | 2 | 34 |
+| Duration tracking | 23 | 0 | 23 |
+| Photo proof | 21 | 4 | 25 |
+| Navigation | 16 | 0 | 16 |
+| Recurring scheduling | 12 | 7 | 19 |
+| Flat rate pricing | 12 | 0 | 12 |
+| Hourly pricing | 11 | 0 | 11 |
+| Milestone payments | 8 | 0 | 8 |
+| Quote negotiation | 7 | 0 | 7 |
+| Signature proof | 7 | 0 | 7 |
+| Guarantee period | 5 | 0 | 5 |
+| Streaming payments | 4 | 0 | 4 |
+| Virtual support | 1 | 3 | 4 |
+| Heartbeat protocol | 2 | 0 | 2 |
+| Three-party coordination | 1 | 0 | 1 |
+
+---
+
+## Part 7: Gap Analysis
+
+This section identifies every capability that appears in the capability matrix but is **not currently supported** by
+any active specification. These gaps represent the requirements for future spec work.
+
+### Currently Supported (in active specs)
+
+The following capabilities are fully specified and implemented:
+
+| Capability | Spec | Kind(s) | Status |
+|------------|------|---------|--------|
+| Location-based discovery | NIP-XX-discovery | 30540, 30565, 20500 | Active |
+| Streaming payments | NIP-XX-payments | 30510 | Active |
+| Flat rate pricing | NIP-XX-core | 30500 (amount tag) | Active |
+| Photo proof | NIP-XX-delivery | 30620-30639 | Draft |
+| Signature proof | NIP-XX-delivery | 30620-30639 | Draft |
+| Navigation | NIP-XX-navigation | 30583-30587 | Active |
+| Milestone payments | NIP-XX-stakes | 30537 | Active |
+| Quote negotiation | NIP-XX-locksmith | 30600-30619 | Draft |
+| Heartbeat protocol | NIP-XX-safety | 30561-30562 | Active |
+
+### Gaps — Not Yet Specified
+
+The following capabilities are needed by multiple domains but have **no active spec coverage**. These are prioritised
+by demand (number of domains requiring them).
+
+#### Gap 1: Duration / Time-Block Tracking — Demand: 23 domains
+
+**What it is**: The ability to track service duration and use it for pricing, compliance, and lifecycle management.
+Many services are time-based (hourly rate) rather than task-completion-based. The protocol needs a standard way to
+record session start/end times, calculate billable duration, and trigger time-based payments.
+
+**Why it matters**: 23 of 34 domains need duration tracking — it is the second most demanded capability after location.
+Without it, hourly-rate services (personal training, security guards, tutoring, companion care) cannot be properly
+priced or audited.
+
+**Current state**: The v1 archive spec included `duration` tags on service requests and `shift_duration` tags on
+driver management events. These were not carried forward into the modular specs.
+
+**Spec work needed**: Add `duration`, `expected_duration`, and `actual_duration` tags to NIP-XX-core. Define
+time-based pricing semantics alongside the existing amount/currency tags. This is planned for Phase 3-4 of the spec
+universalisation work.
+
+#### Gap 2: Recurring / Subscription Scheduling — Demand: 19 domains (12 required + 7 optional)
+
+**What it is**: The ability to schedule repeating tasks (e.g. weekly dog walks, monthly window cleaning, bi-weekly
+personal training). Includes recurrence rules (frequency, day-of-week, time), series management (cancel one vs cancel
+all), and favourite provider binding.
+
+**Why it matters**: Most real-world service relationships are recurring. A protocol that only handles one-off dispatch
+misses the dominant usage pattern for 19 of 34 domains. Recurring scheduling also enables subscription-style pricing
+and provider income predictability.
+
+**Current state**: The v1 archive spec included a `recurring` tag with values `none|daily|weekly|monthly` on service
+request events. This was not carried forward into the modular specs. The favourite provider event (kind 30577) provides
+a building block but does not handle scheduling.
+
+**Spec work needed**: Define a recurring task template event type with recurrence rules (RFC 5545 RRULE subset),
+series identifiers, and exception handling. This is planned for Phase 3-4 of the spec universalisation work.
+
+#### Gap 3: Hourly Rate Pricing — Demand: 11 domains
+
+**What it is**: A pricing model where the provider charges per hour (or per fraction). Distinct from streaming payments
+(which are per-second micro-payments) — hourly pricing involves agreed rates with duration-based invoicing at session
+end.
+
+**Why it matters**: 11 domains use hourly pricing as their primary model: security guards, personal trainers, tutors,
+hairdressers, companion care, pet services, childminders, farm labour, tour guides, ski/surf instructors, and clinical
+healthcare.
+
+**Current state**: The `amount` and `currency` tags on service requests can encode an hourly rate, but there is no
+standard tag for `pricing_model` or `rate_unit` to distinguish hourly from flat or distance-based pricing.
+
+**Spec work needed**: Add `pricing_model` and `rate_unit` tags to NIP-XX-core. Define hourly rate semantics including
+minimum booking duration, overtime rates, and rounding rules.
+
+#### Gap 4: Virtual / Remote Service Support — Demand: 4 domains (1 required + 3 optional)
+
+**What it is**: Support for services delivered remotely (video tutoring, virtual personal training, online mystery
+shopping reports). Discovery shifts from geohash to skill/availability tags. No navigation needed. Session management
+replaces location tracking.
+
+**Why it matters**: Post-pandemic, many services have hybrid delivery (in-person or virtual). Tutoring is the primary
+virtual domain, but personal training, tour guides (virtual museum tours), and volunteer coordination all have virtual
+components.
+
+**Current state**: The protocol assumes location-based discovery (geohash) for all services. There is no mechanism for
+virtual-only or hybrid service discovery. The v1 archive had no virtual support either.
+
+**Spec work needed**: Extend NIP-XX-discovery to support non-geographic discovery (skill tags, availability windows,
+language tags). Add virtual session management (video link exchange, screen sharing proof, session recording consent).
+This is planned for Phase 3-4 of the spec universalisation work.
+
+#### Gap 5: Guarantee / Warranty Period — Demand: 5 domains
+
+**What it is**: A post-completion warranty period during which the provider guarantees their work. If the work fails
+within the guarantee period, a linked follow-up task is created referencing the original, with the provider obligated
+to remediate at no additional cost.
+
+**Why it matters**: Essential for trades (plumbing, electrical, pest control, mobile mechanic) and security (guard
+dispatch post-incident review). Without guarantee tracking, there is no protocol-level mechanism to hold providers
+accountable for the durability of their work.
+
+**Current state**: Modelled informally as linked tasks with a `guarantee` relationship type in the state machine
+documents. No formal spec exists. The `linked_task` tag provides a building block.
+
+**Spec work needed**: Define a guarantee period event type with duration, terms, and activation conditions. Specify
+how guarantee claims create linked tasks with preferential matching to the original provider.
+
+#### Gap 6: Three-Party Coordination — Demand: 1 domain
+
+**What it is**: Coordination involving three distinct roles (e.g. restaurant + courier + customer in food delivery).
+The current protocol assumes a two-party model (requester + provider). Three-party coordination requires a `vendor`
+role, split payments, and late-binding provider matching.
+
+**Why it matters**: Food delivery is a massive market and the only domain currently requiring three-party coordination.
+However, marketplace models (where a platform intermediates between vendor and service provider) could emerge in other
+domains.
+
+**Current state**: Identified as a protocol gap in the state machine analysis. No spec work has begun.
+
+**Spec work needed**: Define a vendor role alongside requester and provider. Specify split payment semantics. Define
+late-binding provider matching (courier matched when food is ready, not when order is placed).
+
+### Gap Priority Matrix
+
+| Priority | Gap | Domains Affected | Spec Effort | Phase |
+|----------|-----|-----------------|-------------|-------|
+| 1 | Duration tracking | 23 | Medium | Phase 3 |
+| 2 | Recurring scheduling | 19 | High | Phase 3-4 |
+| 3 | Hourly rate pricing | 11 | Low | Phase 3 |
+| 4 | Guarantee period | 5 | Low | Phase 4 |
+| 5 | Virtual service support | 4 | Medium | Phase 4 |
+| 6 | Three-party coordination | 1 | High | Phase 5+ |
+
+> **Note**: Gaps 1-4 are planned for Phase 3-4 of the spec universalisation work. See the task list in the
+> repository for tracking. Gaps 5-6 are longer-term and depend on domain extension specs being written first.
+
+---
+
 ## Key Insight
 
 The protocol's core primitive — cryptographic commitment between strangers with slashable stakes — solves trust problems
@@ -570,6 +878,11 @@ opportunity but requires the most careful regulatory navigation.
 The generalisation architecture (domain profiles) means adding a new use case requires ~100 lines of configuration
 rather than a fork. The payment providers, reputation system, authentication middleware, and dispute resolution
 all work unchanged across every domain.
+
+The capability matrix reveals that **location-based discovery** (32/34 domains) and **duration tracking** (23/34
+domains) are the two most universally needed capabilities. Location discovery is already well-specified; duration
+tracking is the highest-priority gap. **Recurring scheduling** (19/34 domains) is the second-largest gap and the
+most complex to specify correctly.
 
 ---
 
