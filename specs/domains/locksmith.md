@@ -26,7 +26,7 @@
 The locksmith domain expands the TROTT-01 `in_progress` phase to include an on-site assessment and formal quote before work begins:
 
 ```
-accepted --> en_route --> arrived --> access_method_confirmed --> work_active --> completed --> confirmed
+accepted --> provider_en_route --> provider_arrived --> access_method_confirmed --> work_active --> completed --> confirmed
                                           |
                                           +--> cancelled (customer declines quote; no penalty to customer)
 ```

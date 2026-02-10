@@ -61,7 +61,6 @@ Published by either party after task completion to rate the counterparty. Each p
     ["rating", "punctuality", "5"],
     ["rating", "safety", "4"],
     ["rating", "vehicle_condition", "3"],
-    ["rating", "communication", "5"],
     ["stake_evidence", "1500", "GBP"]
   ],
   "content": "Good driver, arrived on time. Vehicle was clean but showing some wear. Excellent communication throughout."
@@ -131,7 +130,6 @@ Additional domain-specific criteria are optional and defined by the domain profi
     ["rating", "punctuality", "5"],
     ["rating", "safety", "5"],
     ["rating", "vehicle_condition", "4"],
-    ["rating", "route_knowledge", "5"],
     ["rating", "communication", "5"],
     ["stake_evidence", "1200", "GBP"]
   ],
@@ -213,7 +211,7 @@ This event is a NIP-33 parameterised replaceable event. The publisher updates it
     ["member_since", "1680000000"],
     ["last_updated", "1698800000"],
     ["rating_breakdown", "5:280,4:42,3:12,2:5,1:3"],
-    ["criteria_averages", "punctuality:4.8,safety:4.9,vehicle_condition:4.3,route_knowledge:4.6,communication:4.7"]
+    ["criteria_averages", "punctuality:4.8,safety:4.9,vehicle_condition:4.3,communication:4.7"]
   ],
   "content": ""
 }
@@ -455,7 +453,6 @@ These criteria carry the same semantics regardless of domain. Implementations SH
 | `punctuality` | Yes | Arrived at pickup on time |
 | `safety` | No | Driving safety and adherence to traffic laws |
 | `vehicle_condition` | No | Cleanliness, comfort, and roadworthiness of the vehicle |
-| `route_knowledge` | No | Efficiency of route selection |
 | `communication` | Yes | Responsiveness and clarity before and during the ride |
 
 #### Locksmith

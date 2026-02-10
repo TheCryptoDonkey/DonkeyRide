@@ -60,18 +60,19 @@ Additional terminal state: `no_show` -- rider fails to appear within the waiting
 
 | Criterion | Weight |
 |-----------|--------|
-| `overall` | 0.4 |
-| `punctuality` | 0.2 |
-| `safety` | 0.2 |
-| `courtesy` | 0.2 |
+| `overall` | 0.25 |
+| `punctuality` | 0.20 |
+| `safety` | 0.20 |
+| `vehicle_condition` | 0.15 |
+| `communication` | 0.20 |
 
 **Rider rated by Driver:**
 
 | Criterion | Weight |
 |-----------|--------|
-| `overall` | 0.4 |
-| `punctuality` | 0.3 |
-| `courtesy` | 0.3 |
+| `overall` | 0.40 |
+| `punctuality` | 0.30 |
+| `communication` | 0.30 |
 
 ## Pricing Model
 

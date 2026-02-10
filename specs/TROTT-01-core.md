@@ -185,15 +185,15 @@ Domains insert sub-states **within** the `in_progress` phase. The core protocol 
 **Example: Ridesharing**
 
 ```
-accepted → en_route → arrived → ride_active → completed
+accepted → provider_en_route → provider_arrived → trip_active → completed
 ```
 
-The sub-states `en_route`, `arrived`, and `ride_active` are all sub-states of `in_progress`. A core-only client sees: `accepted → in_progress → completed`. A ridesharing-aware client sees the full sequence.
+The sub-states `provider_en_route`, `provider_arrived`, and `trip_active` are all sub-states of `in_progress`. A core-only client sees: `accepted → in_progress → completed`. A ridesharing-aware client sees the full sequence.
 
 **Example: Locksmith**
 
 ```
-accepted → en_route → arrived → access_method_confirmed → work_active → completed
+accepted → provider_en_route → provider_arrived → access_method_confirmed → work_active → completed
 ```
 
 **Example: Delivery**
@@ -445,7 +445,7 @@ Published by the provider or operator to signal a state transition between `acce
   "tags": [
     ["d", "task_abc123"],
     ["domain", "ridesharing"],
-    ["status", "en_route"],
+    ["status", "provider_en_route"],
     ["t", "trott-task"],
     ["e", "<task_accept_event_id>", "wss://relay.example.com"],
     ["p", "<requester_hex_pubkey>"],
@@ -480,7 +480,7 @@ Published by the provider or operator to signal a state transition between `acce
   "tags": [
     ["d", "ride_def456"],
     ["domain", "ridesharing"],
-    ["status", "en_route"],
+    ["status", "provider_en_route"],
     ["t", "trott-task"],
     ["e", "<accept_event_id>", "wss://relay.example.com"],
     ["provider_pubkey", "<driver_hex_pubkey>"],
@@ -502,7 +502,7 @@ Published by the provider or operator to signal a state transition between `acce
   "tags": [
     ["d", "ride_def456"],
     ["domain", "ridesharing"],
-    ["status", "arrived"],
+    ["status", "provider_arrived"],
     ["t", "trott-task"],
     ["provider_pubkey", "<driver_hex_pubkey>"],
     ["provider_lat", "51.5074"],

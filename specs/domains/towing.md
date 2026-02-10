@@ -26,7 +26,7 @@
 The towing domain combines dispatch (travel to breakdown) and trip (transport vehicle to destination). The `in_progress` phase expands to include vehicle assessment and quote before loading:
 
 ```
-accepted --> en_route --> vehicle_assessed --> vehicle_loaded --> in_transit --> delivered --> confirmed
+accepted --> provider_en_route --> vehicle_assessed --> vehicle_loaded --> in_transit --> delivered --> confirmed
                 |               |
                 |               +--> cancelled (motorist declines quote; no penalty)
                 +--> no_show (motorist absent)
