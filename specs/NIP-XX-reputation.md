@@ -20,6 +20,8 @@ Traditional platforms control reputation data, creating vendor lock-in and enabl
 ## Depends On
 
 - **NIP-XX-core**: Core service coordination protocol
+- **NIP-02**: Follow lists (for WoT-weighted reputation / social proof)
+- **NIP-32**: Structured labels (for provider and outcome labelling)
 - **NIP-33**: Parameterised replaceable events
 - **NIP-85**: Trusted assertions (for computed reputation summaries)
 - **NIP-58**: Badges (for verification credentials)
@@ -239,6 +241,38 @@ Operators MAY apply domain-specific weighting when importing cross-domain reputa
 
 ---
 
+## Social Proof
+
+The protocol integrates with **NIP-02 follow lists** (kind 3) to provide Web of Trust (WoT) weighted reputation scoring. Rather than treating all ratings equally, operators MAY weight ratings based on the social distance between the rater and the person querying the reputation.
+
+### WoT-Weighted Ratings
+
+When computing a provider's reputation for a specific requester, operators SHOULD apply social distance multipliers:
+
+| Social Distance | Weight Multiplier | Description |
+|----------------|-------------------|-------------|
+| Direct follow (1-hop) | 2.0x | The requester follows the rater's pubkey |
+| Follow-of-follow (2-hop) | 1.5x | The rater is followed by someone the requester follows |
+| Same community (3-hop) | 1.2x | Connected within 3 hops in the follow graph |
+| Stranger | 1.0x | No social connection — baseline weight |
+
+**Example**: A provider has two ratings — a 5-star from someone the requester follows (1-hop) and a 2-star from a stranger. Without WoT weighting, the average is 3.5. With WoT weighting: `(5 × 2.0 + 2 × 1.0) / (2.0 + 1.0) = 4.0`. The trusted rater's opinion carries more weight.
+
+### Sybil Resistance
+
+WoT weighting provides natural Sybil resistance. An attacker creating 100 fake pubkeys to inflate a provider's rating gains no advantage if those fake pubkeys have no social connections to the requester. The fake ratings receive only the baseline 1.0x multiplier, whilst genuine ratings from the requester's social graph carry 1.5-2.0x weight — effectively drowning out the Sybil attack.
+
+This complements the anti-gaming measures in the [Anti-Gaming](#anti-gaming) section. Whilst append-only ratings prevent deletion and task linkage prevents fabrication, WoT weighting ensures that even valid-looking ratings from socially disconnected accounts have diminished influence.
+
+### Implementation Notes
+
+- Operators compute WoT distances by traversing kind 3 follow lists from the requester's pubkey outward.
+- For performance, operators SHOULD pre-compute and cache the requester's 1-hop and 2-hop sets. The 3-hop set is expensive to compute and MAY be approximated or omitted.
+- WoT-weighted scores are **personalised** — different requesters see different effective ratings for the same provider, based on their social graph. This is a feature, not a bug: it means reputation is contextual and harder to game.
+- Operators SHOULD fall back to unweighted (1.0x for all) scoring when the requester has no kind 3 event or an empty follow list.
+
+---
+
 ## NIP-85 Integration
 
 Operators SHOULD publish computed reputation summaries as **NIP-85 trusted assertions** (kind 30382). This makes reputation data visible to the broader Nostr ecosystem, not just DonkeyRide-compatible clients.
@@ -259,6 +293,80 @@ Operators SHOULD publish computed reputation summaries as **NIP-85 trusted asser
 ```
 
 Any Nostr client that understands NIP-85 can display these assertions, extending reputation visibility beyond the DonkeyRide ecosystem.
+
+---
+
+## NIP-32 Integration: Structured Labels
+
+Operators and authorised verifiers MAY publish **NIP-32 structured label events** (kind 1985) to categorise providers and task outcomes. Unlike ratings (which are numeric scores), labels are categorical tags — "verified", "top_rated", "gas_safe" — that enable structured filtering across the Nostr ecosystem.
+
+### Provider Labels
+
+Operators publish labels against a provider's pubkey to surface qualifications, status, and achievements:
+
+```json
+{
+  "kind": 1985,
+  "tags": [
+    ["L", "com.donkeyride.provider"],
+    ["l", "verified", "com.donkeyride.provider"],
+    ["l", "top_rated", "com.donkeyride.provider"],
+    ["l", "gas_safe", "com.donkeyride.provider"],
+    ["p", "<provider_pubkey>"]
+  ]
+}
+```
+
+The `L` tag declares the label namespace (`com.donkeyride.provider`). Each `l` tag assigns a specific label within that namespace. Any Nostr client that understands NIP-32 can filter and display these labels.
+
+#### Common Provider Labels
+
+| Label | Description | Applicable Domains |
+|-------|-------------|--------------------|
+| `verified` | Identity verified by the operator | All |
+| `top_rated` | Consistently rated 4.8+ over 50+ tasks | All |
+| `background_checked` | Background check passed (complements NIP-58 badge) | All |
+| `gas_safe` | Gas Safe registered engineer | Emergency trades |
+| `sia_licensed` | SIA licence holder | Security guard |
+| `phv_licensed` | Private hire vehicle licensed | Ridesharing |
+| `food_hygiene` | Food hygiene certified | Food delivery |
+| `insured` | Insurance verified | All |
+
+### Task Outcome Labels
+
+Operators publish labels against task completion events to categorise outcomes for structured analysis:
+
+```json
+{
+  "kind": 1985,
+  "tags": [
+    ["L", "com.donkeyride.outcome"],
+    ["l", "completed_successfully", "com.donkeyride.outcome"],
+    ["l", "above_and_beyond", "com.donkeyride.outcome"],
+    ["e", "<task_completion_event_id>"]
+  ]
+}
+```
+
+#### Common Outcome Labels
+
+| Label | Description |
+|-------|-------------|
+| `completed_successfully` | Task completed within normal parameters |
+| `above_and_beyond` | Provider exceeded expectations (noted by requester) |
+| `late_completion` | Completed but after the expected deadline |
+| `partial_completion` | Only part of the task was fulfilled |
+| `disputed_resolution` | Completed after dispute resolution |
+
+### Relationship to Other NIP Integrations
+
+NIP-32 labels complement but do not replace other reputation mechanisms:
+
+- **NIP-58 badges** are awarded to specific providers with rich metadata (images, descriptions). Labels are lightweight categorical tags.
+- **NIP-85 assertions** carry computed numeric values (rating averages, completion rates). Labels are boolean flags.
+- **Ratings (kinds 30517/30518/30530)** are numeric scores from individual interactions. Labels summarise patterns across many interactions.
+
+Operators SHOULD publish labels alongside badges and assertions to provide multiple views of provider reputation to the broader Nostr ecosystem.
 
 ---
 
@@ -360,6 +468,9 @@ Crypto-shredding is endorsed by CNIL (French data protection authority) as an ap
 
 - **NIP-XX-core**: Core protocol (state machine, lifecycle)
 - **NIP-XX-disputes**: Dispute resolution and guardian voting
+- **NIP-XX-discovery**: Service discovery (social discovery / BatPhone pattern)
+- **NIP-02**: Follow lists (WoT-weighted reputation)
+- **NIP-32**: Structured labels (provider and outcome labelling)
 - **NIP-85**: Trusted assertions (reputation summaries)
 - **NIP-58**: Badges (verification credentials)
 - **NIP-56**: Reporting (standard Nostr reporting, complementing internal disputes)

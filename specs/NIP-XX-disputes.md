@@ -14,6 +14,7 @@ When service coordination breaks down — a provider no-shows, a requester refus
 
 - **NIP-XX-core**: Core service coordination protocol (state machine, lifecycle events)
 - **NIP-XX-stakes**: Commitment stakes (lock, release, forfeit)
+- **NIP-32**: Structured labels (for report categorisation)
 - **NIP-33**: Parameterised replaceable events
 - **NIP-56**: Reporting (standard Nostr reporting)
 
@@ -467,18 +468,48 @@ See `WATCHDOG-INCENTIVES.md` for detailed game-theoretic analysis.
 
 ## NIP-56 Integration
 
-For cross-ecosystem visibility, dispute-related events SHOULD also be published as standard NIP-56 reports where appropriate. This ensures that Nostr clients outside the DonkeyRide ecosystem can surface safety-critical information about users.
+For cross-ecosystem visibility, dispute-related events SHOULD also be published as standard NIP-56 reports (kind 1984) where appropriate. This ensures that Nostr clients outside the DonkeyRide ecosystem can surface safety-critical information about users.
+
+### When to Publish NIP-56 Reports
+
+Not every dispute warrants a NIP-56 report. Reports SHOULD only be published when internal dispute resolution has confirmed misconduct and the severity justifies cross-ecosystem visibility:
+
+| Trigger | Report Type | Severity |
+|---------|------------|----------|
+| Confirmed theft (kind 30527 slashing) | `fraud` | Critical |
+| Verified harassment (kind 30564 safety alert + resolution) | `impersonation` or content-specific | High |
+| Repeated safety violations (3+ kind 30559 alerts) | `other` with description | High |
+| Account suspension for misconduct (kind 30550) | Appropriate NIP-56 type | Medium |
+
+### Report Format
+
+Reports SHOULD include both standard NIP-56 tags and DonkeyRide-namespaced NIP-32 labels for structured filtering:
 
 ```json
 {
   "kind": 1984,
   "tags": [
-    ["p", "<reported_pubkey>", "impersonation"],
-    ["e", "<evidence_event_id>", "other"]
+    ["p", "<reported_pubkey>", "fraud"],
+    ["e", "<evidence_event_id>", "other"],
+    ["L", "com.donkeyride.report"],
+    ["l", "confirmed_theft", "com.donkeyride.report"]
   ],
-  "content": "This pubkey has verified theft reports in the DonkeyRide service coordination protocol."
+  "content": "Confirmed operator theft via guardian network vote (4/5). Bond slashed. See kind 30527 event for details."
 }
 ```
+
+The `L` and `l` tags (NIP-32 structured labels) allow Nostr clients to filter DonkeyRide-originated reports specifically. The `p` tag's third element uses the standard NIP-56 report type vocabulary (`fraud`, `impersonation`, `other`, etc.).
+
+### What NOT to Report via NIP-56
+
+NIP-56 reports are permanent, public, and visible across the entire Nostr ecosystem. They SHOULD NOT be used for:
+
+- **Simple disputes resolved normally** — A fare disagreement settled via kind 30524 resolution does not warrant a cross-ecosystem report
+- **Low ratings** — A 1-star rating is not a safety issue; it belongs in kind 30517/30518/30530, not kind 1984
+- **Cancellations** — Requesters and providers cancel for legitimate reasons; this is normal protocol behaviour
+- **Unverified accusations** — Reports MUST only be published after internal verification (guardian vote, arbiter resolution, or automated confirmation). Publishing unverified accusations as NIP-56 reports is itself a form of abuse
+
+Operators who publish frivolous NIP-56 reports risk damaging their own reputation (kind 30528) and may face guardian network scrutiny.
 
 ---
 

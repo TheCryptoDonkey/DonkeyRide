@@ -13,6 +13,7 @@ Decentralised service coordination requires a discovery mechanism that doesn't d
 ## Depends On
 
 - **NIP-XX-core**: Core service coordination protocol
+- **NIP-02**: Follow lists (for social discovery / BatPhone pattern)
 - **NIP-33**: Parameterised replaceable events
 - **NIP-40**: Expiration timestamps
 - **NIP-89**: App handler registration
@@ -325,6 +326,53 @@ The requester publishes a kind 30500 (Service Request) event with appropriate di
 
 ---
 
+## NIP-02 Integration: Social Discovery (BatPhone Pattern)
+
+Beyond geographic and skill-based discovery, the protocol leverages **NIP-02 follow lists** (kind 3) as a persistent social signal for provider matching. When a requester follows a provider's pubkey on Nostr, this acts as a "favourite provider" bookmark — visible to any operator, across all domains, without requiring platform-specific favourites lists.
+
+### Priority Matching
+
+When a requester publishes a kind 30500 (Service Request), operators SHOULD check the requester's follow list (kind 3 event) and prioritise matching with providers the requester follows. This produces a natural "BatPhone" pattern — requesters who have established trust with specific providers are matched with them first, reducing friction and improving satisfaction for both parties.
+
+### Discovery Tiers
+
+Operators SHOULD apply the following priority tiers when matching a requester with available providers:
+
+| Tier | Source | Priority | Description |
+|------|--------|----------|-------------|
+| 1. Direct follows | Providers in requester's kind 3 follow list | Highest | Requester has explicitly chosen to follow this provider |
+| 2. Previous providers | Providers with completed task history | Second | Prior successful interactions (kind 30517/30530 events exist) |
+| 3. Social proof | Providers followed by requester's follows (2-hop WoT) | Third | Trusted by people the requester trusts |
+| 4. Open matching | Any available provider meeting minimum criteria | Default fallback | Standard matching by proximity, rating, and availability |
+
+If a Tier 1 provider is available and meets the request criteria (correct domain, service area, skills), the operator SHOULD offer that provider first before falling back to lower tiers. Tier ordering is a SHOULD, not a MUST — operators MAY adjust weighting based on urgency, proximity, or other factors.
+
+### NIP-02 Follow as "Favourite Provider"
+
+When a requester follows a provider's pubkey (adding a `p` tag to their kind 3 event), this serves as a **persistent "favourite provider" signal** with several advantages over platform-specific favourites:
+
+- **Cross-operator** — The follow list is on public relays, visible to every operator. Switching operators preserves your favourites automatically.
+- **Cross-domain** — Following a locksmith who also drives for a ridesharing operator means they are prioritised in both domains.
+- **Cross-client** — Any Nostr client can display the follow relationship. The provider sees they are followed; the requester sees the provider in their social feed.
+- **Bilateral** — If the provider also follows the requester, both parties have signalled mutual trust, which operators MAY weight even more heavily.
+
+### Implementation
+
+Operators implement social discovery as follows:
+
+1. **On request creation**: When a kind 30500 event is received, the operator queries relays for the requester's kind 3 event:
+   ```
+   Filter: { kinds: [3], authors: ["<requester_pubkey>"], limit: 1 }
+   ```
+2. **Extract follows**: Parse the `p` tags from the kind 3 event to build the requester's follow set.
+3. **Cross-reference**: Compare the follow set against currently available providers (from kind 20500 ephemeral events or the operator's internal availability list).
+4. **Tier assignment**: Assign each available provider to the appropriate discovery tier and sort by tier priority, then by standard criteria (rating, proximity, etc.) within each tier.
+5. **Caching**: Operators SHOULD cache kind 3 lookups with a TTL of 5-10 minutes. Follow lists change infrequently relative to task requests.
+
+For **Tier 3 (2-hop social proof)**, the operator additionally fetches kind 3 events for each pubkey in the requester's follow list and checks whether any available providers appear in those second-degree follow lists. Due to the fan-out cost, operators MAY limit 2-hop lookups to the requester's most recent N follows (e.g. 50) or skip Tier 3 entirely under high load.
+
+---
+
 ## NIP-89 Integration
 
 Operators SHOULD publish **NIP-89 app handler events** (kind 31990) to declare support for service coordination event kinds. This enables Nostr clients to offer "open with DonkeyRide" when encountering service coordination events.
@@ -403,7 +451,9 @@ Operators MAY publish **NIP-99 classified listing events** (kind 30402) for serv
 
 - **NIP-XX-core**: Core protocol (state machine, lifecycle)
 - **NIP-XX-stakes**: Operator bonds (kind 30540)
+- **NIP-XX-reputation**: Ratings, reputation, and social proof (WoT-weighted scoring)
 - **NIP-XX-safety**: Emergency alerts and trip sharing
+- **NIP-02**: Follow lists (social discovery / BatPhone pattern)
 - **NIP-89**: App handler registration
 - **NIP-99**: Classified listings
 - **ARCHITECTURE.md**: Three-layer architecture and data flow
