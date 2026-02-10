@@ -1,7 +1,7 @@
 # DonkeyRide Protocol — Quick Reference
 
 **Protocol Version**: v3.0 (Payment-Agnostic, Modular NIPs)
-**Event Kind Range**: 30500-30599 (primary) + 30600-30639 (domain extensions)
+**Event Kind Range**: 30500-30599 (primary) + 30600-30719 (domain extensions)
 **Last Updated**: 2026-02-10
 
 ---
@@ -30,6 +30,10 @@ The protocol is organised as a **family of focused specifications**. Each NIP st
 | **[NIP-XX-ridesharing](./NIP-XX-ridesharing.md)** | 30505, 30529, 30532-30535, 30541-30545, 30552, 30555-30558, 30565-30569, 30570-30599 | Ridesharing: cross-operator, scheduling, carpooling, compliance, edge cases, operational, UX, driver management, navigation, surge, verification |
 | **[NIP-XX-locksmith](./NIP-XX-locksmith.md)** | 30600-30619 | Locksmith: quote negotiation, access methods, workmanship |
 | **[NIP-XX-delivery](./NIP-XX-delivery.md)** | 30620-30639 | Delivery: chain of custody, photo proofs, package tracking |
+| **[NIP-XX-towing](./NIP-XX-towing.md)** | 30640-30659 | Towing: vehicle assessment, recovery quotes, flatbed coordination, photo proof of delivery |
+| **[NIP-XX-emergency-trades](./NIP-XX-emergency-trades.md)** | 30660-30679 | Emergency trades: diagnosis, milestone pricing, certification verification, guarantee management |
+| **[NIP-XX-pet-services](./NIP-XX-pet-services.md)** | 30680-30699 | Pet services: pet profiles, session reports, medication logging, emergency vet reports |
+| **[NIP-XX-security](./NIP-XX-security.md)** | 30700-30719 | Security: shift management, heartbeat protocol, patrol logging, incident reporting |
 | **[NIP-XX-v1-archive](./NIP-XX-v1-archive.md)** | — | Archive: original monolithic 82-kind spec (preserved for reference) |
 
 ### Which NIPs Does Each Domain Use?
@@ -39,9 +43,11 @@ The protocol is organised as a **family of focused specifications**. Each NIP st
 | Ridesharing | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Locksmith | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — |
 | Delivery | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ |
-| Court serving | ✅ | — | ✅ | — | ✅ | — | ✅ | — |
-| Security guard | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| Towing | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 | Emergency trades | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Pet services | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | ✅ |
+| Security guard | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| Court serving | ✅ | — | ✅ | — | ✅ | — | ✅ | — |
 
 ---
 
@@ -198,7 +204,11 @@ requested → matched → provider_en_route → provider_arrived → [domain sta
 | 30570-30599 | Ridesharing extension (UX, drivers, navigation, surge, verification) | Active |
 | 30600-30619 | Locksmith extension | Draft |
 | 30620-30639 | Delivery extension | Draft |
-| 30640-30699 | Reserved for future domains | Reserved |
+| 30640-30659 | Towing extension | Draft |
+| 30660-30679 | Emergency trades extension | Draft |
+| 30680-30699 | Pet services extension | Draft |
+| 30700-30719 | Security guard dispatch extension | Draft |
+| 30720-30999 | Reserved for future domains | Reserved |
 | 20500 | Provider availability (ephemeral) | Active |
 
 ---
@@ -248,6 +258,10 @@ requested → matched → provider_en_route → provider_arrived → [domain sta
 - **Ridesharing**: [NIP-XX-ridesharing.md](./NIP-XX-ridesharing.md)
 - **Locksmith**: [NIP-XX-locksmith.md](./NIP-XX-locksmith.md)
 - **Delivery**: [NIP-XX-delivery.md](./NIP-XX-delivery.md)
+- **Towing**: [NIP-XX-towing.md](./NIP-XX-towing.md)
+- **Emergency Trades**: [NIP-XX-emergency-trades.md](./NIP-XX-emergency-trades.md)
+- **Pet Services**: [NIP-XX-pet-services.md](./NIP-XX-pet-services.md)
+- **Security Guard**: [NIP-XX-security.md](./NIP-XX-security.md)
 
 ### Documentation
 - **Architecture**: [../ARCHITECTURE.md](../ARCHITECTURE.md)
