@@ -108,13 +108,17 @@ async function publishStakeLock({
   amount,
   participant,
   providerEvent,
-  escrowId
+  escrowId,
+  currency = 'SAT',
+  trustModel = 'unknown'
 }) {
   const tags = [
     ['ride', rideId],
     ['event', 'stake_lock'],
     ['role', role],
-    ['amount', String(amount || extractTagValue(providerEvent, 'amount') || 0)]
+    ['amount', String(amount || extractTagValue(providerEvent, 'amount') || 0)],
+    ['currency', currency],
+    ['trust_model', trustModel]
   ];
   if (participant) {
     tags.push(['participant', participant.toLowerCase()]);
@@ -142,7 +146,9 @@ async function publishStakeRelease({
   role,
   amount,
   providerEvent,
-  reason = 'completed'
+  reason = 'completed',
+  currency = 'SAT',
+  trustModel = 'unknown'
 }) {
   const derivedAmount = amount || extractTagValue(providerEvent, 'amount') || 0;
   const tags = [
@@ -150,6 +156,8 @@ async function publishStakeRelease({
     ['event', 'stake_release'],
     ['role', role],
     ['amount', String(derivedAmount)],
+    ['currency', currency],
+    ['trust_model', trustModel],
     ['reason', reason]
   ];
   if (providerEvent?.id) {
@@ -163,14 +171,18 @@ async function publishStakePenalty({
   reason,
   penalty,
   refund,
-  providerEvent
+  providerEvent,
+  currency = 'SAT',
+  trustModel = 'unknown'
 }) {
   const tags = [
     ['ride', rideId],
     ['event', 'stake_penalty'],
     ['reason', reason || 'unspecified'],
     ['penalty', String(penalty || extractTagValue(providerEvent, 'penalty') || 0)],
-    ['refund', String(refund || extractTagValue(providerEvent, 'refund') || 0)]
+    ['refund', String(refund || extractTagValue(providerEvent, 'refund') || 0)],
+    ['currency', currency],
+    ['trust_model', trustModel]
   ];
   if (providerEvent?.id) {
     tags.push(['provider_event', providerEvent.id]);
@@ -182,7 +194,9 @@ async function publishStreamPayment({
   rideId,
   amount,
   totalPaid,
-  fare
+  fare,
+  currency = 'SAT',
+  trustModel = 'unknown'
 }) {
   const tags = [
     ['ride', rideId],
@@ -190,6 +204,8 @@ async function publishStreamPayment({
     ['amount', String(amount)],
     ['total', String(totalPaid)],
     ['fare', String(fare)],
+    ['currency', currency],
+    ['trust_model', trustModel],
     ['status', totalPaid >= fare ? 'settled' : 'in_progress']
   ];
   return publishEvent(30510, tags, '');

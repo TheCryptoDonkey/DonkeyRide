@@ -21,16 +21,17 @@ const profile = {
       PROVIDER_ARRIVED: 'arrived',
       ACTIVE: 'active',
       COMPLETED: 'completed',
-      CANCELLED: 'cancelled'
+      CANCELLED: 'cancelled',
+      NO_SHOW: 'no_show'
     },
     transitions: {
       'requested': ['matched', 'cancelled'],
       'matched': ['en_route', 'cancelled'],
       'en_route': ['arrived', 'cancelled'],
-      'arrived': ['active', 'cancelled'],
+      'arrived': ['active', 'no_show', 'cancelled'],
       'active': ['completed', 'cancelled']
     },
-    terminal: ['completed', 'cancelled'],
+    terminal: ['completed', 'no_show', 'cancelled'],
     initial: 'requested'
   },
 

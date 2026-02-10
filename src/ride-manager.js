@@ -18,7 +18,8 @@ const RideStatus = {
   DRIVER_ARRIVED: 'arrived',
   ACTIVE: 'active',
   COMPLETED: 'completed',
-  CANCELLED: 'cancelled'
+  CANCELLED: 'cancelled',
+  NO_SHOW: 'no_show'
 };
 
 /**

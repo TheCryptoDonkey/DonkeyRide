@@ -558,7 +558,9 @@ function startStreamingForRide(rideId) {
             rideId,
             amount,
             totalPaid: state.totalPaid,
-            fare: state.fareSats
+            fare: state.fareSats,
+            currency: ride.currency || 'SAT',
+            trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
         }).catch((err) => {
             console.warn(`Failed to publish stream payment for ${rideId}:`, err.message);
         });
@@ -735,7 +737,9 @@ app.post('/rides/:rideId/rider-stake', async (req, res) => {
             amount: ride.riderStake,
             participant: ride.riderId,
             providerEvent: stakeLock.event,
-            escrowId: stakeLock.holdId
+            escrowId: stakeLock.holdId,
+            currency: ride.currency || 'SAT',
+            trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
         }).catch((err) => {
             console.warn(`Failed to publish rider stake lock for ${rideId}:`, err.message);
         });
@@ -823,7 +827,9 @@ app.post('/rides/:rideId/driver-stake', async (req, res) => {
             amount: ride.driverStake,
             participant: ride.driverId,
             providerEvent: stakeLock.event,
-            escrowId: stakeLock.holdId
+            escrowId: stakeLock.holdId,
+            currency: ride.currency || 'SAT',
+            trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
         }).catch((err) => {
             console.warn(`Failed to publish driver stake lock for ${rideId}:`, err.message);
         });
@@ -857,7 +863,9 @@ app.post('/rides/:rideId/complete', async (req, res) => {
             role: 'rider',
             amount: ride.riderStake,
             providerEvent: riderRelease?.event,
-            reason: 'completed'
+            reason: 'completed',
+            currency: ride.currency || 'SAT',
+            trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
         }).catch((err) => {
             console.warn(`Failed to publish rider stake release for ${rideId}:`, err.message);
         });
@@ -866,7 +874,9 @@ app.post('/rides/:rideId/complete', async (req, res) => {
             role: 'driver',
             amount: ride.driverStake,
             providerEvent: driverRelease?.event,
-            reason: 'completed'
+            reason: 'completed',
+            currency: ride.currency || 'SAT',
+            trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
         }).catch((err) => {
             console.warn(`Failed to publish driver stake release for ${rideId}:`, err.message);
         });
@@ -1015,7 +1025,9 @@ app.post('/rides/:rideId/cancel', async (req, res) => {
                 role: 'rider',
                 amount: ride.riderStake,
                 providerEvent: riderReleaseResult.event,
-                reason: 'cancelled'
+                reason: 'cancelled',
+                currency: ride.currency || 'SAT',
+                trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
             }).catch((err) => {
                 console.warn(`Failed to publish rider stake release for ${rideId}:`, err.message);
             });
@@ -1026,7 +1038,9 @@ app.post('/rides/:rideId/cancel', async (req, res) => {
                 role: 'driver',
                 amount: ride.driverStake,
                 providerEvent: driverReleaseResult.event,
-                reason: 'cancelled'
+                reason: 'cancelled',
+                currency: ride.currency || 'SAT',
+                trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
             }).catch((err) => {
                 console.warn(`Failed to publish driver stake release for ${rideId}:`, err.message);
             });
@@ -1037,7 +1051,9 @@ app.post('/rides/:rideId/cancel', async (req, res) => {
                 reason: reason || 'cancelled',
                 penalty: penaltyResult.penalty,
                 refund: penaltyResult.refund,
-                providerEvent: penaltyResult.event
+                providerEvent: penaltyResult.event,
+                currency: ride.currency || 'SAT',
+                trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
             }).catch((err) => {
                 console.warn(`Failed to publish stake penalty for ${rideId}:`, err.message);
             });

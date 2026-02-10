@@ -27,18 +27,19 @@ const profile = {
       ACTIVE: 'in_transit',
       ARRIVED_AT_DELIVERY: 'arrived_at_delivery',
       COMPLETED: 'delivered',
-      CANCELLED: 'cancelled'
+      CANCELLED: 'cancelled',
+      NO_SHOW: 'no_show'
     },
     transitions: {
       'collection_requested': ['courier_matched', 'cancelled'],
       'courier_matched': ['en_route_to_pickup', 'cancelled'],
       'en_route_to_pickup': ['arrived_at_pickup', 'cancelled'],
-      'arrived_at_pickup': ['collected', 'cancelled'],
+      'arrived_at_pickup': ['collected', 'no_show', 'cancelled'],
       'collected': ['in_transit', 'cancelled'],
       'in_transit': ['arrived_at_delivery', 'cancelled'],
-      'arrived_at_delivery': ['delivered', 'cancelled']
+      'arrived_at_delivery': ['delivered', 'no_show', 'cancelled']
     },
-    terminal: ['delivered', 'cancelled'],
+    terminal: ['delivered', 'no_show', 'cancelled'],
     initial: 'collection_requested'
   },
 
@@ -130,9 +131,9 @@ const profile = {
     dispute: 30522,
     resolution: 30524,
     rating: 30530,
-    proofOfCollection: 30570,
-    proofOfDelivery: 30571,
-    conditionPhoto: 30572,
+    proofOfCollection: 30620,
+    proofOfDelivery: 30621,
+    conditionReport: 30622,
     panic: 30560
   }
 };

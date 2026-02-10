@@ -26,17 +26,18 @@ const profile = {
       METHOD_CONFIRMED: 'access_method_confirmed',
       ACTIVE: 'work_active',
       COMPLETED: 'access_gained',
-      CANCELLED: 'cancelled'
+      CANCELLED: 'cancelled',
+      NO_SHOW: 'no_show'
     },
     transitions: {
       'lockout_reported': ['locksmith_matched', 'cancelled'],
       'locksmith_matched': ['en_route', 'cancelled'],
       'en_route': ['arrived', 'cancelled'],
-      'arrived': ['access_method_confirmed', 'cancelled'],
+      'arrived': ['access_method_confirmed', 'no_show', 'cancelled'],
       'access_method_confirmed': ['work_active', 'cancelled'],
       'work_active': ['access_gained', 'cancelled']
     },
-    terminal: ['access_gained', 'cancelled'],
+    terminal: ['access_gained', 'no_show', 'cancelled'],
     initial: 'lockout_reported'
   },
 
@@ -66,10 +67,11 @@ const profile = {
   disputeEvidenceTypes: ['text', 'photo', 'gps_trace', 'price_quote'],
 
   ratingCriteria: [
-    { tag: 'overall', label: 'Overall', weight: 0.3 },
-    { tag: 'punctuality', label: 'Punctuality', weight: 0.2 },
-    { tag: 'transparency', label: 'Price transparency', weight: 0.3 },
-    { tag: 'skill', label: 'Skill', weight: 0.2 }
+    { tag: 'overall', label: 'Overall', weight: 0.25 },
+    { tag: 'punctuality', label: 'Punctuality', weight: 0.20 },
+    { tag: 'workmanship', label: 'Workmanship', weight: 0.25 },
+    { tag: 'pricing_fairness', label: 'Pricing fairness', weight: 0.15 },
+    { tag: 'tidiness', label: 'Tidiness', weight: 0.15 }
   ],
 
   dataRetention: {
