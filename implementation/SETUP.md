@@ -203,7 +203,7 @@ donkeyride/
 ├── package.json              # Dependencies
 ├── .env.example              # Environment template
 └── docs/
-    ├── NIP-XX-ridesharing.md  # Protocol specification
+    ├── TROTT-01-core.md       # Protocol specification (see specs/)
     ├── STAKING-EXPLAINED.md   # How staking works
     ├── RUN-YOUR-OWN-RELAY.md  # Relay operator guide
     └── STAKING-MIGRATION-PATH.md  # Decentralization roadmap

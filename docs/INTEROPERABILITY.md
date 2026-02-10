@@ -56,7 +56,7 @@ This document serves two audiences:
 2. **The Ridestr team** specifically, for bilateral interoperability analysis. See **Sections 1-6** below.
 
 **DonkeyRide**: Node.js operator server + React SPA, domain-agnostic (ridesharing, locksmith, delivery, security guard,
-and more), payment-agnostic (8 providers), 8 modular NIP specifications across kinds 30500-30599.
+and more), payment-agnostic (8 providers), 7 modular TROTT specifications across kinds 20500-20501 and 30500-30563.
 
 **Ridestr**: Kotlin Android (Ridestr + Drivestr apps), pure P2P (no server), Cashu NUT-14 HTLC escrow, kinds
 30173-30182 + 3173-3188.
@@ -77,7 +77,7 @@ Third-party implementations can participate at three progressively deeper levels
 
 | Level | Name | What It Means | Requirements |
 |-------|------|---------------|--------------|
-| **1** | **Data Portability** | Accept NIP-XX event schemas; export and import reputation across apps | Parse kinds 30500-30512; publish/consume kind 30530 ratings; support kind 30521 reputation export/import |
+| **1** | **Data Portability** | Accept TROTT event schemas; export and import reputation across apps | Parse kinds 30500-30507 (TROTT-01); publish/consume kind 30520 ratings (TROTT-03); support kind 30521 reputation export/import |
 | **2** | **Cross-Operator Discovery** | Visible to other operators and clients on the Nostr relay network | Publish kind 30565 service area declarations; publish kind 20500 provider availability; include `domain` and discovery tags on all events |
 | **3** | **Full Federation** | Cross-operator task handoff, shared dispute resolution, guardian network participation | Support kind 30522-30527 disputes; participate in kind 30553/30554 guardian voting; implement cross-operator task references via `linked_task` tags |
 
@@ -264,8 +264,8 @@ A general-purpose Nostr client (like Amethyst, Damus, or Primal) does not need t
 ### Kind Range Comparison
 
 ```
-DonkeyRide:  20500 ........... 30500━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━30599 ... 30600━━30639
-             ephemeral        core/stakes/pay/rep/disputes/safety/nav/discovery   domain extensions
+DonkeyRide:  20500-20501 ..... 30500━━━━━━━━━━━━━━━━━━━━━━30563 ... 30600━━━━━━━━━━━━━30779
+             ephemeral        TROTT-01 thru TROTT-07 (core)      domain extensions (9 domains)
 
 Ridestr:     3173━━━━3188 ... 30011━━30014 ... 30078 ... 30173━━━━30182
              ride lifecycle   RoadFlare        tiles     availability/backup/state/admin
@@ -364,12 +364,12 @@ shared event kinds — there is no encryption compatibility issue.
 
 ---
 
-## 3. What Ridestr Gains from DonkeyRide's NIPs
+## 3. What Ridestr Gains from TROTT Specs
 
-DonkeyRide's modular NIP structure means Ridestr can adopt individual specifications without changing its core
-lifecycle. Each NIP below is independent — they reference tasks by event ID, not by DonkeyRide-specific state.
+DonkeyRide's modular TROTT spec structure means Ridestr can adopt individual specifications without changing its core
+lifecycle. Each spec below is independent — they reference tasks by event ID, not by DonkeyRide-specific state.
 
-### 3.1 Reputation (NIP-XX-reputation)
+### 3.1 Reputation (TROTT-03)
 
 **The gap**: Ridestr has no rating system. The only trust mechanism is the personal RoadFlare network (known drivers). A
 rider's first ride with an unknown driver has zero trust signal.
@@ -394,7 +394,7 @@ viewing a driver's profile.
 **Cross-app portability**: This is the killer feature. If both projects use the same rating kinds, a driver with 200
 five-star Ridestr rides carries that reputation into DonkeyRide automatically. Neither project can achieve this alone.
 
-### 3.2 Safety (NIP-XX-safety)
+### 3.2 Safety (TROTT-05)
 
 **The gap**: Ridestr has no panic button, no trip sharing, no safety check-ins. The `AccountSafetyScreen` handles event
 deletion — not rider/driver safety during rides.
@@ -417,7 +417,7 @@ report form.
 **The human case**: This is the most important adoption. A rider in distress needs to broadcast their location to
 trusted contacts. Currently Ridestr has no mechanism for this. Kind 30559 is 20 lines of event construction.
 
-### 3.3 Dispute Resolution (NIP-XX-disputes)
+### 3.3 Dispute Resolution (TROTT-05)
 
 **The gap**: Ridestr's Cashu HTLC escrow prevents the most obvious dispute (driver takes payment without completing the
 ride), but doesn't cover: ride quality disputes, incorrect fare, driver took a longer route, rider damaged vehicle, or
@@ -517,7 +517,7 @@ smaller individual events), but we should consider whether a consolidated option
 
 ## 5. Adoption Path
 
-Concrete steps for Ridestr to adopt DonkeyRide NIPs, ordered by value and effort.
+Concrete steps for Ridestr to adopt TROTT specs, ordered by value and effort.
 
 ### Phase 1: Reputation (Lowest effort, highest impact)
 
@@ -650,8 +650,8 @@ complete lifecycle. This would require:
    would need to make operators optional
 
 This is a significant undertaking, but the shared foundations (geohash, NIP-44, NIP-40, progressive privacy) mean the
-gap is smaller than it appears. The modular structure of DonkeyRide's NIPs helps — Ridestr could adopt the ancillary
-NIPs immediately while the core lifecycle converges over time.
+gap is smaller than it appears. The modular structure of the TROTT specs helps — Ridestr could adopt the ancillary
+specs immediately while the core lifecycle converges over time.
 
 ### What Convergence Unlocks
 
@@ -668,60 +668,51 @@ NIPs immediately while the core lifecycle converges over time.
 
 ## Appendix A: Complete Kind Reference
 
-### DonkeyRide Event Kinds (30500-30599 + 20500)
+### DonkeyRide Event Kinds (TROTT Protocol)
 
-| Kind  | Name                                        | Spec                |
-|-------|---------------------------------------------|---------------------|
-| 20500 | Provider Availability (ephemeral)           | Discovery           |
-| 30500 | Service Request                             | Core                |
-| 30501 | Service Acceptance                          | Core                |
-| 30502 | Stake Lock                                  | Stakes              |
-| 30503 | Stake Negotiation                           | Stakes              |
-| 30504 | Service Confirmation                        | Core                |
-| 30506 | Service Cancellation                        | Core                |
-| 30507 | Service Start                               | Core                |
-| 30508 | Service End                                 | Core                |
-| 30509 | Commitment Stake                            | Stakes              |
-| 30510 | Streaming Payment                           | Payments            |
-| 30511 | Payment Confirmation                        | Payments            |
-| 30512 | Status Update                               | Core                |
-| 30513 | Provider Tip                                | Payments            |
-| 30514 | Wait Time Charge                            | Payments            |
-| 30515 | No-Show Fee                                 | Payments            |
-| 30516 | Additional Charge                           | Payments            |
-| 30517 | Provider Rating                             | Reputation          |
-| 30518 | Requester Rating                            | Reputation          |
-| 30519 | Reputation Summary                          | Reputation          |
-| 30520 | Stake Release                               | Stakes              |
-| 30521 | Reputation Export/Import                    | Reputation          |
-| 30522 | Dispute Filing                              | Disputes            |
-| 30523 | Arbiter Assignment                          | Disputes            |
-| 30524 | Dispute Resolution                          | Disputes            |
-| 30525 | Theft Report                                | Disputes            |
-| 30526 | Watchdog Claim                              | Disputes            |
-| 30527 | Operator Slashing                           | Disputes            |
-| 30528 | Operator Reputation                         | Reputation          |
-| 30530 | Reputation Rating                           | Reputation          |
-| 30537 | Milestone Completion                        | Stakes              |
-| 30538 | Payment Failure                             | Payments            |
-| 30540 | Operator Bond                               | Stakes + Discovery  |
-| 30549 | Suspicious Activity Report                  | Disputes            |
-| 30550 | Account Suspension                          | Disputes            |
-| 30551 | Appeal Request                              | Disputes            |
-| 30553 | Slashing Proposal                           | Disputes            |
-| 30554 | Guardian Vote                               | Disputes            |
-| 30559 | Emergency Alert                             | Safety              |
-| 30560 | Task Sharing                                | Safety              |
-| 30561 | Safety Check-In Request                     | Safety              |
-| 30562 | Safety Check-In Response                    | Safety              |
-| 30563 | Safety Check-In Escalation                  | Safety              |
-| 30564 | Harassment Report                           | Safety              |
-| 30565 | Service Area Definition                     | Discovery           |
-| 30583 | Route Suggestion                            | Navigation          |
-| 30584 | Turn-by-Turn Navigation                     | Navigation          |
-| 30585 | Traffic Alert                               | Navigation          |
-| 30586 | Reroute Request                             | Navigation          |
-| 30587 | Navigation Feedback                         | Navigation          |
+> **Note**: The kind allocation below reflects the current TROTT protocol (v4.0). For the complete authoritative reference, see [specs/QUICK-REFERENCE.md](../specs/QUICK-REFERENCE.md).
+
+| Kind  | Name                        | TROTT Spec       |
+|-------|-----------------------------|------------------|
+| 20500 | Provider Availability       | TROTT-02         |
+| 20501 | Location Update             | TROTT-07         |
+| 30500 | Task Request                | TROTT-01         |
+| 30501 | Task Offer                  | TROTT-01         |
+| 30502 | Task Accept                 | TROTT-01         |
+| 30503 | Task Update                 | TROTT-01         |
+| 30504 | Task Complete               | TROTT-01         |
+| 30505 | Task Confirm                | TROTT-01         |
+| 30506 | Task Cancel                 | TROTT-01         |
+| 30507 | Task Dispute                | TROTT-01         |
+| 30510 | Provider Profile            | TROTT-02         |
+| 30511 | Operator Bond               | TROTT-02         |
+| 30512 | Trusted Provider List       | TROTT-02         |
+| 30520 | Task Rating                 | TROTT-03         |
+| 30521 | Reputation Query            | TROTT-03         |
+| 30522 | Credential Attestation      | TROTT-03         |
+| 30530 | Quote                       | TROTT-04         |
+| 30531 | Payment Terms               | TROTT-04         |
+| 30532 | Stake Lock                  | TROTT-04         |
+| 30533 | Stake Release               | TROTT-04         |
+| 30534 | Stake Forfeit               | TROTT-04         |
+| 30535 | Payment Receipt             | TROTT-04         |
+| 30536 | Streaming Tick              | TROTT-04         |
+| 30540 | Emergency Signal            | TROTT-05         |
+| 30541 | Safety Check-in             | TROTT-05         |
+| 30542 | Safety Contact Share        | TROTT-05         |
+| 30543 | Dispute Claim               | TROTT-05         |
+| 30544 | Dispute Evidence            | TROTT-05         |
+| 30545 | Dispute Resolution          | TROTT-05         |
+| 30546 | Abuse Report                | TROTT-05         |
+| 30550 | Operator Claim              | TROTT-06         |
+| 30551 | PII Envelope                | TROTT-06         |
+| 30552 | Delegation Grant            | TROTT-06         |
+| 30553 | Compliance Record           | TROTT-06         |
+| 30554 | Operator Heartbeat          | TROTT-06         |
+| 30560 | Route Summary               | TROTT-07         |
+| 30561 | ETA Update                  | TROTT-07         |
+| 30562 | Route Deviation             | TROTT-07         |
+| 30563 | Navigation Resource         | TROTT-07         |
 
 ### Ridestr Event Kinds
 

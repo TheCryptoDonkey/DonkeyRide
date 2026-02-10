@@ -449,7 +449,7 @@ When multiple operators claim a task (multiple kind 30550 events for the same ta
 4. **Dispute resolution rate** — Higher rate = disputes are handled fairly
 5. **Heartbeat freshness** — Recent heartbeat = operator is active
 6. **Declared services** — Match the participant's needs (e.g. `live_tracking` for ridesharing, `compliance_verification` for regulated domains)
-7. **Trust model** — Users who prefer sovereignty see operators offering `trustless` NIP-47 payment rails; users who prefer convenience see operators offering `custodial-escrow` fiat rails
+7. **Trust model** — Users who prefer sovereignty see operators offering `trustless` NIP-47 payment rails; users who prefer convenience see operators offering `operator-escrow` fiat rails
 
 ---
 

@@ -26,7 +26,7 @@
 The security domain uses a shift-based pattern with a sustained `on_station` state and periodic heartbeat check-ins:
 
 ```
-accepted --> en_route --> briefed --> on_station --> patrolling --> incident --> shift_complete --> confirmed
+accepted --> provider_en_route --> briefed --> on_station --> patrolling --> incident --> shift_complete --> confirmed
                             |            |              |              |
                             |            |              +--> on_station (returns from patrol/incident)
                             |            |
@@ -37,6 +37,7 @@ accepted --> en_route --> briefed --> on_station --> patrolling --> incident -->
 
 | Core state | Security state | Description |
 |------------|---------------|-------------|
+| `in_progress` (dispatch) | `provider_en_route` | Security officer is travelling to the site |
 | `accepted` (sub-phase) | `briefed` | Officer has acknowledged the site briefing |
 | `in_progress` (primary) | `on_station` | Officer on duty; heartbeat check-ins active |
 | `in_progress` (sub-phase) | `patrolling` | Officer conducting a patrol round |

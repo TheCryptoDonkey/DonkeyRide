@@ -27,9 +27,9 @@
 The delivery domain expands the TROTT-01 `in_progress` phase into four sub-states representing collection, transit, and handover:
 
 ```
-accepted --> en_route_to_pickup --> collected --> in_transit --> delivered --> confirmed
-                   |                                              |
-                   +--> no_show (sender absent)                   +--> delivery_failed --> returned_to_sender
+accepted --> en_route_to_pickup --> collected --> in_transit --> delivered --> completed --> confirmed
+                   |                                                            |
+                   +--> no_show (sender absent)                                 +--> delivery_failed --> returned_to_sender
 ```
 
 | Core state | Delivery state | Description |

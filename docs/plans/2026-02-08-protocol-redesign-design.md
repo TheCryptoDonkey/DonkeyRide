@@ -1,3 +1,5 @@
+> **SUPERSEDED** by [TROTT Protocol Design (2026-02-10)](./2026-02-10-trott-protocol-design.md)
+
 # Protocol Redesign: Payment Agnosticism, Modular NIPs, Decentralisation & Use Case State Machines
 
 **Date**: 2026-02-08

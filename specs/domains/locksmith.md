@@ -33,6 +33,8 @@ accepted --> provider_en_route --> provider_arrived --> access_method_confirmed 
 
 | Core state | Locksmith state | Description |
 |------------|-----------------|-------------|
+| `in_progress` (dispatch) | `provider_en_route` | Locksmith is travelling to the customer's location |
+| `in_progress` (arrival) | `provider_arrived` | Locksmith has arrived and is assessing the lock |
 | `in_progress` (phase 1) | `access_method_confirmed` | Locksmith has assessed the lock, issued a quote, and customer has accepted |
 | `in_progress` (phase 2) | `work_active` | Locksmith is actively working on gaining entry |
 

@@ -1,6 +1,6 @@
 // ==========================================
 // DONKEYRIDE REFERENCE IMPLEMENTATION
-// Complete implementation of NIP-XX Ridesharing Protocol
+// Complete implementation of the TROTT Ridesharing Protocol
 // ==========================================
 
 import { 

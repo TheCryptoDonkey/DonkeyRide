@@ -132,7 +132,7 @@ All domains share these kinds. The `domain` tag identifies which extension appli
 | 30562 | Route Deviation | No (append-only) | Operator |
 | 30563 | Navigation Resource | Yes (NIP-33) | Anyone |
 
-**Total: 39 event kinds** (37 parameterised replaceable + 2 ephemeral)
+**Total: 39 event kinds** (26 parameterised replaceable + 11 append-only + 2 ephemeral)
 
 ---
 
@@ -147,12 +147,13 @@ requested → offers_open → accepted → in_progress → completed → confirm
     └───────────┴──────────────┴───────────┴─────────────→ cancelled
 ```
 
-**Terminal states**: `confirmed`, `no_show`, `cancelled`, `disputed` (escalated to TROTT-05)
+**Terminal states**: `confirmed`, `no_show`, `cancelled`
 
 - `confirmed` — Requester confirms completion. Stakes released. Ratings may follow.
 - `no_show` — One party failed to appear. Absent party's stake forfeited.
 - `cancelled` — Cancellation. Stakes released (within grace period) or cancelling party penalised.
-- `disputed` — Escalated to TROTT-05 dispute resolution.
+
+**Intermediate state**: `disputed` — Escalated to TROTT-05 dispute resolution. **Not terminal**: resolves to `confirmed`, `cancelled`, or `no_show`.
 
 Domain profiles MAY insert sub-states within `in_progress` (e.g. `provider_en_route → provider_arrived → trip_active` for ridesharing).
 

@@ -3,14 +3,14 @@
 > **An open protocol standard for service coordination — like HTTP for the web or SMTP for email**
 
 [![Licence: MIT](https://img.shields.io/badge/Licence-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Protocol Version](https://img.shields.io/badge/Protocol-v3.0-blue.svg)](./specs/QUICK-REFERENCE.md)
-[![Event Kind Range](https://img.shields.io/badge/Event_Kinds-30500--30639-green.svg)](./specs/QUICK-REFERENCE.md)
+[![Protocol Version](https://img.shields.io/badge/Protocol-v4.0-blue.svg)](./specs/QUICK-REFERENCE.md)
+[![Event Kind Range](https://img.shields.io/badge/Event_Kinds-20500--30779-green.svg)](./specs/QUICK-REFERENCE.md)
 
 ---
 
 ## What is DonkeyRide?
 
-**DonkeyRide is an open protocol standard** for trust-minimised service coordination between strangers. It defines a family of modular Nostr NIP specifications covering service requests, commitment stakes, payments, reputation, safety, navigation, and dispute resolution — enabling interoperability across operators, applications, and use cases.
+**DonkeyRide is an open protocol standard** for trust-minimised service coordination between strangers. It defines the **TROTT Protocol** (**T**rusted **R**eal-world **O**rchestration of **T**asks & **T**rades) — a family of 7 modular specifications built on Nostr covering task lifecycle, discovery, reputation, payments, safety, coordination, and navigation — enabling interoperability across operators, applications, and use cases.
 
 Think of it like:
 - **HTTP** for the web — anyone can build a browser or server
@@ -55,9 +55,9 @@ The protocol is **payment-agnostic**. Every monetary event includes explicit `am
 | Provider | Trust Model | Currencies | Best For |
 |----------|------------|------------|----------|
 | NIP-47 (hold invoices) | `trustless` | SAT/BTC | Sovereignty-minded users |
-| Strike | `custodial-third-party` | GBP/USD/EUR/SAT | Fiat UX, everyday use |
-| Stripe | `custodial-escrow` | Any fiat | Fiat-only markets |
-| Cashu / Fedimint | `federated` | SAT (ecash) | Privacy-focused users |
+| Strike | `fiat-escrow` | GBP/USD/EUR/SAT | Fiat UX, everyday use |
+| Stripe | `operator-escrow` | Any fiat | Fiat-only markets |
+| Cashu / Fedimint | `ecash-htlc` | SAT (ecash) | Privacy-focused users |
 
 **Design principle: Bitcoin rails, fiat UX.** A customer sees "pay £12.50" on their card. Strike converts to sats over Lightning. The provider receives payment instantly. Neither party had a taxable crypto event, and the protocol got Lightning's speed and low fees.
 
@@ -84,7 +84,7 @@ The protocol is **payment-agnostic**. Every monetary event includes explicit `am
 
 ### For Developers
 - **Open protocol** — free to use, no licensing fees, no rate limits
-- **Modular specs** — implement only the NIPs your use case needs
+- **Modular specs** — implement only the TROTT specs your use case needs
 - **Extensible** — add domain extensions for new service verticals
 - **Interoperable** — apps work across multiple operators
 
@@ -110,8 +110,8 @@ The operator is a **thin compliance layer** — handling only what the law manda
 - **Stake custody** → NIP-47 (user wallet to user wallet, operator never touches funds)
 - **PII exchange** → NIP-17 gift-wrapped messages (relay can't read, operator can't read)
 - **Coordination** → NIP-44 encrypted Nostr events (status updates, ETAs)
-- **Discovery** → Geohash-based on public relays (kind 30565, 20500)
-- **Reputation** → Cryptographically signed on Nostr (kinds 30517-30519, 30530)
+- **Discovery** → Geohash-based on public relays (kinds 20500, 30510-30512)
+- **Reputation** → Cryptographically signed on Nostr (kinds 30520-30522)
 
 **We are federated, not fully decentralised.** This is the right trade-off — it gives us GDPR compliance, legal liability, safety monitoring, and good UX whilst preserving the benefits of decentralised discovery, reputation, and payments.
 
@@ -119,28 +119,35 @@ See [ARCHITECTURE.md](./ARCHITECTURE.md) for the full analysis.
 
 ---
 
-## Modular NIP Specifications
+## TROTT Protocol Specifications
 
-The protocol is organised as a **family of focused specifications**. Each NIP stands alone and can be implemented independently:
+The protocol is organised as a **family of 7 focused specifications**. Each spec stands alone and can be implemented independently. Domain profiles declare which specs they use.
 
 | Spec | Kinds | Scope |
 |------|-------|-------|
-| [NIP-XX-core](./specs/NIP-XX-core.md) | 30500-30512 | Service lifecycle — the minimum viable protocol |
-| [NIP-XX-stakes](./specs/NIP-XX-stakes.md) | 30502-30503, 30506, 30509, 30520, 30540 | Commitment stakes — lock, release, forfeit |
-| [NIP-XX-reputation](./specs/NIP-XX-reputation.md) | 30517-30519, 30521, 30528, 30530 | Ratings and reputation portability |
-| [NIP-XX-disputes](./specs/NIP-XX-disputes.md) | 30522-30527, 30549-30554 | Disputes, theft reports, guardian voting |
-| [NIP-XX-discovery](./specs/NIP-XX-discovery.md) | 30540, 30565, 20500 | Geohash-based service discovery |
-| [NIP-XX-safety](./specs/NIP-XX-safety.md) | 30559-30564 | Emergency alerts, trip sharing, heartbeat |
-| [NIP-XX-navigation](./specs/NIP-XX-navigation.md) | 30583-30587 | Routes, turn-by-turn, traffic alerts |
-| [NIP-XX-payments](./specs/NIP-XX-payments.md) | 30510-30516, 30538 | Streaming payments, tips, surcharges |
+| [TROTT-01: Core](./specs/TROTT-01-core.md) | 30500-30507 | Task lifecycle, state machine, scheduling, multi-provider. The minimum viable protocol. |
+| [TROTT-02: Discovery](./specs/TROTT-02-discovery.md) | 20500, 30510-30512 | Provider availability, geohash search, skill search, trusted provider networks. |
+| [TROTT-03: Reputation](./specs/TROTT-03-reputation.md) | 30520-30522 | Ratings, trust weighting, credentials, cross-domain reputation portability. |
+| [TROTT-04: Payments](./specs/TROTT-04-payments.md) | 30530-30536 | Quotes, escrow, streaming, milestones, split payments. Currency-neutral. |
+| [TROTT-05: Safety](./specs/TROTT-05-safety.md) | 30540-30546 | Emergency signals, safety check-ins, dispute resolution, abuse reporting. |
+| [TROTT-06: Coordination](./specs/TROTT-06-coordination.md) | 30550-30554 | Operator participation, PII handling, compliance, delegation. **Optional.** |
+| [TROTT-07: Navigation](./specs/TROTT-07-navigation.md) | 20501, 30560-30563 | Routing, ETA, live tracking, route deviation alerts. **Optional.** |
 
-### Domain Extensions
+### Domain Profiles
 
-| Spec | Kind Range | Domain |
-|------|-----------|--------|
-| [NIP-XX-ridesharing](./specs/NIP-XX-ridesharing.md) | 30570-30599 | Vehicle tracking, surge pricing, driver management |
-| [NIP-XX-locksmith](./specs/NIP-XX-locksmith.md) | 30600-30619 | Quote negotiation, access methods, workmanship |
-| [NIP-XX-delivery](./specs/NIP-XX-delivery.md) | 30620-30639 | Chain of custody, photo proofs, package tracking |
+| Domain | Kind Range | Coordination Pattern |
+|--------|-----------|---------------------|
+| [Ridesharing](./specs/domains/ridesharing.md) | 30600-30619 | Trip |
+| [Locksmith](./specs/domains/locksmith.md) | 30620-30639 | Dispatch |
+| [Delivery](./specs/domains/delivery.md) | 30640-30659 | Relay delivery |
+| [Towing](./specs/domains/towing.md) | 30660-30679 | Dispatch + Trip |
+| [Emergency Trades](./specs/domains/emergency-trades.md) | 30680-30699 | Dispatch |
+| [Pet Services](./specs/domains/pet-services.md) | 30700-30719 | Scheduled |
+| [Security](./specs/domains/security.md) | 30720-30739 | Shift / Patrol |
+| [Cleaning](./specs/domains/cleaning.md) | 30740-30759 | Scheduled / Recurring |
+| [Moving](./specs/domains/moving.md) | 30760-30779 | Crew / Multi-provider |
+
+**Total: 39 event kinds** (26 parameterised replaceable + 11 append-only + 2 ephemeral) across 7 core specs and 9 domain profiles.
 
 See [specs/QUICK-REFERENCE.md](./specs/QUICK-REFERENCE.md) for the complete event kind table.
 
@@ -154,7 +161,7 @@ See [specs/QUICK-REFERENCE.md](./specs/QUICK-REFERENCE.md) for the complete even
 open specs/QUICK-REFERENCE.md
 
 # Read the core specification
-open specs/NIP-XX-core.md
+open specs/TROTT-01-core.md
 
 # See architecture analysis
 open ARCHITECTURE.md
@@ -210,8 +217,8 @@ open TRUST-MECHANISMS.md
 
 ### Protocol Specification
 - **[specs/QUICK-REFERENCE.md](./specs/QUICK-REFERENCE.md)** — One-page event kind table and structure overview
-- **[specs/NIP-XX-core.md](./specs/NIP-XX-core.md)** — Core service coordination protocol
-- **[specs/](./specs/)** — All modular NIP specifications
+- **[specs/TROTT-01-core.md](./specs/TROTT-01-core.md)** — Core service coordination protocol
+- **[specs/](./specs/)** — All TROTT specifications and domain profiles
 
 ### Architecture & Trust
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** — Three-layer federated architecture, decentralisation scorecard

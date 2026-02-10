@@ -426,7 +426,7 @@ Nostr **enables** this because:
 ## Implementation Checklist
 
 ### Phase 1 (Current)
-- [x] Protocol supports multiple operators (NIP-XX)
+- [x] Protocol supports multiple operators (TROTT protocol)
 - [x] Operator identification in events
 - [ ] Multi-operator Docker setup
 - [ ] Driver assignment to operators

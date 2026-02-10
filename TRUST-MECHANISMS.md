@@ -436,9 +436,9 @@ Start simple, add layers as the network grows.
 
 ## See Also
 
-- **[specs/NIP-XX-stakes.md](./specs/NIP-XX-stakes.md)** — Commitment stake event kinds and lifecycle
-- **[specs/NIP-XX-disputes.md](./specs/NIP-XX-disputes.md)** — Dispute resolution and guardian voting
-- **[specs/NIP-XX-reputation.md](./specs/NIP-XX-reputation.md)** — Reputation system and NIP-85 integration
+- **[specs/TROTT-04-payments.md](./specs/TROTT-04-payments.md)** — Commitment stake event kinds and lifecycle
+- **[specs/TROTT-05-safety.md](./specs/TROTT-05-safety.md)** — Dispute resolution and guardian voting
+- **[specs/TROTT-03-reputation.md](./specs/TROTT-03-reputation.md)** — Reputation system and NIP-85 integration
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** — Three-layer federated architecture
 - **[STAKING-EXPLAINED.md](./STAKING-EXPLAINED.md)** — Commitment stakes explained for non-technical readers
 - **[docs/PAYMENT-PROVIDERS.md](./docs/PAYMENT-PROVIDERS.md)** — Payment provider integration guide

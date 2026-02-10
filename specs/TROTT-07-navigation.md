@@ -397,7 +397,7 @@ Navigation events are consumed by and feed into multiple other TROTT specificati
 
 | Specification | Relationship |
 |---------------|-------------|
-| **TROTT-01** (Core) | Task acceptance (kind 30501) triggers route calculation. Route summary published immediately after acceptance. |
+| **TROTT-01** (Core) | Task acceptance (kind 30502) triggers route calculation. Route summary published immediately after acceptance. |
 | **TROTT-03** (Reputation) | ETA accuracy (kind 30561 vs actual arrival) feeds into the `punctuality` reputation criterion. Route deviation history feeds into the `safety` criterion. |
 | **TROTT-04** (Payments) | Route distance (kind 30560 `distance` tag) is used for distance-based pricing models. Route deviations may trigger fare adjustments. |
 | **TROTT-05** (Safety) | Route deviations (kind 30562) trigger safety alerts. `wrong_direction` deviations escalate to emergency signals (kind 30540). Location data from kind 20501 is shared with safety contacts via kind 30542. |
@@ -407,7 +407,7 @@ Navigation events are consumed by and feed into multiple other TROTT specificati
 
 ```
 1. Requester publishes kind 30500 (Task Request)     → TROTT-01
-2. Provider publishes kind 30501 (Acceptance)            → TROTT-01
+2. Provider publishes kind 30502 (Acceptance)            → TROTT-01
 3. Operator/provider publishes kind 30560 (Route)        → TROTT-07
 4. Operator/provider publishes kind 30561 (ETA)          → TROTT-07 (repeating)
 5. Provider publishes kind 20501 (Location)              → TROTT-07 (continuous)

@@ -27,17 +27,19 @@ The pet services domain uses two variants. Walking/grooming follows a linear flo
 
 **Walking / grooming:**
 ```
-accepted --> en_route --> arrived --> scheduled --> check_in --> active --> check_out --> confirmed
+accepted --> scheduled --> en_route --> arrived --> check_in --> active --> check_out --> confirmed
 ```
 
 **Sitting / extended care:**
 ```
-accepted --> en_route --> arrived --> scheduled --> check_in --> active --> check_out --> confirmed
+accepted --> scheduled --> en_route --> arrived --> check_in --> active --> check_out --> confirmed
 ```
 
 | Core state | Pet services state | Description |
 |------------|-------------------|-------------|
 | `accepted` | `scheduled` | Booking confirmed for a future date/time |
+| `in_progress` (dispatch) | `en_route` | Carer is travelling to the pet owner's location |
+| `in_progress` (arrival) | `arrived` | Carer has arrived at the pet owner's location |
 | `in_progress` (phase 1) | `check_in` | Carer arrives and collects the pet or begins session |
 | `in_progress` (phase 2) | `active` | Walk, grooming, or sitting session underway |
 | `completed` | `check_out` | Pet returned to owner; session report submitted |

@@ -78,6 +78,7 @@ Every payment event SHOULD include a `trust_model` tag declaring the custody ass
 | `fiat-escrow` | Fiat payment processor holds funds. | Strike, PayPal |
 | `direct` | Direct payment between parties, no escrow. | Cash, bank transfer |
 | `prepaid` | Payment collected before service begins. | Pre-paid voucher, Cashu token |
+| `ecash-htlc` | Ecash tokens locked with HTLC conditions. Mint enforces cryptographic spending conditions without custody authority. | Cashu NUT-14 |
 
 ---
 
@@ -857,7 +858,7 @@ Requester               Provider                Operator
     |                  (kind 30530)                  |
     |                       |                       |
     |── Accept Quote ─────→ |                       |
-    |   (kind 30501)        |                       |
+    |   (kind 30502)        |                       |
     |                       |                       |
     |                  ←── Task Update (in_progress) ──|
     |                  (kind 30503)                  |
@@ -874,7 +875,7 @@ Requester               Provider                Operator
     |                       |              (kind 30535)
 ```
 
-**Events published**: 30500, 30530, 30501, 30503, 30504, 30535
+**Events published**: 30500, 30530, 30502, 30503, 30504, 30535
 
 This flow uses `trust_model: direct` — no escrow, no operator custody. Suitable for low-value tasks or where parties have established trust.
 
@@ -918,7 +919,7 @@ Requester               Provider                Operator
     |                  (kind 30530)                  |
     |                       |                       |
     |── Accept Quote ─────→ |                       |
-    |   (kind 30501)        |                       |
+    |   (kind 30502)        |                       |
     |                       |                       |
     |                       |              ←── Payment Terms ──
     |                       |              (kind 30531)
@@ -949,7 +950,7 @@ Requester               Provider                Operator
     |              (kind 30535)                      |
 ```
 
-**Events published**: 30500, 30530, 30501, 30531, 30532 (x2), 30503, 30504, 30533 (x2), 30535
+**Events published**: 30500, 30530, 30502, 30531, 30532 (x2), 30503, 30504, 30533 (x2), 30535
 
 ---
 
@@ -1001,7 +1002,7 @@ Requester               Provider                Operator
     |               final cumulative)                |
 ```
 
-**Events published**: 30500, 30530, 30501, 30531, 30532 (x2), 30503, 30536 (xN), 30504, 30533 (x2), 30535
+**Events published**: 30500, 30530, 30502, 30531, 30532 (x2), 30503, 30536 (xN), 30504, 30533 (x2), 30535
 
 #### Streaming Reconciliation
 
@@ -1063,7 +1064,7 @@ Requester               Provider                Operator
     |               total = sum of all milestones)   |
 ```
 
-**Events published**: 30500, 30530, 30501, 30531, 30532, 30503, 30533 (x4 milestones), 30504, 30535
+**Events published**: 30500, 30530, 30502, 30531, 30532, 30503, 30533 (x4 milestones), 30504, 30535
 
 #### Abandoned Milestone Task
 

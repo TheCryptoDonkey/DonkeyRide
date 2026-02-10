@@ -75,7 +75,7 @@ Events that reference monetary values MUST include all three of the following ta
 |-----|-------------|---------|
 | `amount` | Value in the smallest unit of the specified currency | `["amount", "1500"]` |
 | `currency` | ISO 4217 fiat code or well-known crypto code (BTC, SAT) | `["currency", "GBP"]` |
-| `trust_model` | Payment provider trust model | `["trust_model", "custodial-escrow"]` |
+| `trust_model` | Payment provider trust model | `["trust_model", "operator-escrow"]` |
 
 ### Party Tags
 
@@ -139,6 +139,7 @@ All TROTT domains share the following core state machine. States are divided int
                         =============
 
     cancelled   (reachable from: accepted, in_progress, completed)
+    no_show     (reachable from: in_progress; also via disputed resolution)
     disputed    (reachable from: accepted, in_progress, completed)
 ```
 
@@ -154,8 +155,9 @@ All TROTT domains share the following core state machine. States are divided int
 | `confirmed` | Core | Requester has confirmed completion (30505). Payment is released. This is a **terminal state**. |
 | `cancelled` | Branch | Task cancelled by either party (30506) with a reason code. This is a **terminal state**. |
 | `disputed` | Branch | Task escalated to dispute resolution (30507). Remains in this state until resolved. See TROTT-05. |
+| `no_show` | Branch | One party failed to appear after commitment. Triggers automatic stake forfeiture for the absent party. This is a **terminal state**. |
 
-**Terminal states**: `confirmed`, `cancelled`. A `disputed` task transitions to `confirmed` or `cancelled` upon resolution.
+**Terminal states**: `confirmed`, `cancelled`, `no_show`. A `disputed` task transitions to `confirmed`, `cancelled`, or `no_show` upon resolution.
 
 ### Allowed Transitions
 
@@ -177,6 +179,8 @@ All TROTT domains share the following core state machine. States are divided int
 | `completed` | `disputed` | Either party publishes Task Dispute (30507) |
 | `disputed` | `confirmed` | Resolved in favour of completion |
 | `disputed` | `cancelled` | Resolved by cancellation/refund |
+| `disputed` | `no_show` | Resolved as no-show by absent party |
+| `in_progress` | `no_show` | Either party publishes Task Cancel (30506) with reason_code `requester_no_show` or `provider_no_show` |
 
 ### Domain Extension Points
 
@@ -199,7 +203,7 @@ accepted → provider_en_route → provider_arrived → access_method_confirmed 
 **Example: Delivery**
 
 ```
-accepted → en_route_to_collection → collected → en_route_to_delivery → delivered → completed
+accepted → en_route_to_pickup → collected → in_transit → delivered → completed
 ```
 
 Domain extension specs define:
@@ -251,7 +255,7 @@ Published by the requester to announce "I need something done." This is the entr
     ["g", "gcpu"],
     ["amount", "1500"],
     ["currency", "GBP"],
-    ["trust_model", "custodial-third-party"],
+    ["trust_model", "fiat-escrow"],
     ["expiration", "1698769032"]
   ],
   "content": "Need a ride to Paddington Station"
@@ -318,7 +322,7 @@ Published by a provider to say "I can do this." Optionally includes a quote. Mul
     ["provider_pubkey", "<provider_hex_pubkey>"],
     ["amount", "7500"],
     ["currency", "GBP"],
-    ["trust_model", "custodial-escrow"],
+    ["trust_model", "operator-escrow"],
     ["estimated_arrival", "15"],
     ["expiration", "1698769032"]
   ],
@@ -361,7 +365,7 @@ Published to formalise a match. Two usage patterns:
     ["provider_pubkey", "<provider_hex_pubkey>"],
     ["amount", "7500"],
     ["currency", "GBP"],
-    ["trust_model", "custodial-escrow"],
+    ["trust_model", "operator-escrow"],
     ["expiration", "1698769032"]
   ],
   "content": ""
@@ -387,7 +391,7 @@ Published to formalise a match. Two usage patterns:
     ["estimated_arrival", "8"],
     ["amount", "1500"],
     ["currency", "GBP"],
-    ["trust_model", "custodial-third-party"],
+    ["trust_model", "fiat-escrow"],
     ["expiration", "1698769032"]
   ],
   "content": ""
@@ -575,7 +579,7 @@ Published by the provider to declare that work is finished. MUST include complet
     ["proof_data", "<encoded_gps_trace_or_hash>"],
     ["final_amount", "1650"],
     ["currency", "GBP"],
-    ["trust_model", "custodial-third-party"],
+    ["trust_model", "fiat-escrow"],
     ["distance_metres", "8450"],
     ["duration_seconds", "1260"],
     ["expiration", "1698770432"]
@@ -685,7 +689,7 @@ Published by the requester to confirm that the work has been completed satisfact
     ["requester_pubkey", "<requester_hex_pubkey>"],
     ["confirmed_amount", "1650"],
     ["currency", "GBP"],
-    ["trust_model", "custodial-third-party"]
+    ["trust_model", "fiat-escrow"]
   ],
   "content": ""
 }
@@ -872,11 +876,12 @@ Implementations MUST enforce the following validation rules:
 | **V8** | Task Complete (30504) MUST include at least one `completion_proof` tag |
 | **V9** | Task Confirm (30505) MUST reference a Task Complete (30504) via `e` tag |
 | **V10** | Task Confirm (30505) MUST target a task in state `completed` |
-| **V11** | Task Cancel (30506) MUST NOT target a task already in a terminal state |
+| **V11** | Task Cancel (30506) MUST NOT target a task already in a terminal state (`confirmed`, `cancelled`, `no_show`) |
 | **V12** | Task Dispute (30507) MUST target a task in state `accepted`, `in_progress`, or `completed` |
 | **V13** | All events with an `amount` tag MUST also include a `currency` tag |
 | **V14** | The `d` tag on all events for the same task MUST be identical |
 | **V15** | The `t` tag MUST be `trott-task` on all TROTT lifecycle events |
+| **V16** | A Task Cancel (30506) with reason_code `requester_no_show` or `provider_no_show` MUST transition to `no_show`, not `cancelled` |
 
 ---
 

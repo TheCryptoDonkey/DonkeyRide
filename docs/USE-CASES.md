@@ -18,9 +18,9 @@ The protocol decomposes into 7 universal primitives:
 | 1 | Request/Response Matching      | Finding a counterparty                     | Kind 30500/30501 + geohash or tag-based discovery              |
 | 2 | Commitment Stakes (Escrow)     | Preventing ghosting by either party        | Hodl invoices, custodial locks, or federated custody           |
 | 3 | Lifecycle State Machine        | Tracking task progress                     | requested → matched → en_route → arrived → active → completed  |
-| 4 | Portable Reputation            | Trust without institutions                 | Kind 30530 signed ratings, web-of-trust weighted, time-decayed |
-| 5 | Automated Dispute Resolution   | Scaling conflict resolution                | Kind 30522/30524 with confidence scoring                       |
-| 6 | Federated Operators with Bonds | Preventing monopoly & operator fraud       | Kind 30540 slashable bonds                                     |
+| 4 | Portable Reputation            | Trust without institutions                 | Kind 30520 signed ratings, web-of-trust weighted, time-decayed |
+| 5 | Automated Dispute Resolution   | Scaling conflict resolution                | Kind 30543/30545 with confidence scoring                       |
+| 6 | Federated Operators with Bonds | Preventing monopoly & operator fraud       | Kind 30511 slashable bonds                                     |
 | 7 | Privacy-Preserving Discovery   | Finding services without exposing location | Geohash precision levels, encrypted DMs post-match             |
 
 The three-layer architecture holds across every use case:
@@ -58,8 +58,8 @@ is transformative.
 #### 2. Man with a Van / Small Removals — Protocol Fit: 9/10
 
 Almost identical to ridesharing. "Man with a van" is ridesharing for goods. Geospatial discovery, two-party matching,
-real-time WebSocket tracking, streaming payments per minute. The multi-leg trip event (kind 30535) handles multi-stop
-moves.
+real-time WebSocket tracking, streaming payments per minute. The multi-leg trip event (ridesharing domain extension,
+kind 30600-30619) handles multi-stop moves.
 
 - State machine: removal_requested → mover_matched → en_route_to_pickup → arrived → loading → in_transit →
   arrived_at_delivery → unloading → completed
@@ -70,7 +70,7 @@ moves.
 #### 3. Mobile Car Wash / Valeting — Protocol Fit: 9/10
 
 Minimal protocol modification. Customer may not be present — photo evidence at completion triggers automatic stake
-release. The corporate account event (kind 30576) maps to fleet contracts.
+release. Corporate fleet contracts can be managed via domain extension events.
 
 - Market: ~£1.2bn. Weak incumbents
 - Regulatory: Very low (Environmental Protection Act for water runoff)
@@ -133,7 +133,7 @@ guarantee_period state tracked as a long-lived replaceable event (NIP-33).
 
 #### 9. Food Delivery (Deliveroo / Uber Eats Alternative) — Protocol Fit: 8/10
 
-Introduces a three-party model (restaurant → courier → customer). Tipping already exists (kind 30513). Surge pricing
+Introduces a three-party model (restaurant → courier → customer). Tipping is supported via TROTT-04 payments. Surge pricing
 already implemented.
 
 - Temperature compliance: hot food >63°C, cold food <8°C (Food Safety Act 1990)
@@ -144,7 +144,7 @@ already implemented.
 
 #### 10. Security Guard Dispatch — Protocol Fit: 8/10
 
-Ad-hoc security dispatch. Safety check-in events (kinds 30561-30562) serve double duty — confirming guard safety AND
+Ad-hoc security dispatch. Safety check-in events (TROTT-05, kinds 30541-30542) serve double duty — confirming guard safety AND
 presence on-site (proof of service).
 
 - SIA licence verification mandatory (Private Security Industry Act 2001)
@@ -180,7 +180,7 @@ mechanisms: automatic forfeit if delivery exceeds agreed window.
 
 Works WITHOUT payments (zero-value sessions). Reputation stakes instead of financial — volunteers who no-show lose
 reputation rather than money. Multiple charities sharing the protocol can share volunteer pools via cross-operator
-coordination (kind 30505).
+coordination (TROTT-06, kinds 30550-30554).
 
 - Market: Non-commercial but massive social impact
 - Current tooling: WhatsApp groups and spreadsheets
@@ -218,8 +218,8 @@ payments.
 
 #### 18. Mobile Hairdresser / Beautician — Protocol Fit: 7/10
 
-Favourite driver event (kind 30577) maps to "favourite stylist". Additional charge event (kind 30516) covers product
-costs.
+The favourite provider mechanism (via domain extension events) maps to "favourite stylist". Additional charges are handled
+via TROTT-04 payment events.
 
 - No mandatory licensing (England/Wales). Scotland requires registration
 - Market: ~£800m-1.2bn mobile segment
@@ -297,7 +297,7 @@ typically guarantee treatment for 3-12 months.
 #### 27. Tour Guide — Protocol Fit: 7/10
 
 Duration-based service with strong location and scheduling components. Discovery shifts to skill/language/speciality
-tags alongside geohash. The favourite provider event (kind 30577) maps to "favourite guide" for repeat tourists.
+tags alongside geohash. The favourite provider mechanism (via domain extension events) maps to "favourite guide" for repeat tourists.
 Streaming payments per hour work naturally for variable-duration tours.
 
 - State machine: tour_requested → guide_matched → en_route → met_at_point → tour_active → tour_complete → completed
@@ -497,7 +497,7 @@ via DOMAIN env var. One codebase, many use cases.
 :
     { ...
     }
-,           // Maps to kinds 30595-30599
+,           // Maps to TROTT-03 credential attestation (kind 30522)
     dataRetention: { ...
     }
 ,               // Per-field retention policies
@@ -541,21 +541,25 @@ What stays unchanged (already generic):
 Shared core kinds + domain extension ranges:
 
 ```
-SHARED CORE (30500-30529)               — All domains use these
-├── 30500 Service Request (+ domain tag)
-├── 30501 Service Acceptance
-├── 30510 Streaming Payment
-├── 30511 Service Completion
-├── 30512 Status Update
-├── 30513 Tip
-├── 30520/21 Stake Lock/Release/Cancel
-├── 30522/24 Dispute/Resolution
-└── 30530 Reputation Rating
+TROTT CORE (30500-30563)                — All domains use these (7 specs)
+├── TROTT-01 (30500-30507) Task lifecycle (request, offer, accept, complete, confirm, cancel, dispute)
+├── TROTT-02 (20500, 30510-30512) Discovery (availability, profiles, bonds, trusted lists)
+├── TROTT-03 (30520-30522) Reputation (ratings, queries, credentials)
+├── TROTT-04 (30530-30536) Payments (quotes, terms, stakes, receipts, streaming)
+├── TROTT-05 (30540-30546) Safety & Disputes (emergency, check-ins, disputes, abuse)
+├── TROTT-06 (30550-30554) Coordination (operator claims, PII, delegation, compliance)
+└── TROTT-07 (20501, 30560-30563) Navigation (routes, ETA, deviation, resources)
 
-RIDESHARING (30540-30559)               — Vehicle tracking, navigation, safety
-DELIVERY (30560-30579)                  — Photo proof, signatures, temperature
-HEALTHCARE (30580-30599)                — Clinical sign-off, consent, safeguarding
-TRADES (30600-30619)                    — Quotes, guarantees, certifications
+DOMAIN EXTENSIONS (30600-30779)         — Domain-specific kinds
+├── RIDESHARING (30600-30619)           — Vehicle tracking, trip events
+├── LOCKSMITH (30620-30639)             — Quote negotiation, access methods
+├── DELIVERY (30640-30659)              — Photo proof, signatures, chain of custody
+├── TOWING (30660-30679)                — Vehicle assessment, storage
+├── EMERGENCY TRADES (30680-30699)      — Quotes, guarantees, certifications
+├── PET SERVICES (30700-30719)          — Activity tracking, pet profiles
+├── SECURITY (30720-30739)              — Shift management, patrol logs
+├── CLEANING (30740-30759)              — Checklists, recurring schedules
+└── MOVING (30760-30779)                — Inventory, crew coordination
 ```
 
 Each domain request event carries a ['domain', 'ridesharing'] tag for relay filtering.
@@ -739,15 +743,15 @@ The following capabilities are fully specified and implemented:
 
 | Capability | Spec | Kind(s) | Status |
 |------------|------|---------|--------|
-| Location-based discovery | NIP-XX-discovery | 30540, 30565, 20500 | Active |
-| Streaming payments | NIP-XX-payments | 30510 | Active |
-| Flat rate pricing | NIP-XX-core | 30500 (amount tag) | Active |
-| Photo proof | NIP-XX-delivery | 30620-30639 | Draft |
-| Signature proof | NIP-XX-delivery | 30620-30639 | Draft |
-| Navigation | NIP-XX-navigation | 30583-30587 | Active |
-| Milestone payments | NIP-XX-stakes | 30537 | Active |
-| Quote negotiation | NIP-XX-locksmith | 30600-30619 | Draft |
-| Heartbeat protocol | NIP-XX-safety | 30561-30562 | Active |
+| Location-based discovery | TROTT-02 | 20500, 30510-30512 | Active |
+| Streaming payments | TROTT-04 | 30536 | Active |
+| Flat rate pricing | TROTT-01 | 30500 (amount tag) | Active |
+| Photo proof | TROTT-delivery | 30640-30659 | Draft |
+| Signature proof | TROTT-delivery | 30640-30659 | Draft |
+| Navigation | TROTT-07 | 20501, 30560-30563 | Active |
+| Milestone payments | TROTT-04 | 30530-30536 | Active |
+| Quote negotiation | TROTT-locksmith | 30620-30639 | Draft |
+| Heartbeat protocol | TROTT-05 | 30541-30542 | Active |
 
 ### Gaps — Not Yet Specified
 
@@ -767,7 +771,7 @@ priced or audited.
 **Current state**: The v1 archive spec included `duration` tags on service requests and `shift_duration` tags on
 driver management events. These were not carried forward into the modular specs.
 
-**Spec work needed**: Add `duration`, `expected_duration`, and `actual_duration` tags to NIP-XX-core. Define
+**Spec work needed**: Add `duration`, `expected_duration`, and `actual_duration` tags to TROTT-01. Define
 time-based pricing semantics alongside the existing amount/currency tags. This is planned for Phase 3-4 of the spec
 universalisation work.
 
@@ -782,8 +786,8 @@ misses the dominant usage pattern for 19 of 34 domains. Recurring scheduling als
 and provider income predictability.
 
 **Current state**: The v1 archive spec included a `recurring` tag with values `none|daily|weekly|monthly` on service
-request events. This was not carried forward into the modular specs. The favourite provider event (kind 30577) provides
-a building block but does not handle scheduling.
+request events. This was not carried forward into the modular TROTT specs. The favourite provider mechanism (via domain
+extension events) provides a building block but does not handle scheduling.
 
 **Spec work needed**: Define a recurring task template event type with recurrence rules (RFC 5545 RRULE subset),
 series identifiers, and exception handling. This is planned for Phase 3-4 of the spec universalisation work.
@@ -801,7 +805,7 @@ healthcare.
 **Current state**: The `amount` and `currency` tags on service requests can encode an hourly rate, but there is no
 standard tag for `pricing_model` or `rate_unit` to distinguish hourly from flat or distance-based pricing.
 
-**Spec work needed**: Add `pricing_model` and `rate_unit` tags to NIP-XX-core. Define hourly rate semantics including
+**Spec work needed**: Add `pricing_model` and `rate_unit` tags to TROTT-01. Define hourly rate semantics including
 minimum booking duration, overtime rates, and rounding rules.
 
 #### Gap 4: Virtual / Remote Service Support — Demand: 4 domains (1 required + 3 optional)
@@ -817,7 +821,7 @@ components.
 **Current state**: The protocol assumes location-based discovery (geohash) for all services. There is no mechanism for
 virtual-only or hybrid service discovery. The v1 archive had no virtual support either.
 
-**Spec work needed**: Extend NIP-XX-discovery to support non-geographic discovery (skill tags, availability windows,
+**Spec work needed**: Extend TROTT-02 to support non-geographic discovery (skill tags, availability windows,
 language tags). Add virtual session management (video link exchange, screen sharing proof, session recording consent).
 This is planned for Phase 3-4 of the spec universalisation work.
 

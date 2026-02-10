@@ -26,7 +26,7 @@
 The cleaning domain uses a straightforward scheduled pattern:
 
 ```
-accepted --> scheduled --> arrived --> in_progress --> completed --> confirmed
+accepted --> scheduled --> arrived --> cleaning_active --> completed --> confirmed
                              |
                              +--> no_show (client not home / no access)
 ```
@@ -35,7 +35,7 @@ accepted --> scheduled --> arrived --> in_progress --> completed --> confirmed
 |------------|---------------|-------------|
 | `accepted` (sub-phase) | `scheduled` | Session booked for a specific date and time |
 | `in_progress` (phase 1) | `arrived` | Cleaner has arrived at the property |
-| `in_progress` (phase 2) | `in_progress` | Cleaning underway |
+| `in_progress` (phase 2) | `cleaning_active` | Cleaning underway |
 | `completed` | `completed` | Cleaning finished; client may inspect |
 
 Recurring bookings create separate task instances per session, each following the same state machine independently.

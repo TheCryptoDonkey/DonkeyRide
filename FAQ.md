@@ -28,7 +28,7 @@
 
 **DonkeyRide is an open protocol standard** for trust-minimised service coordination — similar to how HTTP is a standard for the web or SMTP is a standard for email.
 
-It's **not** a company. It's a family of modular Nostr NIP specifications that define how requesters, providers, and operators coordinate services — from ridesharing to locksmith dispatch to parcel delivery.
+It's **not** a company. It's a family of modular TROTT (Trusted Real-world Orchestration of Tasks & Trades) specifications built on Nostr that define how requesters, providers, and operators coordinate services — from ridesharing to locksmith dispatch to parcel delivery.
 
 ### Why not just use Uber, TaskRabbit, or Deliveroo?
 
@@ -75,22 +75,22 @@ Create a **domain profile** (~100 lines of JavaScript) that defines:
 - State machine (states and valid transitions)
 - Role names (requester/provider labels)
 - Pricing model (per-time, per-distance, flat rate, milestone)
-- Feature flags (which NIP modules to use)
+- Feature flags (which TROTT specs to use)
 - Completion proof types (photo, signature, GPS)
 - Rating criteria (domain-specific)
 
 No protocol changes needed. See `src/domain-profiles/` for examples.
 
-### Do all domains use all the NIP specifications?
+### Do all domains use all the TROTT specifications?
 
-No. Each domain profile declares which NIPs it uses:
+No. Each domain profile declares which TROTT specs it uses:
 
-| Domain | core | stakes | reputation | disputes | discovery | safety | navigation | payments |
-|--------|------|--------|------------|----------|-----------|--------|------------|----------|
-| Ridesharing | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
-| Locksmith | Yes | Yes | Yes | Yes | Yes | — | — | — |
-| Delivery | Yes | Yes | Yes | Yes | Yes | — | Yes | Yes |
-| Court serving | Yes | — | Yes | — | Yes | — | Yes | — |
+| Domain | 01 Core | 02 Discovery | 03 Reputation | 04 Payments | 05 Safety | 06 Coordination | 07 Navigation |
+|--------|---------|-------------|---------------|-------------|-----------|-----------------|---------------|
+| Ridesharing | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Locksmith | Yes | Yes | Yes | Yes | Yes | Yes | — |
+| Delivery | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
+| Court serving | Yes | Yes | Yes | — | — | — | Yes |
 
 ---
 
@@ -274,28 +274,27 @@ See [docs/GDPR-COMPLIANCE.md](./docs/GDPR-COMPLIANCE.md) for details.
 
 ### How is the protocol structured?
 
-The protocol is a **family of 8 modular NIP specifications**, each covering a specific concern:
+The protocol is a **family of 7 modular TROTT specifications**, each covering a specific concern:
 
-| Spec | Scope |
-|------|-------|
-| NIP-XX-core | Service lifecycle (request, accept, complete, cancel) |
-| NIP-XX-stakes | Commitment stakes (lock, release, forfeit) |
-| NIP-XX-reputation | Ratings and reputation portability |
-| NIP-XX-disputes | Disputes, theft reports, guardian voting |
-| NIP-XX-discovery | Geohash-based service discovery |
-| NIP-XX-safety | Emergency alerts, trip sharing, heartbeat |
-| NIP-XX-navigation | Routes, turn-by-turn, traffic |
-| NIP-XX-payments | Streaming payments, tips, surcharges |
+| Spec | Kind Range | Scope |
+|------|-----------|-------|
+| TROTT-01: Core | 30500-30507 | Task lifecycle (request, offer, accept, complete, confirm, cancel, dispute) |
+| TROTT-02: Discovery | 20500, 30510-30512 | Provider availability, geohash search, skill search, trusted networks |
+| TROTT-03: Reputation | 30520-30522 | Ratings, trust weighting, credentials, cross-domain portability |
+| TROTT-04: Payments | 30530-30536 | Quotes, escrow, streaming, milestones, split payments |
+| TROTT-05: Safety | 30540-30546 | Emergency signals, check-ins, disputes, abuse reporting |
+| TROTT-06: Coordination | 30550-30554 | Operator participation, PII handling, compliance (optional) |
+| TROTT-07: Navigation | 20501, 30560-30563 | Routing, ETA, live tracking, route deviation (optional) |
 
-Plus **domain extension specs** for ridesharing, locksmith, and delivery.
+Plus **9 domain extension specs** for ridesharing, locksmith, delivery, towing, emergency trades, pet services, security, cleaning, and moving.
 
 See [specs/QUICK-REFERENCE.md](./specs/QUICK-REFERENCE.md) for the complete event kind table.
 
 ### What event kind range does DonkeyRide use?
 
-- **30500-30599**: Core protocol + modular NIPs
-- **30600-30639**: Domain extensions (locksmith, delivery)
-- **20500**: Provider availability (ephemeral — relays must not store)
+- **20500-20501**: Ephemeral events (provider availability, location updates)
+- **30500-30563**: Core protocol (TROTT-01 through TROTT-07)
+- **30600-30779**: Domain extensions (ridesharing, locksmith, delivery, towing, emergency trades, pet services, security, cleaning, moving)
 
 ### What's a "replaceable parameterised event"?
 
@@ -326,7 +325,7 @@ You can build: requester apps, provider apps, operator backends, analytics tools
 ### Where do I start?
 
 1. Read [specs/QUICK-REFERENCE.md](./specs/QUICK-REFERENCE.md) for the protocol overview
-2. Read [specs/NIP-XX-core.md](./specs/NIP-XX-core.md) for the core specification
+2. Read [specs/TROTT-01-core.md](./specs/TROTT-01-core.md) for the core specification
 3. Set up local development: [guides/QUICK-START.md](./guides/QUICK-START.md)
 4. Run the reference implementation with different domains (`DOMAIN=locksmith npm start`)
 

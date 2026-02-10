@@ -151,11 +151,10 @@ Additional domain-specific criteria are optional and defined by the domain profi
     ["domain", "locksmith"],
     ["role", "requester"],
     ["rating", "overall", "4"],
-    ["rating", "communication", "5"],
     ["rating", "punctuality", "3"],
     ["stake_evidence", "750", "GBP"]
   ],
-  "content": "Customer was friendly and communicated well. Took 10 minutes to answer the door after I arrived."
+  "content": "Customer was friendly but took 10 minutes to answer the door after I arrived."
 }
 ```
 
@@ -173,13 +172,12 @@ Additional domain-specific criteria are optional and defined by the domain profi
     ["domain", "delivery"],
     ["role", "provider"],
     ["rating", "overall", "4"],
-    ["rating", "speed", "5"],
-    ["rating", "package_condition", "3"],
+    ["rating", "punctuality", "5"],
+    ["rating", "package_care", "3"],
     ["rating", "communication", "4"],
-    ["rating", "proof_quality", "5"],
     ["stake_evidence", "500", "GBP"]
   ],
-  "content": "Fast delivery. Package arrived with a small dent on one corner but contents were undamaged. Proof photo was clear."
+  "content": "Fast delivery. Package arrived with a small dent on one corner but contents were undamaged."
 }
 ```
 
@@ -432,6 +430,8 @@ To revoke a credential, the issuer publishes a replacement event with the same `
 
 Each domain profile defines which rating criteria are available beyond the mandatory `overall` criterion. The criteria fall into two categories: **universal** criteria that transfer across domains and **domain-specific** criteria that are meaningful only within their domain.
 
+> **Note:** The criteria listed here summarise those defined authoritatively in each domain's profile specification (`specs/domains/*.md`).
+
 ### Universal Criteria
 
 These criteria carry the same semantics regardless of domain. Implementations SHOULD transfer universal criteria ratings across domains when computing cross-domain reputation.
@@ -460,21 +460,19 @@ These criteria carry the same semantics regardless of domain. Implementations SH
 | Criterion | Universal | Description |
 |-----------|-----------|-------------|
 | `overall` | -- | Holistic assessment (1-5) |
-| `response_time` | No | Speed from acceptance to arrival |
+| `punctuality` | Yes | Arrived at the customer's location on time |
 | `workmanship` | No | Quality of lock work performed |
 | `pricing_fairness` | No | Whether the final price matched the quote and was reasonable |
 | `tidiness` | No | Left the work area clean and undamaged |
-| `communication` | Yes | Clarity about diagnosis, pricing, and timeline |
 
 #### Delivery
 
 | Criterion | Universal | Description |
 |-----------|-----------|-------------|
 | `overall` | -- | Holistic assessment (1-5) |
-| `speed` | No | Time from collection to delivery |
-| `package_condition` | No | Package arrived undamaged |
+| `punctuality` | Yes | Collected and delivered on time |
+| `package_care` | No | Package arrived undamaged and in good condition |
 | `communication` | Yes | Updates during transit, responsiveness |
-| `proof_quality` | No | Quality of delivery proof (photo, signature) |
 
 #### Cleaning
 
@@ -491,11 +489,10 @@ These criteria carry the same semantics regardless of domain. Implementations SH
 | Criterion | Universal | Description |
 |-----------|-----------|-------------|
 | `overall` | -- | Holistic assessment (1-5) |
-| `professionalism` | No | Conduct, uniform, bearing |
 | `alertness` | No | Attentiveness during duty |
-| `reporting_quality` | No | Thoroughness and accuracy of incident reports |
-| `appearance` | No | Professional presentation |
+| `professionalism` | No | Conduct, uniform, bearing |
 | `communication` | Yes | Clarity of handover notes and status updates |
+| `punctuality` | Yes | Arrived for the shift on time |
 
 ### Cross-Domain Transfer Rules
 

@@ -232,7 +232,7 @@ The UK GDPR is substantively aligned with EU GDPR. Key differences and clarifica
 ## See Also
 
 - **[ARCHITECTURE.md](../ARCHITECTURE.md)** — Three-layer federated architecture
-- **[specs/NIP-XX-core.md](../specs/NIP-XX-core.md)** — Core protocol (NIP-40 expiration, NIP-44 encryption)
-- **[specs/NIP-XX-safety.md](../specs/NIP-XX-safety.md)** — Safety events (NIP-17 trip sharing)
-- **[specs/NIP-XX-reputation.md](../specs/NIP-XX-reputation.md)** — Reputation and crypto-shredding
+- **[specs/TROTT-01-core.md](../specs/TROTT-01-core.md)** — Core protocol (NIP-40 expiration, NIP-44 encryption)
+- **[specs/TROTT-05-safety.md](../specs/TROTT-05-safety.md)** — Safety events (NIP-17 trip sharing)
+- **[specs/TROTT-03-reputation.md](../specs/TROTT-03-reputation.md)** — Reputation and crypto-shredding
 - **[guides/OPERATOR-DEPLOYMENT.md](../guides/OPERATOR-DEPLOYMENT.md)** — Deployment guide (includes GDPR setup)

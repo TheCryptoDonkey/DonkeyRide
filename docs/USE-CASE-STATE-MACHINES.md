@@ -470,7 +470,7 @@ stateDiagram-v2
 
 **Edge cases**: Guard handover (multi-shift bookings need a handover state). Patrol routes (NFC/QR checkpoint scanning as proof of patrol). SIA licensing is mandatory (criminal offence if unlicensed).
 
-**Protocol gap**: Session-based heartbeat / periodic check-ins (implemented in NIP-XX-safety).
+**Protocol gap**: Session-based heartbeat / periodic check-ins (implemented in TROTT-05-safety).
 
 **Regulatory**: Private Security Industry Act 2001. SIA licensing mandatory. BS 7858 security screening standard.
 
@@ -520,8 +520,8 @@ Operators MUST verify mandatory credentials before matching providers. Profiles 
 
 ## See Also
 
-- **[specs/NIP-XX-core.md](../specs/NIP-XX-core.md)** — Core state machine and lifecycle
-- **[specs/NIP-XX-stakes.md](../specs/NIP-XX-stakes.md)** — Milestone-based escrow (kind 30537)
-- **[specs/NIP-XX-safety.md](../specs/NIP-XX-safety.md)** — Heartbeat protocol and safety check-ins
+- **[specs/TROTT-01-core.md](../specs/TROTT-01-core.md)** — Core state machine and lifecycle
+- **[specs/TROTT-04-payments.md](../specs/TROTT-04-payments.md)** — Milestone-based escrow (kind 30537)
+- **[specs/TROTT-05-safety.md](../specs/TROTT-05-safety.md)** — Heartbeat protocol and safety check-ins
 - **[docs/USE-CASES.md](./USE-CASES.md)** — Use case overview and protocol fit scores
 - **[src/domain-profiles/](../src/domain-profiles/)** — Domain profile implementations

@@ -624,8 +624,8 @@ TOLL_AVERSION=1.5
   - [GraphHopper Routing](https://www.graphhopper.com/)
 
 - **Nostr Protocol:**
-  - [NIP-XX: Ridesharing Protocol](./NIP-XX-ridesharing.md)
-  - Navigation events: kinds 30580-30584
+  - [TROTT-07: Navigation](../specs/TROTT-07-navigation.md)
+  - Navigation events: kinds 20501, 30560-30563
 
 - **Self-Hosting:**
   - [OSRM Docker Setup](https://github.com/Project-OSRM/osrm-backend)

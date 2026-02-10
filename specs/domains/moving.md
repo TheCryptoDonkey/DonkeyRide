@@ -45,6 +45,8 @@ accepted --> crew_assembled --> loading --> in_transit --> unloading --> complet
 
 Multi-provider: each mover has their own acceptance event referencing the same task `d` tag. The task proceeds to `crew_assembled` once all required movers have confirmed.
 
+**Terminal states**: `confirmed`, `cancelled`, `no_show`. A `no_show` occurs when the client or crew fails to appear after commitment. Triggers automatic stake forfeiture for the absent party per TROTT-01.
+
 ## Domain-Specific Tags
 
 | Tag | Description |

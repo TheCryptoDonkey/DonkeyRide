@@ -34,6 +34,7 @@ accepted --> provider_en_route --> vehicle_assessed --> vehicle_loaded --> in_tr
 
 | Core state | Towing state | Description |
 |------------|-------------|-------------|
+| `in_progress` (dispatch) | `provider_en_route` | Recovery operator is travelling to the breakdown location |
 | `in_progress` (phase 1) | `vehicle_assessed` | Operator has inspected vehicle, determined recovery method, issued binding quote, and motorist has accepted |
 | `in_progress` (phase 2) | `vehicle_loaded` | Vehicle is on the flatbed or hook |
 | `in_progress` (phase 3) | `in_transit` | Vehicle being transported to destination |

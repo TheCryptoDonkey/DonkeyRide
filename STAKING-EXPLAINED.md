@@ -239,7 +239,7 @@ Current implementation: **Insurance Pool**
 
 ## See Also
 
-- **[specs/NIP-XX-stakes.md](./specs/NIP-XX-stakes.md)** — Stake event kinds and lifecycle
+- **[specs/TROTT-04-payments.md](./specs/TROTT-04-payments.md)** — Stake event kinds and lifecycle
 - **[TRUST-MECHANISMS.md](./TRUST-MECHANISMS.md)** — 6 layers of trust (defence in depth)
-- **[specs/NIP-XX-payments.md](./specs/NIP-XX-payments.md)** — Payment events and streaming payments
+- **[specs/TROTT-04-payments.md](./specs/TROTT-04-payments.md)** — Payment events and streaming payments
 - **[docs/PAYMENT-PROVIDERS.md](./docs/PAYMENT-PROVIDERS.md)** — Payment provider integration guide

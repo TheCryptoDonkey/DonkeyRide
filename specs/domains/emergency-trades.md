@@ -26,7 +26,7 @@
 The emergency trades domain expands the TROTT-01 `in_progress` phase into diagnosis and milestone-based repair stages:
 
 ```
-accepted --> en_route --> diagnosis --> quote_provided --> quote_accepted --> work_active --> work_complete --> confirmed
+accepted --> provider_en_route --> diagnosis --> quote_provided --> quote_accepted --> work_active --> work_complete --> confirmed
                             |                                                     |
                             +--> cancelled (householder declines; diagnosis fee retained)
                                                                                   +--> full_repair (optional) --> confirmed
@@ -34,6 +34,7 @@ accepted --> en_route --> diagnosis --> quote_provided --> quote_accepted --> wo
 
 | Core state | Emergency trades state | Description |
 |------------|----------------------|-------------|
+| `in_progress` (dispatch) | `provider_en_route` | Tradesperson is travelling to the householder's location |
 | `in_progress` (phase 1) | `diagnosis` | Tradesperson assessing the problem on site |
 | `in_progress` (phase 2) | `quote_provided` | Tradesperson has issued milestone-based repair quote |
 | `in_progress` (phase 3) | `quote_accepted` | Householder has accepted the repair quote |
@@ -41,6 +42,8 @@ accepted --> en_route --> diagnosis --> quote_provided --> quote_accepted --> wo
 | `in_progress` (phase 5) | `work_complete` | Emergency fix done; optional full repair follows |
 
 The `full_repair` stage is optional. Many emergencies resolve at the emergency fix stage, with permanent repairs scheduled as a separate linked task.
+
+**Terminal states**: `confirmed`, `cancelled`, `no_show`. A `no_show` occurs when the householder is absent after commitment (see Cancellation Policy). Triggers automatic stake forfeiture per TROTT-01.
 
 ## Domain-Specific Tags
 
