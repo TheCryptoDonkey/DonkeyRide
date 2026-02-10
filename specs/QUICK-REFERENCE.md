@@ -1,53 +1,56 @@
-# DonkeyRide Protocol — Quick Reference
+# TROTT Protocol — Quick Reference
 
-**Protocol Version**: v3.0 (Payment-Agnostic, Modular NIPs)
-**Event Kind Range**: 30500-30599 (primary) + 30600-30719 (domain extensions)
+**Trusted Real-world Orchestration of Tasks & Trades**
+
+**Protocol Version**: v4.0 (Payment-Agnostic, Modular TROTT Specs)
+**Event Kind Range**: 20500-20501 (ephemeral) + 30500-30563 (core) + 30600-30779 (domain extensions)
 **Last Updated**: 2026-02-10
 
 ---
 
 ## Specification Structure
 
-The protocol is organised as a **family of focused specifications**. Each NIP stands alone and can be implemented independently. Domain profiles declare which NIPs they use.
+The protocol is organised as a **family of 7 focused specifications**. Each spec stands alone and can be implemented independently. Domain profiles declare which specs they use.
 
-### Modular NIP Specifications
+### TROTT Specifications
 
 | Spec | Kinds | Scope |
 |------|-------|-------|
-| **[NIP-XX-core](./NIP-XX-core.md)** | 30500-30512 | Service request, acceptance, status updates, completion, cancellation. The minimum viable protocol. Currency-neutral. |
-| **[NIP-XX-stakes](./NIP-XX-stakes.md)** | 30502-30503, 30509, 30520, 30537, 30540 | Commitment stakes — lock, negotiate, milestone, release, forfeit. Trust model tags. Payment-provider-agnostic. |
-| **[NIP-XX-reputation](./NIP-XX-reputation.md)** | 30517-30519, 30521, 30528, 30530 | Ratings, reputation summaries, cross-domain portability. References NIP-85 for computed summaries, NIP-58 for badges. |
-| **[NIP-XX-disputes](./NIP-XX-disputes.md)** | 30522-30527, 30549-30551, 30553-30554 | Disputes, resolutions, theft reports, guardian voting, operator slashing, abuse detection. |
-| **[NIP-XX-discovery](./NIP-XX-discovery.md)** | 30540, 30565, 20500 | Service areas, operator bonds, provider availability. Geohash-based discovery. References NIP-89 for app handlers. |
-| **[NIP-XX-safety](./NIP-XX-safety.md)** | 30559-30564 | Emergency alerts, trip sharing, safety check-ins, heartbeat protocol, harassment reports. |
-| **[NIP-XX-navigation](./NIP-XX-navigation.md)** | 30583-30587 | Routes, turn-by-turn navigation, traffic alerts, reroutes. |
-| **[NIP-XX-payments](./NIP-XX-payments.md)** | 30510-30511, 30513-30516, 30538 | Streaming payments, tips, surcharges, no-show fees. Currency-neutral. References NIP-57 for zap-based tips. |
+| **[TROTT-01: Core](./TROTT-01-core.md)** | 30500-30507 | Task lifecycle, state machine, scheduling, multi-provider. The minimum viable protocol. |
+| **[TROTT-02: Discovery](./TROTT-02-discovery.md)** | 20500, 30510-30512 | Provider availability, geohash search, skill search, trusted provider networks. |
+| **[TROTT-03: Reputation](./TROTT-03-reputation.md)** | 30520-30522 | Ratings, trust weighting, credentials, cross-domain reputation portability. |
+| **[TROTT-04: Payments](./TROTT-04-payments.md)** | 30530-30536 | Quotes, escrow, streaming, milestones, split payments. Currency-neutral. Payment-provider-agnostic. |
+| **[TROTT-05: Safety](./TROTT-05-safety.md)** | 30540-30546 | Emergency signals, safety check-ins, dispute resolution, abuse reporting. |
+| **[TROTT-06: Coordination](./TROTT-06-coordination.md)** | 30550-30554 | Operator participation, PII handling, compliance, delegation. **Optional.** |
+| **[TROTT-07: Navigation](./TROTT-07-navigation.md)** | 20501, 30560-30563 | Routing, ETA, live tracking, route deviation alerts. **Optional.** |
 
-### Domain Extension Specifications
+### Domain Profile Specifications
 
-| Spec | Kind Range | Domain |
-|------|-----------|--------|
-| **[NIP-XX-ridesharing](./NIP-XX-ridesharing.md)** | 30505, 30529, 30532-30535, 30541-30545, 30552, 30555-30558, 30565-30569, 30570-30599 | Ridesharing: cross-operator, scheduling, carpooling, compliance, edge cases, operational, UX, driver management, navigation, surge, verification |
-| **[NIP-XX-locksmith](./NIP-XX-locksmith.md)** | 30600-30619 | Locksmith: quote negotiation, access methods, workmanship |
-| **[NIP-XX-delivery](./NIP-XX-delivery.md)** | 30620-30639 | Delivery: chain of custody, photo proofs, package tracking |
-| **[NIP-XX-towing](./NIP-XX-towing.md)** | 30640-30659 | Towing: vehicle assessment, recovery quotes, flatbed coordination, photo proof of delivery |
-| **[NIP-XX-emergency-trades](./NIP-XX-emergency-trades.md)** | 30660-30679 | Emergency trades: diagnosis, milestone pricing, certification verification, guarantee management |
-| **[NIP-XX-pet-services](./NIP-XX-pet-services.md)** | 30680-30699 | Pet services: pet profiles, session reports, medication logging, emergency vet reports |
-| **[NIP-XX-security](./NIP-XX-security.md)** | 30700-30719 | Security: shift management, heartbeat protocol, patrol logging, incident reporting |
-| **[NIP-XX-v1-archive](./NIP-XX-v1-archive.md)** | — | Archive: original monolithic 82-kind spec (preserved for reference) |
+| Domain | Kind Range | Coordination Pattern |
+|--------|-----------|---------------------|
+| **[Ridesharing](./domains/ridesharing.md)** | 30600-30619 | Trip |
+| **[Locksmith](./domains/locksmith.md)** | 30620-30639 | Dispatch |
+| **[Delivery](./domains/delivery.md)** | 30640-30659 | Relay delivery |
+| **[Towing](./domains/towing.md)** | 30660-30679 | Dispatch + Trip |
+| **[Emergency Trades](./domains/emergency-trades.md)** | 30680-30699 | Dispatch |
+| **[Pet Services](./domains/pet-services.md)** | 30700-30719 | Scheduled |
+| **[Security](./domains/security.md)** | 30720-30739 | Shift / Patrol |
+| **[Cleaning](./domains/cleaning.md)** | 30740-30759 | Scheduled / Recurring |
+| **[Moving](./domains/moving.md)** | 30760-30779 | Crew / Multi-provider |
 
-### Which NIPs Does Each Domain Use?
+### Which Specs Does Each Domain Use?
 
-| Domain | core | stakes | reputation | disputes | discovery | safety | navigation | payments |
-|--------|------|--------|------------|----------|-----------|--------|------------|----------|
-| Ridesharing | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Locksmith | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — |
-| Delivery | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ |
-| Towing | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| Emergency trades | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Pet services | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | ✅ |
-| Security guard | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ |
-| Court serving | ✅ | — | ✅ | — | ✅ | — | ✅ | — |
+| Domain | 01 Core | 02 Discovery | 03 Reputation | 04 Payments | 05 Safety | 06 Coordination | 07 Navigation |
+|--------|---------|-------------|---------------|-------------|-----------|-----------------|---------------|
+| Ridesharing | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Locksmith | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| Delivery | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Towing | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Emergency Trades | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| Pet Services | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| Security | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| Cleaning | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| Moving | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
@@ -55,125 +58,103 @@ The protocol is organised as a **family of focused specifications**. Each NIP st
 
 All domains share these kinds. The `domain` tag identifies which extension applies.
 
-### Task Lifecycle (NIP-XX-core)
+### TROTT-01: Core — Task Lifecycle
 
 | Kind | Name | Replaceable | Publisher |
 |------|------|-------------|-----------|
-| 30500 | Service Request | Yes | Requester |
-| 30501 | Service Acceptance | Yes | Provider |
-| 30504 | Service Confirmation | Yes | Operator |
-| 30506 | Service Cancellation | No | Either |
-| 30507 | Service Start | Yes | Provider |
-| 30508 | Service End | Yes | Provider |
-| 30512 | Status Update | Yes | Provider/Operator |
+| 30500 | Task Request | Yes (NIP-33) | Requester |
+| 30501 | Task Offer | Yes (NIP-33) | Provider |
+| 30502 | Task Accept | Yes (NIP-33) | Either party |
+| 30503 | Task Update | Yes (NIP-33) | Provider / Operator |
+| 30504 | Task Complete | Yes (NIP-33) | Provider |
+| 30505 | Task Confirm | Yes (NIP-33) | Requester |
+| 30506 | Task Cancel | Yes (NIP-33) | Either party |
+| 30507 | Task Dispute | Yes (NIP-33) | Either party |
 
-### Stake Management (NIP-XX-stakes)
-
-| Kind | Name | Replaceable | Publisher |
-|------|------|-------------|-----------|
-| 30502 | Stake Lock | Yes | Operator |
-| 30503 | Stake Negotiation | Yes | Either |
-| 30509 | Commitment Stake | Yes | Either |
-| 30520 | Stake Release | No | Operator |
-| 30537 | Milestone Completion | No | Provider |
-| 30540 | Operator Bond | Yes | Operator |
-
-### Payments (NIP-XX-payments)
+### TROTT-02: Discovery
 
 | Kind | Name | Replaceable | Publisher |
 |------|------|-------------|-----------|
-| 30510 | Streaming Payment | No | Requester |
-| 30511 | Payment Confirmation | Yes | Operator |
-| 30513 | Provider Tip | No | Requester |
-| 30514 | Wait Time Charge | No | Provider |
-| 30515 | No-Show Fee | No | Provider/Operator |
-| 30516 | Additional Charge | No | Provider |
-| 30538 | Payment Failure | No | Provider/Operator |
+| 20500 | Provider Availability | No (ephemeral) | Provider |
+| 30510 | Provider Profile | Yes (NIP-33) | Provider |
+| 30511 | Operator Bond | Yes (NIP-33) | Operator |
+| 30512 | Trusted Provider List | Yes (NIP-33) | Requester |
 
-### Trust & Reputation (NIP-XX-reputation)
+### TROTT-03: Reputation
 
 | Kind | Name | Replaceable | Publisher |
 |------|------|-------------|-----------|
-| 30517 | Provider Rating | No | Requester |
-| 30518 | Requester Rating | No | Provider |
-| 30519 | Reputation Summary | Yes | Anyone |
-| 30521 | Reputation Export/Import | Yes | Anyone |
-| 30528 | Operator Reputation | Yes | Anyone |
-| 30530 | Reputation Rating | No | Either |
+| 30520 | Task Rating | Yes (NIP-33) | Either party |
+| 30521 | Reputation Query | Yes (NIP-33) | Anyone |
+| 30522 | Credential Attestation | Yes (NIP-33) | Issuer |
 
-### Dispute Resolution (NIP-XX-disputes)
+### TROTT-04: Payments
 
 | Kind | Name | Replaceable | Publisher |
 |------|------|-------------|-----------|
-| 30522 | Dispute Filing | No | Either |
-| 30523 | Arbiter Assignment | Yes | Operator |
-| 30524 | Dispute Resolution | Yes | Operator/Arbiter |
-| 30525 | Theft Report | No | Anyone |
-| 30526 | Watchdog Claim | No | Verifier |
-| 30527 | Operator Slashing | No | Guardian network |
+| 30530 | Quote | Yes (NIP-33) | Provider |
+| 30531 | Payment Terms | Yes (NIP-33) | Either / Operator |
+| 30532 | Stake Lock | Yes (NIP-33) | Operator |
+| 30533 | Stake Release | No (append-only) | Operator |
+| 30534 | Stake Forfeit | No (append-only) | Operator |
+| 30535 | Payment Receipt | No (append-only) | Operator / Provider |
+| 30536 | Streaming Tick | No (append-only) | Requester / Operator |
 
-### Guardian Voting (NIP-XX-disputes)
-
-| Kind | Name | Replaceable | Publisher |
-|------|------|-------------|-----------|
-| 30553 | Slashing Proposal | No | Guardian |
-| 30554 | Guardian Vote | No | Guardian |
-
-### Abuse Detection (NIP-XX-disputes)
+### TROTT-05: Safety & Disputes
 
 | Kind | Name | Replaceable | Publisher |
 |------|------|-------------|-----------|
-| 30549 | Suspicious Activity Report | No | Operator |
-| 30550 | Account Suspension | Yes | Operator |
-| 30551 | Appeal Request | No | Either |
+| 30540 | Emergency Signal | No (append-only) | Either party |
+| 30541 | Safety Check-in | Yes (NIP-33) | Either party |
+| 30542 | Safety Contact Share | Yes (NIP-33) | Requester |
+| 30543 | Dispute Claim | No (append-only) | Either party |
+| 30544 | Dispute Evidence | No (append-only) | Either / Mediator |
+| 30545 | Dispute Resolution | Yes (NIP-33) | Operator / Mediator |
+| 30546 | Abuse Report | No (append-only) | Either / Operator |
 
-### Safety & Emergency (NIP-XX-safety)
-
-| Kind | Name | Replaceable | Publisher |
-|------|------|-------------|-----------|
-| 30559 | Emergency Alert | No | Either |
-| 30560 | Task Sharing | Yes | Requester |
-| 30561 | Safety Check-In Request | No | Operator |
-| 30562 | Safety Check-In Response | No | Either |
-| 30563 | Safety Check-In Escalation | No | Operator |
-| 30564 | Harassment Report | No | Either |
-
-### Discovery (NIP-XX-discovery)
+### TROTT-06: Coordination (Optional)
 
 | Kind | Name | Replaceable | Publisher |
 |------|------|-------------|-----------|
-| 30540 | Operator Bond | Yes | Operator |
-| 30565 | Service Area Definition | Yes | Operator |
-| 20500 | Provider Availability (ephemeral) | No | Provider |
+| 30550 | Operator Claim | Yes (NIP-33) | Operator |
+| 30551 | PII Envelope | No (append-only) | Operator |
+| 30552 | Delegation Grant | Yes (NIP-33) | Either party |
+| 30553 | Compliance Record | No (append-only) | Operator |
+| 30554 | Operator Heartbeat | Yes (NIP-33) | Operator |
 
-> **Note**: Kind 30540 (Operator Bond) is defined in detail in NIP-XX-stakes. NIP-XX-discovery covers its discovery and advertising aspects.
-
-### Navigation (NIP-XX-navigation)
+### TROTT-07: Navigation (Optional)
 
 | Kind | Name | Replaceable | Publisher |
 |------|------|-------------|-----------|
-| 30583 | Route Suggestion | Yes | Operator |
-| 30584 | Turn-by-Turn Navigation | No | Operator |
-| 30585 | Traffic Alert | No | Operator |
-| 30586 | Reroute Request | No | Provider |
-| 30587 | Navigation Feedback | No | Requester |
+| 20501 | Location Update | No (ephemeral) | Provider |
+| 30560 | Route Summary | Yes (NIP-33) | Operator / Provider |
+| 30561 | ETA Update | Yes (NIP-33) | Operator / Provider |
+| 30562 | Route Deviation | No (append-only) | Operator |
+| 30563 | Navigation Resource | Yes (NIP-33) | Anyone |
+
+**Total: 39 event kinds** (37 parameterised replaceable + 2 ephemeral)
 
 ---
 
 ## Core State Machine
 
 ```
-requested → matched → provider_en_route → provider_arrived → [domain states] → active → completed
-    │           │              │                    │                              │
-    │           │              │                    ├──────────────────────────────→ no_show
-    └───────────┴──────────────┴────────────────────┴──────────────────────────────→ cancelled
+requested → offers_open → accepted → in_progress → completed → confirmed
+    │           │              │           │             │
+    │           │              │           │             ├─→ disputed
+    │           │              │           │
+    │           │              │           ├─→ no_show
+    └───────────┴──────────────┴───────────┴─────────────→ cancelled
 ```
 
-**Terminal states**: `completed`, `no_show`, `cancelled`
+**Terminal states**: `confirmed`, `no_show`, `cancelled`, `disputed` (escalated to TROTT-05)
 
-- `completed` — Service finished successfully. Both stakes released.
+- `confirmed` — Requester confirms completion. Stakes released. Ratings may follow.
 - `no_show` — One party failed to appear. Absent party's stake forfeited.
-- `cancelled` — Mutual cancellation. Both stakes released (within grace period) or cancelling party penalised (after grace period).
+- `cancelled` — Cancellation. Stakes released (within grace period) or cancelling party penalised.
+- `disputed` — Escalated to TROTT-05 dispute resolution.
+
+Domain profiles MAY insert sub-states within `in_progress` (e.g. `provider_en_route → provider_arrived → trip_active` for ridesharing).
 
 ---
 
@@ -181,48 +162,93 @@ requested → matched → provider_en_route → provider_arrived → [domain sta
 
 | Tag | Description | Example |
 |-----|-------------|---------|
-| `d` | Unique identifier (NIP-33) | `["d", "task_abc123"]` |
+| `d` | Unique task identifier (NIP-33) | `["d", "task_abc123"]` |
 | `domain` | Service domain identifier | `["domain", "ridesharing"]` |
+| `status` | Current task state | `["status", "in_progress"]` |
+| `t` | Protocol tag (always `trott-task`) | `["t", "trott-task"]` |
 | `amount` | Value in the specified currency | `["amount", "1500"]` |
 | `currency` | ISO 4217 fiat or crypto code | `["currency", "GBP"]` |
-| `trust_model` | Payment provider trust model | `["trust_model", "custodial-escrow"]` |
+| `trust_model` | Payment trust model | `["trust_model", "operator-escrow"]` |
 | `expiration` | Event expiration time (NIP-40) | `["expiration", "1698769032"]` |
 | `linked_task` | Reference to a related task | `["linked_task", "<task_id>", "follow_up"]` |
-| `requester_pubkey` | Requester's Nostr pubkey | `["requester_pubkey", "<hex>"]` |
-| `provider_pubkey` | Provider's Nostr pubkey | `["provider_pubkey", "<hex>"]` |
 | `g` | Geohash for location discovery | `["g", "gcpuuz"]` |
+| `p` | Pubkey reference | `["p", "<hex>"]` |
 
 ---
 
 ## Kind Range Allocation
 
-| Range | Domain | Status |
-|-------|--------|--------|
-| 30500-30529 | Core protocol + stakes + payments | Active |
-| 30530-30548 | Reputation, milestones, compliance, delivery shared | Active |
-| 30549-30569 | Abuse detection, guardian voting, safety, discovery, ridesharing operational | Active |
-| 30570-30599 | Ridesharing extension (UX, drivers, navigation, surge, verification) | Active |
-| 30600-30619 | Locksmith extension | Draft |
-| 30620-30639 | Delivery extension | Draft |
-| 30640-30659 | Towing extension | Draft |
-| 30660-30679 | Emergency trades extension | Draft |
-| 30680-30699 | Pet services extension | Draft |
-| 30700-30719 | Security guard dispatch extension | Draft |
-| 30720-30999 | Reserved for future domains | Reserved |
-| 20500 | Provider availability (ephemeral) | Active |
+| Range | Purpose | Spec |
+|-------|---------|------|
+| 20500-20501 | Ephemeral events (availability, location) | TROTT-02, TROTT-07 |
+| 30500-30507 | Core task lifecycle | TROTT-01 |
+| 30508-30509 | Reserved (future core) | — |
+| 30510-30512 | Discovery | TROTT-02 |
+| 30513-30519 | Reserved (future discovery/core) | — |
+| 30520-30522 | Reputation | TROTT-03 |
+| 30523-30529 | Reserved (future reputation) | — |
+| 30530-30536 | Payments | TROTT-04 |
+| 30537-30539 | Reserved (future payments) | — |
+| 30540-30546 | Safety & Disputes | TROTT-05 |
+| 30547-30549 | Reserved (future safety) | — |
+| 30550-30554 | Coordination | TROTT-06 |
+| 30555-30559 | Reserved (future coordination) | — |
+| 30560-30563 | Navigation | TROTT-07 |
+| 30564-30599 | Reserved (future core expansion) | — |
+| 30600-30619 | Ridesharing extension | TROTT-ridesharing |
+| 30620-30639 | Locksmith extension | TROTT-locksmith |
+| 30640-30659 | Delivery extension | TROTT-delivery |
+| 30660-30679 | Towing extension | TROTT-towing |
+| 30680-30699 | Emergency trades extension | TROTT-emergency-trades |
+| 30700-30719 | Pet services extension | TROTT-pet-services |
+| 30720-30739 | Security guard dispatch extension | TROTT-security |
+| 30740-30759 | Cleaning extension | TROTT-cleaning |
+| 30760-30779 | Moving extension | TROTT-moving |
+| 30780-30999 | Reserved for future domains | — |
 
 ---
 
-## Minimum Viable Operator
+## Implementation Tiers
+
+### Tier 1: Minimal P2P (14 kinds)
 
 | Category | Kinds | Count |
 |----------|-------|-------|
-| Task lifecycle | 30500, 30501, 30506, 30507, 30508, 30512 | 6 |
-| Stakes | 30502, 30520 | 2 |
-| Payments | 30510, 30511 | 2 |
-| Trust | 30517, 30518, 30519 | 3 |
-| Safety | 30559 | 1 |
+| Task lifecycle (TROTT-01) | 30500-30507 | 8 |
+| Discovery (TROTT-02) | 20500, 30510-30512 | 4 |
+| Reputation (TROTT-03) | 30520 | 1 |
+| Safety (TROTT-05) | 30540 | 1 |
 | **Total** | | **14** |
+
+### Tier 2: + Payments & Full Reputation (21 kinds)
+
+Add TROTT-04 (30530-30536) for payment flows, plus TROTT-03 (30521-30522) for reputation queries and credentials.
+
+### Tier 3: + Safety & Disputes (28 kinds)
+
+Add TROTT-05 (30541-30546) for check-ins, disputes, and abuse reporting.
+
+### Tier 4: Full Operator (39 kinds)
+
+Add TROTT-06 (30550-30554) for operator coordination, plus TROTT-07 (20501, 30560-30563) for navigation.
+
+---
+
+## Dependency Graph
+
+```
+                    TROTT-01: Core
+                   (task lifecycle)
+                    /    |    \    \
+                   /     |     \    \
+            TROTT-02  TROTT-03  TROTT-04  TROTT-05
+           Discovery  Reputation Payments  Safety
+                \        |        /
+                 \       |       /
+                  TROTT-06: Coordination (optional)
+                      |
+                  TROTT-07: Navigation (optional)
+```
 
 ---
 
@@ -230,46 +256,48 @@ requested → matched → provider_en_route → provider_arrived → [domain sta
 
 | NIP | Name | Usage |
 |-----|------|-------|
-| NIP-02 | Contact List / Follow List | Social discovery (BatPhone pattern), WoT-weighted reputation |
-| NIP-32 | Structured Labels | Provider verification labels, task outcome categorisation |
+| NIP-01 | Basic Protocol Flow | Event format, relay communication |
+| NIP-02 | Contact List / Follow List | Social discovery, WoT-weighted reputation |
+| NIP-17/59 | Private Messages (Gift Wrap) | PII exchange, emergency contact notifications |
+| NIP-32 | Structured Labels | Provider verification labels, domain categorisation |
 | NIP-33 | Parameterised Replaceable Events | All replaceable events use `d` tags |
 | NIP-40 | Expiration Timestamp | `["expiration", "<unix>"]` on time-limited events |
-| NIP-44 | Encrypted Payloads | Private coordination messages |
-| NIP-17/59 | Private Messages (Gift Wrap) | PII exchange, emergency contact notifications |
+| NIP-44 | Encrypted Payloads | Private coordination messages, PII |
 | NIP-47 | Nostr Wallet Connect | Trustless stake management via hold invoices |
-| NIP-56 | Reporting | Cross-ecosystem safety reporting for confirmed misconduct |
+| NIP-56 | Reporting | Cross-ecosystem safety reporting |
 | NIP-57 | Lightning Zaps | Tips as standard Nostr zaps |
 | NIP-58 | Badges | Verification credentials |
-| NIP-85 | Trusted Assertions | Computed reputation summaries |
 | NIP-89 | App Handlers | Operator service declaration |
 
 ---
 
 ## Additional Resources
 
-### Modular Specifications
-- **Core**: [NIP-XX-core.md](./NIP-XX-core.md)
-- **Stakes**: [NIP-XX-stakes.md](./NIP-XX-stakes.md)
-- **Reputation**: [NIP-XX-reputation.md](./NIP-XX-reputation.md)
-- **Disputes**: [NIP-XX-disputes.md](./NIP-XX-disputes.md)
-- **Discovery**: [NIP-XX-discovery.md](./NIP-XX-discovery.md)
-- **Safety**: [NIP-XX-safety.md](./NIP-XX-safety.md)
-- **Navigation**: [NIP-XX-navigation.md](./NIP-XX-navigation.md)
-- **Payments**: [NIP-XX-payments.md](./NIP-XX-payments.md)
+### TROTT Specifications
+- **Core**: [TROTT-01-core.md](./TROTT-01-core.md)
+- **Discovery**: [TROTT-02-discovery.md](./TROTT-02-discovery.md)
+- **Reputation**: [TROTT-03-reputation.md](./TROTT-03-reputation.md)
+- **Payments**: [TROTT-04-payments.md](./TROTT-04-payments.md)
+- **Safety**: [TROTT-05-safety.md](./TROTT-05-safety.md)
+- **Coordination**: [TROTT-06-coordination.md](./TROTT-06-coordination.md)
+- **Navigation**: [TROTT-07-navigation.md](./TROTT-07-navigation.md)
 
-### Domain Extensions
-- **Ridesharing**: [NIP-XX-ridesharing.md](./NIP-XX-ridesharing.md)
-- **Locksmith**: [NIP-XX-locksmith.md](./NIP-XX-locksmith.md)
-- **Delivery**: [NIP-XX-delivery.md](./NIP-XX-delivery.md)
-- **Towing**: [NIP-XX-towing.md](./NIP-XX-towing.md)
-- **Emergency Trades**: [NIP-XX-emergency-trades.md](./NIP-XX-emergency-trades.md)
-- **Pet Services**: [NIP-XX-pet-services.md](./NIP-XX-pet-services.md)
-- **Security Guard**: [NIP-XX-security.md](./NIP-XX-security.md)
+### Domain Profiles
+- **Ridesharing**: [domains/ridesharing.md](./domains/ridesharing.md)
+- **Locksmith**: [domains/locksmith.md](./domains/locksmith.md)
+- **Delivery**: [domains/delivery.md](./domains/delivery.md)
+- **Towing**: [domains/towing.md](./domains/towing.md)
+- **Emergency Trades**: [domains/emergency-trades.md](./domains/emergency-trades.md)
+- **Pet Services**: [domains/pet-services.md](./domains/pet-services.md)
+- **Security**: [domains/security.md](./domains/security.md)
+- **Cleaning**: [domains/cleaning.md](./domains/cleaning.md)
+- **Moving**: [domains/moving.md](./domains/moving.md)
 
 ### Documentation
+- **Protocol Design**: [../docs/plans/2026-02-10-trott-protocol-design.md](../docs/plans/2026-02-10-trott-protocol-design.md)
 - **Architecture**: [../ARCHITECTURE.md](../ARCHITECTURE.md)
 - **Trust Mechanisms**: [../TRUST-MECHANISMS.md](../TRUST-MECHANISMS.md)
 - **Payment Providers**: [../docs/PAYMENT-PROVIDERS.md](../docs/PAYMENT-PROVIDERS.md)
 - **GDPR Compliance**: [../docs/GDPR-COMPLIANCE.md](../docs/GDPR-COMPLIANCE.md)
 - **Use Case State Machines**: [../docs/USE-CASE-STATE-MACHINES.md](../docs/USE-CASE-STATE-MACHINES.md)
-- **Original Spec (Archive)**: [NIP-XX-v1-archive.md](./NIP-XX-v1-archive.md)
+- **Original Spec (Archive)**: [archive/NIP-XX-v1-archive.md](./archive/NIP-XX-v1-archive.md)
