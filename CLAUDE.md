@@ -88,9 +88,15 @@ Every payment event includes explicit `amount`, `currency`, and `trust_model` ta
 
 Selected via `PAYMENT_PROVIDER` env var, with optional `PAYMENT_FALLBACKS` for resilience. **Domain-independent** — works identically across all use cases.
 
+### Pricing
+
+`src/pricing/fiat-conversion.js` — BTC/fiat price conversion. Exports `getBitcoinPrice()`, `estimateTripCost()`, `fetchBitcoinPrices()`. Used by `server.js` for fare estimates and dual-currency display. **Domain-independent.**
+
+`src/osrm-routing.js` — Legacy routing helper (`getRoute()`), imported directly by `server.js`. Predates the `navigation/` factory; both are still used.
+
 ### Navigation Providers (Factory Pattern)
 
-`navigation/factory.js` — Same factory pattern. Providers: `osrm` (self-hosted), `ors` (OpenRouteService API). Selected via `NAVIGATION_PROVIDER` env var. **Domain-independent.**
+`navigation/factory.js` — Same factory pattern. All providers extend `navigation/base.js`. `navigation/service.js` provides the high-level routing API consumed by server code. Providers: `osrm` (self-hosted), `ors` (OpenRouteService API). Selected via `NAVIGATION_PROVIDER` env var. **Domain-independent.**
 
 ### Nostr Integration
 
@@ -109,6 +115,13 @@ Two frontends exist:
 - **`public/`** — Legacy vanilla JS web apps (`rider-app.js`, `driver-app.js`, `demo.html`). No build step — served as static files by Express.
 - **`web/`** — React/TypeScript SPA (Vite + Tailwind CSS). Domain-agnostic — fetches profile from `/api/domains/current` and renders labels, features, and state machine from the active domain. Pages under `web/src/pages/requester/` and `web/src/pages/provider/` with shared components in `web/src/components/`. Routes use `/request/*` and `/provide/*` (with `/ride/*` and `/drive/*` as backward-compatible redirects). Uses `react-leaflet` for maps and `nostr-tools` v2 for Nostr integration. Built output goes to `web/dist/`.
 
+**Frontend data flow** centres on three React contexts (`web/src/context/`):
+  - `DomainContext` — active domain profile (labels, features, state machine)
+  - `IdentityContext` — Nostr keypair and identity management
+  - `TaskContext` — current task state and lifecycle
+
+**PII module** (`web/src/modules/pii/`) — isolated components for sensitive data: `LiveTracker`, `MapSection`, `LocationProvider`, `RetentionNotice`. Keeps PII-handling code separate from general UI for GDPR compliance.
+
 ### Three-Layer Architecture
 
 ```
@@ -119,32 +132,11 @@ WEBSOCKET (ephemeral)         →  Real-time tracking + Live updates
 
 ### Modular NIP Specifications
 
-The protocol is defined as a family of 8 modular NIP specifications (in `specs/`):
-
-| Spec | Scope | Event Kinds |
-|------|-------|-------------|
-| `NIP-XX-core.md` | Service lifecycle (request, accept, complete, cancel, no_show) | 30500-30509 |
-| `NIP-XX-stakes.md` | Commitment stakes (lock, release, forfeit, milestones) | 30520-30529 |
-| `NIP-XX-reputation.md` | Ratings, reputation export, NIP-85 summaries | 30530-30539 |
-| `NIP-XX-disputes.md` | Disputes, theft reports, guardian voting | 30522-30524 |
-| `NIP-XX-discovery.md` | Geohash-based service discovery, operator bonds | 30540-30549 |
-| `NIP-XX-safety.md` | Emergency alerts, trip sharing, heartbeat | 30559-30564 |
-| `NIP-XX-navigation.md` | Routes, turn-by-turn, traffic | 30570-30574 |
-| `NIP-XX-payments.md` | Streaming payments, tips, surcharges | 30510-30519 |
-
-Plus domain extension specs: `NIP-XX-ridesharing.md`, `NIP-XX-locksmith.md`, `NIP-XX-delivery.md`.
-
-`specs/QUICK-REFERENCE.md` has the complete event kind table.
+The protocol is defined as a family of 8 modular NIP specifications plus domain extension specs in `specs/`. Covers: core lifecycle (30500-30509), payments (30510-30519), stakes (30520-30529), reputation (30530-30539), discovery (30540-30549), safety (30559-30564), navigation (30570-30574), and disputes. See `specs/QUICK-REFERENCE.md` for the complete event kind table.
 
 ### GDPR Compliance
 
-The three-layer architecture supports GDPR compliance:
-- **Public Nostr events**: Only pseudonymous identifiers and geohash-level locations (data minimisation)
-- **Encrypted Nostr events**: NIP-17 gift-wrapped PII (exact addresses, phone numbers) — erasure via crypto-shredding (destroy key pair)
-- **Operator database**: Standard controller obligations — 90-day purge for operational data, 7-year retention for tax/regulatory
-- **NIP-62 Request to Vanish**: Relay-side deletion of all events for a pubkey
-
-See `docs/GDPR-COMPLIANCE.md` for the full compliance guide.
+The three-layer architecture supports GDPR compliance: public Nostr events use only pseudonymous identifiers, encrypted events use NIP-17 gift wrap for PII (erasable via crypto-shredding), and the operator database follows standard controller obligations. See `docs/GDPR-COMPLIANCE.md` for the full compliance guide.
 
 ## Testing
 
