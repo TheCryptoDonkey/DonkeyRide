@@ -2,7 +2,7 @@
 
 **Protocol Version**: v3.0 (Payment-Agnostic, Modular NIPs)
 **Event Kind Range**: 30500-30599 (primary) + 30600-30639 (domain extensions)
-**Last Updated**: 2026-02-08
+**Last Updated**: 2026-02-10
 
 ---
 
@@ -17,7 +17,7 @@ The protocol is organised as a **family of focused specifications**. Each NIP st
 | **[NIP-XX-core](./NIP-XX-core.md)** | 30500-30512 | Service request, acceptance, status updates, completion, cancellation. The minimum viable protocol. Currency-neutral. |
 | **[NIP-XX-stakes](./NIP-XX-stakes.md)** | 30502-30503, 30509, 30520, 30537, 30540 | Commitment stakes — lock, negotiate, milestone, release, forfeit. Trust model tags. Payment-provider-agnostic. |
 | **[NIP-XX-reputation](./NIP-XX-reputation.md)** | 30517-30519, 30521, 30528, 30530 | Ratings, reputation summaries, cross-domain portability. References NIP-85 for computed summaries, NIP-58 for badges. |
-| **[NIP-XX-disputes](./NIP-XX-disputes.md)** | 30522-30527, 30549-30554 | Disputes, resolutions, theft reports, guardian voting, operator slashing, abuse detection. |
+| **[NIP-XX-disputes](./NIP-XX-disputes.md)** | 30522-30527, 30549-30551, 30553-30554 | Disputes, resolutions, theft reports, guardian voting, operator slashing, abuse detection. |
 | **[NIP-XX-discovery](./NIP-XX-discovery.md)** | 30540, 30565, 20500 | Service areas, operator bonds, provider availability. Geohash-based discovery. References NIP-89 for app handlers. |
 | **[NIP-XX-safety](./NIP-XX-safety.md)** | 30559-30564 | Emergency alerts, trip sharing, safety check-ins, heartbeat protocol, harassment reports. |
 | **[NIP-XX-navigation](./NIP-XX-navigation.md)** | 30583-30587 | Routes, turn-by-turn navigation, traffic alerts, reroutes. |
@@ -27,7 +27,7 @@ The protocol is organised as a **family of focused specifications**. Each NIP st
 
 | Spec | Kind Range | Domain |
 |------|-----------|--------|
-| **[NIP-XX-ridesharing](./NIP-XX-ridesharing.md)** | 30570-30599 | Ridesharing: vehicle tracking, surge pricing, driver management |
+| **[NIP-XX-ridesharing](./NIP-XX-ridesharing.md)** | 30505, 30529, 30532-30535, 30541-30545, 30552, 30555-30558, 30565-30569, 30570-30599 | Ridesharing: cross-operator, scheduling, carpooling, compliance, edge cases, operational, UX, driver management, navigation, surge, verification |
 | **[NIP-XX-locksmith](./NIP-XX-locksmith.md)** | 30600-30619 | Locksmith: quote negotiation, access methods, workmanship |
 | **[NIP-XX-delivery](./NIP-XX-delivery.md)** | 30620-30639 | Delivery: chain of custody, photo proofs, package tracking |
 | **[NIP-XX-v1-archive](./NIP-XX-v1-archive.md)** | — | Archive: original monolithic 82-kind spec (preserved for reference) |
@@ -136,8 +136,11 @@ All domains share these kinds. The `domain` tag identifies which extension appli
 
 | Kind | Name | Replaceable | Publisher |
 |------|------|-------------|-----------|
+| 30540 | Operator Bond | Yes | Operator |
 | 30565 | Service Area Definition | Yes | Operator |
 | 20500 | Provider Availability (ephemeral) | No | Provider |
+
+> **Note**: Kind 30540 (Operator Bond) is defined in detail in NIP-XX-stakes. NIP-XX-discovery covers its discovery and advertising aspects.
 
 ### Navigation (NIP-XX-navigation)
 
@@ -190,11 +193,12 @@ requested → matched → provider_en_route → provider_arrived → [domain sta
 | Range | Domain | Status |
 |-------|--------|--------|
 | 30500-30529 | Core protocol + stakes + payments | Active |
-| 30530-30549 | Reputation + compliance | Active |
-| 30549-30569 | Safety, abuse, discovery | Active |
-| 30570-30599 | Ridesharing extension | Active |
-| 30600-30619 | Locksmith extension | Reserved |
-| 30620-30639 | Delivery extension | Reserved |
+| 30530-30548 | Reputation, milestones, compliance, delivery shared | Active |
+| 30549-30569 | Abuse detection, guardian voting, safety, discovery, ridesharing operational | Active |
+| 30570-30599 | Ridesharing extension (UX, drivers, navigation, surge, verification) | Active |
+| 30600-30619 | Locksmith extension | Draft |
+| 30620-30639 | Delivery extension | Draft |
+| 30640-30699 | Reserved for future domains | Reserved |
 | 20500 | Provider availability (ephemeral) | Active |
 
 ---
