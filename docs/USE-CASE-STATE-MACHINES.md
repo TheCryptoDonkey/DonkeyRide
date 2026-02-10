@@ -414,13 +414,13 @@ stateDiagram-v2
 ### Design Decisions
 
 - **`parts_needed` → `parts_sourced` loop** — plumbers routinely leave to get parts. Can take hours. Without this state, a 2-hour parts run looks like a no-show.
-- **Milestone-based progress** — emergency plumber might: (1) stop the leak, (2) rip out damaged pipe, (3) fit new pipe, (4) test and clean up. Each milestone triggers partial payment release via kind 30506.
+- **Milestone-based progress** — emergency plumber might: (1) stop the leak, (2) rip out damaged pipe, (3) fit new pipe, (4) test and clean up. Each milestone triggers partial payment release via kind 30537.
 - **`final_inspection` → `remedial_needed`** — customer rejects work ("it's still leaking"). Tradesperson goes back without starting a dispute.
 - **Multiple quotes variant** — for non-emergency work, an auction variant where multiple tradespeople quote and the customer chooses.
 
 **Edge cases**: Gas engineers require Gas Safe registration (legal requirement, criminal offence if unlicensed). Electricians require Part P notification for certain work. Follow-up visits modelled as linked tasks.
 
-**Protocol gap**: Milestone-based escrow (kind 30506 with `partialRelease` semantics).
+**Protocol gap**: Milestone-based escrow (kind 30537 with `partialRelease` semantics).
 
 **Regulatory**: Gas Safe Register (gas), NICEIC/NAPIT (electrical), Building Regulations Part P, Consumer Rights Act 2015.
 
@@ -492,7 +492,7 @@ stateDiagram-v2
 |-----|-------------------|----------|
 | **No-show differentiation** | All dispatch | `no_show` terminal state (added to core) |
 | **Three-party coordination** | Food delivery | `vendor` role + late-binding provider matching |
-| **Milestone-based escrow** | Emergency trades, man with van | Kind 30506 with `partialRelease` |
+| **Milestone-based escrow** | Emergency trades, man with van | Kind 30537 with `partialRelease` |
 | **Re-quote / back-transitions** | Locksmith, man with van, roadside | Domain profiles allow declared back-transitions |
 | **Session-based heartbeat** | Security guard, companion care | Heartbeat config in domain profile, reuses safety check-in events |
 | **Linked / follow-up tasks** | Emergency trades, roadside, locksmith | `linked_task` tag with relationship types |
@@ -521,7 +521,7 @@ Operators MUST verify mandatory credentials before matching providers. Profiles 
 ## See Also
 
 - **[specs/NIP-XX-core.md](../specs/NIP-XX-core.md)** — Core state machine and lifecycle
-- **[specs/NIP-XX-stakes.md](../specs/NIP-XX-stakes.md)** — Milestone-based escrow (kind 30506)
+- **[specs/NIP-XX-stakes.md](../specs/NIP-XX-stakes.md)** — Milestone-based escrow (kind 30537)
 - **[specs/NIP-XX-safety.md](../specs/NIP-XX-safety.md)** — Heartbeat protocol and safety check-ins
 - **[docs/USE-CASES.md](./USE-CASES.md)** — Use case overview and protocol fit scores
 - **[src/domain-profiles/](../src/domain-profiles/)** — Domain profile implementations

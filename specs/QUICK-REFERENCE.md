@@ -15,7 +15,7 @@ The protocol is organised as a **family of focused specifications**. Each NIP st
 | Spec | Kinds | Scope |
 |------|-------|-------|
 | **[NIP-XX-core](./NIP-XX-core.md)** | 30500-30512 | Service request, acceptance, status updates, completion, cancellation. The minimum viable protocol. Currency-neutral. |
-| **[NIP-XX-stakes](./NIP-XX-stakes.md)** | 30502-30503, 30506, 30509, 30520, 30540 | Commitment stakes — lock, negotiate, milestone, release, forfeit. Trust model tags. Payment-provider-agnostic. |
+| **[NIP-XX-stakes](./NIP-XX-stakes.md)** | 30502-30503, 30509, 30520, 30537, 30540 | Commitment stakes — lock, negotiate, milestone, release, forfeit. Trust model tags. Payment-provider-agnostic. |
 | **[NIP-XX-reputation](./NIP-XX-reputation.md)** | 30517-30519, 30521, 30528, 30530 | Ratings, reputation summaries, cross-domain portability. References NIP-85 for computed summaries, NIP-58 for badges. |
 | **[NIP-XX-disputes](./NIP-XX-disputes.md)** | 30522-30527, 30549-30554 | Disputes, resolutions, theft reports, guardian voting, operator slashing, abuse detection. |
 | **[NIP-XX-discovery](./NIP-XX-discovery.md)** | 30540, 30565, 20500 | Service areas, operator bonds, provider availability. Geohash-based discovery. References NIP-89 for app handlers. |
@@ -67,12 +67,10 @@ All domains share these kinds. The `domain` tag identifies which extension appli
 |------|------|-------------|-----------|
 | 30502 | Stake Lock | Yes | Operator |
 | 30503 | Stake Negotiation | Yes | Either |
-| 30506 | Milestone Completion | No | Provider |
 | 30509 | Commitment Stake | Yes | Either |
 | 30520 | Stake Release | No | Operator |
+| 30537 | Milestone Completion | No | Provider |
 | 30540 | Operator Bond | Yes | Operator |
-
-> **Note**: Kind 30506 is shared between Service Cancellation (NIP-XX-core) and Milestone Completion (NIP-XX-stakes). Implementations distinguish by the presence of `milestone_id` tag.
 
 ### Payments (NIP-XX-payments)
 

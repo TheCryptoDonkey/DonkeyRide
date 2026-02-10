@@ -24,7 +24,7 @@ Service coordination between strangers requires a mechanism to prevent ghosting,
 |------|------|-------------|-----------|
 | 30502 | Stake Lock | Yes (NIP-33) | Operator |
 | 30503 | Stake Negotiation | Yes (NIP-33) | Either party |
-| 30506 | Milestone Completion | No (append-only) | Provider |
+| 30537 | Milestone Completion | No (append-only) | Provider |
 | 30509 | Commitment Stake | Yes (NIP-33) | Requester/Provider |
 | 30520 | Stake Release | No (append-only) | Operator |
 | 30540 | Operator Bond | Yes (NIP-33) | Operator |
@@ -97,13 +97,13 @@ Published by either party to propose or counter-propose stake terms. Enables neg
 **Required tags**: `d`, `task_id`, `proposed_by`, `requester_stake`, `provider_stake`, `currency`
 **Optional tags**: `domain`, `trust_model`, `e` (previous negotiation), `message`, `expiration`
 
-### Kind 30506: Milestone Completion
+### Kind 30537: Milestone Completion
 
 Published by the provider when a milestone is reached during multi-stage work. Triggers partial stake release.
 
 ```json
 {
-  "kind": 30506,
+  "kind": 30537,
   "tags": [
     ["d", "task_abc123_milestone_2"],
     ["domain", "emergency_trades"],
