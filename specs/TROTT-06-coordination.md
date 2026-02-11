@@ -40,6 +40,7 @@ However, operators introduce trust. This specification defines **accountability 
 | 30552 | Delegation Grant | Yes (NIP-33) | Either party |
 | 30553 | Compliance Record | No (append-only) | Operator |
 | 30554 | Operator Heartbeat | Yes (NIP-33) | Operator |
+| 30555 | Compliance Snapshot | No (append-only) | Operator |
 
 ---
 
@@ -326,6 +327,35 @@ Clients and participants SHOULD monitor operator heartbeats and apply the follow
 | No heartbeat for 30-60 minutes | Critical | Alert participants; suggest contacting safety contacts |
 | No heartbeat for >60 minutes | Offline | Treat operator as offline; participants should seek alternative operators or settle peer-to-peer |
 
+### Kind 30555: Compliance Snapshot
+
+Published by the operator at task start. Append-only (not replaceable) to create an auditable record of which compliance checks were current when a task began. If a compliance record (kind 30553) expires mid-task, the snapshot proves what was verified at match time.
+
+```json
+{
+  "kind": 30555,
+  "pubkey": "<operator_hex_pubkey>",
+  "created_at": 1698765200,
+  "tags": [
+    ["d", "task_abc123:compliance"],
+    ["domain", "ridesharing"],
+    ["task_id", "task_abc123"],
+    ["provider_pubkey", "<provider_hex_pubkey>"],
+    ["e", "<compliance_insurance_event_id>", "wss://relay.example.com"],
+    ["e", "<compliance_phv_licence_event_id>", "wss://relay.example.com"],
+    ["e", "<compliance_dbs_event_id>", "wss://relay.example.com"],
+    ["checks", "insurance_confirmed,phv_licence,dbs_check"],
+    ["snapshot_at", "1698765200"]
+  ],
+  "content": ""
+}
+```
+
+**Required tags**: `d`, `task_id`, `provider_pubkey`, `checks`, `snapshot_at`
+**Optional tags**: `domain`, `e` (compliance record references)
+
+The `e` tags reference the specific Compliance Record (kind 30553) events that were valid at the time of the snapshot. For example: "At the time this task started, provider X had valid insurance (ref: event abc), valid PHV licence (ref: event def), and a passed DBS check (ref: event ghi)." This allows any auditor to independently verify that the referenced compliance records were indeed current at `snapshot_at`.
+
 ---
 
 ## Three-Layer Architecture
@@ -426,6 +456,20 @@ The protocol works at two levels: fully peer-to-peer (no operator) or operator-m
 
 ---
 
+## Internationalisation
+
+The TROTT protocol does not mandate a single language. Implementations SHOULD support language preferences at multiple levels:
+
+- **Task Request (kind 30500)** MAY include a `language` tag (ISO 639-1 code, e.g. `en`, `fr`, `de`) indicating the requester's preferred language for communication during the task
+- **Provider Profile (kind 30510)** already supports a `languages` tag (comma-separated ISO 639-1 codes) — discovery clients SHOULD filter or rank results by language match when the requester specifies a preference
+- **Requester Profile (kind 30513)** supports a `languages` tag for the same purpose, allowing providers to assess communication compatibility before accepting a task
+- **Task Rating (kind 30520)** MAY include a `language` tag indicating the language in which the review text is written, enabling clients to filter or translate reviews
+- **Operator Claim (kind 30550)** MAY include a `supported_languages` tag (comma-separated ISO 639-1 codes) declaring the languages the operator's support team can handle
+
+Domain profiles are authored in English as the canonical language. Community translations of domain profiles are out of scope for the protocol, but implementations SHOULD support localised UI labels driven by the domain profile's role and label definitions.
+
+---
+
 ## Operator Accountability
 
 Operators are constrained by six accountability mechanisms, drawn from across the TROTT specification family:
@@ -461,6 +505,7 @@ When multiple operators claim a task (multiple kind 30550 events for the same ta
 - **TROTT-04**: Payments — Payment processing, fee settlement, stake management
 - **TROTT-05**: Safety — Emergency signals, dispute resolution
 - **TROTT-07**: Navigation — Routing, ETA, live tracking as alternative to WebSocket
+- **TROTT-08**: Messaging — Task-scoped messaging and user preferences
 - **NIP-01**: Basic Nostr protocol
 - **NIP-17**: Private direct messages (PII exchange via gift wrap)
 - **NIP-33**: Parameterised replaceable events

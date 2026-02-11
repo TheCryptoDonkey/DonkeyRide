@@ -65,6 +65,22 @@ Additional terminal state: `no_show` -- customer not present when locksmith arri
 
 **Flat rate with quote negotiation.** An initial estimate range is provided at dispatch. The locksmith issues a binding quote (TROTT-04 Quote, kind 30530) after on-site assessment. Customer accepts or declines before work begins. If declined, the callout transitions to `cancelled` with no penalty to the customer.
 
+## Payment Configuration
+
+| Property | Value |
+|----------|-------|
+| Primary `payment_type` | `simple` |
+| Streaming | Not applicable |
+
+Locksmith work uses TROTT-04 simple lump-sum payment (kind 30535). The total is determined by the binding on-site quote (kind 30530), not estimated upfront. Streaming is not applicable — the work is a single discrete task with a fixed price agreed before work begins.
+
+### Default Stakes
+
+| Party | Percentage | Basis |
+|-------|-----------|-------|
+| Customer | 10% | Initial estimate (recalculated on accepted quote) |
+| Locksmith | 15% | Initial estimate (recalculated on accepted quote) |
+
 ## Cancellation Policy
 
 | Stage | Penalty |
@@ -75,7 +91,7 @@ Additional terminal state: `no_show` -- customer not present when locksmith arri
 | After work begins | Full stake forfeit for cancelling party |
 | No-show (customer absent) | 100% of customer stake (automatic) |
 
-Default stakes: Customer 10% of estimate, Locksmith 15% of estimate. Stakes recalculated against confirmed `quoted_price` upon acceptance.
+Stake amounts are defined in the Default Stakes table above. Stakes are recalculated against the confirmed `quoted_price` upon acceptance.
 
 ## PII Requirements
 

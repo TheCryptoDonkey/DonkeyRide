@@ -38,6 +38,7 @@ Service coordination between strangers carries inherent risk. Traditional platfo
 | 30540 | Emergency Signal | No (append-only) | Either party |
 | 30541 | Safety Check-in | Yes (NIP-33) | Either party |
 | 30542 | Safety Contact Share | Yes (NIP-33) | Requester |
+| 30547 | Media Attachment | No (append-only) | Either party / Operator |
 
 ### Dispute Events
 
@@ -538,6 +539,72 @@ Domains that do not involve physical co-location (e.g. virtual tutoring) MAY dis
 
 ---
 
+## Media Attachments
+
+### Kind 30547: Media Attachment
+
+Specifies how photos, videos, and documents are attached to task events for evidence, completion proofs, and dispute support. Media Attachment events are append-only (not replaceable) and may be published by either party or the task operator. Each event references a single media file, identified by a content-addressed hash, with metadata describing the file's type, purpose, capture context, and retention policy.
+
+```json
+{
+  "kind": 30547,
+  "pubkey": "<provider_hex_pubkey>",
+  "created_at": 1698766500,
+  "tags": [
+    ["d", "task_dl99p3:media:001"],
+    ["domain", "delivery"],
+    ["task_id", "task_dl99p3"],
+    ["media_type", "photo"],
+    ["purpose", "proof_of_delivery"],
+    ["mime_type", "image/jpeg"],
+    ["file_hash", "sha256:a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"],
+    ["file_size", "2048576"],
+    ["captured_at", "1698766480"],
+    ["location_lat", "51.5155"],
+    ["location_lon", "-0.1416"],
+    ["p", "<requester_pubkey>"],
+    ["p", "<operator_pubkey>"],
+    ["expiration", "1701358500"]
+  ],
+  "content": "<NIP-44 encrypted to p-tagged recipients: {\"url\": \"https://storage.operator.example.com/media/dl99p3_001.enc\", \"thumbnail_url\": \"https://storage.operator.example.com/media/dl99p3_001_thumb.enc\"}>"
+}
+```
+
+| Tag | Description |
+|-----|-------------|
+| `d` | `<task_id>:media:<sequence>` |
+| `task_id` | Task identifier |
+| `media_type` | `photo`, `video`, `audio`, `document` |
+| `purpose` | `proof_of_collection`, `proof_of_delivery`, `completion_proof`, `damage_report`, `patrol_checkpoint`, `dispute_evidence`, `condition_report` |
+| `mime_type` | MIME type (image/jpeg, video/mp4, etc.) |
+| `file_hash` | `sha256:<hex>` (tamper detection) |
+| `file_size` | Bytes |
+| `captured_at` | Unix timestamp when the media was created |
+| `location_lat`, `location_lon` | Where the media was captured (optional) |
+| `p` (multiple) | Encrypted recipients |
+| `expiration` | NIP-40 auto-expiry (GDPR: delete after retention period) |
+
+The `content` field MUST be NIP-44 encrypted to all `p`-tagged recipients. It contains a JSON object with the encrypted URL to the stored file and an optional thumbnail URL.
+
+**Required tags**: `d`, `task_id`, `media_type`, `purpose`, `file_hash`
+**Optional tags**: `domain`, `mime_type`, `file_size`, `captured_at`, `location_lat`, `location_lon`, `p`, `expiration`
+
+### Storage Guidance
+
+- Files SHOULD be stored on operator infrastructure (not public relays — photos are PII)
+- Files MUST be encrypted at rest
+- Files MUST be deleted when the `expiration` tag is reached
+- The `file_hash` enables verification even if the storage URL changes
+- Fallback: if the URL is dead but both parties signed the Media Attachment event, the metadata (hash, location, timestamp) is still admissible as dispute evidence
+
+### Integration with Existing Kinds
+
+- **Dispute Evidence (30544)** can reference Media Attachment (30547) via an `e` tag pointing to the Media Attachment event ID
+- **Delivery domain**: `proof_of_collection_photo` / `proof_of_delivery_photo` tags now point to Media Attachment event IDs
+- **Security domain**: Patrol checkpoints (30723) can reference Media Attachment for photo proof
+
+---
+
 ## See Also
 
 - **TROTT-01**: Core — Task lifecycle and state machine
@@ -552,3 +619,5 @@ Domains that do not involve physical co-location (e.g. virtual tutoring) MAY dis
 - **NIP-44**: Encrypted payloads (evidence encryption)
 - **NIP-56**: Reporting (cross-ecosystem abuse reporting)
 - **NIP-32**: Structured labels (abuse categorisation)
+- **TROTT-08**: Messaging — Task messages may include media references
+- **NIP-94**: File Metadata — Media Attachment events complement NIP-94 for Nostr-native file metadata

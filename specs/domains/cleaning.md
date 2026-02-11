@@ -70,6 +70,26 @@ Recurring bookings create separate task instances per session, each following th
 
 Example hourly: `hourly_rate x estimated_hours`. Example fixed: flat rate per `property_size` and `cleaning_type` combination.
 
+## Payment Configuration
+
+| Property | Value |
+|----------|-------|
+| Primary `payment_type` | `simple` |
+| Optional `payment_type` | `streaming` (sessions > 2 hours) |
+| Streaming interval | 1800 seconds (half-hourly) |
+| Rate basis | Hourly or fixed per session |
+
+Regular cleaning and specialist cleans (end-of-tenancy, deep clean) use TROTT-04 simple lump-sum payment. For long sessions exceeding 2 hours, operators MAY enable half-hourly streaming (kind 30536), giving the client real-time visibility of session duration and cost.
+
+### Default Stakes
+
+| Party | Percentage | Basis |
+|-------|-----------|-------|
+| Client | 10% | Session fee |
+| Cleaner | 10% | Session fee |
+
+Stakes are symmetric — both parties have roughly equal commitment in a recurring relationship.
+
 ## Cancellation Policy
 
 | Stage | Penalty |
@@ -80,7 +100,7 @@ Example hourly: `hourly_rate x estimated_hours`. Example fixed: flat rate per `p
 | No-show (client not home / no access) | 100% of client stake (automatic) |
 | Cancelling recurring arrangement | No penalty; affects future sessions only, not completed ones |
 
-Default stakes: Client 10% of session fee, Cleaner 10% of session fee (symmetric -- both parties have roughly equal commitment in a recurring relationship).
+Stake amounts are defined in the Default Stakes table above.
 
 ## PII Requirements
 

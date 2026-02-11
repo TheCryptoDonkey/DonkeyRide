@@ -78,6 +78,25 @@ The `full_repair` stage is optional. Many emergencies resolve at the emergency f
 
 Each milestone triggers a partial TROTT-04 Stake Release. Householder may accept some milestones and decline others.
 
+## Payment Configuration
+
+| Property | Value |
+|----------|-------|
+| Primary `payment_type` | `milestone` |
+| Streaming | Not applicable |
+| Milestones | Diagnosis → Emergency fix → Full repair (optional) |
+
+Emergency trades use TROTT-04 milestone payments (kind 30533 with `release_reason: milestone`). The total cost is unknown at dispatch; each milestone is independently quoted and requires explicit householder approval before work proceeds. Each completed milestone triggers a partial Stake Release.
+
+### Default Stakes
+
+| Party | Percentage | Basis |
+|-------|-----------|-------|
+| Householder | 10% | Diagnosis fee (initial) |
+| Tradesperson | 15% | Diagnosis fee (initial) |
+| Per-milestone | 12% | Milestone amount (recalculated) |
+| Gas work override | 20% | Milestone amount (tradesperson only) |
+
 ## Cancellation Policy
 
 | Stage | Penalty |
@@ -88,7 +107,7 @@ Each milestone triggers a partial TROTT-04 Stake Release. Householder may accept
 | After work begins | Full milestone stake forfeit for cancelling party |
 | No-show (householder absent) | 100% of householder stake (automatic) |
 
-Default stakes: Householder 10% of diagnosis fee initially, Tradesperson 15% of diagnosis fee initially. Per-milestone recalculation at 12% of milestone amount. **Gas work override:** tradesperson stake increased to 20% of milestone amount.
+Stake amounts are defined in the Default Stakes table above.
 
 ## PII Requirements
 

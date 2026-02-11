@@ -76,6 +76,26 @@ Additional terminal state: `no_show` -- pet owner not present when carer arrives
 
 **Hourly or flat rate** depending on service category. Walking, sitting, and exotic care use hourly rates. Grooming and transport use flat rates with size-based tiers. Surcharges for additional pets, special needs, and bank holidays.
 
+## Payment Configuration
+
+| Property | Value |
+|----------|-------|
+| Primary `payment_type` | `simple` (walks, grooming, transport) |
+| Optional `payment_type` | `streaming` (extended sitting > 4 hours) |
+| Streaming interval | 3600 seconds (hourly) |
+| Rate basis | Hourly or flat rate by service category |
+
+Walks, grooming, and transport use TROTT-04 simple lump-sum payment. Extended pet sitting engagements (> 4 hours) MAY use hourly streaming (kind 30536), giving the owner real-time visibility of the session duration. Surcharges for additional pets, special needs, and bank holidays are added to the base rate.
+
+### Default Stakes
+
+| Party | Percentage | Basis |
+|-------|-----------|-------|
+| Pet Owner | 10% | Booking fee |
+| Pet Carer | 20% | Booking fee |
+
+The carer's higher stake reflects the responsibility of having custody of a living animal.
+
 ## Cancellation Policy
 
 | Stage | Penalty |
@@ -85,7 +105,7 @@ Additional terminal state: `no_show` -- pet owner not present when carer arrives
 | Within 24 hours of scheduled time | 80% of staked amount |
 | No-show (owner absent) | 100% of owner stake (automatic) |
 
-Default stakes: Pet Owner 10% of booking fee, Pet Carer 20% of booking fee (higher stake as carer has custody of a living animal).
+Stake amounts are defined in the Default Stakes table above.
 
 ## PII Requirements
 

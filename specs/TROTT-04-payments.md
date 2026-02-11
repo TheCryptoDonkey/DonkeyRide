@@ -4,7 +4,7 @@
 
 ## Abstract
 
-This specification defines the **payment communication layer** for trust-minimised physical service coordination. It comprises seven event kinds covering the full payment lifecycle: quoting (30530), terms agreement (30531), stake locking (30532), stake release (30533), stake forfeiture (30534), payment receipts (30535), and streaming ticks (30536).
+This specification defines the **payment communication layer** for trust-minimised physical service coordination. It comprises nine event kinds covering the full payment lifecycle: quoting (30530), terms agreement (30531), stake locking (30532), stake release (30533), stake forfeiture (30534), payment receipts (30535), streaming ticks (30536), post-task tips (30537), and earnings summaries (30538).
 
 **Critical principle**: This specification defines events that *communicate about* payments, not events that *execute* payments. Events track payment state; actual money moves on whatever rail the parties choose (Lightning, Strike, Stripe, NIP-47, Cashu, bank transfer, cash). The protocol is payment-rail-agnostic and currency-neutral — every payment event includes explicit `amount`, `currency`, and `trust_model` tags.
 
@@ -41,6 +41,8 @@ Service coordination requires flexible payment mechanics: competitive quoting, m
 | 30534 | Stake Forfeit | No (append-only) | Operator | Funds penalised (cancellation, no-show, dispute loss). |
 | 30535 | Payment Receipt | No (append-only) | Operator / Provider | Confirmation that money changed hands. Final settlement record. |
 | 30536 | Streaming Tick | No (append-only) | Requester / Operator | Periodic proof-of-payment during an ongoing task. |
+| 30537 | Task Tip | No (append-only) | Requester | Post-task tip for the provider. Separate from the service fee. |
+| 30538 | Earnings Summary | Yes (NIP-33) | Operator | Tax/expense reporting summary for a provider, encrypted to provider. |
 
 ---
 
@@ -388,7 +390,7 @@ Published by the operator when funds are committed for a task. This event proves
 | `nip47_hold` | NIP-47 hold invoice — settled directly between user wallets | `trustless` |
 | `escrow_hold` | Fiat escrow (Stripe Connect, PayPal, etc.) | `third-party-escrow`, `fiat-escrow` |
 | `custodial_hold` | Operator holds funds in their own account | `operator-escrow` |
-| `ecash_lock` | Cashu or Fedimint token locked in mint | `prepaid` |
+| `ecash_lock` | Cashu or Fedimint token locked in mint with HTLC conditions | `ecash-htlc` |
 | `preauthorisation` | Card pre-authorisation (funds reserved, not captured) | `fiat-escrow` |
 
 #### Provider Stake Lock Example
@@ -431,10 +433,11 @@ Published by the operator when funds are committed for a task. This event proves
     ["party", "requester"],
     ["amount", "50000"],
     ["currency", "SAT"],
-    ["trust_model", "prepaid"],
+    ["trust_model", "ecash-htlc"],
     ["payment_rail", "cashu"],
     ["lock_type", "ecash_lock"],
     ["escrow_token", "cashuAey..."],
+    ["payment_hash", "d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5"],
     ["locked_at", "1698765200"],
     ["expiration", "1698772400"]
   ],
@@ -838,6 +841,100 @@ The `cumulative` field on each tick MUST equal the sum of all `amount` values fr
 }
 ```
 
+### Kind 30537: Task Tip
+
+Published by the requester after task completion as a voluntary gratuity for the provider. Task Tips are append-only events — once published, they cannot be replaced or deleted. Tips are entirely separate from the agreed service fee.
+
+```json
+{
+  "kind": 30537,
+  "pubkey": "<requester_hex_pubkey>",
+  "created_at": 1698767200,
+  "tags": [
+    ["d", "task_abc123:tip"],
+    ["e", "<payment_receipt_event_id_30535>", "wss://relay.example.com"],
+    ["task_id", "task_abc123"],
+    ["payee", "<provider_hex_pubkey>"],
+    ["amount", "300"],
+    ["currency", "GBP"],
+    ["trust_model", "fiat-escrow"],
+    ["payment_rail", "strike"],
+    ["anonymous", "false"]
+  ],
+  "content": "Great service, arrived quickly and was very professional."
+}
+```
+
+**Tag reference:**
+
+| Tag | Required | Format | Description |
+|-----|----------|--------|-------------|
+| `d` | Yes | `<task_id>:tip` | One tip event per task. |
+| `e` | Yes | `<event_id>`, `<relay>` | References the Payment Receipt event (kind 30535). |
+| `task_id` | Yes | String | Task identifier. |
+| `payee` | Yes | Hex pubkey | Provider receiving the tip. |
+| `amount` | Yes | Integer string | Tip amount in smallest currency unit. |
+| `currency` | Yes | ISO 4217 or crypto code | Currency. |
+| `trust_model` | Recommended | Enumerated string | Trust model of the tip payment rail. |
+| `payment_rail` | Recommended | String | Payment rail used for the tip. |
+| `anonymous` | Optional | `true` or `false` | Whether the tip should be presented anonymously to the provider. Default `false`. |
+
+**Content:** Optional message to the provider. If `anonymous` is `true`, the content SHOULD be encrypted via NIP-44 to the provider's pubkey.
+
+**Rules:**
+
+- Tips MUST NOT be included in reputation calculations
+- Tips MUST NOT affect dispute outcomes
+- Tips are separate from the agreed payment and do not form part of the task settlement
+- Tips MAY be published up to 7 days after task completion
+- NIP-57 zaps on the Payment Receipt event are an alternative tipping mechanism — both are valid
+
+---
+
+### Kind 30538: Earnings Summary
+
+Parameterised replaceable event published by the operator as a convenience for providers. The content is NIP-44 encrypted to the provider's pubkey. Provides a pre-computed earnings view for tax filing and expense tracking.
+
+```json
+{
+  "kind": 30538,
+  "pubkey": "<operator_hex_pubkey>",
+  "created_at": 1711929600,
+  "tags": [
+    ["d", "earnings:<provider_hex_pubkey>:2026-Q1"],
+    ["provider_pubkey", "<provider_hex_pubkey>"],
+    ["period", "2026-Q1"],
+    ["currency", "GBP"],
+    ["total_gross", "285000"],
+    ["total_net", "256500"],
+    ["total_fees", "28500"],
+    ["total_tips", "12750"],
+    ["task_count", "47"],
+    ["domains", "ridesharing,delivery"]
+  ],
+  "content": "<NIP-44 encrypted breakdown per task>"
+}
+```
+
+**Tag reference:**
+
+| Tag | Required | Format | Description |
+|-----|----------|--------|-------------|
+| `d` | Yes | `earnings:<provider_pubkey>:<period>` | One summary per provider per period. |
+| `provider_pubkey` | Yes | Hex pubkey | The provider this summary covers. |
+| `period` | Yes | String | Reporting period: `2026-Q1`, `2026-01`, or `2026`. |
+| `currency` | Yes | ISO 4217 or crypto code | Primary currency of the summary. |
+| `total_gross` | Yes | Integer string | Total gross earnings before fees (smallest currency unit). |
+| `total_net` | Yes | Integer string | Total net earnings after fees (smallest currency unit). |
+| `total_fees` | Yes | Integer string | Total operator fees deducted (smallest currency unit). |
+| `total_tips` | Recommended | Integer string | Total tips received (smallest currency unit). |
+| `task_count` | Recommended | Integer string | Number of completed tasks in the period. |
+| `domains` | Optional | Comma-separated string | Domains the provider worked across. |
+
+**Content:** NIP-44 encrypted JSON containing per-task breakdown (task ID, date, gross, net, fee, tip, domain). Encrypted to the provider's pubkey so only the provider can read the detail.
+
+This is an operator convenience — providers can also reconstruct earnings from their own Payment Receipt (kind 30535) and Task Tip (kind 30537) events. The summary provides a pre-computed view for tax filing.
+
 ---
 
 ## Payment Flows
@@ -1228,6 +1325,171 @@ For streaming payments, each tick corresponds to a `pay_invoice` call:
 
 ---
 
+## Cashu Integration (Ecash Payments)
+
+Cashu (and Fedimint) ecash tokens provide a **privacy-preserving, offline-capable** payment rail for TROTT tasks. The key primitive is **NUT-14 HTLC** — Hash Time-Locked Contracts enforced by the mint — combined with **P2PK** (Pay-to-Public-Key) spending conditions. This gives cryptographic escrow without requiring an operator to hold funds.
+
+### Ecash Escrow via NUT-14 HTLC
+
+```
+Requester               Provider                Operator / Mint
+    |                       |                       |
+    |── Task Request ──→    |                       |
+    |   (kind 30500)        |                       |
+    |                       |                       |
+    |                  ←── Task Offer ──             |
+    |                  (kind 30501, includes          |
+    |                   wallet_pubkey for P2PK)       |
+    |                       |                       |
+    |── Task Accept ───→    |                       |
+    |   (kind 30502)        |                       |
+    |                       |                       |
+    |── Payment Terms ────────────────────────→      |
+    |   (kind 30531, payment_type: simple,            |
+    |    payment_rail: cashu,                          |
+    |    trust_model: ecash-htlc)                     |
+    |                       |                       |
+    | [Generate preimage, compute paymentHash]        |
+    | [Lock tokens: NUT-14 HTLC with hash +           |
+    |  P2PK to provider wallet_pubkey]                |
+    |                       |                       |
+    |── Stake Lock ────────────────────────→          |
+    |   (kind 30532, escrow_token: cashuAey...,       |
+    |    lock_type: ecash_lock,                       |
+    |    payment_hash: <sha256(preimage)>)             |
+    |                       |                       |
+    |              ... task in progress ...            |
+    |                       |                       |
+    | [PIN verified — requester shares encrypted       |
+    |  preimage via NIP-44 to provider]               |
+    |                       |                       |
+    |                  [Provider claims HTLC:          |
+    |                   NUT-14 /v1/swap with           |
+    |                   preimage + P2PK sig]           |
+    |                       |── swap ──→ Mint         |
+    |                       |                         |
+    |                       |←── new proofs ──        |
+    |                       |                         |
+    |── Stake Release ────────────────────────→       |
+    |   (kind 30533, release_reason: completed)       |
+    |                       |                       |
+    |── Payment Receipt ──────────────────────→       |
+    |   (kind 30535)        |                       |
+```
+
+**Key flow:**
+
+1. **Requester generates a preimage** and computes `payment_hash = SHA-256(preimage)`
+2. **Requester locks tokens** using NUT-14 HTLC with the hash condition AND P2PK to the provider's `wallet_pubkey`
+3. **Requester publishes Stake Lock** (kind 30532) with the `escrow_token`, `payment_hash`, `lock_type: ecash_lock`, and `trust_model: ecash-htlc`
+4. **On task completion**, the requester shares the preimage with the provider (encrypted via NIP-44)
+5. **Provider claims** by performing a NUT-14 `/v1/swap` with both the preimage and their P2PK signature
+6. **Provider publishes** or operator publishes Stake Release (kind 30533) and Payment Receipt (kind 30535)
+
+The dual condition (HTLC + P2PK) ensures that **only the intended provider** can claim the tokens, and **only after the requester releases the preimage**. The mint enforces these conditions cryptographically without knowing the task context.
+
+### Cashu Operation Mapping
+
+| Cashu Operation | TROTT-04 Event | Direction |
+|-----------------|----------------|-----------|
+| NUT-14 HTLC lock (requester locks tokens) | Stake Lock (30532) | Lock funds |
+| NUT-14 swap with preimage + P2PK (provider claims) | Stake Release (30533) | Release to provider |
+| HTLC timeout (lock expires unclaimed) | Stake Forfeit (30534) | Return to requester |
+| NUT-07 proof state check | *(verification only)* | Check lock status |
+| NUT-04 deposit (fund wallet) | *(off-protocol)* | Wallet funding |
+| NUT-05 withdrawal (cash out) | *(off-protocol)* | Wallet withdrawal |
+
+### Wallet Pubkey Handshake
+
+The provider's wallet pubkey (secp256k1, used for P2PK signing) MUST be shared during task negotiation. It is included as a `wallet_pubkey` tag on the Task Offer (kind 30501) or Payment Terms (kind 30531). This pubkey is **distinct from the provider's Nostr identity keypair** — it is used solely for cryptographic HTLC claiming.
+
+If the provider rotates their wallet pubkey between tasks, the requester MUST use the pubkey from the most recent Task Offer or Payment Terms event.
+
+### NIP-60 Wallet Sync
+
+For cross-device wallet backup, implementations SHOULD use NIP-60:
+
+| Kind | Purpose |
+|------|---------|
+| 7375 | Unspent ecash proofs (encrypted to self) |
+| 17375 | Wallet metadata (mint URL, settings) |
+
+These kinds are outside the TROTT range but are complementary. The TROTT protocol does not mandate any specific wallet sync mechanism.
+
+**Critical invariant:** Proofs MUST be published to NIP-60 (kind 7375) **BEFORE** being deleted locally. This prevents proof loss during device failure. Implementations that delete local proofs before confirming NIP-60 publication risk permanent fund loss.
+
+### P2P Cashu Flow (No Operator)
+
+The same HTLC mechanism works without an operator:
+
+1. Requester and provider negotiate directly (TROTT-01 events only)
+2. Requester locks HTLC token and publishes Stake Lock (kind 30532) with `trust_model: ecash-htlc`
+3. On completion, requester shares preimage directly via NIP-44
+4. Provider claims and publishes Payment Receipt (kind 30535)
+5. No Stake Release event needed — the provider self-reports receipt
+
+This uses only TROTT-01 + TROTT-04 (typically just kinds 30500, 30502, 30532, 30535 = 4 kinds).
+
+### Cashu Stake Lock Event Example
+
+```json
+{
+  "kind": 30532,
+  "pubkey": "<requester_hex_pubkey>",
+  "created_at": 1698765200,
+  "tags": [
+    ["d", "task_r7k9m2:lock:requester"],
+    ["e", "<payment_terms_event_id_30531>", "wss://relay.example.com"],
+    ["domain", "ridesharing"],
+    ["task_id", "task_r7k9m2"],
+    ["party", "requester"],
+    ["amount", "50000"],
+    ["currency", "SAT"],
+    ["trust_model", "ecash-htlc"],
+    ["payment_rail", "cashu"],
+    ["lock_type", "ecash_lock"],
+    ["escrow_token", "EXAMPLE_VALUE"],
+    ["payment_hash", "d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5"],
+    ["wallet_pubkey", "<provider_wallet_secp256k1_pubkey>"],
+    ["locked_at", "1698765200"],
+    ["expiration", "1698772400"],
+    ["mint_url", "https://mint.example.com"]
+  ],
+  "content": ""
+}
+```
+
+**Note:** The `mint_url` tag is informational — it tells the provider which mint to claim from. The `escrow_token` contains the serialised Cashu token with NUT-14 HTLC conditions. The `payment_hash` matches the hash condition in the HTLC, enabling the provider to verify the lock before starting work.
+
+### Multi-Mint Scenarios
+
+When requester and provider use different Cashu mints, an additional swap step is required. Payment Terms (kind 30531) and Provider Availability (kind 20500) SHOULD include a `supported_mints` tag (comma-separated mint URLs) to enable mint compatibility checks before task acceptance.
+
+**Same-mint flow (zero additional fees):**
+
+If both parties use the same mint, the standard NUT-14 HTLC flow applies directly. The requester locks tokens on the shared mint; the provider claims from the same mint using the preimage and P2PK signature. No swap fees are incurred.
+
+**Cross-mint flow (Lightning swap):**
+
+If the requester and provider use different mints, the following swap path is used:
+
+1. Requester locks HTLC tokens on their mint (as normal)
+2. On task completion, provider receives the preimage
+3. Provider performs a Lightning swap:
+   - **NUT-08 melt** on the requester's mint — converts the claimed ecash proofs into a Lightning payment
+   - **NUT-04 mint** on the provider's mint — receives new ecash proofs from the Lightning payment
+4. The swap fee is borne by the requester as part of the task cost — Payment Terms (kind 30531) SHOULD include a `swap_fee` breakdown tag when cross-mint settlement is anticipated
+
+**Stake Lock tag:**
+
+Stake Lock (kind 30532) SHOULD include a `mint_url` tag indicating which mint holds the locked tokens. This enables the provider to verify the lock and plan for any cross-mint swap before accepting the task.
+
+**Fallback:**
+
+If the requester's mint becomes unreachable during the task, the payment SHOULD fall back to an alternative rail (Lightning via NIP-47, or a fiat rail). The operator MAY publish updated Payment Terms (kind 30531) reflecting the rail change. The original Stake Lock remains valid until its `expiration` timestamp; if the mint recovers before expiry, the HTLC claim proceeds normally.
+
+---
+
 ## Relay Filter Patterns
 
 ### Querying Quotes for a Task
@@ -1261,7 +1523,7 @@ For streaming payments, each tick corresponds to a `pay_invoice` call:
 
 ```json
 {
-  "kinds": [30530, 30531, 30532, 30533, 30534, 30535, 30536],
+  "kinds": [30530, 30531, 30532, 30533, 30534, 30535, 30536, 30537],
   "#task_id": ["task_abc123"]
 }
 ```
@@ -1290,6 +1552,7 @@ Task Request (30500)
             ├── Stake Lock (30532) references terms via e tag
             │   ├── Stake Release (30533) references lock via e tag
             │   │   └── Payment Receipt (30535) references release via e tag
+            │   │       └── Task Tip (30537) references receipt via e tag (optional)
             │   └── Stake Forfeit (30534) references lock via e tag
             └── Streaming Tick (30536) references terms via e tag
 ```
@@ -1313,6 +1576,7 @@ Payment events contain pseudonymous identifiers (pubkeys) and financial data. Un
 
 - **TROTT-01**: Core protocol (task lifecycle, state machine, Task Request kind 30500, Task Complete kind 30504)
 - **TROTT-03**: Reputation (stake evidence tag for rating credibility)
+- **TROTT-08**: Messaging (encrypted communication between parties)
 - **NIP-01**: Basic protocol flow and event format
 - **NIP-33**: Parameterised replaceable events (d tag deduplication)
 - **NIP-40**: Expiration timestamps (quote validity, lock expiry)

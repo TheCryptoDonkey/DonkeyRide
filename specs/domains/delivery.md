@@ -11,7 +11,7 @@
 - TROTT-01: Core **Yes**
 - TROTT-02: Discovery (geographic broadcast) **Yes**
 - TROTT-03: Reputation **Yes**
-- TROTT-04: Payments (simple quote, escrowed) **Yes**
+- TROTT-04: Payments (simple quote, escrowed, optional streaming for long-distance) **Yes**
 - TROTT-05: Safety (disputes, damage claims) **Yes**
 - TROTT-06: Coordination (recommended) **Yes**
 - TROTT-07: Navigation (routing, ETA, live tracking) **Yes**
@@ -68,6 +68,26 @@ Additional terminal states: `no_show`, `delivery_failed`, `returned_to_sender`.
 
 **Distance + weight.** Base fee plus per-kilometre rate, multiplied by a weight tier factor. Optional surcharges for fragile items and signature-required deliveries. All amounts in smallest currency unit.
 
+## Payment Configuration
+
+| Property | Value |
+|----------|-------|
+| Primary `payment_type` | `simple` |
+| Optional `payment_type` | `streaming` (long-distance deliveries) |
+| Streaming interval | Per 100 metres |
+| Rate basis | Distance + weight tier |
+
+Short-distance deliveries use TROTT-04 simple lump-sum payment. For long-distance deliveries (> 1 hour transit), operators MAY enable distance-based streaming (kind 30536) at a per-100m rate, providing the sender with real-time cost visibility during transit.
+
+### Default Stakes
+
+| Party | Percentage | Basis |
+|-------|-----------|-------|
+| Sender | 10% | Delivery fee |
+| Courier | 15% | Delivery fee |
+
+For high-value parcels, the operator MAY require an increased courier stake proportional to the declared parcel value.
+
 ## Cancellation Policy
 
 | Stage | Penalty |
@@ -78,7 +98,7 @@ Additional terminal states: `no_show`, `delivery_failed`, `returned_to_sender`.
 | No-show (sender absent at collection) | 100% of sender stake (automatic) |
 | Delivery failed (recipient unavailable) | No penalty; triggers re-delivery or return |
 
-Default stakes: Sender 10% of delivery fee, Courier 15% of delivery fee. For high-value parcels, operator may require increased courier stake proportional to declared parcel value.
+Stake amounts are defined in the Default Stakes table above.
 
 ## PII Requirements
 

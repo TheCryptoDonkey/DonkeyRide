@@ -30,10 +30,11 @@ Not all service domains are geographic. Online tutoring, consulting, and many sk
 | 30510 | Provider Profile | Parameterised replaceable (NIP-33) | Provider | Capabilities, credentials, domains served, areas covered |
 | 30511 | Operator Bond | Parameterised replaceable (NIP-33) | Operator | Operator stake, supported domains, terms, SLA |
 | 30512 | Trusted Provider List | Parameterised replaceable (NIP-33) | Requester | Requester's preferred providers with personal ratings |
+| 30513 | Requester Profile | Parameterised replaceable (NIP-33) | Requester | Requester's portable profile — saved locations, preferences, defaults |
 
 > **Note on kind 20500**: This is in the ephemeral event range (20000-29999). Relays MUST NOT persist these events. They are transient signals indicating current availability only.
 
-> **Note on kinds 30510-30512**: These kinds are used for discovery-specific purposes as defined in this specification.
+> **Note on kinds 30510-30513**: These kinds are used for discovery-specific purposes as defined in this specification.
 
 ---
 
@@ -503,6 +504,65 @@ Operators query for a requester's trusted provider list when processing task req
 | `trusted_only` | Only offer to trusted providers; cancel if none available |
 | `broadcast_only` | Skip trusted provider list; use geographic/category discovery only |
 
+### Kind 30513: Requester Profile
+
+A persistent, parameterised replaceable profile published by the requester. Public tags enable relay filtering and provider-side discovery; private fields are NIP-44 encrypted to self, so only the requester can read them. This is the requester's **portable profile** — switching to a different client or operator preserves saved locations, payment defaults, and domain-specific preferences. Symmetric with Provider Profile (kind 30510) but for the requester side.
+
+```json
+{
+  "kind": 30513,
+  "pubkey": "<requester_hex_pubkey>",
+  "created_at": 1698700000,
+  "tags": [
+    ["d", "requester-profile"],
+    ["t", "trott-requester"],
+    ["domain", "ridesharing"],
+    ["domain", "delivery"],
+    ["languages", "en,fr"],
+    ["g", "gcpu"],
+    ["rating", "4.9"],
+    ["completed_tasks", "47"]
+  ],
+  "content": "<NIP-44 encrypted to self: {\"saved_locations\": [{\"label\": \"Home\", \"lat\": 51.5074, \"lon\": -0.1278}, {\"label\": \"Work\", \"lat\": 51.5155, \"lon\": -0.1416}], \"payment_defaults\": {\"preferred_rail\": \"strike\", \"preferred_currency\": \"GBP\"}, \"domain_preferences\": {\"ridesharing\": {\"vehicle_type\": \"sedan\", \"quiet_ride\": true}}}>"
+}
+```
+
+**Public tags** (visible to relays for filtering):
+
+| Tag | Description |
+|-----|-------------|
+| `d` | Always `requester-profile` (one per requester) |
+| `domain` (multiple) | Domains the requester uses |
+| `languages` | Spoken languages (comma-separated, ISO 639-1) |
+| `g` | Home area geohash (precision 3-4 only, for regional filtering) |
+| `rating` | Requester's current aggregate rating |
+| `completed_tasks` | Total completed tasks |
+
+**Private content** (NIP-44 encrypted to self):
+
+- **Saved locations** — home, work, airport, favourites — each with label + coordinates
+- **Payment defaults** — preferred rail, preferred currency, wallet pubkey
+- **Domain-specific preferences** — vehicle type for ridesharing, pet details for pet-services, parcel size defaults for delivery
+- **Notification preferences** — alert channels and quiet hours
+
+**Required tags**: `d`
+
+**Recommended tags**: `domain` (at least one), `languages`
+
+**Optional tags**: `t`, `g`, `rating`, `completed_tasks`
+
+#### REQ Filter
+
+Fetch a requester's profile (e.g. for a provider or operator reviewing an incoming request):
+
+```json
+{
+  "kinds": [30513],
+  "authors": ["<requester_hex_pubkey>"],
+  "limit": 1
+}
+```
+
 ---
 
 ## Progressive Location Reveal
@@ -676,7 +736,7 @@ For optimal discovery performance, the following relay architecture is RECOMMEND
 
 | Relay Type | Event Kinds | Purpose |
 |------------|------------|---------|
-| **Public discovery relays** | 20500, 30510, 30511, 30512 | Widely replicated, high availability. Used for finding providers and operators. |
+| **Public discovery relays** | 20500, 30510, 30511, 30512, 30513 | Widely replicated, high availability. Used for finding providers, operators, and requester profiles. |
 | **Operator relays** | 30500-30507 (TROTT-01 lifecycle) | Authoritative task state. Operated by each TROTT operator. |
 | **General Nostr relays** | 3 (NIP-02 follows), 30530+ (reputation) | Social graph and reputation data. |
 
@@ -686,6 +746,7 @@ For optimal discovery performance, the following relay architecture is RECOMMEND
 - **Provider Profile (kind 30510)**: Publish to 3+ public relays for durability. This is a persistent advertisement.
 - **Operator Bond (kind 30511)**: Publish to 3+ public relays. This is a high-stakes commitment that must be widely visible.
 - **Trusted Provider List (kind 30512)**: Publish to the requester's preferred relays. Operators query these when processing task requests.
+- **Requester Profile (kind 30513)**: Publish to 2-3 personal relays. Private content is encrypted to self; only the requester can read it.
 
 ### Ephemeral Event Handling
 
@@ -754,7 +815,7 @@ The `discovery_method` tag uses a comma-separated list. When multiple modes are 
 |-----|------|-------------------|
 | **NIP-01** | Basic Protocol Flow | Event format, relay communication, REQ filters |
 | **NIP-02** | Contact List / Follow List | Social discovery, implicit trust signals (BatPhone pattern) |
-| **NIP-33** | Parameterised Replaceable Events | Provider Profile, Operator Bond, Trusted Provider List |
+| **NIP-33** | Parameterised Replaceable Events | Provider Profile, Operator Bond, Trusted Provider List, Requester Profile |
 | **NIP-40** | Expiration Timestamp | Availability beacon expiration, bond expiration |
 | **NIP-44** | Encrypted Payloads | Post-acceptance precise location exchange |
 | **NIP-17 + NIP-59** | Private Messages (Gift Wrap) | PII exchange (addresses, phone numbers) |
@@ -770,6 +831,7 @@ The `discovery_method` tag uses a comma-separated list. When multiple modes are 
 - **TROTT-05**: Safety — Emergency signals, check-ins, disputes, and abuse reporting
 - **TROTT-06**: Coordination — Operator participation, PII handling, and compliance
 - **TROTT-07**: Navigation — Routing, ETA, live tracking, and route deviation
+- **TROTT-08**: Messaging — Direct communication between participants
 
 ### Domain Extensions
 

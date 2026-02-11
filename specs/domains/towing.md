@@ -70,6 +70,22 @@ Additional terminal state: `no_show` -- motorist not present at breakdown locati
 
 **Flat rate with quote negotiation.** Initial estimate provided at dispatch based on reported breakdown. Recovery operator issues a binding quote after on-site vehicle assessment. Motorist accepts or declines before loading begins. Price factors: vehicle type and weight, flatbed requirement, towing distance to destination, and complications (e.g. vehicle in a ditch).
 
+## Payment Configuration
+
+| Property | Value |
+|----------|-------|
+| Primary `payment_type` | `simple` |
+| Streaming | Not applicable |
+
+Towing uses TROTT-04 simple lump-sum payment. The total is determined by the binding on-site quote (kind 30530) issued after vehicle assessment. Like locksmith, the final price is not known until the operator inspects the vehicle. Streaming is not applicable — recovery is a single-outcome task with a fixed price.
+
+### Default Stakes
+
+| Party | Percentage | Basis |
+|-------|-----------|-------|
+| Vehicle Owner | 10% | Initial estimate (recalculated on accepted quote) |
+| Recovery Operator | 15% | Initial estimate (recalculated on accepted quote) |
+
 ## Cancellation Policy
 
 | Stage | Penalty |
@@ -80,7 +96,7 @@ Additional terminal state: `no_show` -- motorist not present at breakdown locati
 | After vehicle loaded | Full stake forfeit for cancelling party |
 | No-show (motorist absent) | 100% of motorist stake (automatic) |
 
-Default stakes: Motorist 10% of estimate, Recovery Operator 15% of estimate. Stakes recalculated against confirmed `quoted_price` upon acceptance.
+Stake amounts are defined in the Default Stakes table above. Stakes are recalculated against the confirmed `quoted_price` upon acceptance.
 
 ## PII Requirements
 

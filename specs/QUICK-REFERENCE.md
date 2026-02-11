@@ -3,26 +3,27 @@
 **Trusted Real-world Orchestration of Tasks & Trades**
 
 **Protocol Version**: v4.0 (Payment-Agnostic, Modular TROTT Specs)
-**Event Kind Range**: 20500-20501 (ephemeral) + 30500-30563 (core) + 30600-30779 (domain extensions)
-**Last Updated**: 2026-02-10
+**Event Kind Range**: 20500-20502 (ephemeral) + 30500-30567 (core) + 30600-30779 (domain extensions)
+**Last Updated**: 2026-02-11
 
 ---
 
 ## Specification Structure
 
-The protocol is organised as a **family of 7 focused specifications**. Each spec stands alone and can be implemented independently. Domain profiles declare which specs they use.
+The protocol is organised as a **family of 8 focused specifications**. Each spec stands alone and can be implemented independently. Domain profiles declare which specs they use.
 
 ### TROTT Specifications
 
 | Spec | Kinds | Scope |
 |------|-------|-------|
-| **[TROTT-01: Core](./TROTT-01-core.md)** | 30500-30507 | Task lifecycle, state machine, scheduling, multi-provider. The minimum viable protocol. |
-| **[TROTT-02: Discovery](./TROTT-02-discovery.md)** | 20500, 30510-30512 | Provider availability, geohash search, skill search, trusted provider networks. |
+| **[TROTT-01: Core](./TROTT-01-core.md)** | 30500-30509 | Task lifecycle, state machine, scheduling, multi-provider, multi-leg, recurring. The minimum viable protocol. |
+| **[TROTT-02: Discovery](./TROTT-02-discovery.md)** | 20500, 30510-30513 | Provider availability, geohash search, skill search, trusted provider networks, requester profiles. |
 | **[TROTT-03: Reputation](./TROTT-03-reputation.md)** | 30520-30522 | Ratings, trust weighting, credentials, cross-domain reputation portability. |
-| **[TROTT-04: Payments](./TROTT-04-payments.md)** | 30530-30536 | Quotes, escrow, streaming, milestones, split payments. Currency-neutral. Payment-provider-agnostic. |
-| **[TROTT-05: Safety](./TROTT-05-safety.md)** | 30540-30546 | Emergency signals, safety check-ins, dispute resolution, abuse reporting. |
-| **[TROTT-06: Coordination](./TROTT-06-coordination.md)** | 30550-30554 | Operator participation, PII handling, compliance, delegation. **Optional.** |
+| **[TROTT-04: Payments](./TROTT-04-payments.md)** | 30530-30538 | Quotes, escrow, streaming, milestones, split payments, tipping, earnings. Currency-neutral. Payment-provider-agnostic. |
+| **[TROTT-05: Safety](./TROTT-05-safety.md)** | 30540-30547 | Emergency signals, safety check-ins, dispute resolution, abuse reporting, media attachments. |
+| **[TROTT-06: Coordination](./TROTT-06-coordination.md)** | 30550-30555 | Operator participation, PII handling, compliance, delegation, compliance snapshots. **Optional.** |
 | **[TROTT-07: Navigation](./TROTT-07-navigation.md)** | 20501, 30560-30563 | Routing, ETA, live tracking, route deviation alerts. **Optional.** |
+| **[TROTT-08: Messaging](./TROTT-08-messaging.md)** | 20502, 30564-30567 | Task chat, read receipts, typing indicators, task archive, user preferences. **Optional.** |
 
 ### Domain Profile Specifications
 
@@ -40,17 +41,17 @@ The protocol is organised as a **family of 7 focused specifications**. Each spec
 
 ### Which Specs Does Each Domain Use?
 
-| Domain | 01 Core | 02 Discovery | 03 Reputation | 04 Payments | 05 Safety | 06 Coordination | 07 Navigation |
-|--------|---------|-------------|---------------|-------------|-----------|-----------------|---------------|
-| Ridesharing | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Locksmith | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| Delivery | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Towing | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Emergency Trades | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| Pet Services | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| Security | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| Cleaning | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| Moving | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Domain | 01 Core | 02 Discovery | 03 Reputation | 04 Payments | 05 Safety | 06 Coordination | 07 Navigation | 08 Messaging |
+|--------|---------|-------------|---------------|-------------|-----------|-----------------|---------------|--------------|
+| Ridesharing | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Locksmith | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| Delivery | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Towing | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Emergency Trades | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| Pet Services | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| Security | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| Cleaning | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ |
+| Moving | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ---
 
@@ -70,6 +71,8 @@ All domains share these kinds. The `domain` tag identifies which extension appli
 | 30505 | Task Confirm | Yes (NIP-33) | Requester |
 | 30506 | Task Cancel | Yes (NIP-33) | Either party |
 | 30507 | Task Dispute | Yes (NIP-33) | Either party |
+| 30508 | Leg Plan | Yes (NIP-33) | Requester / Operator |
+| 30509 | Recurring Series | Yes (NIP-33) | Operator |
 
 ### TROTT-02: Discovery
 
@@ -79,6 +82,7 @@ All domains share these kinds. The `domain` tag identifies which extension appli
 | 30510 | Provider Profile | Yes (NIP-33) | Provider |
 | 30511 | Operator Bond | Yes (NIP-33) | Operator |
 | 30512 | Trusted Provider List | Yes (NIP-33) | Requester |
+| 30513 | Requester Profile | Yes (NIP-33) | Requester |
 
 ### TROTT-03: Reputation
 
@@ -99,6 +103,8 @@ All domains share these kinds. The `domain` tag identifies which extension appli
 | 30534 | Stake Forfeit | No (append-only) | Operator |
 | 30535 | Payment Receipt | No (append-only) | Operator / Provider |
 | 30536 | Streaming Tick | No (append-only) | Requester / Operator |
+| 30537 | Task Tip | No (append-only) | Requester |
+| 30538 | Earnings Summary | Yes (NIP-33) | Operator |
 
 ### TROTT-05: Safety & Disputes
 
@@ -111,6 +117,7 @@ All domains share these kinds. The `domain` tag identifies which extension appli
 | 30544 | Dispute Evidence | No (append-only) | Either / Mediator |
 | 30545 | Dispute Resolution | Yes (NIP-33) | Operator / Mediator |
 | 30546 | Abuse Report | No (append-only) | Either / Operator |
+| 30547 | Media Attachment | No (append-only) | Either party |
 
 ### TROTT-06: Coordination (Optional)
 
@@ -121,6 +128,7 @@ All domains share these kinds. The `domain` tag identifies which extension appli
 | 30552 | Delegation Grant | Yes (NIP-33) | Either party |
 | 30553 | Compliance Record | No (append-only) | Operator |
 | 30554 | Operator Heartbeat | Yes (NIP-33) | Operator |
+| 30555 | Compliance Snapshot | No (append-only) | Operator |
 
 ### TROTT-07: Navigation (Optional)
 
@@ -132,7 +140,17 @@ All domains share these kinds. The `domain` tag identifies which extension appli
 | 30562 | Route Deviation | No (append-only) | Operator |
 | 30563 | Navigation Resource | Yes (NIP-33) | Anyone |
 
-**Total: 39 event kinds** (26 parameterised replaceable + 11 append-only + 2 ephemeral)
+### TROTT-08: Messaging & Personal Data (Optional)
+
+| Kind | Name | Replaceable | Publisher |
+|------|------|-------------|-----------|
+| 20502 | Typing Indicator | No (ephemeral) | Either party |
+| 30564 | Task Message | No (append-only) | Either party |
+| 30565 | Message Status | Yes (NIP-33) | Recipient |
+| 30566 | Task Archive Entry | Yes (NIP-33) | Either party |
+| 30567 | User Preferences | Yes (NIP-33) | Either party |
+
+**Total: 51 event kinds** (33 parameterised replaceable + 15 append-only + 3 ephemeral)
 
 ---
 
@@ -181,21 +199,21 @@ Domain profiles MAY insert sub-states within `in_progress` (e.g. `provider_en_ro
 
 | Range | Purpose | Spec |
 |-------|---------|------|
-| 20500-20501 | Ephemeral events (availability, location) | TROTT-02, TROTT-07 |
-| 30500-30507 | Core task lifecycle | TROTT-01 |
-| 30508-30509 | Reserved (future core) | — |
-| 30510-30512 | Discovery | TROTT-02 |
-| 30513-30519 | Reserved (future discovery/core) | — |
+| 20500-20502 | Ephemeral events (availability, location, typing) | TROTT-02, TROTT-07, TROTT-08 |
+| 30500-30509 | Core task lifecycle, multi-leg, recurring | TROTT-01 |
+| 30510-30513 | Discovery, requester profiles | TROTT-02 |
+| 30514-30519 | Reserved (future discovery/core) | — |
 | 30520-30522 | Reputation | TROTT-03 |
 | 30523-30529 | Reserved (future reputation) | — |
-| 30530-30536 | Payments | TROTT-04 |
-| 30537-30539 | Reserved (future payments) | — |
-| 30540-30546 | Safety & Disputes | TROTT-05 |
-| 30547-30549 | Reserved (future safety) | — |
-| 30550-30554 | Coordination | TROTT-06 |
-| 30555-30559 | Reserved (future coordination) | — |
+| 30530-30538 | Payments, tipping, earnings | TROTT-04 |
+| 30539 | Reserved (future payments) | — |
+| 30540-30547 | Safety, disputes, media | TROTT-05 |
+| 30548-30549 | Reserved (future safety) | — |
+| 30550-30555 | Coordination, compliance | TROTT-06 |
+| 30556-30559 | Reserved (future coordination) | — |
 | 30560-30563 | Navigation | TROTT-07 |
-| 30564-30599 | Reserved (future core expansion) | — |
+| 30564-30567 | Messaging & personal data | TROTT-08 |
+| 30568-30599 | Reserved (future core expansion) | — |
 | 30600-30619 | Ridesharing extension | TROTT-ridesharing |
 | 30620-30639 | Locksmith extension | TROTT-locksmith |
 | 30640-30659 | Delivery extension | TROTT-delivery |
@@ -221,17 +239,17 @@ Domain profiles MAY insert sub-states within `in_progress` (e.g. `provider_en_ro
 | Safety (TROTT-05) | 30540 | 1 |
 | **Total** | | **14** |
 
-### Tier 2: + Payments & Full Reputation (21 kinds)
+### Tier 2: + Payments & Full Reputation (23 kinds)
 
-Add TROTT-04 (30530-30536) for payment flows, plus TROTT-03 (30521-30522) for reputation queries and credentials.
+Add TROTT-04 (30530-30538) for payment flows including tipping and earnings summaries, plus TROTT-03 (30521-30522) for reputation queries and credentials.
 
-### Tier 3: + Safety & Disputes (28 kinds)
+### Tier 3: + Safety & Disputes (31 kinds)
 
-Add TROTT-05 (30541-30546) for check-ins, disputes, and abuse reporting.
+Add TROTT-05 (30541-30547) for check-ins, disputes, abuse reporting, and media attachments.
 
-### Tier 4: Full Operator (39 kinds)
+### Tier 4: Full Operator (51 kinds)
 
-Add TROTT-06 (30550-30554) for operator coordination, plus TROTT-07 (20501, 30560-30563) for navigation.
+Add TROTT-06 (30550-30555) for operator coordination and compliance snapshots, TROTT-07 (20501, 30560-30563) for navigation, and TROTT-08 (20502, 30564-30567) for messaging, task archives, and user preferences.
 
 ---
 
@@ -249,6 +267,8 @@ Add TROTT-06 (30550-30554) for operator coordination, plus TROTT-07 (20501, 3056
                   TROTT-06: Coordination (optional)
                       |
                   TROTT-07: Navigation (optional)
+
+            TROTT-08: Messaging (optional, depends on TROTT-01)
 ```
 
 ---
@@ -268,7 +288,9 @@ Add TROTT-06 (30550-30554) for operator coordination, plus TROTT-07 (20501, 3056
 | NIP-56 | Reporting | Cross-ecosystem safety reporting |
 | NIP-57 | Lightning Zaps | Tips as standard Nostr zaps |
 | NIP-58 | Badges | Verification credentials |
+| NIP-60 | Wallet Sync | Cashu token storage and synchronisation |
 | NIP-89 | App Handlers | Operator service declaration |
+| NIP-94 | File Metadata | Media attachment metadata guidance |
 
 ---
 
@@ -282,6 +304,7 @@ Add TROTT-06 (30550-30554) for operator coordination, plus TROTT-07 (20501, 3056
 - **Safety**: [TROTT-05-safety.md](./TROTT-05-safety.md)
 - **Coordination**: [TROTT-06-coordination.md](./TROTT-06-coordination.md)
 - **Navigation**: [TROTT-07-navigation.md](./TROTT-07-navigation.md)
+- **Messaging**: [TROTT-08-messaging.md](./TROTT-08-messaging.md)
 
 ### Domain Profiles
 - **Ridesharing**: [domains/ridesharing.md](./domains/ridesharing.md)
@@ -293,6 +316,9 @@ Add TROTT-06 (30550-30554) for operator coordination, plus TROTT-07 (20501, 3056
 - **Security**: [domains/security.md](./domains/security.md)
 - **Cleaning**: [domains/cleaning.md](./domains/cleaning.md)
 - **Moving**: [domains/moving.md](./domains/moving.md)
+
+### Migration Guides
+- **Ridestr**: [migration-guides/ridestr.md](./migration-guides/ridestr.md)
 
 ### Documentation
 - **Protocol Design**: [../docs/plans/2026-02-10-trott-protocol-design.md](../docs/plans/2026-02-10-trott-protocol-design.md)

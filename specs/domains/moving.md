@@ -86,6 +86,24 @@ Each milestone amount is split across crew members via TROTT-04 Split Payments (
 - Transit milestone: 300 (split 120/90/90)
 - Unloading milestone: 500 (split 200/150/150)
 
+## Payment Configuration
+
+| Property | Value |
+|----------|-------|
+| Primary `payment_type` | `milestone` |
+| Secondary `payment_type` | `split` (multi-crew) |
+| Streaming | Not applicable |
+| Milestones | Loading → Transit → Unloading |
+
+Moving uses TROTT-04 milestone payments combined with split payments. Three milestones map to the physical stages (loading, transit, unloading), and each milestone amount is split across crew members via TROTT-04 Payment Terms (kind 30531 with `payment_type: split`). The lead mover MAY receive a larger share.
+
+### Default Stakes
+
+| Party | Percentage | Basis |
+|-------|-----------|-------|
+| Client | 10% | Total move cost |
+| Each Mover | 10% | Individual share |
+
 ## Cancellation Policy
 
 | Stage | Penalty |
@@ -96,7 +114,7 @@ Each milestone amount is split across crew members via TROTT-04 Split Payments (
 | Within 24 hours of scheduled date | 80% of staked amount |
 | On the day / after crew assembled | Full stake forfeit |
 
-Default stakes: Client 10% of total move cost, each Mover 10% of their individual share. Longer cancellation notice period reflects the difficulty of rebooking a full crew at short notice.
+Stake amounts are defined in the Default Stakes table above. The longer cancellation notice period reflects the difficulty of rebooking a full crew at short notice.
 
 ## PII Requirements
 

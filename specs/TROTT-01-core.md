@@ -820,7 +820,7 @@ Domain extensions MAY define additional event kinds within their allocated range
 
 | Range | Domain | Extension Spec |
 |-------|--------|----------------|
-| 30500-30507 | Core task lifecycle | TROTT-01 (this spec) |
+| 30500-30509 | Core task lifecycle (incl. multi-leg and recurring tasks) | TROTT-01 (this spec) |
 | 30510-30512, 20500 | Discovery | TROTT-02 |
 | 30520-30522 | Reputation | TROTT-03 |
 | 30530-30536 | Payments | TROTT-04 |
@@ -855,8 +855,195 @@ Tasks MAY reference other tasks using the `linked_task` tag:
 | `guarantee` | Reopened task under original terms (e.g. locksmith guarantee — lock fails within 30 days) |
 | `escalation` | Escalated task when original service was insufficient (e.g. roadside fix failed, escalate to tow) |
 | `recurrence` | Instance of a recurring task series |
+| `shared_ride` | Tasks sharing a single provider journey (e.g. carpool passengers). Each task is independent but linked via a common Leg Plan (30508). |
 
-Guarantee-linked tasks inherit the original task's agreed terms. Escalation-linked tasks form an auditable chain. Recurrence-linked tasks are independent instances sharing a series identifier.
+Guarantee-linked tasks inherit the original task's agreed terms. Escalation-linked tasks form an auditable chain. Recurrence-linked tasks are independent instances sharing a series identifier. Shared-ride-linked tasks are fully independent lifecycles (cancellation, payment, ratings) that happen to share a provider and a Leg Plan.
+
+---
+
+## Multi-Leg Tasks
+
+Many real-world tasks involve ordered intermediate stops rather than a simple origin-to-destination journey. An airport shuttle picking up passengers at hotels 1 through 4, a multi-drop parcel delivery visiting several addresses, or a moving job splitting furniture across two destination addresses are all examples of **multi-leg tasks** — tasks with a sequence of waypoints that must be visited in a defined order.
+
+TROTT models multi-leg tasks with a dedicated **Leg Plan** event that defines the stop sequence, and uses Task Update (30503) sub-state transitions to track progress through each leg.
+
+### Kind 30508: Leg Plan
+
+**Parameterised replaceable** (NIP-33). Published by the requester or operator.
+
+**`d` tag**: `<task_id>:legs`
+
+| Tag | Description |
+|-----|-------------|
+| `d` | `<task_id>:legs` — links this plan to the parent task |
+| `task_id` | References the parent Task Request (30500) |
+| `leg` (multiple) | `<sequence>, <purpose>, <geohash>, <participant_pubkey_or_empty>` |
+| `leg_count` | Total number of legs |
+| `pricing_model` | `per_leg` \| `total` \| `distance_proportional` |
+
+**Encrypted content** (NIP-44 to all participants) contains precise coordinates for each leg — latitude, longitude, and human-readable address. The public `leg` tags use geohashes for privacy-preserving discovery.
+
+**Leg purposes**: `pickup`, `dropoff`, `waypoint`, `collection`, `delivery`, `loading`, `unloading`.
+
+#### State Machine Interaction
+
+Each leg maps to a sub-state transition within `in_progress`. The provider publishes a Task Update (30503) with a `leg_sequence` tag to indicate which leg is currently active. For example, on an airport shuttle with 3 pickup legs:
+
+```
+accepted → in_progress (leg 1: pickup hotel A) → in_progress (leg 2: pickup hotel B)
+         → in_progress (leg 3: pickup hotel C) → in_progress (leg 4: dropoff airport)
+         → completed
+```
+
+Completion of all legs triggers the normal `completed` transition. A domain-aware client renders each leg individually; a core-only client sees the standard `accepted → in_progress → completed` flow.
+
+#### Relation to TROTT-07
+
+Kind 30560 (Route Summary) already supports `stop_count`, `stop_purposes`, and a `stops` array. The Leg Plan (30508) defines the **task coordination** layer — who gets picked up where and in what order — while the Route Summary defines the **navigation** layer — the actual driving route between stops. These complement each other: the Leg Plan is published first, and the Route Summary is computed from it.
+
+#### Example: Airport Shuttle Leg Plan
+
+```json
+{
+  "kind": 30508,
+  "pubkey": "<operator_hex_pubkey>",
+  "created_at": 1698765432,
+  "tags": [
+    ["d", "task_shuttle_001:legs"],
+    ["task_id", "task_shuttle_001"],
+    ["domain", "ridesharing"],
+    ["t", "trott-task"],
+    ["leg", "1", "pickup", "gcpuuz", "<passenger_1_pubkey>"],
+    ["leg", "2", "pickup", "gcpuuy", "<passenger_2_pubkey>"],
+    ["leg", "3", "pickup", "gcpuvb", "<passenger_3_pubkey>"],
+    ["leg", "4", "dropoff", "gcpvj0", ""],
+    ["leg_count", "4"],
+    ["pricing_model", "per_leg"],
+    ["expiration", "1698769032"]
+  ],
+  "content": "<NIP-44 encrypted: precise addresses for each leg>"
+}
+```
+
+### Shared Rides
+
+Shared rides — multiple requesters, one provider, overlapping routes — are modelled as a set of independent tasks linked by a common Leg Plan. This preserves per-passenger autonomy while enabling efficient multi-stop coordination.
+
+**How shared rides work:**
+
+1. Each passenger publishes their own Task Request (30500) with a `shared_ride` tag set to `true`
+2. The operator or provider groups compatible requests by route overlap and timing
+3. A Leg Plan (30508) is published linking all participants' pickup and dropoff points in an efficient order
+4. Payment Terms (30531) uses `payment_type: split` with each passenger's individual share
+5. Each passenger retains their own independent task lifecycle
+
+**Key design decision:** A shared ride does NOT create a single mega-task. Each passenger's journey is a separate Task Request (30500), linked to other passengers' tasks via `linked_task` tags with relationship `shared_ride`. This preserves:
+
+- **Independent cancellation** — one passenger cancelling does not affect others
+- **Independent payment** — each passenger pays their own fare
+- **Independent ratings** — each passenger rates the provider separately
+- **Privacy** — passengers do not see each other's precise addresses unless the Leg Plan's encrypted content is shared with them
+
+---
+
+## Recurring Tasks
+
+Some services follow a regular pattern — weekly house cleaning, daily courier runs, monthly security patrols. TROTT supports recurring tasks through scheduling tags on the Task Request (30500) combined with a **Recurring Series** event that tracks the series lifecycle.
+
+### Kind 30509: Recurring Series
+
+**Parameterised replaceable** (NIP-33). Published by the operator.
+
+**`d` tag**: `series:<series_id>`
+
+| Tag | Description |
+|-----|-------------|
+| `series_id` | Unique identifier for the series |
+| `source_task` | References the original Task Request (30500) that includes `recurrence` tags |
+| `recurrence` | Echoes the recurrence pattern from the source task (e.g. `weekly`, `biweekly`) |
+| `instance_count` | Total instances created so far |
+| `next_instance_at` | Unix timestamp for the next expected instance |
+| `status` | `active` \| `paused` \| `ended` |
+
+Each instance in the series is a normal Task Request (30500) with:
+- A `linked_task` tag referencing the series (`relationship: recurrence`)
+- An `instance_number` tag indicating its position in the series
+
+**Notification flow:** When `next_instance_at` approaches, the operator publishes the next Task Request (30500). The matched provider receives it via their normal relay subscription. If a preferred provider is associated with the series, the operator MAY publish a Task Accept (30502) automatically, subject to the provider's prior consent.
+
+#### Example: Weekly Cleaning Series
+
+```json
+{
+  "kind": 30509,
+  "pubkey": "<operator_hex_pubkey>",
+  "created_at": 1698765432,
+  "tags": [
+    ["d", "series:clean_weekly_001"],
+    ["series_id", "clean_weekly_001"],
+    ["source_task", "task_weekly_clean_001"],
+    ["domain", "cleaning"],
+    ["t", "trott-task"],
+    ["recurrence", "weekly"],
+    ["instance_count", "4"],
+    ["next_instance_at", "1699605600"],
+    ["status", "active"],
+    ["expiration", "1730000000"]
+  ],
+  "content": ""
+}
+```
+
+An individual instance within the series:
+
+```json
+{
+  "kind": 30500,
+  "pubkey": "<requester_hex_pubkey>",
+  "created_at": 1699000800,
+  "tags": [
+    ["d", "task_weekly_clean_004"],
+    ["domain", "cleaning"],
+    ["status", "requested"],
+    ["t", "trott-task"],
+    ["requester_pubkey", "<requester_hex_pubkey>"],
+    ["location_lat", "51.5074"],
+    ["location_lon", "-0.1278"],
+    ["linked_task", "series:clean_weekly_001", "recurrence"],
+    ["instance_number", "4"],
+    ["amount", "5000"],
+    ["currency", "GBP"],
+    ["expiration", "1699087200"]
+  ],
+  "content": "Weekly house clean — 3-bedroom terraced house"
+}
+```
+
+---
+
+## Offline Operation
+
+Physical service coordination often occurs in areas with unreliable connectivity — underground car parks, rural locations, indoor premises. TROTT clients MUST handle intermittent relay and operator connectivity gracefully.
+
+### Local Event Buffering
+
+Clients MUST buffer signed events locally when relay or operator connectivity is lost. Events are signed with `created_at` set to the actual local time of the action, not the time of eventual publication. This ensures the event timeline accurately reflects real-world events.
+
+### Replay on Reconnection
+
+When connectivity resumes, buffered events are published in `created_at` order. Relays SHOULD accept events with `created_at` up to 30 minutes in the past. Operators MUST reconcile replayed events against their current state, applying valid transitions and rejecting events that conflict with transitions already recorded.
+
+### Safety-Critical Events
+
+Emergency signals (30540) and no-show claims are safety-critical and use exponential backoff retry (1s, 2s, 4s, 8s, ...) when publication fails. If an emergency signal remains unpublishable after 5 minutes, the client SHOULD escalate to safety contacts via SMS or an alternative out-of-band channel if available. Implementations SHOULD pre-configure fallback contact details for this scenario.
+
+### Payment Events
+
+Payment-related events (stake locks, releases, streaming ticks) require explicit operator ACK before being cleared from the local buffer. A client MUST NOT assume a payment event has been processed until the operator confirms receipt. Cashu HTLC tokens remain valid offline — the mint enforces expiry independently of relay connectivity.
+
+### Conflict Resolution
+
+Out-of-order events are reconciled by `created_at` timestamp, not relay receipt order. Where two events share the same `created_at`, the event with the lower event ID (lexicographic sort) takes precedence. The `tick_number` tag on streaming payment ticks (30536) provides additional ordering within rapid-fire sequences.
 
 ---
 
@@ -937,6 +1124,7 @@ The event kinds 30500-30507 defined in this specification are the canonical TROT
 - **TROTT-05**: Safety — Emergency signals, check-ins, disputes, and abuse reporting
 - **TROTT-06**: Coordination — Operator participation, PII handling, and compliance
 - **TROTT-07**: Navigation — Routing, ETA, live tracking, and route deviation
+- **TROTT-08**: Messaging — In-task communication between parties
 
 ### Domain Extensions
 

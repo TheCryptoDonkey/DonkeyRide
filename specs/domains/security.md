@@ -75,6 +75,26 @@ accepted --> provider_en_route --> briefed --> on_station --> patrolling --> inc
 
 **Hourly (streaming).** Total = `hourly_rate x shift_duration_hours`. Operators should use TROTT-04 Streaming Tick (30536) for hourly payments throughout the shift. Surcharges for night premium (25%), weekend premium (15%), and close protection premium (100%).
 
+## Payment Configuration
+
+| Property | Value |
+|----------|-------|
+| Primary `payment_type` | `streaming` |
+| Streaming interval | 3600 seconds (hourly) |
+| Rate basis | Hourly rate |
+| Split support | Yes (multi-guard assignments use `payment_type: split` combined with streaming) |
+
+Security uses TROTT-04 streaming payments (kind 30536) with hourly ticks throughout the shift. Surcharges (night +25%, weekend +15%, close protection +100%) are applied to the hourly rate. Multi-guard assignments combine `payment_type: split` with streaming — each guard receives their portion at each hourly tick.
+
+### Default Stakes
+
+| Party | Percentage | Basis |
+|-------|-----------|-------|
+| Client | 10% | Total assignment cost |
+| Security Officer | 20% | Total assignment cost |
+
+The officer's higher stake reflects the severity of abandoning a shift, which leaves the site unprotected.
+
 ## Cancellation Policy
 
 | Stage | Penalty |
@@ -85,7 +105,7 @@ accepted --> provider_en_route --> briefed --> on_station --> patrolling --> inc
 | Officer abandons shift mid-duty | Full stake forfeit |
 | No-show (officer fails to arrive) | 100% of officer stake (automatic) |
 
-Default stakes: Client 10% of total assignment cost, Security Officer 20% of total assignment cost (higher stake -- abandoning a shift leaves the site unprotected).
+Stake amounts are defined in the Default Stakes table above.
 
 ## PII Requirements
 
