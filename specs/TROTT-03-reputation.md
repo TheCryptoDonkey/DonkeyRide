@@ -376,6 +376,10 @@ update or revoke credentials by publishing a new event with the same `d` tag.
 | `professional_membership` | Membership of a professional body          | Master Locksmiths Association, RICS     |
 | `training_certificate`    | Completion of specific training            | Manual handling, working at height      |
 | `peer_endorsement`        | Informal endorsement by another user       | Vouched for by trusted community member |
+| `inspection_certificate`  | Formal inspection pass certificate         | EICR, EPC, gas safety CP12, PAT testing |
+| `environmental_licence`   | Environmental or waste handling authority   | Waste carrier licence, asbestos licence |
+| `maritime_certification`  | Marine and waterway qualifications         | RYA Yachtmaster, MCA certification      |
+| `aviation_certification`  | Aviation and drone qualifications          | CAA Flyer ID, GVC, A2 CofC             |
 | `self_declared`           | Self-reported qualification (unverified)   | Claimed years of experience             |
 
 #### Issuer Trust Hierarchy

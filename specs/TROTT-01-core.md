@@ -661,6 +661,7 @@ Domain profiles declare which proof types are required. The core protocol define
 | `checkin`            | Heartbeat check-in confirmations                    | Security guard, companion care         |
 | `video`              | Video evidence                                      | High-value or safety-critical services |
 | `receipt`            | External receipt or confirmation                    | Purchases, toll payments               |
+| `deliverable`        | Report, certificate, assessment, or other document produced as service output | Inspection, surveying, professional services, creative services |
 | `counterparty_ack`   | Explicit acknowledgement from the other party       | All services (universal fallback)      |
 
 #### Domain-Specific Completion Examples
