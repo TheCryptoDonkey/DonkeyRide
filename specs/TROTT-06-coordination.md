@@ -283,6 +283,49 @@ This event aligns with GDPR principles:
 The PII Envelope is a **transparency record**, not a data store. The actual PII is in the operator's private Layer 2
 database, never on Nostr relays.
 
+#### Beneficiary PII Handling
+
+When a Task Request (kind 30500) includes a `beneficiary_pubkey` tag (TROTT-01), the operator MUST handle PII for the
+beneficiary using the same NIP-17 gift wrap mechanism as for the requester. The beneficiary is a distinct party whose
+personal data (typically a delivery address, contact details, or access instructions) must be collected, stored, and
+erased independently of the requester's data.
+
+Operators SHOULD publish a separate PII Envelope (kind 30551) for the beneficiary with `["party", "beneficiary"]`:
+
+```json
+{
+  "kind": 30551,
+  "tags": [
+    ["d", "pii_task_abc123_beneficiary"],
+    ["domain", "delivery"],
+    ["task_id", "task_abc123"],
+    ["party", "beneficiary"],
+    ["pii_fields", "real_name,phone_number,delivery_address"],
+    ["retention_policy", "task_duration_plus_90_days"],
+    ["retention_days", "90"],
+    ["erasure_method", "crypto_shredding"],
+    ["legal_basis", "legitimate_interest"],
+    ["data_controller", "<operator_pubkey>"],
+    ["p", "<beneficiary_pubkey>"]
+  ],
+  "content": ""
+}
+```
+
+The `party` tag value `beneficiary` distinguishes this envelope from the requester's and provider's PII records.
+Implementations MUST accept `beneficiary` alongside `requester` and `provider` as valid `party` values.
+
+**GDPR considerations**: The beneficiary is a data subject in their own right. The operator has data controller
+obligations to the beneficiary regardless of who initiated or is paying for the task. The beneficiary retains the right
+to erasure (Article 17) independently of the requester. If the requester and beneficiary are in different jurisdictions,
+the stricter data protection regime applies.
+
+**PII exchange flow**: The requester provides the beneficiary's delivery address or contact details to the operator via
+NIP-17 gift wrap. The operator stores this in Layer 2 and publishes the PII Envelope. The provider receives the
+beneficiary's PII (e.g. delivery address) from the operator, also via NIP-17, only after task acceptance. The
+beneficiary themselves need not interact with the protocol at all — their pubkey is used for status update delivery and
+optional completion confirmation, not for PII submission.
+
 ### Kind 30552: Delegation Grant
 
 Published by a party (requester or provider) to grant the operator scoped, temporary authority to act on their behalf

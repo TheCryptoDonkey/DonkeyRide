@@ -89,11 +89,24 @@ Events that reference monetary values MUST include all three of the following ta
 
 ### Party Tags
 
-| Tag                | Description                              | Example                         |
-|--------------------|------------------------------------------|---------------------------------|
-| `requester_pubkey` | Requester's Nostr hex pubkey             | `["requester_pubkey", "<hex>"]` |
-| `provider_pubkey`  | Provider's Nostr hex pubkey              | `["provider_pubkey", "<hex>"]`  |
-| `operator_pubkey`  | Coordinating operator's Nostr hex pubkey | `["operator_pubkey", "<hex>"]`  |
+| Tag                   | Description                                                   | Example                            |
+|-----------------------|---------------------------------------------------------------|------------------------------------|
+| `requester_pubkey`    | Requester's Nostr hex pubkey                                  | `["requester_pubkey", "<hex>"]`    |
+| `provider_pubkey`     | Provider's Nostr hex pubkey                                   | `["provider_pubkey", "<hex>"]`     |
+| `operator_pubkey`     | Coordinating operator's Nostr hex pubkey                      | `["operator_pubkey", "<hex>"]`     |
+| `beneficiary_pubkey`  | Optional. Pubkey of the service recipient if different from the requester | `["beneficiary_pubkey", "<hex>"]`  |
+
+#### Beneficiary
+
+When `beneficiary_pubkey` is present, the requester is paying for a service delivered to a different person (the
+beneficiary). The beneficiary receives status updates, MAY confirm completion (kind 30505), and MAY need PII exchange
+via TROTT-06 (e.g. delivery address). The requester remains the paying party and retains cancellation rights.
+
+Common scenarios: grocery delivery for elderly parents, pharmacy delivery to patients, flower delivery to recipients,
+school runs (parent books, child rides), non-emergency medical transport (GP/hospital books, patient travels).
+
+If an operator is coordinating (TROTT-06), it SHOULD handle PII for the beneficiary using the same NIP-17 gift wrap
+mechanism as for the requester. See TROTT-06 for beneficiary PII handling guidance.
 
 ### Location Tags
 
@@ -905,10 +918,14 @@ Tasks MAY reference other tasks using the `linked_task` tag:
 | `escalation`  | Escalated task when original service was insufficient (e.g. roadside fix failed, escalate to tow)                                     |
 | `recurrence`  | Instance of a recurring task series                                                                                                   |
 | `shared_ride` | Tasks sharing a single provider journey (e.g. carpool passengers). Each task is independent but linked via a common Leg Plan (30508). |
+| `round_trip`  | Return leg of a collection-and-return workflow. The outbound task collects an item; the `round_trip`-linked task returns it.           |
 
 Guarantee-linked tasks inherit the original task's agreed terms. Escalation-linked tasks form an auditable chain.
 Recurrence-linked tasks are independent instances sharing a series identifier. Shared-ride-linked tasks are fully
-independent lifecycles (cancellation, payment, ratings) that happen to share a provider and a Leg Plan.
+independent lifecycles (cancellation, payment, ratings) that happen to share a provider and a Leg Plan. Round-trip-linked
+tasks model collection-and-return workflows (laundry pickup & return, vehicle collection for servicing & return,
+equipment rental delivery & collection) as two independent delivery tasks — the processing phase between collection and
+return is the provider's own workflow and does not require protocol-level state tracking.
 
 ---
 

@@ -186,6 +186,7 @@ pricing. The `d` tag format allows one quote per provider per task via NIP-33 se
 | `currency`                   | Yes         | ISO 4217 or crypto code             | Currency of the quote.                                                |
 | `trust_model`                | Recommended | Enumerated string                   | Trust model of the proposed payment rail.                             |
 | `breakdown`                  | Optional    | `<item>`, `<amount>`, `<currency>`  | Transparent pricing breakdown. Multiple tags allowed.                 |
+| `rate_unit`                  | Optional    | Enumerated string                   | How the amount is interpreted: `flat`, `per_hour`, `per_day`, `per_item`, `per_kg`, `per_km`. |
 | `valid_until`                | Recommended | Unix timestamp                      | Quote expiry. After this time the quote is void.                      |
 | `estimated_duration_seconds` | Optional    | Integer string                      | Estimated task duration.                                              |
 | `estimated_distance_metres`  | Optional    | Integer string                      | Estimated distance (for transit-based tasks).                         |
@@ -193,18 +194,71 @@ pricing. The `d` tag format allows one quote per provider per task via NIP-33 se
 
 #### Breakdown Items
 
-The `breakdown` tag provides transparent pricing. Common items:
+The `breakdown` tag provides transparent pricing. The following taxonomy is **recommended** (not required) to improve
+interoperability across domains. Domain profiles MAY define additional breakdown items, but SHOULD use these standard
+categories where applicable.
 
-| Item           | Description                                 | Domains                               |
-|----------------|---------------------------------------------|---------------------------------------|
-| `base_fare`    | Fixed starting fee                          | Ridesharing, delivery                 |
-| `distance`     | Distance-based component                    | Ridesharing, delivery, towing         |
-| `time`         | Time-based component                        | Ridesharing, security                 |
-| `labour`       | Labour charge                               | Locksmith, emergency trades, cleaning |
-| `parts`        | Materials and parts                         | Locksmith, emergency trades           |
-| `call_out`     | Call-out fee                                | Locksmith, emergency trades, towing   |
-| `surcharge`    | Peak / holiday / unsociable hours surcharge | All                                   |
-| `operator_fee` | Operator's commission                       | All                                   |
+| Item           | Description                                         | Domains                                          |
+|----------------|-----------------------------------------------------|--------------------------------------------------|
+| `base_fare`    | Fixed starting fee                                  | Ridesharing, delivery                            |
+| `callout`      | Call-out / attendance fee                            | Locksmith, emergency trades, towing, pest control |
+| `labour`       | Labour charge (time-based or fixed)                 | Locksmith, emergency trades, cleaning, trades    |
+| `parts`        | Parts and components used                           | Locksmith, emergency trades, appliance repair    |
+| `materials`    | Consumable materials (chemicals, cleaning supplies) | Cleaning, pest control, pressure washing         |
+| `distance`     | Distance-based component                            | Ridesharing, delivery, towing                    |
+| `time`         | Time-based component                                | Ridesharing, security                            |
+| `travel`       | Provider travel cost to/from task location          | All dispatch domains                             |
+| `disposal`     | Waste disposal or removal charge                    | Junk removal, house clearance, tree surgery      |
+| `markup`       | Markup on parts or materials (if itemised separately) | Emergency trades, appliance repair             |
+| `surcharge`    | Peak / holiday / unsociable hours surcharge         | All                                              |
+| `operator_fee` | Operator's commission                               | All                                              |
+
+> **Note on naming**: `callout` (no underscore) is the recommended standard form. Legacy quotes using `call_out` SHOULD
+> be accepted by implementations for backward compatibility.
+
+#### Rate Unit
+
+Quotes MAY include an optional `rate_unit` tag to indicate how the `amount` should be interpreted. This is particularly
+important for domains with variable-unit pricing (hourly services, weight-based delivery, distance-based transport).
+
+| Tag        | Required | Format            | Description                                        |
+|------------|----------|-------------------|----------------------------------------------------|
+| `rate_unit` | Optional | Enumerated string | How the quoted `amount` should be interpreted.     |
+
+Valid values:
+
+| Value      | Description                          | Typical Domains                                 |
+|------------|--------------------------------------|-------------------------------------------------|
+| `flat`     | Fixed price for the entire task      | Locksmith, delivery, cleaning                   |
+| `per_hour` | Price per hour of service            | Security, personal training, tutoring, trades   |
+| `per_day`  | Price per day of service             | Event staffing, farm labour, equipment rental   |
+| `per_item` | Price per item (unit count)          | Parcel delivery, laundry                        |
+| `per_kg`   | Price per kilogram                   | Scrap collection, specialist delivery           |
+| `per_km`   | Price per kilometre                  | Towing, long-distance delivery                  |
+
+When `rate_unit` is absent, the `amount` is assumed to be a flat total price for the task. When present, the total task
+cost is `amount × quantity`, where quantity is determined by the actual service delivered (hours worked, items processed,
+distance covered, etc.) and recorded on the Task Complete event (kind 30504).
+
+```json
+{
+  "kind": 30530,
+  "pubkey": "<provider_hex_pubkey>",
+  "tags": [
+    ["d", "task_yoga_001:quote:<provider_hex_pubkey>"],
+    ["e", "<task_request_event_id>", "wss://relay.example.com"],
+    ["p", "<requester_hex_pubkey>"],
+    ["domain", "pet-services"],
+    ["amount", "3500"],
+    ["currency", "GBP"],
+    ["rate_unit", "per_hour"],
+    ["trust_model", "operator-escrow"],
+    ["estimated_duration_seconds", "3600"],
+    ["valid_until", "1698765600"]
+  ],
+  "content": "One-hour dog walk in local park. £35/hour."
+}
+```
 
 #### Competitive Quoting Example (Locksmith)
 

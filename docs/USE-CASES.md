@@ -4,7 +4,7 @@
 
 The DonkeyRide protocol is built on primitives that are fundamentally not about ridesharing — they're about
 trust-minimised coordination between strangers with asymmetric information, using cryptographic proof instead of
-institutional authority. This document analyses what's universal, maps 33 concrete use cases with UK regulatory
+institutional authority. This document analyses what's universal, maps 69 concrete use cases with UK regulatory
 considerations, deep-dives into healthcare, and designs a concrete generalisation architecture.
 
 ---
@@ -665,6 +665,154 @@ Long-term / moonshots:
 
 ---
 
+## Part 5b: Extended Use Case Coverage (Protocol Validation)
+
+The 33 use cases above were the initial catalogue. This section documents an additional ~36 natural-fit use cases
+identified through systematic gap analysis. The key finding: **~35 of the 36 work with zero protocol changes** — they
+are new tag values on existing domain profiles and coordination patterns. Only ~5 expose genuine new capabilities,
+requiring minimal spec additions (2 new optional tags, 1 new enum value).
+
+This validates the protocol's domain-agnostic design: the core primitives (state machine, discovery, reputation, stakes,
+payments, safety) genuinely generalise across a wide range of physical service coordination.
+
+### Additional Dispatch Pattern Use Cases
+
+The following 14 use cases follow the existing emergency-trades dispatch pattern (provider travels to customer, performs
+on-site work, confirms completion). Each differs only in `trade_type` tag value and regulatory requirements. No new
+protocol features are needed.
+
+| # | Use Case | Trade Type Tag | Regulatory Notes (UK) |
+|---|----------|---------------|----------------------|
+| 34 | Appliance Repair | `appliance_repair` | Gas Safe if gas appliances; otherwise very low |
+| 35 | Boiler Servicing | `boiler_service` | Gas Safe Register mandatory (criminal offence) |
+| 36 | Chimney Sweep | `chimney_sweep` | Very low. HETAS/Guild of Master Chimney Sweeps voluntary |
+| 37 | Gutter Cleaning | `gutter_cleaning` | Working at Height Regulations 2005 for commercial |
+| 38 | Pressure Washing | `pressure_washing` | Environmental Protection Act (water runoff) |
+| 39 | Garden Maintenance | `garden_maintenance` | Very low. Waste carrier licence for green waste removal |
+| 40 | Tree Surgery | `tree_surgery` | Medium. NPTC certification expected. TPO/Conservation Area checks |
+| 41 | Pool / Hot Tub Maintenance | `pool_maintenance` | Very low. HSE guidance on chemical handling |
+| 42 | Aerial / Satellite Installation | `aerial_installation` | Part P if electrical work involved |
+| 43 | Furniture Assembly | `furniture_assembly` | Very low |
+| 44 | Piano Tuning | `piano_tuning` | Very low. Aural Skills Diploma voluntary |
+| 45 | Carpet / Upholstery Cleaning | `carpet_cleaning` | Very low. NCCA membership voluntary |
+| 46 | Oven Cleaning | `oven_cleaning` | Very low |
+| 47 | Smart Home Installation | `smart_home` | Part P for electrical circuits; otherwise very low |
+
+All 14 share the dispatch state machine: `requested → provider_matched → en_route → arrived → assessment → work_active → completed`. Photo proof of completion is standard. Quote negotiation (TROTT-04, kind 30530) is used for variable-price work.
+
+### Additional Relay Delivery Pattern Use Cases
+
+The following 5 use cases follow the existing delivery pattern (collect at A, deliver to B, proof of delivery). Each
+differs only in `package_type` tag value and compliance requirements.
+
+| # | Use Case | Package Type Tag | Notes |
+|---|----------|-----------------|-------|
+| 48 | Grocery Delivery | `groceries` | Temperature compliance (chilled/frozen). May involve `beneficiary_pubkey` (ordering for someone else) |
+| 49 | Pharmacy Delivery | `pharmacy` | GPhC regulations. Controlled drugs require chain of custody. Often uses `beneficiary_pubkey` (patient ≠ orderer) |
+| 50 | Document Courier | `documents` | Signature proof on collection and delivery. Legal/financial documents may need chain of custody |
+| 51 | Flower Delivery | `flowers` | Time-sensitive (perishable). Often uses `beneficiary_pubkey` (recipient ≠ orderer) |
+| 52 | Medical Specimen Transport | `medical_specimen` | MHRA regulations. UN3373 packaging. Temperature-controlled. Strict chain of custody |
+
+Grocery, pharmacy, and flower delivery are the primary drivers for the `beneficiary_pubkey` tag (see TROTT-01) — the
+person ordering is often not the person receiving.
+
+### Additional Scheduled Pattern Use Cases
+
+The following 6 use cases follow the existing scheduled pattern (booked appointment, provider visits, session-based
+service). Each differs only in `service_type` tag value.
+
+| # | Use Case | Service Type Tag | Notes |
+|---|----------|-----------------|-------|
+| 53 | Personal Training (at-home) | `personal_training` | Already listed as #11 — included here for pattern completeness |
+| 54 | Mobile Massage Therapy | `massage` | Voluntary regulation (CNHC). DBS if working with vulnerable adults |
+| 55 | Home Physiotherapy | `physiotherapy` | HCPC registration mandatory. Special category health data under UK GDPR |
+| 56 | Music Lessons (in-home) | `music_lessons` | DBS if under-18s. Follows tutoring pattern |
+| 57 | Driving Lessons | `driving_lessons` | ADI (Approved Driving Instructor) badge mandatory. DVSA regulated |
+| 58 | Yoga / Pilates Instruction | `yoga_pilates` | Very low regulation. Insurance recommended |
+
+All use hourly rate pricing, recurring scheduling (weekly lessons are the norm), and commitment stakes for no-show
+protection.
+
+### Additional Trip Pattern Use Cases
+
+| # | Use Case | Notes |
+|---|----------|-------|
+| 59 | Non-Emergency Medical Transport | Standard ridesharing trip pattern. CQC registration if patient transport services. May use `beneficiary_pubkey` (hospital/GP booking for patient) |
+| 60 | School Run Service | Standard ridesharing trip pattern. Enhanced DBS mandatory. Uses `beneficiary_pubkey` (parent books, child is passenger). Recurring scheduling (daily term-time) |
+
+Both use the existing ridesharing state machine with different regulatory requirements and strong use of `beneficiary_pubkey`.
+
+### Additional Shift Pattern Use Cases
+
+| # | Use Case | Assignment Type Tag | Notes |
+|---|----------|-------------------|-------|
+| 61 | Event Staffing | `event_staffing` | Bartenders, waiters, catering crew. Identical to security shift pattern. Food hygiene certification for food handlers |
+| 62 | Temporary Office / Reception Cover | `temp_cover` | Identical to security shift pattern. Duration-based pricing (daily rate). DBS for some roles |
+
+Both follow the security guard dispatch shift pattern with different `assignment_type` values.
+
+### Round-Trip Relay Use Cases (NEW — linked tasks)
+
+The following 3 use cases expose a genuine new pattern: a **round-trip relay** where the provider collects something,
+it undergoes processing, and the provider returns it. This is modelled as two linked delivery tasks (outbound collection
++ return delivery) using the new `round_trip` relationship type on `linked_task` tags (see TROTT-01).
+
+| # | Use Case | Notes |
+|---|----------|-------|
+| 63 | Laundry / Dry Cleaning Collection & Return | Collect dirty items → process at facility → return clean items. 24-48 hour turnaround |
+| 64 | Vehicle Collection for Servicing & Return | Collect vehicle → service at garage → return vehicle. Uses towing domain for collection leg |
+| 65 | Equipment Rental (Deliver → Collect Back) | Deliver equipment → rental period → collect equipment. Damage deposit as stake |
+
+The processing phase between collection and return is the provider's own workflow and does not need protocol-level state
+tracking. The `round_trip` linked-task relationship connects the outbound and return legs.
+
+### Waste / Clearance Use Cases (dispatch variant)
+
+| # | Use Case | Notes |
+|---|----------|-------|
+| 66 | Skip Hire / Delivery | Standard dispatch. Deliver skip → collect full skip. Photo proof of placement and collection |
+| 67 | Junk Removal | Standard dispatch. Photo proof of clearance. Waste carrier licence (Environment Agency) required |
+| 68 | House Clearance | Standard dispatch with inventory. Photo proof before/after. Waste carrier licence required |
+| 69 | Scrap Metal Collection | Standard dispatch. Scrap Metal Dealers Act 2013 — dealer must be registered with local authority |
+
+All follow the standard dispatch pattern with photo proof of completion. Skip hire uses the round-trip relay pattern
+(deliver → collect) while the others are one-shot dispatch.
+
+### Use Case Coverage Summary
+
+| Pattern | Existing (33) | New (+36) | Total |
+|---------|--------------|-----------|-------|
+| Dispatch | 8 | 18 | 26 |
+| Relay (delivery) | 3 | 5 | 8 |
+| Scheduled | 7 | 5 | 12 |
+| Trip | 2 | 2 | 4 |
+| Shift | 2 | 2 | 4 |
+| Crew / multi-provider | 1 | 0 | 1 |
+| Round-trip relay (NEW) | 0 | 3 | 3 |
+| Other (energy, healthcare, etc.) | 10 | 1 | 11 |
+| **Total** | **33** | **36** | **69** |
+
+### What Doesn't Need Changing
+
+Of the 36 new use cases, **~33 require no protocol changes at all** — they are new tag values on existing domain profiles:
+
+- **14 dispatch use cases**: New `trade_type` values on the emergency-trades pattern
+- **5 delivery use cases**: New `package_type` values on the delivery pattern
+- **5 scheduled use cases**: New `service_type` values on the scheduled pattern
+- **2 trip use cases**: Standard ridesharing pattern with different regulatory requirements
+- **2 shift use cases**: New `assignment_type` values on the security shift pattern
+- **4 waste/clearance use cases**: Standard dispatch with photo proof
+- **1 round-trip delivery** (equipment rental): Modelled as two linked delivery tasks
+
+Only **3 use cases** (laundry, vehicle servicing, equipment rental) expose the round-trip relay pattern, and only **6
+use cases** (grocery, pharmacy, flower delivery, medical transport, school runs, driving lessons for minors) drive the
+`beneficiary_pubkey` tag. Both additions are minimal (1 new enum value, 1 new optional tag).
+
+This validates the protocol's design thesis: domain-agnostic core primitives with domain-specific tag values mean new
+use cases are configuration, not code.
+
+---
+
 ## Part 6: Capability Matrix
 
 This matrix maps which protocol capabilities each domain requires. Use it to prioritise spec work — capabilities needed by many domains should be implemented first.
@@ -710,25 +858,31 @@ This matrix maps which protocol capabilities each domain requires. Use it to pri
 
 ### Capability Demand Summary
 
-Counts include the base ridesharing protocol plus all 33 numbered use cases (34 domains total).
+Counts include the base ridesharing protocol plus all 69 use cases (70 domains total, including the 36 new use cases
+from Part 5b).
 
 | Capability | Domains Requiring (Yes) | Domains Optional (Opt) | Total Demand |
 |------------|------------------------|----------------------|--------------|
-| Location-based discovery | 32 | 2 | 34 |
-| Duration tracking | 23 | 0 | 23 |
-| Photo proof | 21 | 4 | 25 |
-| Navigation | 16 | 0 | 16 |
-| Recurring scheduling | 12 | 7 | 19 |
-| Flat rate pricing | 12 | 0 | 12 |
-| Hourly pricing | 11 | 0 | 11 |
-| Milestone payments | 8 | 0 | 8 |
-| Quote negotiation | 7 | 0 | 7 |
-| Signature proof | 7 | 0 | 7 |
-| Guarantee period | 5 | 0 | 5 |
+| Location-based discovery | 66 | 4 | 70 |
+| Duration tracking | ~30 | 0 | ~30 |
+| Photo proof | ~40 | 6 | ~46 |
+| Recurring scheduling | ~18 | ~7 | ~25 |
+| Flat rate pricing | ~20 | 0 | ~20 |
+| Navigation | ~20 | 0 | ~20 |
+| Hourly pricing | ~16 | 0 | ~16 |
+| Milestone payments | ~10 | 0 | ~10 |
+| Quote negotiation | ~20 | 0 | ~20 |
+| Signature proof | ~12 | 0 | ~12 |
+| Guarantee period | ~8 | 0 | ~8 |
+| Beneficiary pubkey (NEW) | ~6 | 0 | ~6 |
+| Round-trip relay (NEW) | ~5 | 0 | ~5 |
 | Streaming payments | 4 | 0 | 4 |
 | Virtual support | 1 | 3 | 4 |
 | Heartbeat protocol | 2 | 0 | 2 |
 | Three-party coordination | 1 | 0 | 1 |
+
+> **Note**: Approximate counts (~) reflect that some new use cases share capabilities with existing ones. Exact counts
+> depend on final domain profile definitions.
 
 ---
 
@@ -756,17 +910,19 @@ The following capabilities are fully specified and implemented:
 ### Gaps — Not Yet Specified
 
 The following capabilities are needed by multiple domains but have **no active spec coverage**. These are prioritised
-by demand (number of domains requiring them).
+by demand (number of domains requiring them). The expanded use case catalogue (Part 5b) reinforced existing gaps and
+surfaced two new ones.
 
-#### Gap 1: Duration / Time-Block Tracking — Demand: 23 domains
+#### Gap 1: Duration / Time-Block Tracking — Demand: ~30 domains (reinforced)
 
 **What it is**: The ability to track service duration and use it for pricing, compliance, and lifecycle management.
 Many services are time-based (hourly rate) rather than task-completion-based. The protocol needs a standard way to
 record session start/end times, calculate billable duration, and trigger time-based payments.
 
-**Why it matters**: 23 of 34 domains need duration tracking — it is the second most demanded capability after location.
-Without it, hourly-rate services (personal training, security guards, tutoring, companion care) cannot be properly
-priced or audited.
+**Why it matters**: ~30 of 70 domains need duration tracking — it is the second most demanded capability after location.
+Without it, hourly-rate services (personal training, security guards, tutoring, companion care, massage therapy,
+physiotherapy, yoga instruction) cannot be properly priced or audited. The new scheduled-pattern use cases (music
+lessons, driving lessons, massage, physiotherapy) further reinforce this demand.
 
 **Current state**: The v1 archive spec included `duration` tags on service requests and `shift_duration` tags on
 driver management events. These were not carried forward into the modular specs.
@@ -775,40 +931,89 @@ driver management events. These were not carried forward into the modular specs.
 time-based pricing semantics alongside the existing amount/currency tags. This is planned for Phase 3-4 of the spec
 universalisation work.
 
-#### Gap 2: Recurring / Subscription Scheduling — Demand: 19 domains (12 required + 7 optional)
+#### Gap 2: Recurring / Subscription Scheduling — Demand: ~25 domains (partially closed)
 
 **What it is**: The ability to schedule repeating tasks (e.g. weekly dog walks, monthly window cleaning, bi-weekly
 personal training). Includes recurrence rules (frequency, day-of-week, time), series management (cancel one vs cancel
 all), and favourite provider binding.
 
 **Why it matters**: Most real-world service relationships are recurring. A protocol that only handles one-off dispatch
-misses the dominant usage pattern for 19 of 34 domains. Recurring scheduling also enables subscription-style pricing
-and provider income predictability.
+misses the dominant usage pattern for ~25 of 70 domains. Recurring scheduling also enables subscription-style pricing
+and provider income predictability. The new use cases (driving lessons, music lessons, yoga instruction, boiler
+servicing) further reinforce this demand.
 
-**Current state**: The v1 archive spec included a `recurring` tag with values `none|daily|weekly|monthly` on service
-request events. This was not carried forward into the modular TROTT specs. The favourite provider mechanism (via domain
-extension events) provides a building block but does not handle scheduling.
+**Current state**: TROTT-01 now defines scheduling tags (`scheduled_start`, `recurrence`, `recurrence_end`) on Task
+Request (kind 30500) and a Recurring Series event (kind 30509) for series lifecycle management. This partially closes
+the gap — the basic infrastructure exists. Remaining work is around exception handling (skip one instance), provider
+preference binding, and subscription-style bulk pricing.
 
-**Spec work needed**: Define a recurring task template event type with recurrence rules (RFC 5545 RRULE subset),
-series identifiers, and exception handling. This is planned for Phase 3-4 of the spec universalisation work.
+**Spec work needed**: Extend kind 30509 with exception handling (skip/reschedule individual instances), provider
+preference locking, and subscription discount semantics. Medium effort remaining.
 
-#### Gap 3: Hourly Rate Pricing — Demand: 11 domains
+#### Gap 3: Hourly Rate Pricing — Demand: ~16 domains (reinforced)
 
 **What it is**: A pricing model where the provider charges per hour (or per fraction). Distinct from streaming payments
 (which are per-second micro-payments) — hourly pricing involves agreed rates with duration-based invoicing at session
 end.
 
-**Why it matters**: 11 domains use hourly pricing as their primary model: security guards, personal trainers, tutors,
-hairdressers, companion care, pet services, childminders, farm labour, tour guides, ski/surf instructors, and clinical
-healthcare.
+**Why it matters**: ~16 domains use hourly pricing as their primary model: security guards, personal trainers, tutors,
+hairdressers, companion care, pet services, childminders, farm labour, tour guides, ski/surf instructors, clinical
+healthcare, massage therapists, physiotherapists, yoga instructors, music teachers, and event staff.
 
-**Current state**: The `amount` and `currency` tags on service requests can encode an hourly rate, but there is no
-standard tag for `pricing_model` or `rate_unit` to distinguish hourly from flat or distance-based pricing.
+**Current state**: The `amount` and `currency` tags on service requests can encode an hourly rate, but there was no
+standard tag for `rate_unit` to distinguish hourly from flat or distance-based pricing. **Update**: TROTT-04 now
+defines an optional `rate_unit` tag on Quote events (kind 30530) with values `per_hour`, `per_day`, `per_item`,
+`per_kg`, `per_km`, `flat`. This partially closes the gap.
 
-**Spec work needed**: Add `pricing_model` and `rate_unit` tags to TROTT-01. Define hourly rate semantics including
-minimum booking duration, overtime rates, and rounding rules.
+**Spec work needed**: Define hourly rate semantics including minimum booking duration, overtime rates, and rounding
+rules. Low effort remaining.
 
-#### Gap 4: Virtual / Remote Service Support — Demand: 4 domains (1 required + 3 optional)
+#### Gap 4: Beneficiary Pubkey — Demand: ~6 domains (NEW)
+
+**What it is**: An optional `beneficiary_pubkey` tag on Task Request (kind 30500) identifying a third party who is the
+actual recipient of the service, distinct from the requester who is paying.
+
+**Why it matters**: ~6 domains have "order on behalf of" scenarios: grocery delivery for elderly parents, pharmacy
+delivery to patients, flower delivery to recipients, school runs (parent books, child rides), non-emergency medical
+transport (GP/hospital books, patient travels), and driving lessons for teenagers.
+
+**Current state**: **Closed**. TROTT-01 now defines `beneficiary_pubkey` as an optional party tag. TROTT-06 defines
+PII handling guidance for beneficiaries.
+
+**Spec work needed**: None — implemented.
+
+#### Gap 5: Round-Trip Relay — Demand: ~5 domains (NEW)
+
+**What it is**: A coordination pattern where the provider collects something, it undergoes processing, and the provider
+returns it. Laundry collection & return, vehicle collection for servicing & return, and equipment rental (deliver →
+use → collect back) are the primary use cases.
+
+**Why it matters**: Round-trip relays are a natural extension of the delivery pattern but require linking two tasks
+(outbound + return) in a way that preserves independent lifecycle management for each leg.
+
+**Current state**: **Closed**. TROTT-01 now defines `round_trip` as a `linked_task` relationship type alongside
+`follow_up`, `guarantee`, `escalation`, `recurrence`, and `shared_ride`.
+
+**Spec work needed**: None — implemented.
+
+#### Gap 6: Guarantee / Warranty Period — Demand: ~8 domains (reinforced)
+
+**What it is**: A post-completion warranty period during which the provider guarantees their work. If the work fails
+within the guarantee period, a linked follow-up task is created referencing the original, with the provider obligated
+to remediate at no additional cost.
+
+**Why it matters**: Essential for trades (plumbing, electrical, pest control, mobile mechanic, boiler servicing,
+appliance repair, smart home installation, aerial installation) and security (guard dispatch post-incident review).
+Without guarantee tracking, there is no protocol-level mechanism to hold providers accountable for the durability of
+their work. The new dispatch use cases add ~3 more domains to this demand.
+
+**Current state**: Modelled informally as linked tasks with a `guarantee` relationship type in the state machine
+documents. No formal spec exists. The `linked_task` tag provides a building block.
+
+**Spec work needed**: Define a guarantee period event type with duration, terms, and activation conditions. Specify
+how guarantee claims create linked tasks with preferential matching to the original provider.
+
+#### Gap 7: Virtual / Remote Service Support — Demand: ~4 domains (unchanged)
 
 **What it is**: Support for services delivered remotely (video tutoring, virtual personal training, online mystery
 shopping reports). Discovery shifts from geohash to skill/availability tags. No navigation needed. Session management
@@ -825,23 +1030,7 @@ virtual-only or hybrid service discovery. The v1 archive had no virtual support 
 language tags). Add virtual session management (video link exchange, screen sharing proof, session recording consent).
 This is planned for Phase 3-4 of the spec universalisation work.
 
-#### Gap 5: Guarantee / Warranty Period — Demand: 5 domains
-
-**What it is**: A post-completion warranty period during which the provider guarantees their work. If the work fails
-within the guarantee period, a linked follow-up task is created referencing the original, with the provider obligated
-to remediate at no additional cost.
-
-**Why it matters**: Essential for trades (plumbing, electrical, pest control, mobile mechanic) and security (guard
-dispatch post-incident review). Without guarantee tracking, there is no protocol-level mechanism to hold providers
-accountable for the durability of their work.
-
-**Current state**: Modelled informally as linked tasks with a `guarantee` relationship type in the state machine
-documents. No formal spec exists. The `linked_task` tag provides a building block.
-
-**Spec work needed**: Define a guarantee period event type with duration, terms, and activation conditions. Specify
-how guarantee claims create linked tasks with preferential matching to the original provider.
-
-#### Gap 6: Three-Party Coordination — Demand: 1 domain
+#### Gap 8: Three-Party Coordination — Demand: 1 domain (unchanged)
 
 **What it is**: Coordination involving three distinct roles (e.g. restaurant + courier + customer in food delivery).
 The current protocol assumes a two-party model (requester + provider). Three-party coordination requires a `vendor`
@@ -858,17 +1047,20 @@ late-binding provider matching (courier matched when food is ready, not when ord
 
 ### Gap Priority Matrix
 
-| Priority | Gap | Domains Affected | Spec Effort | Phase |
-|----------|-----|-----------------|-------------|-------|
-| 1 | Duration tracking | 23 | Medium | Phase 3 |
-| 2 | Recurring scheduling | 19 | High | Phase 3-4 |
-| 3 | Hourly rate pricing | 11 | Low | Phase 3 |
-| 4 | Guarantee period | 5 | Low | Phase 4 |
-| 5 | Virtual service support | 4 | Medium | Phase 4 |
-| 6 | Three-party coordination | 1 | High | Phase 5+ |
+| Priority | Gap | Domains Affected | Spec Effort | Status |
+|----------|-----|-----------------|-------------|--------|
+| 1 | Duration tracking | ~30 | Medium | Reinforced — highest priority |
+| 2 | Recurring scheduling | ~25 | Medium (remaining) | Partially closed (kind 30509 exists) |
+| 3 | Hourly rate pricing | ~16 | Low (remaining) | Partially closed (`rate_unit` tag added to TROTT-04) |
+| 4 | Beneficiary pubkey | ~6 | — | **Closed** (added to TROTT-01, TROTT-06) |
+| 5 | Round-trip relay | ~5 | — | **Closed** (added to TROTT-01 linked tasks) |
+| 6 | Guarantee period | ~8 | Low | Reinforced |
+| 7 | Virtual service support | ~4 | Medium | Unchanged |
+| 8 | Three-party coordination | 1 | High | Unchanged |
 
-> **Note**: Gaps 1-4 are planned for Phase 3-4 of the spec universalisation work. See the task list in the
-> repository for tracking. Gaps 5-6 are longer-term and depend on domain extension specs being written first.
+> **Note**: Gaps 4 and 5 have been closed by spec additions in TROTT-01, TROTT-04, and TROTT-06. Gaps 1-3 and 6 are
+> reinforced by the expanded use case catalogue. Gaps 7-8 are longer-term and depend on domain extension specs being
+> written first.
 
 ---
 
@@ -883,10 +1075,14 @@ The generalisation architecture (domain profiles) means adding a new use case re
 rather than a fork. The payment providers, reputation system, authentication middleware, and dispute resolution
 all work unchanged across every domain.
 
-The capability matrix reveals that **location-based discovery** (32/34 domains) and **duration tracking** (23/34
-domains) are the two most universally needed capabilities. Location discovery is already well-specified; duration
-tracking is the highest-priority gap. **Recurring scheduling** (19/34 domains) is the second-largest gap and the
-most complex to specify correctly.
+The expanded catalogue of **69 use cases** (up from 33) validates this design thesis: **~33 of the 36 new use cases
+require zero protocol changes** — they are new tag values on existing coordination patterns. Only 2 new optional tags
+(`beneficiary_pubkey` and `rate_unit`) and 1 new enum value (`round_trip`) were needed to cover all identified gaps.
+
+The capability matrix reveals that **location-based discovery** (66/70 domains) and **duration tracking** (~30/70
+domains) remain the two most universally needed capabilities. Location discovery is already well-specified; duration
+tracking is the highest-priority remaining gap. **Recurring scheduling** (~25/70 domains) has been partially closed
+by kind 30509 (Recurring Series) but needs further work on exception handling.
 
 ---
 
