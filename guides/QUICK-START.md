@@ -57,7 +57,7 @@ Each domain loads its own state machine, role names, pricing model, and feature 
 | `locksmith` | Customer | Locksmith | Flat rate (quote negotiation) |
 | `delivery` | Sender | Courier | Distance-based |
 
-To add a custom domain, create a profile in `src/domain-profiles/` (~100 lines). See the [use case catalogue](../docs/USE-CASES.md) for 20+ analysed domains.
+To add a custom domain, create a profile in `src/domain-profiles/` (~100 lines). See the [use case catalogue](https://github.com/TheCryptoDonkey/trott/blob/main/docs/use-cases.md) for 20+ analysed domains.
 
 ---
 
@@ -349,6 +349,6 @@ ls -la ~/.lnd/data/chain/bitcoin/mainnet/admin.macaroon  # Check macaroon
 - **[OPERATOR-DEPLOYMENT.md](OPERATOR-DEPLOYMENT.md)** — Full deployment guide (GDPR, economics, architecture)
 - **[../docs/PAYMENT-PROVIDERS.md](../docs/PAYMENT-PROVIDERS.md)** — Payment provider integration guide
 - **[../docs/GDPR-COMPLIANCE.md](../docs/GDPR-COMPLIANCE.md)** — GDPR compliance guide
-- **[../TRUST-MECHANISMS.md](../TRUST-MECHANISMS.md)** — 6 layers of trust
-- **[../specs/QUICK-REFERENCE.md](../specs/QUICK-REFERENCE.md)** — Protocol event kinds reference
-- **[../ARCHITECTURE.md](../ARCHITECTURE.md)** — Three-layer federated architecture
+- **[Trust Mechanisms](https://github.com/TheCryptoDonkey/trott/blob/main/docs/trust-mechanisms.md)** — 6 layers of trust
+- **[Quick Reference](https://github.com/TheCryptoDonkey/trott/blob/main/specs/QUICK-REFERENCE.md)** — Protocol event kinds reference
+- **[Architecture](https://github.com/TheCryptoDonkey/trott/blob/main/docs/architecture.md)** — Three-layer federated architecture

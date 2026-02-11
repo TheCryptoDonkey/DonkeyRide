@@ -20,8 +20,8 @@
 | 1 | Ridesharing | Trip (A→B with live tracking) | Full (`src/domain-profiles/ridesharing.js`) | Baseline — streaming payments, live tracking, distance+time pricing |
 | 2 | Locksmith | Dispatch (go to location, do work) | Full (`src/domain-profiles/locksmith.js`) | Quote negotiation, flat-rate pricing, guarantee period, no destination |
 | 3 | Delivery | Relay (collect → transport → deliver) | Full (`src/domain-profiles/delivery.js`) | Most complex state machine (12 states), photo+signature proofs, failure/return |
-| 4 | Security Guard | Shift (long-duration, stationary) | Spec-only (`specs/domains/security.md`) | Check-ins, multi-provider crews, long-lived tasks, geofencing |
-| 5 | Emergency Plumber | Dispatch + urgency | Spec-only (`specs/domains/emergency-trades.md`) | Credential filtering, urgency signals, milestone payments, regulatory compliance |
+| 4 | Security Guard | Shift (long-duration, stationary) | Spec-only ([`domains/security.md`](https://github.com/TheCryptoDonkey/trott/blob/main/domains/security.md)) | Check-ins, multi-provider crews, long-lived tasks, geofencing |
+| 5 | Emergency Plumber | Dispatch + urgency | Spec-only ([`domains/emergency-trades.md`](https://github.com/TheCryptoDonkey/trott/blob/main/domains/emergency-trades.md)) | Credential filtering, urgency signals, milestone payments, regulatory compliance |
 
 ---
 
@@ -507,7 +507,7 @@ TROTT-04 kind 30536 (Streaming Tick) with tags: `task_id`, `amount`, `currency`,
 }
 ```
 
-**What the spec says**: The ridesharing domain profile (`specs/domains/ridesharing.md` line 90) specifies a streaming interval of **30 seconds**. TROTT-04 kind 30536 defines each tick as a Nostr event published to relays.
+**What the spec says**: The ridesharing domain profile ([`domains/ridesharing.md`](https://github.com/TheCryptoDonkey/trott/blob/main/domains/ridesharing.md) line 90) specifies a streaming interval of **30 seconds**. TROTT-04 kind 30536 defines each tick as a Nostr event published to relays.
 
 **What the API actually does**: `server.js` lines 228-229 define the constants:
 ```javascript
@@ -671,7 +671,7 @@ TROTT-03 kind 30520 (Rating) with tags: `d`, `p` (rated party), `rating`, `crite
 
 The API accepts the ride manager-level cancellation check (line 1843): ratings are blocked if the task is not completed or is in cancelled state. However, `no_show` status (which is terminal) would allow rating — this is correct per spec.
 
-**Rating criteria mismatch**: The implementation profile (`ridesharing.js` lines 63-68) defines: `overall` (0.4), `punctuality` (0.2), `safety` (0.2), `courtesy` (0.2). The spec (`specs/domains/ridesharing.md` lines 60-68) defines: `overall` (0.25), `punctuality` (0.20), `safety` (0.20), `vehicle_condition` (0.15), `communication` (0.20). Weights and criteria differ.
+**Rating criteria mismatch**: The implementation profile (`ridesharing.js` lines 63-68) defines: `overall` (0.4), `punctuality` (0.2), `safety` (0.2), `courtesy` (0.2). The spec ([`domains/ridesharing.md`](https://github.com/TheCryptoDonkey/trott/blob/main/domains/ridesharing.md) lines 60-68) defines: `overall` (0.25), `punctuality` (0.20), `safety` (0.20), `vehicle_condition` (0.15), `communication` (0.20). Weights and criteria differ.
 
 **VERDICT**: ⚠️ Friction — Path A correctly publishes kind 30520 Nostr events. Path B is a simplified alternative that skips Nostr publication. The rating criteria in the implementation profile do not match the spec: `courtesy` vs `vehicle_condition`+`communication`, and `overall` weight is 0.4 vs 0.25.
 
@@ -1093,7 +1093,7 @@ Content-Type: application/json
 }
 ```
 
-**What the spec says**: TROTT-07 is **not used** for locksmith (see `specs/domains/locksmith.md` line 17: "TROTT-07: Navigation **No** (dispatch only; no transport phase)"). However, the API provides live tracking as a convenience.
+**What the spec says**: TROTT-07 is **not used** for locksmith (see [`domains/locksmith.md`](https://github.com/TheCryptoDonkey/trott/blob/main/domains/locksmith.md) line 17: "TROTT-07: Navigation **No** (dispatch only; no transport phase)"). However, the API provides live tracking as a convenience.
 
 **What the API actually does**: `server.js` line 1574 — same endpoint as ridesharing. The location endpoint's ETA calculation uses `rideProfile.states.values.PROVIDER_EN_ROUTE` to determine the destination is the pickup location (line 1589). Since locksmith has no dropoff, the destination switches to `null` when in `active` state (line 1591-1593), yielding `null` ETA.
 
@@ -1471,7 +1471,7 @@ Content-Type: application/json
 }
 ```
 
-**What the spec says**: The locksmith cancellation policy (line 96 of `specs/domains/locksmith.md`) states: "Customer declines on-site quote — None to customer; locksmith forfeits travel-only stake." This is a distinct penalty model — the customer walks away penalty-free, but the locksmith loses their travel stake because they quoted a price the customer wouldn't accept.
+**What the spec says**: The locksmith cancellation policy (line 96 of [`domains/locksmith.md`](https://github.com/TheCryptoDonkey/trott/blob/main/domains/locksmith.md)) states: "Customer declines on-site quote — None to customer; locksmith forfeits travel-only stake." This is a distinct penalty model — the customer walks away penalty-free, but the locksmith loses their travel stake because they quoted a price the customer wouldn't accept.
 
 **What the API actually does**: `server.js` lines 2087-2113. The quote decline endpoint sets `ride.quote.status = 'declined'` and broadcasts `quote_declined`. However, it does **not**:
 - Transition the task to `cancelled`
@@ -2406,7 +2406,7 @@ Note: The `delivery.js` profile defines event kinds 30620-30625, but the `delive
 
 ## Use Case 4: Security Guard (SPEC-ONLY — Gap Analysis)
 
-**Domain profile:** `specs/domains/security.md`
+**Domain profile:** [`domains/security.md`](https://github.com/TheCryptoDonkey/trott/blob/main/domains/security.md)
 **Coordination pattern:** Shift (sustained on-site presence with periodic heartbeat)
 **Implementation status:** SPEC ONLY — no `src/domain-profiles/security.js` exists
 **Event kind range:** 30720-30739
@@ -2809,7 +2809,7 @@ Content-Type: application/json
 
 ## Use Case 5: Emergency Plumber (SPEC-ONLY — Gap Analysis)
 
-**Domain profile:** `specs/domains/emergency-trades.md`
+**Domain profile:** [`domains/emergency-trades.md`](https://github.com/TheCryptoDonkey/trott/blob/main/domains/emergency-trades.md)
 **Coordination pattern:** Dispatch + milestone-based repair phases
 **Implementation status:** SPEC ONLY — no `src/domain-profiles/emergency-trades.js` exists
 **Event kind range:** 30680-30699

@@ -94,7 +94,7 @@ The protocol is **domain-agnostic**. One codebase serves multiple use cases via 
 
 Set `DOMAIN` in your `.env` file or pass it at startup. Each domain loads its own state machine, role names, pricing model, and feature flags.
 
-To add a custom domain, create a profile in `src/domain-profiles/` (~100 lines). See [../docs/USE-CASES.md](../docs/USE-CASES.md) for the full catalogue.
+To add a custom domain, create a profile in `src/domain-profiles/` (~100 lines). See the [use case catalogue](https://github.com/TheCryptoDonkey/trott/blob/main/docs/use-cases.md) for the full catalogue.
 
 ---
 
@@ -255,7 +255,7 @@ Fees are competitive. Traditional platforms charge 25-30%. Operators competing o
 - **[QUICK-START.md](QUICK-START.md)** — Step-by-step setup guide
 - **[../docs/PAYMENT-PROVIDERS.md](../docs/PAYMENT-PROVIDERS.md)** — Payment provider integration guide
 - **[../docs/GDPR-COMPLIANCE.md](../docs/GDPR-COMPLIANCE.md)** — Full GDPR compliance guide
-- **[../docs/USE-CASES.md](../docs/USE-CASES.md)** — Use case catalogue and domain selection
-- **[../TRUST-MECHANISMS.md](../TRUST-MECHANISMS.md)** — 6 layers of trust
-- **[../ARCHITECTURE.md](../ARCHITECTURE.md)** — Three-layer federated architecture
-- **[../specs/QUICK-REFERENCE.md](../specs/QUICK-REFERENCE.md)** — Complete event kind reference
+- **[Use Cases](https://github.com/TheCryptoDonkey/trott/blob/main/docs/use-cases.md)** — Use case catalogue and domain selection
+- **[Trust Mechanisms](https://github.com/TheCryptoDonkey/trott/blob/main/docs/trust-mechanisms.md)** — 6 layers of trust
+- **[Architecture](https://github.com/TheCryptoDonkey/trott/blob/main/docs/architecture.md)** — Three-layer federated architecture
+- **[Quick Reference](https://github.com/TheCryptoDonkey/trott/blob/main/specs/QUICK-REFERENCE.md)** — Complete event kind reference

@@ -351,8 +351,8 @@ The factory tries each provider in order until one succeeds. Health checks run o
 
 ## See Also
 
-- **[specs/TROTT-04-payments.md](../specs/TROTT-04-payments.md)** — Payment event kinds and streaming models
-- **[specs/TROTT-04-payments.md](../specs/TROTT-04-payments.md)** — Stake lifecycle and milestone escrow
-- **[TRUST-MECHANISMS.md](../TRUST-MECHANISMS.md)** — 6 layers of trust
+- **[TROTT-04: Payments](https://github.com/TheCryptoDonkey/trott/blob/main/specs/TROTT-04-payments.md)** — Payment event kinds and streaming models
+- **[TROTT-04: Payments](https://github.com/TheCryptoDonkey/trott/blob/main/specs/TROTT-04-payments.md)** — Stake lifecycle and milestone escrow
+- **[Trust Mechanisms](https://github.com/TheCryptoDonkey/trott/blob/main/docs/trust-mechanisms.md)** — 6 layers of trust
 - **[payment-providers/base.js](../payment-providers/base.js)** — Base provider interface (source code)
 - **[payment-providers/factory.js](../payment-providers/factory.js)** — Factory and resilient fallback (source code)

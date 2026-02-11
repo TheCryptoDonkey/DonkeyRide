@@ -624,7 +624,7 @@ TOLL_AVERSION=1.5
   - [GraphHopper Routing](https://www.graphhopper.com/)
 
 - **Nostr Protocol:**
-  - [TROTT-07: Navigation](../specs/TROTT-07-navigation.md)
+  - [TROTT-07: Navigation](https://github.com/TheCryptoDonkey/trott/blob/main/specs/TROTT-07-navigation.md)
   - Navigation events: kinds 20501, 30560-30563
 
 - **Self-Hosting:**

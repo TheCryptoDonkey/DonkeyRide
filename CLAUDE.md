@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DonkeyRide is the reference implementation of the **TROTT Protocol** (**T**rusted **R**eal-world **O**rchestration of **T**asks & **T**rades) — a suite of 7 specifications for trust-minimised physical service coordination built on Nostr (decentralised messaging) with **payment-agnostic** financial rails (Lightning, Cashu, Strike, Stripe, NIP-47, and more). This repo contains the **reference operator server** — a Node.js backend that coordinates tasks, manages stakes, and processes payments. It is not a ridesharing company; it's a protocol spec with a working implementation that generalises across 10+ domains (ridesharing, locksmith dispatch, parcel delivery, court serving, security guard dispatch, emergency trades, cleaning, moving, and more).
+DonkeyRide is the **reference implementation** of the [TROTT Protocol](https://github.com/TheCryptoDonkey/trott) (**T**rusted **R**eal-world **O**rchestration of **T**asks & **T**rades) — a suite of 8 specifications for trust-minimised physical service coordination built on Nostr (decentralised messaging) with **payment-agnostic** financial rails (Lightning, Cashu, Strike, Stripe, NIP-47, and more). This repo contains the **reference operator server** — a Node.js backend that coordinates tasks, manages stakes, and processes payments. It is not a ridesharing company; it's a working implementation that generalises across 10+ domains (ridesharing, locksmith dispatch, parcel delivery, court serving, security guard dispatch, emergency trades, cleaning, moving, and more).
+
+**Protocol specifications** (TROTT-01 through TROTT-08, domain profiles, implementor guides) live in the dedicated [trott repository](https://github.com/TheCryptoDonkey/trott). This repo focuses on implementation only.
 
 ## Commands
 
@@ -66,7 +68,7 @@ src/domain-profiles/
 
 Each profile defines: state machine (states + valid transitions), role names (requester/provider), UI labels (origin/destination/task noun/instructions), pricing model, discovery method, completion proof types, rating criteria, feature flags, regulatory bodies, and Nostr event kind mappings.
 
-**Spec-only domains:** Six additional domains have TROTT domain profiles but not yet implementation profiles — towing (`specs/domains/towing.md`), emergency trades (`specs/domains/emergency-trades.md`), pet services (`specs/domains/pet-services.md`), security (`specs/domains/security.md`), cleaning (`specs/domains/cleaning.md`), and moving (`specs/domains/moving.md`). These define state machines and domain-specific tags but await `src/domain-profiles/` implementations.
+**Spec-only domains:** Six additional domains have TROTT domain profiles but not yet implementation profiles — towing, emergency trades, pet services, security, cleaning, and moving. See the [trott domain profiles](https://github.com/TheCryptoDonkey/trott/tree/main/domains) for their state machines and domain-specific tags. These await `src/domain-profiles/` implementations.
 
 **To add a new domain:** create `src/domain-profiles/{name}.js` exporting a profile object (~100 lines). The schema validates it on load.
 
@@ -134,22 +136,9 @@ WEBSOCKET (ephemeral)         →  Real-time tracking + Live updates
 
 ### TROTT Protocol Specifications
 
-The protocol is defined as **7 TROTT specifications** plus **9 domain profiles** in `specs/`, using 39 event kinds across ranges 20500-20501 and 30500-30563 (core) plus 30600-30779 (domains).
-
-**Core specs:**
-- `TROTT-01-core.md` — Task lifecycle, state machine, scheduling, multi-provider (kinds 30500-30507)
-- `TROTT-02-discovery.md` — Provider availability, geohash + skill search, trusted networks (kinds 20500, 30510-30512)
-- `TROTT-03-reputation.md` — Ratings, social graph trust, credentials (kinds 30520-30522)
-- `TROTT-04-payments.md` — Quotes, escrow, streaming, milestones, split payments (kinds 30530-30536)
-- `TROTT-05-safety.md` — Emergency signals, check-ins, disputes, abuse reporting (kinds 30540-30546)
-- `TROTT-06-coordination.md` — Operator participation, PII handling, compliance (kinds 30550-30554) — **optional**
-- `TROTT-07-navigation.md` — Routing, ETA, live tracking, route deviation (kinds 20501, 30560-30563) — **optional**
-
-**Domain profiles** (in `specs/domains/`): ridesharing, locksmith, delivery, towing, emergency-trades, pet-services, security, cleaning, moving. Each declares which TROTT specs it uses and adds domain-specific states, tags, and rules.
+The protocol is defined as **8 TROTT specifications** plus **9 domain profiles**, using 39 event kinds. Specifications live in the [trott repository](https://github.com/TheCryptoDonkey/trott). See the [QUICK-REFERENCE](https://github.com/TheCryptoDonkey/trott/blob/main/specs/QUICK-REFERENCE.md) for the complete event kind table.
 
 The protocol supports both **P2P** (no operator) and **operator-coordinated** models. A minimal implementation needs only TROTT-01 + TROTT-02 (14 event kinds).
-
-See `specs/QUICK-REFERENCE.md` for the complete event kind table. Original NIP-XX specs are archived in `specs/archive/`.
 
 ### GDPR Compliance
 
@@ -196,8 +185,15 @@ All code, comments, documentation, commit messages, and user-facing strings must
 
 ## Protocol Reference
 
-The TROTT Protocol (**T**rusted **R**eal-world **O**rchestration of **T**asks & **T**rades) is defined as **7 TROTT specifications** and **9 domain profiles** in `specs/`, using 39 event kinds. See `specs/QUICK-REFERENCE.md` for the complete event kind table. The design document at `docs/plans/2026-02-10-trott-protocol-design.md` covers the full rationale, use case universe, and coordination patterns.
+The TROTT Protocol (**T**rusted **R**eal-world **O**rchestration of **T**asks & **T**rades) is defined as **8 TROTT specifications** and **9 domain profiles** in the [trott repository](https://github.com/TheCryptoDonkey/trott).
 
-`ARCHITECTURE.md` explains the federated model. `TRUST-MECHANISMS.md` details the 6 layers of trust. `docs/PAYMENT-PROVIDERS.md` covers payment provider integration. `docs/GDPR-COMPLIANCE.md` covers GDPR compliance. `docs/USE-CASES.md` catalogues supported use cases across all domains. `docs/INTEROPERABILITY.md` covers cross-domain interoperability and social graph integration (NIP-02 contact lists, NIP-32 labelling, NIP-56 reporting).
+**Implementation-specific docs in this repo:**
+- `docs/PAYMENT-PROVIDERS.md` — Payment provider integration guide
+- `docs/GDPR-COMPLIANCE.md` — GDPR compliance guide
+- `docs/API-STRESS-TEST.md` — API stress test results
 
-Original NIP-XX specs are archived in `specs/archive/` for historical reference.
+**Protocol docs in the trott repo:**
+- [Architecture](https://github.com/TheCryptoDonkey/trott/blob/main/docs/architecture.md) — Federated model
+- [Trust Mechanisms](https://github.com/TheCryptoDonkey/trott/blob/main/docs/trust-mechanisms.md) — 6 layers of trust
+- [Use Cases](https://github.com/TheCryptoDonkey/trott/blob/main/docs/use-cases.md) — Supported domains
+- [Interoperability](https://github.com/TheCryptoDonkey/trott/blob/main/docs/interoperability.md) — Cross-domain integration
