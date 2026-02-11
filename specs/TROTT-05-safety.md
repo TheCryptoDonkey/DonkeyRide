@@ -143,6 +143,22 @@ Operators with `safety_monitoring: true` in their service area definition MUST:
 3. Contact emergency services (999/911/112) if the party is unreachable within **3 minutes** of a `critical` signal
 4. Log all response actions as signed Nostr events for auditability
 
+#### Vulnerable Person Escalation
+
+Domains involving vulnerable persons (elderly care, childcare, healthcare, services for persons with disabilities)
+SHOULD declare domain-specific escalation contacts in addition to the standard emergency escalation path. The Task
+Request (kind 30500) MAY include `escalation_contacts` tags:
+
+```
+["escalation_contacts", "<safeguarding_lead_pubkey>", "safeguarding_lead"]
+["escalation_contacts", "<social_services_pubkey>", "social_services"]
+["escalation_contacts", "<next_of_kin_pubkey>", "next_of_kin"]
+```
+
+When an emergency signal is published for a task involving vulnerable persons, the operator SHOULD notify the declared
+escalation contacts in addition to standard emergency services. Operators providing services to vulnerable persons MUST
+have documented safeguarding procedures consistent with the Care Act 2014 (adults) and Children Act 2004 (children).
+
 ### Kind 30541: Safety Check-in
 
 A periodic "I'm OK" signal published by a party during an active task. The domain profile defines whether check-ins are
@@ -219,6 +235,24 @@ When a check-in is not received by the `next_expected` timestamp, the following 
 
 Domain profiles MAY customise escalation timings and thresholds. The `interval_minutes` tag on the check-in event
 indicates the expected frequency — implementations SHOULD use this rather than hardcoding intervals.
+
+#### Configurable Check-In Cadence
+
+The expected check-in interval is domain-defined (e.g. 30 minutes for security guard shifts, 2 hours for extended pet
+sitting). The Task Accept event (TROTT-01, kind 30502) or Operator Claim (TROTT-06, kind 30550) SHOULD include a
+`checkin_interval_seconds` tag declaring the expected cadence for the task.
+
+Escalation timing SHOULD be proportionate to the domain's risk profile. Three escalation profiles are defined:
+
+| Profile    | Missed Check-In → Contact | Contact → Safety Contacts | Safety Contacts → Emergency |
+|------------|---------------------------|---------------------------|-----------------------------|
+| `critical` | 5 minutes                 | 10 minutes                | 15 minutes                  |
+| `standard` | 5 minutes                 | 15 minutes                | 30 minutes                  |
+| `relaxed`  | 15 minutes                | 30 minutes                | 60 minutes                  |
+
+The escalation profile is declared via a `checkin_escalation_profile` tag on the Task Accept or Operator Claim. If
+absent, the `standard` profile applies. Security and lone-worker domains SHOULD use `critical`. Pet sitting and cleaning
+domains SHOULD use `relaxed`.
 
 ### Kind 30542: Safety Contact Share
 
@@ -766,6 +800,13 @@ resolution model and is appropriate only when objective evidence is sufficient.
 | No-show (requester) | Provider GPS at location; no requester acknowledgement within grace period                  | `provider_compensated` — requester stake forfeited      |
 | Route deviation >2x | GPS trace shows actual distance >2x optimal route distance                                  | `partial_refund` — fare adjusted to optimal route price |
 | Late arrival        | Timestamp on kind 30503 (arrival) exceeds agreed ETA by >2x                                 | `partial_refund` — proportional to delay severity       |
+
+#### Threshold Transparency
+
+Automated dispute resolution thresholds (e.g. route deviation multiplier, late arrival threshold, no-show grace period)
+are operator-defined and MAY vary by domain. Operators SHOULD publish their automated resolution thresholds in the
+Operator Bond (TROTT-02, kind 30511) or in the Payment Terms (TROTT-04, kind 30531) so that participants know the rules
+before accepting a task. Undisclosed thresholds weaken the auditability of automated resolution outcomes.
 
 ---
 

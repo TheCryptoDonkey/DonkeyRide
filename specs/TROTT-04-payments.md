@@ -190,6 +190,7 @@ pricing. The `d` tag format allows one quote per provider per task via NIP-33 se
 | `valid_until`                | Recommended | Unix timestamp                      | Quote expiry. After this time the quote is void.                      |
 | `estimated_duration_seconds` | Optional    | Integer string                      | Estimated task duration.                                              |
 | `estimated_distance_metres`  | Optional    | Integer string                      | Estimated distance (for transit-based tasks).                         |
+| `minimum_duration_seconds`   | Optional    | Integer string                      | Minimum billable duration (e.g. 2-hour minimum for cleaning).             |
 | `payment_methods`            | Optional    | Comma-separated string              | Payment methods the provider accepts.                                 |
 
 #### Breakdown Items
@@ -540,6 +541,12 @@ breakdowns, and multi-provider splits. One Payment Terms event per task.
 | `requester_pubkey`           | Recommended | Hex pubkey                                              | The paying party.                                                                  |
 | `provider_pubkey`            | Recommended | Hex pubkey                                              | The receiving party.                                                               |
 | `operator_fee_percent`       | Optional    | Decimal string                                          | Operator commission percentage.                                                    |
+| `cancellation_schedule`      | Optional    | Structured string                              | Graduated cancellation fee schedule (see below).                                      |
+| `milestone_sequence`         | Conditional | Integer string                                 | Ordering of this milestone (required when `payment_type` is `milestone`). Starts at 1.|
+| `guarantee_holdback_percent` | Optional    | Integer string (0-100)                         | Percentage of payment held back for guarantee period.                                 |
+| `guarantee_period_days`      | Optional    | Integer string                                 | Duration of guarantee hold-back in days.                                              |
+| `overtime_rate`              | Optional    | Integer string                                 | Rate (smallest currency unit per `rate_unit`) applied beyond expected duration.       |
+| `overtime_threshold_seconds` | Optional    | Integer string                                 | Seconds beyond `expected_duration` before overtime rate applies.                      |
 
 #### Payment Types
 
@@ -549,6 +556,44 @@ breakdowns, and multi-provider splits. One Payment Terms event per task.
 | `streaming` | Periodic micro-payments during active task | Ridesharing, security guard, babysitting         |
 | `milestone` | Partial payments at defined milestones     | Emergency trades, man with van, multi-stage work |
 | `split`     | Payment divided across multiple providers  | Multi-provider tasks, team dispatch              |
+
+#### Cancellation Schedule Format
+
+The `cancellation_schedule` tag encodes a graduated cancellation fee policy as a series of `hours_before:penalty_percent`
+pairs, ordered from longest notice to shortest:
+
+```
+["cancellation_schedule", "24:0,4:50,0:100"]
+```
+
+This example means: no penalty if cancelled more than 24 hours before the scheduled start; 50% of the staked amount if
+cancelled 4-24 hours before; 100% if cancelled less than 4 hours before. If the tag is absent, the domain's default
+cancellation policy applies.
+
+#### Guarantee Hold-Back
+
+For domains requiring post-completion warranty periods (e.g. emergency trades, pest control), the Payment Terms event
+MAY include `guarantee_holdback_percent` and `guarantee_period_days` tags. The held-back portion remains in escrow after
+task confirmation and is released automatically via Stake Release (kind 30533) when the guarantee period expires without
+a guarantee claim. If the requester creates a `linked_task` with `guarantee` relationship during the guarantee period,
+the held-back amount is subject to TROTT-05 dispute resolution.
+
+#### Duration-Based Billing
+
+Tasks priced by time (e.g. hourly cleaning, security shifts) SHOULD include `expected_duration` on the Task Request
+(TROTT-01, kind 30500) and the Quote (kind 30530). The actual duration is recorded on the Task Complete event (TROTT-01,
+kind 30504) as `actual_duration` and on the Payment Receipt (kind 30535).
+
+Time-based billing SHOULD round to the nearest whole unit of the declared `rate_unit`. Partial units below 50% of the
+unit round down; 50% and above round up. Operators MAY define domain-specific rounding rules (e.g. 15-minute increments
+for cleaning). When actual duration exceeds the `overtime_threshold_seconds` beyond `expected_duration`, the
+`overtime_rate` applies to the excess.
+
+#### Zero-Value Tasks
+
+Zero-value tasks (e.g. volunteer coordination, community exchange) MAY omit TROTT-04 payment events entirely.
+Commitment for zero-value tasks relies on TROTT-03 reputation stakes rather than financial stakes. The Task Request
+(kind 30500) SHOULD include `["amount", "0"]` and `["currency", "NONE"]` to explicitly signal zero-value status.
 
 #### Milestone Terms Example (Emergency Plumber)
 
@@ -1558,6 +1603,7 @@ This is the settlement record — the immutable proof that payment was made.
 | `settled_at`           | Recommended | Unix timestamp                                        | When settlement was confirmed.                                               |
 | `payment_count`        | Optional    | Integer string                                        | For streaming tasks: total number of streaming ticks.                        |
 | `receipt_type`         | Recommended | `final`, `milestone`, `partial`                       | Type of receipt.                                                             |
+| `actual_duration_seconds`    | Optional    | Integer string                       | Actual service duration for time-based tasks.                             |
 
 ---
 

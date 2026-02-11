@@ -153,6 +153,15 @@ Provider Profile (kind 30510). Requesters search by category, skill tag, or cred
 ]
 ```
 
+#### Virtual and Remote Services
+
+Services delivered remotely (e.g. online tutoring, phone consultation, remote IT support) MAY omit geohash tags from
+Provider Availability (kind 20500) and Provider Profile (kind 30510) events. Discovery for these services relies on
+category/skill search (Mode 2) and trusted provider networks (Mode 3). When geohash tags are absent, relay queries
+SHOULD match on `domain` and skill tags only. The Task Request (kind 30500) for virtual services SHOULD set
+`location_lat` and `location_lon` to the requester's general area (for timezone and regulatory purposes) rather than
+omitting location entirely.
+
 ### Mode 3: Trusted Provider Network
 
 Requesters maintain a personal list of preferred providers via kind 30512 (Trusted Provider List). This enables a "
@@ -335,13 +344,24 @@ kind 20500 (ephemeral availability), this event is stored on relays and represen
 
 **Optional tags**: `t`, `credential`, `credential_proof`, `coverage_geohash`, `coverage_radius_km`, `languages`,
 `operating_hours`, `timezone`, `emergency_available`, `rating`, `completed_tasks`, `member_since`, `operator_pubkey`,
-`expiration`
+`expiration`, `standing_offer`, `availability_schedule`
 
 **Multi-domain providers**: A provider who serves multiple domains (e.g. locksmith and emergency plumber) includes
 multiple `domain` and `skill` tags. A single profile covers all domains.
 
 **Multi-operator providers**: A provider who works with multiple operators includes multiple `operator_pubkey` tags.
 This signals to requesters that the provider is discoverable through several operators.
+
+#### Standing-Offer Providers
+
+Providers operating standing-offer services (e.g. market stall repairs, walk-in grooming) SHOULD publish a Provider
+Profile with `standing_offer` set to `true` and `availability_schedule` tags describing when the service is available.
+The `availability_schedule` tag uses a simplified day-and-time format: `["availability_schedule", "mon,wed,fri 09:00-17:00"]`
+or `["availability_schedule", "sat 08:00-14:00"]`. Multiple tags are permitted for complex schedules.
+
+Requesters discover standing-offer services via category search (Mode 2) and browse available providers. When a
+requester wishes to use the service, they create a standard Task Request (kind 30500) referencing the provider's
+profile via a `p` tag.
 
 #### REQ Filters for Provider Profile
 
@@ -372,6 +392,18 @@ This signals to requesters that the provider is discoverable through several ope
   "#domain": ["tutoring"]
 }
 ```
+
+#### Credential-Filtered Discovery
+
+Domain profiles declaring mandatory credentials (e.g. `gas_safe` for gas engineers, `sia_licence` for security officers)
+SHOULD include `credential` tags on Provider Profile events: `["credential", "<credential_type>", "<attestation_event_id>"]`.
+This enables credential-filtered discovery queries — a requester searching for a Gas Safe registered plumber can filter
+on `#credential` tags.
+
+Credential tags on Provider Profile events are discovery aids, not proof. Operators MUST independently verify credentials
+via TROTT-03 Credential Attestation (kind 30522) before matching a provider to a task with mandatory credential
+requirements. Self-declared credential tags without corresponding Credential Attestation events SHOULD be treated as
+unverified.
 
 ### Kind 30511: Operator Bond
 
@@ -853,6 +885,22 @@ To prevent long-term tracking of provider movements via kind 20500 events:
   actively available
 - Relays MUST NOT persist ephemeral events
 - Operators SHOULD NOT log or retain provider availability beacons beyond the current session
+
+---
+
+## Urgency Signals
+
+Task Request events (kind 30500) MAY include an `urgency` tag to indicate request priority:
+
+| Value      | Description                              | Example                                    |
+|------------|------------------------------------------|--------------------------------------------|
+| `critical` | Life-threatening or safety-critical      | Hard-shoulder breakdown, gas leak           |
+| `urgent`   | Same-day response needed                 | Burst pipe, lockout                         |
+| `standard` | Normal scheduling (default if absent)    | Routine car wash, scheduled cleaning        |
+| `flexible` | No time pressure                         | Equipment rental return, non-urgent repair  |
+
+Operators MAY prioritise matching for higher-urgency requests. Urgency values align with the severity levels in TROTT-05
+Emergency Signal (kind 30540) for consistency.
 
 ---
 

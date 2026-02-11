@@ -81,12 +81,28 @@ during an active task.
 
 #### Message Types
 
-| Type       | Description                                                                                       |
-|------------|---------------------------------------------------------------------------------------------------|
-| `text`     | Free-text message                                                                                 |
-| `location` | Shared location (encrypted content includes lat/lon)                                              |
-| `photo`    | Photo reference (encrypted content includes URL; for full media, use Media Attachment kind 30547) |
-| `system`   | System-generated message (e.g. "Driver is 2 minutes away", "Task cancelled by requester")         |
+| Type         | Description                                                                                       |
+|--------------|---------------------------------------------------------------------------------------------------|
+| `text`       | Free-text message                                                                                 |
+| `location`   | Shared location (encrypted content includes lat/lon)                                              |
+| `photo`      | Photo reference (encrypted content includes URL; for full media, use Media Attachment kind 30547) |
+| `system`     | System-generated message (e.g. "Driver is 2 minutes away", "Task cancelled by requester")         |
+| `structured` | Predefined message pattern with machine-parseable content (see Structured Messages below)         |
+
+#### Structured Messages
+
+When `message_type` is `structured`, the message includes a `template` tag identifying a predefined message pattern:
+
+| Template              | Description                                              | Example Content                        |
+|-----------------------|----------------------------------------------------------|----------------------------------------|
+| `eta_update`          | Provider shares updated arrival estimate                 | `{"eta_minutes": 5}`                   |
+| `running_late`        | Provider notifies of delay                               | `{"delay_minutes": 10, "reason": "traffic"}` |
+| `access_code`         | Requester shares entry code                              | `{"code": "1234", "type": "gate"}`     |
+| `arrival_notification`| Provider has arrived at the location                     | `{"location": "front door"}`           |
+| `status_update`       | General status notification                              | `{"status": "Order being prepared"}`   |
+
+Clients that do not recognise a template SHOULD fall back to rendering the message content as plain text. Operators MAY
+define additional domain-specific templates.
 
 #### Lifecycle Binding
 
@@ -99,6 +115,33 @@ during an active task.
 
 During disputes (TROTT-05), the mediator's pubkey is added to the `p` tags on new messages, giving them read access to
 the conversation from that point forward. Historical messages are NOT retroactively shared unless both parties consent.
+
+**Additional optional tags for Task Message (kind 30564)**:
+
+| Tag                  | Format          | Description                                                    |
+|----------------------|-----------------|----------------------------------------------------------------|
+| `template`           | String          | Structured message template identifier (when `message_type` is `structured`) |
+| `language`           | ISO 639-1 code  | Language of the message content (e.g. `en`, `pl`)              |
+| `translated_content` | String          | Machine-translated version of the message body                 |
+| `retention_category` | Enumerated      | `ephemeral`, `standard`, `evidence`, `clinical`                |
+
+#### Message Retention Categories
+
+| Category    | Retention                           | Use Case                                     |
+|-------------|-------------------------------------|----------------------------------------------|
+| `ephemeral` | Deleted at task completion           | Casual coordination ("I'm outside")           |
+| `standard`  | Task completion + 30 days (default) | Normal task communication                     |
+| `evidence`  | Per TROTT-06 data retention policy  | Messages relevant to potential disputes        |
+| `clinical`  | Per healthcare regulations          | Clinical notes (operator-managed, NOT on relay)|
+
+If absent, `standard` applies.
+
+#### Language Support
+
+Provider Profile (TROTT-02, kind 30510) and User Preferences (kind 30567) MAY include `language` tags declaring
+preferred languages: `["language", "en"]` or `["language", "pl,en"]` for multilingual users. When task participants
+declare different languages, operators MAY offer machine translation. The original message language SHOULD be preserved
+with a `language` tag on the Task Message; translated text SHOULD be in the `translated_content` field.
 
 ---
 

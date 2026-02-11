@@ -337,4 +337,5 @@ navigation, and TROTT-08 (20502, 30564-30567) for messaging, task archives, and 
 - **Payment Providers**: [../docs/PAYMENT-PROVIDERS.md](../docs/PAYMENT-PROVIDERS.md)
 - **GDPR Compliance**: [../docs/GDPR-COMPLIANCE.md](../docs/GDPR-COMPLIANCE.md)
 - **Use Case State Machines**: [../docs/USE-CASE-STATE-MACHINES.md](../docs/USE-CASE-STATE-MACHINES.md)
+- **Spec Stress Test**: [../docs/SPEC-STRESS-TEST.md](../docs/SPEC-STRESS-TEST.md) — Systematic validation of all 8 specs against 649 use case domains
 - **Original Spec (Archive)**: [archive/NIP-XX-v1-archive.md](./archive/NIP-XX-v1-archive.md)

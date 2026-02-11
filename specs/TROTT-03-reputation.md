@@ -293,6 +293,29 @@ This event is a NIP-33 parameterised replaceable event. The publisher updates it
 | `rating_breakdown`  | Optional    | Distribution of overall ratings. Format: `5:<count>,4:<count>,3:<count>,2:<count>,1:<count>`. |
 | `criteria_averages` | Optional    | Per-criterion averages. Format: `<criterion>:<average>,...`.                                  |
 
+#### Volume Normalisation
+
+Operators SHOULD apply volume normalisation when ranking providers by reputation. A provider with 5.0 stars from 3
+ratings is not necessarily more trustworthy than a provider with 4.7 stars from 500 ratings.
+
+A recommended approach is Bayesian averaging:
+
+```
+adjusted_rating = (C × M + R × N) / (C + N)
+```
+
+Where:
+- `C` is a confidence threshold (e.g. 10 ratings)
+- `M` is the domain-wide mean rating
+- `R` is the provider's raw average rating
+- `N` is the provider's total rating count
+
+This pulls low-volume providers towards the domain mean until sufficient data accumulates. The specific formula and
+confidence threshold are operator-defined, but the principle of penalising low sample sizes is RECOMMENDED.
+
+Reputation Query events (kind 30521) include `total_ratings` as a tag, enabling consumers to apply their own volume
+normalisation.
+
 #### Cross-Domain Reputation Query
 
 An operator MAY publish a cross-domain summary by omitting the `domain` tag:
@@ -491,6 +514,20 @@ past, or with a `revoked` tag:
 }
 ```
 
+#### Credential Expiry Monitoring
+
+Operators SHOULD monitor `expires` tags on Credential Attestation events for providers in their network. When a
+provider's mandatory credential approaches expiry (within 30 days), the operator SHOULD notify the provider and request
+re-verification.
+
+Operators MUST NOT match providers whose mandatory credentials have expired. When a credential expires during an active
+task, the operator SHOULD notify the requester but SHOULD NOT auto-cancel the task — the work may be nearly complete.
+The operator SHOULD publish an updated Compliance Record (TROTT-06, kind 30553) with result `expired` when a provider's
+credential lapses.
+
+Providers SHOULD proactively publish updated Credential Attestation events when renewing credentials, referencing the
+original attestation's `d` tag to replace the expiring event.
+
 ---
 
 ## Domain-Specific Rating Criteria
@@ -576,6 +613,25 @@ When computing reputation across domains:
    domains, 25% for distant domains)
 
 Implementations SHOULD document their cross-domain weighting policy transparently.
+
+#### Domain Adjacency Categories
+
+To determine whether domains are "adjacent" or "distant" for cross-domain reputation weighting, operators SHOULD group
+domains by trust-transferable characteristics:
+
+| Category          | Example Domains                                         | Transferable Criteria                        |
+|-------------------|---------------------------------------------------------|----------------------------------------------|
+| Property access   | Locksmith, cleaning, pest control, plumbing, electrical | Trustworthiness, punctuality, tidiness       |
+| Transport         | Ridesharing, delivery, courier, towing, moving          | Punctuality, vehicle care, communication     |
+| Personal service  | Tutoring, hairdressing, personal training, massage      | Communication, professionalism, reliability  |
+| Care              | Elderly care, pet sitting, babysitting, nursing         | Trustworthiness, empathy, reliability        |
+| Security          | Security guard, door supervision, close protection      | Alertness, professionalism, reliability      |
+| Trades            | Plumbing, electrical, roofing, glazing, gas engineering | Workmanship, pricing fairness, tidiness      |
+| Inspection        | Building surveyor, PAT testing, fire risk, gas safety   | Thoroughness, accuracy, professionalism      |
+
+Domains within the same category are considered "adjacent" (recommended 50% cross-domain weight for the `overall`
+rating). Domains in different categories are considered "distant" (recommended 25%). Operators MAY define custom
+adjacency mappings appropriate to their market.
 
 ---
 

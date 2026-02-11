@@ -128,6 +128,9 @@ Implementations MUST accept both the generic and aliased forms.
 | `scheduled_start` | Optional | Planned start time (unix timestamp)            | `["scheduled_start", "1698765600"]` |
 | `recurrence`      | Optional | Recurrence frequency                           | `["recurrence", "weekly"]`          |
 | `recurrence_end`  | Optional | End date for recurring series (unix timestamp) | `["recurrence_end", "1730000000"]`  |
+| `scheduled_end`    | Optional | Planned end time (unix timestamp)              | `["scheduled_end", "1699004400"]`   |
+| `expected_duration`| Optional | Expected service duration in seconds           | `["expected_duration", "3600"]`     |
+| `urgency`          | Optional | Request urgency level                          | `["urgency", "standard"]`          |
 
 Valid recurrence values: `daily`, `weekdays`, `weekly`, `biweekly`, `monthly`.
 
@@ -234,6 +237,18 @@ accepted → provider_en_route → provider_arrived → access_method_confirmed 
 accepted → en_route_to_pickup → collected → in_transit → delivered → completed
 ```
 
+#### Looping Sub-States
+
+Some domains define sub-states that cycle repeatedly during `in_progress` — for example, a security guard cycling
+between `on_station`, `patrolling`, and `incident` throughout an 8-hour shift. Looping sub-states are explicitly
+permitted: the domain profile's `transitions` object defines valid transitions between sub-states without restricting
+the number of times each transition may occur.
+
+Domains with cycling sub-states SHOULD use TROTT-05 Safety Check-in events (kind 30541) for periodic status signals
+rather than publishing Task Update (kind 30503) events for each cycle. Task Update events SHOULD be reserved for
+transitions between distinct operational phases (e.g. `briefed → on_station`, `on_station → shift_complete`). This
+reduces event volume and distinguishes routine status from genuine state changes.
+
 Domain extension specs define:
 
 1. The ordered list of sub-states within `in_progress`
@@ -300,7 +315,8 @@ Published by the requester to announce "I need something done." This is the entr
 virtual or category-discovered services)
 
 **Optional tags**: `domain`, `destination_lat`, `destination_lon`, `g`, `amount`, `currency`, `trust_model`,
-`expiration`, `scheduled_start`, `recurrence`, `recurrence_end`
+`expiration`, `scheduled_start`, `scheduled_end`, `recurrence`, `recurrence_end`, `expected_duration`, `urgency`,
+`provider_count`
 
 **Validation rules**:
 
@@ -337,6 +353,21 @@ A Task Request MAY include scheduling tags for future or recurring tasks:
   "content": "Weekly house clean — 3-bedroom terraced house"
 }
 ```
+
+#### Standing Offers
+
+Some services operate on an inverted flow — the provider advertises persistent availability and requesters respond
+(e.g. a knife sharpener at a weekly market, a walk-in barber). Standing-offer services SHOULD publish a Provider Profile
+(TROTT-02, kind 30510) with a `standing_offer` tag set to `true` and `availability_schedule` tags describing when the
+service is available. Requesters discover these via category search (TROTT-02 Mode 2) and create normal Task Request
+events (kind 30500) referencing the provider's profile.
+
+#### Long-Lived Tasks
+
+Tasks with expected durations exceeding 24 hours (e.g. equipment rental, construction projects, guarantee periods)
+SHOULD use `scheduled_start` and `scheduled_end` tags to define the service window. Relay operators SHOULD retain task
+events for at least 90 days after the task's final state transition. For guarantee periods, use `linked_task` with
+`guarantee` relationship type to create a follow-up obligation rather than keeping the original task open indefinitely.
 
 ### Kind 30501: Task Offer
 
@@ -478,6 +509,18 @@ indicated by multiple `p` tags on the Task Accept, each with a confirmation stat
 
 The third element of each `p` tag indicates the provider's confirmation status: `confirmed` or `pending`. The task
 transitions to `in_progress` only when all providers are `confirmed`.
+
+#### Multi-Provider Quorum
+
+For multi-provider tasks, the domain profile SHOULD define a minimum provider count required to proceed. The Task Accept
+event (kind 30502) includes a `provider_count` tag indicating the total required. The task transitions to `in_progress`
+when the number of `confirmed` providers meets or exceeds the domain profile's minimum. If a domain profile does not
+specify a minimum, all providers must confirm.
+
+Individual provider withdrawal during `in_progress` SHOULD be handled as a partial cancellation rather than a full task
+failure. If the remaining confirmed provider count falls below the domain's minimum, the operator MAY attempt to find a
+replacement provider. If no replacement is found within a reasonable window, the task MAY transition to `cancelled` with
+reason `insufficient_providers`.
 
 ### Kind 30503: Task Update
 
@@ -637,7 +680,7 @@ profile.
 **Required tags**: `d`, `status`, `t`, `completion_proof`
 
 **Optional tags**: `domain`, `e`, `p`, `provider_pubkey`, `proof_data`, `final_amount`, `currency`, `trust_model`,
-`distance_metres`, `duration_seconds`, `expiration`
+`distance_metres`, `duration_seconds`, `actual_duration`, `expiration`
 
 **Validation rules**:
 
@@ -1049,6 +1092,7 @@ that tracks the series lifecycle.
 | `instance_count`   | Total instances created so far                                                 |
 | `next_instance_at` | Unix timestamp for the next expected instance                                  |
 | `status`           | `active` \| `paused` \| `ended`                                                |
+| `preferred_provider` | Optional. Provider pubkey preferred for all instances in this series            |
 
 Each instance in the series is a normal Task Request (30500) with:
 
@@ -1058,6 +1102,16 @@ Each instance in the series is a normal Task Request (30500) with:
 **Notification flow:** When `next_instance_at` approaches, the operator publishes the next Task Request (30500). The
 matched provider receives it via their normal relay subscription. If a preferred provider is associated with the series,
 the operator MAY publish a Task Accept (30502) automatically, subject to the provider's prior consent.
+
+#### Exception Handling
+
+Individual instances within a recurring series MAY be rescheduled by cancelling the original instance (kind 30506 with
+reason code `rescheduled`) and creating a new Task Request with `linked_task` referencing the series and an updated
+`scheduled_start`. The `rescheduled` reason code distinguishes rescheduling from genuine cancellation for reputation and
+billing purposes — a rescheduled instance does not count as a cancellation in the requester's reputation history.
+
+To skip an instance without rescheduling, the operator publishes a Task Cancel (kind 30506) with reason code
+`instance_skipped`. Skipped instances are excluded from billing and do not affect reputation.
 
 #### Example: Weekly Cleaning Series
 

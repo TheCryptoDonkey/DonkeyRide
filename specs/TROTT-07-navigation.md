@@ -138,7 +138,7 @@ is replaceable (NIP-33), only the latest route for a given task is current.
 | `provider_version`    | Semver string           | Routing engine version (for reproducibility)                              |
 | `origin_geohash`      | Geohash (precision 5-6) | Approximate origin (public — does not reveal exact address)               |
 | `destination_geohash` | Geohash (precision 5-6) | Approximate destination (public — does not reveal exact address)          |
-| `transport_mode`      | String                  | `car`, `bicycle`, `foot`, `motorcycle`, `van`, `truck`                    |
+| `transport_mode`      | String                  | `car`, `bicycle`, `foot`, `motorcycle`, `van`, `truck`, `boat`, `aircraft`, `drone` |
 | `stop_count`          | Integer                 | Number of intermediate stops (0 for direct routes)                        |
 | `stop_purposes`       | Comma-separated strings | Purpose of each stop (e.g. `pickup,dropoff` for multi-stop delivery)      |
 
@@ -353,6 +353,7 @@ are sent to the requester and, if present, the requester's safety contacts (TROT
 | `stopped_unexpectedly` | Provider has been stationary for an unexpected duration      | Medium — may be traffic or a concern               |
 | `excessive_speed`      | Provider is travelling significantly above the speed limit   | High — safety concern                              |
 | `returned_to_route`    | Provider has returned to the planned route after a deviation | Low — informational, resolves a previous deviation |
+| `geofence_breach`      | Provider has left a defined containment area (e.g. site boundary, patrol zone)  | High — may indicate abandonment of post or safety concern |
 
 #### Escalation
 
@@ -369,6 +370,37 @@ Deviation events integrate with TROTT-05 safety infrastructure:
 Route deviation events serve as evidence in TROTT-05 disputes. When a `pricing` dispute is filed (the provider took a
 longer route to inflate the fare), the signed kind 30562 events and the original kind 30560 route summary provide
 cryptographic proof of the deviation.
+
+#### Geofence Containment
+
+For domains where the provider must remain within a defined area (e.g. security guard on-site, construction worker
+within CDM zone, pet walker within agreed area), the Task Request (kind 30500) or Operator Claim (TROTT-06, kind 30550)
+MAY include a `geofence` tag referencing a containment boundary. The geofence geometry is stored in the event's NIP-44
+encrypted content as a GeoJSON polygon. Route Deviation events with `deviation_type: geofence_breach` are published when
+the provider's location (kind 20501) falls outside the geofence boundary.
+
+#### Non-Road Routing
+
+Maritime and aviation domains (e.g. boat delivery, helicopter charter, drone surveying) SHOULD use domain-specific
+routing rather than road-based routing engines. Route Summary (kind 30560) supports any `provider_name` value — maritime
+operators may use marine chart routing; aviation operators may use flight planning tools. The `transport_mode` tag values
+`boat`, `aircraft`, and `drone` signal non-road routing. Distance and duration tags remain in metres and seconds
+regardless of transport mode.
+
+#### Transport-Mode-Aware ETA Accuracy
+
+ETA accuracy thresholds (§Punctuality Measurement) SHOULD account for transport mode. Suggested thresholds:
+
+| Transport Mode         | "High" Confidence | "Medium" Confidence | "Low" Confidence  |
+|------------------------|-------------------|---------------------|-------------------|
+| `car`, `van`, `truck`  | Within 2 minutes  | Within 5 minutes    | Within 15 minutes |
+| `motorcycle`           | Within 2 minutes  | Within 5 minutes    | Within 15 minutes |
+| `bicycle`              | Within 5 minutes  | Within 10 minutes   | Within 20 minutes |
+| `foot`                 | Within 10 minutes | Within 15 minutes   | Within 30 minutes |
+| `boat`                 | Within 15 minutes | Within 30 minutes   | Within 60 minutes |
+| `aircraft`, `drone`    | Within 5 minutes  | Within 15 minutes   | Within 30 minutes |
+
+Operators SHOULD select routing engines appropriate to the transport mode and geographic context.
 
 ### Kind 30563: Navigation Resource
 

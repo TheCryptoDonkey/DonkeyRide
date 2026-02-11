@@ -169,6 +169,14 @@ A single task MAY receive claims from multiple operators. In this case:
 4. If they disagree, the requester's preference takes priority (the requester initiated the task)
 5. If no operator is selected, the task proceeds peer-to-peer using only TROTT-01 through TROTT-05
 
+#### Multi-Operator Tasks
+
+Multi-service engagements requiring providers from different operators (e.g. a moving job needing movers from Operator A
+and security from Operator B) SHOULD be modelled as separate tasks, each with its own Operator Claim (kind 30550),
+linked via `linked_task` tags with `coordinated` relationship type. Cross-operator coordination (e.g. shared scheduling,
+combined billing) is an operator-level concern, not a protocol-level one. The protocol does not support multiple
+Operator Claims on a single task.
+
 ### Kind 30551: PII Envelope
 
 Published by the operator when personally identifiable information is received from a party. The envelope declares which
@@ -235,7 +243,7 @@ database (Layer 2).
 
 **Required tags**: `d`, `task_id`, `party`, `pii_fields`, `retention_policy`, `erasure_method`
 **Optional tags**: `domain`, `retention_days`, `legal_basis`, `data_controller`, `privacy_policy_url`, `p` (party
-pubkey)
+pubkey), `sensitivity_level`
 
 #### PII Fields
 
@@ -251,6 +259,23 @@ The `pii_fields` tag is a comma-separated list of data categories the operator h
 | `payment_details`  | Card number, bank details, or wallet reference | Financial data                              |
 | `photo_id`         | Government-issued ID scan                      | Biometric/identity document                 |
 | `gps_trace`        | Detailed GPS trace during task                 | Location data                               |
+
+| Tag                  | Optionality      | Format            | Description                                                                                        |
+|----------------------|------------------|-------------------|----------------------------------------------------------------------------------------------------|
+| `sensitivity_level`  | Optional         | Enumerated string | PII sensitivity classification: `standard`, `heightened`, `special_category`, `child_data`          |
+
+#### PII Sensitivity Levels
+
+| Level              | Description                                                          | Example Domains                          |
+|--------------------|----------------------------------------------------------------------|------------------------------------------|
+| `standard`         | Address and contact details                                          | Ridesharing, cleaning, pest control      |
+| `heightened`        | Multiple addresses or security-relevant timing                       | Moving (two addresses), locksmith (locked out) |
+| `special_category` | UK GDPR Article 9 data (health, biometric, genetic)                  | Healthcare, elderly care, disability services |
+| `child_data`       | Information about children (Children Act 2004 obligations)           | Babysitting, tutoring, school runs       |
+
+Operators SHOULD apply additional safeguards proportionate to the sensitivity level — for example, enhanced access
+logging for `special_category` data, restricted delegation for `child_data`, and shorter retention periods for
+`heightened` data.
 
 #### Retention Policies
 
@@ -282,6 +307,14 @@ This event aligns with GDPR principles:
 
 The PII Envelope is a **transparency record**, not a data store. The actual PII is in the operator's private Layer 2
 database, never on Nostr relays.
+
+#### Per-Field Retention Variance
+
+When data fields within a single task have different retention requirements (e.g. financial records requiring 7-year
+retention vs GPS traces requiring 90-day retention vs clinical notes requiring 25-year retention), the operator SHOULD
+publish separate PII Envelope events per retention category. Each envelope declares its own `retention_days` and
+`pii_fields` tags, covering only the fields subject to that envelope's retention policy. This ensures GDPR-compliant
+retention without forcing all data to the longest retention period.
 
 #### Beneficiary PII Handling
 
