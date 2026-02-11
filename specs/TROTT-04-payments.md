@@ -4,13 +4,22 @@
 
 ## Abstract
 
-This specification defines the **payment communication layer** for trust-minimised physical service coordination. It comprises nine event kinds covering the full payment lifecycle: quoting (30530), terms agreement (30531), stake locking (30532), stake release (30533), stake forfeiture (30534), payment receipts (30535), streaming ticks (30536), post-task tips (30537), and earnings summaries (30538).
+This specification defines the **payment communication layer** for trust-minimised physical service coordination. It
+comprises nine event kinds covering the full payment lifecycle: quoting (30530), terms agreement (30531), stake
+locking (30532), stake release (30533), stake forfeiture (30534), payment receipts (30535), streaming ticks (30536),
+post-task tips (30537), and earnings summaries (30538).
 
-**Critical principle**: This specification defines events that *communicate about* payments, not events that *execute* payments. Events track payment state; actual money moves on whatever rail the parties choose (Lightning, Strike, Stripe, NIP-47, Cashu, bank transfer, cash). The protocol is payment-rail-agnostic and currency-neutral — every payment event includes explicit `amount`, `currency`, and `trust_model` tags.
+**Critical principle**: This specification defines events that *communicate about* payments, not events that *execute*
+payments. Events track payment state; actual money moves on whatever rail the parties choose (Lightning, Strike, Stripe,
+NIP-47, Cashu, bank transfer, cash). The protocol is payment-rail-agnostic and currency-neutral — every payment event
+includes explicit `amount`, `currency`, and `trust_model` tags.
 
 ## Motivation
 
-Service coordination requires flexible payment mechanics: competitive quoting, milestone-based escrow, per-second streaming during active tasks, split payments across multiple providers, and transparent settlement. Traditional platforms bundle payment processing with coordination, creating lock-in and opacity. By separating payment communication (this spec) from payment execution (the chosen rail), the protocol supports:
+Service coordination requires flexible payment mechanics: competitive quoting, milestone-based escrow, per-second
+streaming during active tasks, split payments across multiple providers, and transparent settlement. Traditional
+platforms bundle payment processing with coordination, creating lock-in and opacity. By separating payment
+communication (this spec) from payment execution (the chosen rail), the protocol supports:
 
 - **Bitcoin-native users** paying in satoshis via NIP-47 hold invoices with no intermediary
 - **Fiat users** paying in GBP via Strike, which converts and settles over Lightning
@@ -32,17 +41,17 @@ Service coordination requires flexible payment mechanics: competitive quoting, m
 
 ## Event Kinds
 
-| Kind | Name | Replaceable | Publisher | Description |
-|------|------|-------------|-----------|-------------|
-| 30530 | Quote | Yes (NIP-33) | Provider | Provider proposes a price for a task. Multiple providers may quote the same task. |
-| 30531 | Payment Terms | Yes (NIP-33) | Either party / Operator | Agreed payment structure: milestones, splits, streaming rate. |
-| 30532 | Stake Lock | Yes (NIP-33) | Operator | Funds committed. Proof of lock with payment reference. |
-| 30533 | Stake Release | No (append-only) | Operator | Funds released to provider on successful completion. |
-| 30534 | Stake Forfeit | No (append-only) | Operator | Funds penalised (cancellation, no-show, dispute loss). |
-| 30535 | Payment Receipt | No (append-only) | Operator / Provider | Confirmation that money changed hands. Final settlement record. |
-| 30536 | Streaming Tick | No (append-only) | Requester / Operator | Periodic proof-of-payment during an ongoing task. |
-| 30537 | Task Tip | No (append-only) | Requester | Post-task tip for the provider. Separate from the service fee. |
-| 30538 | Earnings Summary | Yes (NIP-33) | Operator | Tax/expense reporting summary for a provider, encrypted to provider. |
+| Kind  | Name             | Replaceable      | Publisher               | Description                                                                       |
+|-------|------------------|------------------|-------------------------|-----------------------------------------------------------------------------------|
+| 30530 | Quote            | Yes (NIP-33)     | Provider                | Provider proposes a price for a task. Multiple providers may quote the same task. |
+| 30531 | Payment Terms    | Yes (NIP-33)     | Either party / Operator | Agreed payment structure: milestones, splits, streaming rate.                     |
+| 30532 | Stake Lock       | Yes (NIP-33)     | Operator                | Funds committed. Proof of lock with payment reference.                            |
+| 30533 | Stake Release    | No (append-only) | Operator                | Funds released to provider on successful completion.                              |
+| 30534 | Stake Forfeit    | No (append-only) | Operator                | Funds penalised (cancellation, no-show, dispute loss).                            |
+| 30535 | Payment Receipt  | No (append-only) | Operator / Provider     | Confirmation that money changed hands. Final settlement record.                   |
+| 30536 | Streaming Tick   | No (append-only) | Requester / Operator    | Periodic proof-of-payment during an ongoing task.                                 |
+| 30537 | Task Tip         | No (append-only) | Requester               | Post-task tip for the provider. Separate from the service fee.                    |
+| 30538 | Earnings Summary | Yes (NIP-33)     | Operator                | Tax/expense reporting summary for a provider, encrypted to provider.              |
 
 ---
 
@@ -50,37 +59,37 @@ Service coordination requires flexible payment mechanics: competitive quoting, m
 
 Every payment event in this specification MUST include the following three tags:
 
-| Tag | Required | Format | Description |
-|-----|----------|--------|-------------|
-| `amount` | Yes | Integer string | Value in the smallest unit of the specified currency |
-| `currency` | Yes | ISO 4217 or crypto code | Currency identifier |
-| `trust_model` | Recommended | Enumerated string | Declares the trust assumptions of the payment rail |
+| Tag           | Required    | Format                  | Description                                          |
+|---------------|-------------|-------------------------|------------------------------------------------------|
+| `amount`      | Yes         | Integer string          | Value in the smallest unit of the specified currency |
+| `currency`    | Yes         | ISO 4217 or crypto code | Currency identifier                                  |
+| `trust_model` | Recommended | Enumerated string       | Declares the trust assumptions of the payment rail   |
 
 ### Smallest Unit Convention
 
 Amounts are always expressed in the **smallest unit** of the specified currency:
 
-| Currency | Code | Smallest Unit | Example: GBP 15.00 |
-|----------|------|---------------|-------------------|
-| British Pound | `GBP` | Pence | `1500` |
-| US Dollar | `USD` | Cents | `1500` |
-| Euro | `EUR` | Cents | `1500` |
-| Bitcoin | `BTC` | Satoshi | `150000` (at ~GBP 0.0001/sat) |
-| Satoshi | `SAT` | Satoshi | `150000` |
+| Currency      | Code  | Smallest Unit | Example: GBP 15.00            |
+|---------------|-------|---------------|-------------------------------|
+| British Pound | `GBP` | Pence         | `1500`                        |
+| US Dollar     | `USD` | Cents         | `1500`                        |
+| Euro          | `EUR` | Cents         | `1500`                        |
+| Bitcoin       | `BTC` | Satoshi       | `150000` (at ~GBP 0.0001/sat) |
+| Satoshi       | `SAT` | Satoshi       | `150000`                      |
 
 ### Trust Model Taxonomy
 
 Every payment event SHOULD include a `trust_model` tag declaring the custody assumptions:
 
-| Trust Model | Description | Example Provider |
-|-------------|-------------|-----------------|
-| `trustless` | User wallet to user wallet. No intermediary custody. | NIP-47 + hold invoices |
-| `operator-escrow` | Operator holds funds in escrow until completion. | LND (operator node), CLN |
-| `third-party-escrow` | Independent third party holds funds in escrow. | Stripe Connect, BTCPay |
-| `fiat-escrow` | Fiat payment processor holds funds. | Strike, PayPal |
-| `direct` | Direct payment between parties, no escrow. | Cash, bank transfer |
-| `prepaid` | Payment collected before service begins. | Pre-paid voucher, Cashu token |
-| `ecash-htlc` | Ecash tokens locked with HTLC conditions. Mint enforces cryptographic spending conditions without custody authority. | Cashu NUT-14 |
+| Trust Model          | Description                                                                                                          | Example Provider              |
+|----------------------|----------------------------------------------------------------------------------------------------------------------|-------------------------------|
+| `trustless`          | User wallet to user wallet. No intermediary custody.                                                                 | NIP-47 + hold invoices        |
+| `operator-escrow`    | Operator holds funds in escrow until completion.                                                                     | LND (operator node), CLN      |
+| `third-party-escrow` | Independent third party holds funds in escrow.                                                                       | Stripe Connect, BTCPay        |
+| `fiat-escrow`        | Fiat payment processor holds funds.                                                                                  | Strike, PayPal                |
+| `direct`             | Direct payment between parties, no escrow.                                                                           | Cash, bank transfer           |
+| `prepaid`            | Payment collected before service begins.                                                                             | Pre-paid voucher, Cashu token |
+| `ecash-htlc`         | Ecash tokens locked with HTLC conditions. Mint enforces cryptographic spending conditions without custody authority. | Cashu NUT-14                  |
 
 ---
 
@@ -88,7 +97,8 @@ Every payment event SHOULD include a `trust_model` tag declaring the custody ass
 
 ### Kind 30530: Quote
 
-Published by a provider to propose a price for a task. Multiple providers MAY quote the same task, enabling competitive pricing. The `d` tag format allows one quote per provider per task via NIP-33 semantics.
+Published by a provider to propose a price for a task. Multiple providers MAY quote the same task, enabling competitive
+pricing. The `d` tag format allows one quote per provider per task via NIP-33 semantics.
 
 ```json
 {
@@ -96,20 +106,69 @@ Published by a provider to propose a price for a task. Multiple providers MAY qu
   "pubkey": "<provider_hex_pubkey>",
   "created_at": 1698765000,
   "tags": [
-    ["d", "task_abc123:quote:<provider_hex_pubkey>"],
-    ["e", "<service_request_event_id_30500>", "wss://relay.example.com"],
-    ["p", "<requester_hex_pubkey>"],
-    ["domain", "ridesharing"],
-    ["amount", "1500"],
-    ["currency", "GBP"],
-    ["trust_model", "fiat-escrow"],
-    ["breakdown", "base_fare", "500", "GBP"],
-    ["breakdown", "distance", "750", "GBP"],
-    ["breakdown", "time", "250", "GBP"],
-    ["valid_until", "1698765600"],
-    ["estimated_duration_seconds", "1200"],
-    ["estimated_distance_metres", "8500"],
-    ["payment_methods", "strike,nip47,cash"]
+    [
+      "d",
+      "task_abc123:quote:<provider_hex_pubkey>"
+    ],
+    [
+      "e",
+      "<service_request_event_id_30500>",
+      "wss://relay.example.com"
+    ],
+    [
+      "p",
+      "<requester_hex_pubkey>"
+    ],
+    [
+      "domain",
+      "ridesharing"
+    ],
+    [
+      "amount",
+      "1500"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "fiat-escrow"
+    ],
+    [
+      "breakdown",
+      "base_fare",
+      "500",
+      "GBP"
+    ],
+    [
+      "breakdown",
+      "distance",
+      "750",
+      "GBP"
+    ],
+    [
+      "breakdown",
+      "time",
+      "250",
+      "GBP"
+    ],
+    [
+      "valid_until",
+      "1698765600"
+    ],
+    [
+      "estimated_duration_seconds",
+      "1200"
+    ],
+    [
+      "estimated_distance_metres",
+      "8500"
+    ],
+    [
+      "payment_methods",
+      "strike,nip47,cash"
+    ]
   ],
   "content": ""
 }
@@ -117,104 +176,221 @@ Published by a provider to propose a price for a task. Multiple providers MAY qu
 
 **Tag reference:**
 
-| Tag | Required | Format | Description |
-|-----|----------|--------|-------------|
-| `d` | Yes | `<task_id>:quote:<provider_pubkey>` | One quote per provider per task. Provider can update by republishing. |
-| `e` | Yes | `<event_id>`, `<relay>` | References the Task Request event (kind 30500). |
-| `p` | Yes | `<hex_pubkey>` | The requester who will receive and evaluate this quote. |
-| `domain` | Recommended | String | Domain identifier. |
-| `amount` | Yes | Integer string | Total quoted price in smallest currency unit. |
-| `currency` | Yes | ISO 4217 or crypto code | Currency of the quote. |
-| `trust_model` | Recommended | Enumerated string | Trust model of the proposed payment rail. |
-| `breakdown` | Optional | `<item>`, `<amount>`, `<currency>` | Transparent pricing breakdown. Multiple tags allowed. |
-| `valid_until` | Recommended | Unix timestamp | Quote expiry. After this time the quote is void. |
-| `estimated_duration_seconds` | Optional | Integer string | Estimated task duration. |
-| `estimated_distance_metres` | Optional | Integer string | Estimated distance (for transit-based tasks). |
-| `payment_methods` | Optional | Comma-separated string | Payment methods the provider accepts. |
+| Tag                          | Required    | Format                              | Description                                                           |
+|------------------------------|-------------|-------------------------------------|-----------------------------------------------------------------------|
+| `d`                          | Yes         | `<task_id>:quote:<provider_pubkey>` | One quote per provider per task. Provider can update by republishing. |
+| `e`                          | Yes         | `<event_id>`, `<relay>`             | References the Task Request event (kind 30500).                       |
+| `p`                          | Yes         | `<hex_pubkey>`                      | The requester who will receive and evaluate this quote.               |
+| `domain`                     | Recommended | String                              | Domain identifier.                                                    |
+| `amount`                     | Yes         | Integer string                      | Total quoted price in smallest currency unit.                         |
+| `currency`                   | Yes         | ISO 4217 or crypto code             | Currency of the quote.                                                |
+| `trust_model`                | Recommended | Enumerated string                   | Trust model of the proposed payment rail.                             |
+| `breakdown`                  | Optional    | `<item>`, `<amount>`, `<currency>`  | Transparent pricing breakdown. Multiple tags allowed.                 |
+| `valid_until`                | Recommended | Unix timestamp                      | Quote expiry. After this time the quote is void.                      |
+| `estimated_duration_seconds` | Optional    | Integer string                      | Estimated task duration.                                              |
+| `estimated_distance_metres`  | Optional    | Integer string                      | Estimated distance (for transit-based tasks).                         |
+| `payment_methods`            | Optional    | Comma-separated string              | Payment methods the provider accepts.                                 |
 
 #### Breakdown Items
 
 The `breakdown` tag provides transparent pricing. Common items:
 
-| Item | Description | Domains |
-|------|-------------|---------|
-| `base_fare` | Fixed starting fee | Ridesharing, delivery |
-| `distance` | Distance-based component | Ridesharing, delivery, towing |
-| `time` | Time-based component | Ridesharing, security |
-| `labour` | Labour charge | Locksmith, emergency trades, cleaning |
-| `parts` | Materials and parts | Locksmith, emergency trades |
-| `call_out` | Call-out fee | Locksmith, emergency trades, towing |
-| `surcharge` | Peak / holiday / unsociable hours surcharge | All |
-| `operator_fee` | Operator's commission | All |
+| Item           | Description                                 | Domains                               |
+|----------------|---------------------------------------------|---------------------------------------|
+| `base_fare`    | Fixed starting fee                          | Ridesharing, delivery                 |
+| `distance`     | Distance-based component                    | Ridesharing, delivery, towing         |
+| `time`         | Time-based component                        | Ridesharing, security                 |
+| `labour`       | Labour charge                               | Locksmith, emergency trades, cleaning |
+| `parts`        | Materials and parts                         | Locksmith, emergency trades           |
+| `call_out`     | Call-out fee                                | Locksmith, emergency trades, towing   |
+| `surcharge`    | Peak / holiday / unsociable hours surcharge | All                                   |
+| `operator_fee` | Operator's commission                       | All                                   |
 
 #### Competitive Quoting Example (Locksmith)
 
 Three locksmiths quote the same lockout:
 
 **Quote 1 (experienced, higher price):**
+
 ```json
 {
   "kind": 30530,
   "pubkey": "<locksmith_a_pubkey>",
   "created_at": 1698765000,
   "tags": [
-    ["d", "task_lk42x8:quote:<locksmith_a_pubkey>"],
-    ["e", "<lockout_request_event_id>", "wss://relay.example.com"],
-    ["p", "<customer_pubkey>"],
-    ["domain", "locksmith"],
-    ["amount", "12000"],
-    ["currency", "GBP"],
-    ["trust_model", "operator-escrow"],
-    ["breakdown", "call_out", "4000", "GBP"],
-    ["breakdown", "labour", "8000", "GBP"],
-    ["valid_until", "1698765600"],
-    ["payment_methods", "strike,stripe"]
+    [
+      "d",
+      "task_lk42x8:quote:<locksmith_a_pubkey>"
+    ],
+    [
+      "e",
+      "<lockout_request_event_id>",
+      "wss://relay.example.com"
+    ],
+    [
+      "p",
+      "<customer_pubkey>"
+    ],
+    [
+      "domain",
+      "locksmith"
+    ],
+    [
+      "amount",
+      "12000"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "operator-escrow"
+    ],
+    [
+      "breakdown",
+      "call_out",
+      "4000",
+      "GBP"
+    ],
+    [
+      "breakdown",
+      "labour",
+      "8000",
+      "GBP"
+    ],
+    [
+      "valid_until",
+      "1698765600"
+    ],
+    [
+      "payment_methods",
+      "strike,stripe"
+    ]
   ],
   "content": "Non-destructive entry. 15 years experience. No damage to your door."
 }
 ```
 
 **Quote 2 (faster, mid price):**
+
 ```json
 {
   "kind": 30530,
   "pubkey": "<locksmith_b_pubkey>",
   "created_at": 1698765030,
   "tags": [
-    ["d", "task_lk42x8:quote:<locksmith_b_pubkey>"],
-    ["e", "<lockout_request_event_id>", "wss://relay.example.com"],
-    ["p", "<customer_pubkey>"],
-    ["domain", "locksmith"],
-    ["amount", "9500"],
-    ["currency", "GBP"],
-    ["trust_model", "operator-escrow"],
-    ["breakdown", "call_out", "3500", "GBP"],
-    ["breakdown", "labour", "6000", "GBP"],
-    ["valid_until", "1698765600"],
-    ["payment_methods", "strike,nip47"]
+    [
+      "d",
+      "task_lk42x8:quote:<locksmith_b_pubkey>"
+    ],
+    [
+      "e",
+      "<lockout_request_event_id>",
+      "wss://relay.example.com"
+    ],
+    [
+      "p",
+      "<customer_pubkey>"
+    ],
+    [
+      "domain",
+      "locksmith"
+    ],
+    [
+      "amount",
+      "9500"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "operator-escrow"
+    ],
+    [
+      "breakdown",
+      "call_out",
+      "3500",
+      "GBP"
+    ],
+    [
+      "breakdown",
+      "labour",
+      "6000",
+      "GBP"
+    ],
+    [
+      "valid_until",
+      "1698765600"
+    ],
+    [
+      "payment_methods",
+      "strike,nip47"
+    ]
   ],
   "content": "Can be there in 20 minutes. May need to drill if picks fail."
 }
 ```
 
 **Quote 3 (cheapest, longer ETA):**
+
 ```json
 {
   "kind": 30530,
   "pubkey": "<locksmith_c_pubkey>",
   "created_at": 1698765060,
   "tags": [
-    ["d", "task_lk42x8:quote:<locksmith_c_pubkey>"],
-    ["e", "<lockout_request_event_id>", "wss://relay.example.com"],
-    ["p", "<customer_pubkey>"],
-    ["domain", "locksmith"],
-    ["amount", "7500"],
-    ["currency", "GBP"],
-    ["trust_model", "fiat-escrow"],
-    ["breakdown", "call_out", "2500", "GBP"],
-    ["breakdown", "labour", "5000", "GBP"],
-    ["valid_until", "1698766200"],
-    ["payment_methods", "stripe"]
+    [
+      "d",
+      "task_lk42x8:quote:<locksmith_c_pubkey>"
+    ],
+    [
+      "e",
+      "<lockout_request_event_id>",
+      "wss://relay.example.com"
+    ],
+    [
+      "p",
+      "<customer_pubkey>"
+    ],
+    [
+      "domain",
+      "locksmith"
+    ],
+    [
+      "amount",
+      "7500"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "fiat-escrow"
+    ],
+    [
+      "breakdown",
+      "call_out",
+      "2500",
+      "GBP"
+    ],
+    [
+      "breakdown",
+      "labour",
+      "5000",
+      "GBP"
+    ],
+    [
+      "valid_until",
+      "1698766200"
+    ],
+    [
+      "payment_methods",
+      "stripe"
+    ]
   ],
   "content": "45-minute ETA. Will attempt non-destructive first."
 }
@@ -224,7 +400,8 @@ Three locksmiths quote the same lockout:
 
 ### Kind 30531: Payment Terms
 
-Published when the parties agree on the payment structure for a task. Covers simple lump-sum, streaming rates, milestone breakdowns, and multi-provider splits. One Payment Terms event per task.
+Published when the parties agree on the payment structure for a task. Covers simple lump-sum, streaming rates, milestone
+breakdowns, and multi-provider splits. One Payment Terms event per task.
 
 ```json
 {
@@ -232,19 +409,59 @@ Published when the parties agree on the payment structure for a task. Covers sim
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1698765100,
   "tags": [
-    ["d", "task_abc123:terms"],
-    ["e", "<accepted_quote_event_id_30530>", "wss://relay.example.com"],
-    ["domain", "ridesharing"],
-    ["payment_type", "streaming"],
-    ["total_amount", "1500"],
-    ["currency", "GBP"],
-    ["trust_model", "fiat-escrow"],
-    ["streaming_rate", "25"],
-    ["streaming_interval_seconds", "30"],
-    ["payment_rail", "strike"],
-    ["requester_pubkey", "<requester_hex_pubkey>"],
-    ["provider_pubkey", "<provider_hex_pubkey>"],
-    ["operator_fee_percent", "5.0"]
+    [
+      "d",
+      "task_abc123:terms"
+    ],
+    [
+      "e",
+      "<accepted_quote_event_id_30530>",
+      "wss://relay.example.com"
+    ],
+    [
+      "domain",
+      "ridesharing"
+    ],
+    [
+      "payment_type",
+      "streaming"
+    ],
+    [
+      "total_amount",
+      "1500"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "fiat-escrow"
+    ],
+    [
+      "streaming_rate",
+      "25"
+    ],
+    [
+      "streaming_interval_seconds",
+      "30"
+    ],
+    [
+      "payment_rail",
+      "strike"
+    ],
+    [
+      "requester_pubkey",
+      "<requester_hex_pubkey>"
+    ],
+    [
+      "provider_pubkey",
+      "<provider_hex_pubkey>"
+    ],
+    [
+      "operator_fee_percent",
+      "5.0"
+    ]
   ],
   "content": ""
 }
@@ -252,32 +469,32 @@ Published when the parties agree on the payment structure for a task. Covers sim
 
 **Tag reference:**
 
-| Tag | Required | Format | Description |
-|-----|----------|--------|-------------|
-| `d` | Yes | `<task_id>:terms` | One terms event per task. |
-| `e` | Recommended | `<event_id>`, `<relay>` | References the accepted Quote (kind 30530). |
-| `domain` | Recommended | String | Domain identifier. |
-| `payment_type` | Yes | Enumerated string | `simple`, `streaming`, `milestone`, `split` |
-| `total_amount` | Yes | Integer string | Total agreed price. |
-| `currency` | Yes | ISO 4217 or crypto code | Currency. |
-| `trust_model` | Recommended | Enumerated string | Trust model. |
-| `streaming_rate` | Conditional | Integer string | Amount per interval (required when `payment_type` is `streaming`). |
-| `streaming_interval_seconds` | Conditional | Integer string | Seconds between ticks (required when `payment_type` is `streaming`). |
-| `milestone` | Conditional | `<id>`, `<description>`, `<amount>`, `<currency>` | Milestone definition (required when `payment_type` is `milestone`). Multiple tags. |
-| `split` | Conditional | `<provider_pubkey>`, `<amount>`, `<currency>`, `<role>` | Per-provider split (required when `payment_type` is `split`). Multiple tags. |
-| `payment_rail` | Recommended | String | Which payment rail will be used (strike, nip47, stripe, lnd, cash, etc.). |
-| `requester_pubkey` | Recommended | Hex pubkey | The paying party. |
-| `provider_pubkey` | Recommended | Hex pubkey | The receiving party. |
-| `operator_fee_percent` | Optional | Decimal string | Operator commission percentage. |
+| Tag                          | Required    | Format                                                  | Description                                                                        |
+|------------------------------|-------------|---------------------------------------------------------|------------------------------------------------------------------------------------|
+| `d`                          | Yes         | `<task_id>:terms`                                       | One terms event per task.                                                          |
+| `e`                          | Recommended | `<event_id>`, `<relay>`                                 | References the accepted Quote (kind 30530).                                        |
+| `domain`                     | Recommended | String                                                  | Domain identifier.                                                                 |
+| `payment_type`               | Yes         | Enumerated string                                       | `simple`, `streaming`, `milestone`, `split`                                        |
+| `total_amount`               | Yes         | Integer string                                          | Total agreed price.                                                                |
+| `currency`                   | Yes         | ISO 4217 or crypto code                                 | Currency.                                                                          |
+| `trust_model`                | Recommended | Enumerated string                                       | Trust model.                                                                       |
+| `streaming_rate`             | Conditional | Integer string                                          | Amount per interval (required when `payment_type` is `streaming`).                 |
+| `streaming_interval_seconds` | Conditional | Integer string                                          | Seconds between ticks (required when `payment_type` is `streaming`).               |
+| `milestone`                  | Conditional | `<id>`, `<description>`, `<amount>`, `<currency>`       | Milestone definition (required when `payment_type` is `milestone`). Multiple tags. |
+| `split`                      | Conditional | `<provider_pubkey>`, `<amount>`, `<currency>`, `<role>` | Per-provider split (required when `payment_type` is `split`). Multiple tags.       |
+| `payment_rail`               | Recommended | String                                                  | Which payment rail will be used (strike, nip47, stripe, lnd, cash, etc.).          |
+| `requester_pubkey`           | Recommended | Hex pubkey                                              | The paying party.                                                                  |
+| `provider_pubkey`            | Recommended | Hex pubkey                                              | The receiving party.                                                               |
+| `operator_fee_percent`       | Optional    | Decimal string                                          | Operator commission percentage.                                                    |
 
 #### Payment Types
 
-| Type | Description | When Used |
-|------|-------------|-----------|
-| `simple` | Lump-sum payment on completion | Locksmith, car wash, process serving |
-| `streaming` | Periodic micro-payments during active task | Ridesharing, security guard, babysitting |
-| `milestone` | Partial payments at defined milestones | Emergency trades, man with van, multi-stage work |
-| `split` | Payment divided across multiple providers | Multi-provider tasks, team dispatch |
+| Type        | Description                                | When Used                                        |
+|-------------|--------------------------------------------|--------------------------------------------------|
+| `simple`    | Lump-sum payment on completion             | Locksmith, car wash, process serving             |
+| `streaming` | Periodic micro-payments during active task | Ridesharing, security guard, babysitting         |
+| `milestone` | Partial payments at defined milestones     | Emergency trades, man with van, multi-stage work |
+| `split`     | Payment divided across multiple providers  | Multi-provider tasks, team dispatch              |
 
 #### Milestone Terms Example (Emergency Plumber)
 
@@ -287,21 +504,79 @@ Published when the parties agree on the payment structure for a task. Covers sim
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1698765100,
   "tags": [
-    ["d", "task_pl77w2:terms"],
-    ["e", "<accepted_quote_event_id>", "wss://relay.example.com"],
-    ["domain", "emergency_trades"],
-    ["payment_type", "milestone"],
-    ["total_amount", "45000"],
-    ["currency", "GBP"],
-    ["trust_model", "operator-escrow"],
-    ["milestone", "1", "Diagnosis complete", "5000", "GBP"],
-    ["milestone", "2", "Emergency repair (stop the leak)", "15000", "GBP"],
-    ["milestone", "3", "Permanent fix installed", "20000", "GBP"],
-    ["milestone", "4", "Testing and clean-up", "5000", "GBP"],
-    ["payment_rail", "stripe"],
-    ["requester_pubkey", "<homeowner_pubkey>"],
-    ["provider_pubkey", "<plumber_pubkey>"],
-    ["operator_fee_percent", "7.5"]
+    [
+      "d",
+      "task_pl77w2:terms"
+    ],
+    [
+      "e",
+      "<accepted_quote_event_id>",
+      "wss://relay.example.com"
+    ],
+    [
+      "domain",
+      "emergency_trades"
+    ],
+    [
+      "payment_type",
+      "milestone"
+    ],
+    [
+      "total_amount",
+      "45000"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "operator-escrow"
+    ],
+    [
+      "milestone",
+      "1",
+      "Diagnosis complete",
+      "5000",
+      "GBP"
+    ],
+    [
+      "milestone",
+      "2",
+      "Emergency repair (stop the leak)",
+      "15000",
+      "GBP"
+    ],
+    [
+      "milestone",
+      "3",
+      "Permanent fix installed",
+      "20000",
+      "GBP"
+    ],
+    [
+      "milestone",
+      "4",
+      "Testing and clean-up",
+      "5000",
+      "GBP"
+    ],
+    [
+      "payment_rail",
+      "stripe"
+    ],
+    [
+      "requester_pubkey",
+      "<homeowner_pubkey>"
+    ],
+    [
+      "provider_pubkey",
+      "<plumber_pubkey>"
+    ],
+    [
+      "operator_fee_percent",
+      "7.5"
+    ]
   ],
   "content": ""
 }
@@ -315,19 +590,64 @@ Published when the parties agree on the payment structure for a task. Covers sim
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1698765100,
   "tags": [
-    ["d", "task_sec88q1:terms"],
-    ["domain", "security"],
-    ["payment_type", "split"],
-    ["total_amount", "48000"],
-    ["currency", "GBP"],
-    ["trust_model", "operator-escrow"],
-    ["split", "<guard_a_pubkey>", "24000", "GBP", "lead_guard"],
-    ["split", "<guard_b_pubkey>", "24000", "GBP", "support_guard"],
-    ["streaming_rate", "2000"],
-    ["streaming_interval_seconds", "3600"],
-    ["payment_rail", "strike"],
-    ["requester_pubkey", "<client_pubkey>"],
-    ["operator_fee_percent", "10.0"]
+    [
+      "d",
+      "task_sec88q1:terms"
+    ],
+    [
+      "domain",
+      "security"
+    ],
+    [
+      "payment_type",
+      "split"
+    ],
+    [
+      "total_amount",
+      "48000"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "operator-escrow"
+    ],
+    [
+      "split",
+      "<guard_a_pubkey>",
+      "24000",
+      "GBP",
+      "lead_guard"
+    ],
+    [
+      "split",
+      "<guard_b_pubkey>",
+      "24000",
+      "GBP",
+      "support_guard"
+    ],
+    [
+      "streaming_rate",
+      "2000"
+    ],
+    [
+      "streaming_interval_seconds",
+      "3600"
+    ],
+    [
+      "payment_rail",
+      "strike"
+    ],
+    [
+      "requester_pubkey",
+      "<client_pubkey>"
+    ],
+    [
+      "operator_fee_percent",
+      "10.0"
+    ]
   ],
   "content": ""
 }
@@ -337,7 +657,9 @@ Published when the parties agree on the payment structure for a task. Covers sim
 
 ### Kind 30532: Stake Lock
 
-Published by the operator when funds are committed for a task. This event proves that money is locked and unavailable to either party until a release or forfeiture event is published. For trustless flows (NIP-47), the lock corresponds to a hold invoice being accepted.
+Published by the operator when funds are committed for a task. This event proves that money is locked and unavailable to
+either party until a release or forfeiture event is published. For trustless flows (NIP-47), the lock corresponds to a
+hold invoice being accepted.
 
 ```json
 {
@@ -345,19 +667,59 @@ Published by the operator when funds are committed for a task. This event proves
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1698765200,
   "tags": [
-    ["d", "task_abc123:lock:requester"],
-    ["e", "<payment_terms_event_id_30531>", "wss://relay.example.com"],
-    ["domain", "ridesharing"],
-    ["task_id", "task_abc123"],
-    ["party", "requester"],
-    ["amount", "1500"],
-    ["currency", "GBP"],
-    ["trust_model", "fiat-escrow"],
-    ["payment_rail", "strike"],
-    ["lock_type", "escrow_hold"],
-    ["payment_hash", "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"],
-    ["locked_at", "1698765200"],
-    ["expiration", "1698772400"]
+    [
+      "d",
+      "task_abc123:lock:requester"
+    ],
+    [
+      "e",
+      "<payment_terms_event_id_30531>",
+      "wss://relay.example.com"
+    ],
+    [
+      "domain",
+      "ridesharing"
+    ],
+    [
+      "task_id",
+      "task_abc123"
+    ],
+    [
+      "party",
+      "requester"
+    ],
+    [
+      "amount",
+      "1500"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "fiat-escrow"
+    ],
+    [
+      "payment_rail",
+      "strike"
+    ],
+    [
+      "lock_type",
+      "escrow_hold"
+    ],
+    [
+      "payment_hash",
+      "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"
+    ],
+    [
+      "locked_at",
+      "1698765200"
+    ],
+    [
+      "expiration",
+      "1698772400"
+    ]
   ],
   "content": ""
 }
@@ -365,33 +727,33 @@ Published by the operator when funds are committed for a task. This event proves
 
 **Tag reference:**
 
-| Tag | Required | Format | Description |
-|-----|----------|--------|-------------|
-| `d` | Yes | `<task_id>:lock:<party>` | One lock event per party per task. `party` is `requester` or `provider`. |
-| `e` | Recommended | `<event_id>`, `<relay>` | References the Payment Terms event (kind 30531). |
-| `domain` | Recommended | String | Domain identifier. |
-| `task_id` | Yes | String | Task identifier. |
-| `party` | Yes | `requester` or `provider` | Which party's funds are locked. |
-| `amount` | Yes | Integer string | Locked amount. |
-| `currency` | Yes | ISO 4217 or crypto code | Currency. |
-| `trust_model` | Yes | Enumerated string | Trust model of the lock mechanism. |
-| `payment_rail` | Recommended | String | Payment rail used (strike, nip47, stripe, lnd, cln, cashu, etc.). |
-| `lock_type` | Recommended | Enumerated string | Technical mechanism (see Lock Types table). |
-| `payment_hash` | Conditional | Hex string | Lightning payment hash (required for Lightning-based escrow). |
-| `escrow_token` | Conditional | String | Cashu token or ecash proof (required for ecash-based escrow). |
-| `locked_at` | Recommended | Unix timestamp | When the lock was confirmed. |
-| `expiration` | Recommended | Unix timestamp (NIP-40) | When the lock expires if no release or forfeit occurs. |
+| Tag            | Required    | Format                    | Description                                                              |
+|----------------|-------------|---------------------------|--------------------------------------------------------------------------|
+| `d`            | Yes         | `<task_id>:lock:<party>`  | One lock event per party per task. `party` is `requester` or `provider`. |
+| `e`            | Recommended | `<event_id>`, `<relay>`   | References the Payment Terms event (kind 30531).                         |
+| `domain`       | Recommended | String                    | Domain identifier.                                                       |
+| `task_id`      | Yes         | String                    | Task identifier.                                                         |
+| `party`        | Yes         | `requester` or `provider` | Which party's funds are locked.                                          |
+| `amount`       | Yes         | Integer string            | Locked amount.                                                           |
+| `currency`     | Yes         | ISO 4217 or crypto code   | Currency.                                                                |
+| `trust_model`  | Yes         | Enumerated string         | Trust model of the lock mechanism.                                       |
+| `payment_rail` | Recommended | String                    | Payment rail used (strike, nip47, stripe, lnd, cln, cashu, etc.).        |
+| `lock_type`    | Recommended | Enumerated string         | Technical mechanism (see Lock Types table).                              |
+| `payment_hash` | Conditional | Hex string                | Lightning payment hash (required for Lightning-based escrow).            |
+| `escrow_token` | Conditional | String                    | Cashu token or ecash proof (required for ecash-based escrow).            |
+| `locked_at`    | Recommended | Unix timestamp            | When the lock was confirmed.                                             |
+| `expiration`   | Recommended | Unix timestamp (NIP-40)   | When the lock expires if no release or forfeit occurs.                   |
 
 #### Lock Types
 
-| Lock Type | Description | Trust Model |
-|-----------|-------------|-------------|
-| `hold_invoice` | Lightning hold invoice — settled or cancelled by operator | `operator-escrow` |
-| `nip47_hold` | NIP-47 hold invoice — settled directly between user wallets | `trustless` |
-| `escrow_hold` | Fiat escrow (Stripe Connect, PayPal, etc.) | `third-party-escrow`, `fiat-escrow` |
-| `custodial_hold` | Operator holds funds in their own account | `operator-escrow` |
-| `ecash_lock` | Cashu or Fedimint token locked in mint with HTLC conditions | `ecash-htlc` |
-| `preauthorisation` | Card pre-authorisation (funds reserved, not captured) | `fiat-escrow` |
+| Lock Type          | Description                                                 | Trust Model                         |
+|--------------------|-------------------------------------------------------------|-------------------------------------|
+| `hold_invoice`     | Lightning hold invoice — settled or cancelled by operator   | `operator-escrow`                   |
+| `nip47_hold`       | NIP-47 hold invoice — settled directly between user wallets | `trustless`                         |
+| `escrow_hold`      | Fiat escrow (Stripe Connect, PayPal, etc.)                  | `third-party-escrow`, `fiat-escrow` |
+| `custodial_hold`   | Operator holds funds in their own account                   | `operator-escrow`                   |
+| `ecash_lock`       | Cashu or Fedimint token locked in mint with HTLC conditions | `ecash-htlc`                        |
+| `preauthorisation` | Card pre-authorisation (funds reserved, not captured)       | `fiat-escrow`                       |
 
 #### Provider Stake Lock Example
 
@@ -401,19 +763,59 @@ Published by the operator when funds are committed for a task. This event proves
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1698765210,
   "tags": [
-    ["d", "task_abc123:lock:provider"],
-    ["e", "<payment_terms_event_id_30531>", "wss://relay.example.com"],
-    ["domain", "ridesharing"],
-    ["task_id", "task_abc123"],
-    ["party", "provider"],
-    ["amount", "2000"],
-    ["currency", "GBP"],
-    ["trust_model", "trustless"],
-    ["payment_rail", "nip47"],
-    ["lock_type", "nip47_hold"],
-    ["payment_hash", "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3"],
-    ["locked_at", "1698765210"],
-    ["expiration", "1698772400"]
+    [
+      "d",
+      "task_abc123:lock:provider"
+    ],
+    [
+      "e",
+      "<payment_terms_event_id_30531>",
+      "wss://relay.example.com"
+    ],
+    [
+      "domain",
+      "ridesharing"
+    ],
+    [
+      "task_id",
+      "task_abc123"
+    ],
+    [
+      "party",
+      "provider"
+    ],
+    [
+      "amount",
+      "2000"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "trustless"
+    ],
+    [
+      "payment_rail",
+      "nip47"
+    ],
+    [
+      "lock_type",
+      "nip47_hold"
+    ],
+    [
+      "payment_hash",
+      "b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3"
+    ],
+    [
+      "locked_at",
+      "1698765210"
+    ],
+    [
+      "expiration",
+      "1698772400"
+    ]
   ],
   "content": ""
 }
@@ -427,19 +829,58 @@ Published by the operator when funds are committed for a task. This event proves
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1698765200,
   "tags": [
-    ["d", "task_dl99p3:lock:requester"],
-    ["domain", "delivery"],
-    ["task_id", "task_dl99p3"],
-    ["party", "requester"],
-    ["amount", "50000"],
-    ["currency", "SAT"],
-    ["trust_model", "ecash-htlc"],
-    ["payment_rail", "cashu"],
-    ["lock_type", "ecash_lock"],
-    ["escrow_token", "cashuAey..."],
-    ["payment_hash", "d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5"],
-    ["locked_at", "1698765200"],
-    ["expiration", "1698772400"]
+    [
+      "d",
+      "task_dl99p3:lock:requester"
+    ],
+    [
+      "domain",
+      "delivery"
+    ],
+    [
+      "task_id",
+      "task_dl99p3"
+    ],
+    [
+      "party",
+      "requester"
+    ],
+    [
+      "amount",
+      "50000"
+    ],
+    [
+      "currency",
+      "SAT"
+    ],
+    [
+      "trust_model",
+      "ecash-htlc"
+    ],
+    [
+      "payment_rail",
+      "cashu"
+    ],
+    [
+      "lock_type",
+      "ecash_lock"
+    ],
+    [
+      "escrow_token",
+      "cashuAey..."
+    ],
+    [
+      "payment_hash",
+      "d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5"
+    ],
+    [
+      "locked_at",
+      "1698765200"
+    ],
+    [
+      "expiration",
+      "1698772400"
+    ]
   ],
   "content": ""
 }
@@ -449,7 +890,8 @@ Published by the operator when funds are committed for a task. This event proves
 
 ### Kind 30533: Stake Release
 
-Published by the operator when locked funds are released to the provider upon successful task completion. This is the happy path — the task completed, both parties are satisfied, and the provider receives payment.
+Published by the operator when locked funds are released to the provider upon successful task completion. This is the
+happy path — the task completed, both parties are satisfied, and the provider receives payment.
 
 ```json
 {
@@ -457,21 +899,67 @@ Published by the operator when locked funds are released to the provider upon su
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1698766500,
   "tags": [
-    ["d", "task_abc123:release:provider"],
-    ["e", "<stake_lock_event_id_30532>", "wss://relay.example.com"],
-    ["domain", "ridesharing"],
-    ["task_id", "task_abc123"],
-    ["party", "provider"],
-    ["amount", "1425"],
-    ["currency", "GBP"],
-    ["trust_model", "fiat-escrow"],
-    ["release_reason", "completed"],
-    ["gross_amount", "1500"],
-    ["operator_fee", "75"],
-    ["operator_fee_percent", "5.0"],
-    ["released_at", "1698766500"],
-    ["payment_rail", "strike"],
-    ["settlement_reference", "str_pi_3Nk..."]
+    [
+      "d",
+      "task_abc123:release:provider"
+    ],
+    [
+      "e",
+      "<stake_lock_event_id_30532>",
+      "wss://relay.example.com"
+    ],
+    [
+      "domain",
+      "ridesharing"
+    ],
+    [
+      "task_id",
+      "task_abc123"
+    ],
+    [
+      "party",
+      "provider"
+    ],
+    [
+      "amount",
+      "1425"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "fiat-escrow"
+    ],
+    [
+      "release_reason",
+      "completed"
+    ],
+    [
+      "gross_amount",
+      "1500"
+    ],
+    [
+      "operator_fee",
+      "75"
+    ],
+    [
+      "operator_fee_percent",
+      "5.0"
+    ],
+    [
+      "released_at",
+      "1698766500"
+    ],
+    [
+      "payment_rail",
+      "strike"
+    ],
+    [
+      "settlement_reference",
+      "str_pi_3Nk..."
+    ]
   ],
   "content": ""
 }
@@ -479,34 +967,34 @@ Published by the operator when locked funds are released to the provider upon su
 
 **Tag reference:**
 
-| Tag | Required | Format | Description |
-|-----|----------|--------|-------------|
-| `d` | Yes | `<task_id>:release:<party>` | Release identifier. |
-| `e` | Yes | `<event_id>`, `<relay>` | References the Stake Lock event (kind 30532) being released. |
-| `domain` | Recommended | String | Domain identifier. |
-| `task_id` | Yes | String | Task identifier. |
-| `party` | Yes | `requester` or `provider` | Which party receives the released funds. |
-| `amount` | Yes | Integer string | Net amount released (after fees). |
-| `currency` | Yes | ISO 4217 or crypto code | Currency. |
-| `trust_model` | Recommended | Enumerated string | Trust model. |
-| `release_reason` | Yes | Enumerated string | Why funds are being released (see Release Reasons). |
-| `gross_amount` | Recommended | Integer string | Total amount before operator fees. |
-| `operator_fee` | Optional | Integer string | Operator fee deducted. |
-| `operator_fee_percent` | Optional | Decimal string | Operator fee as a percentage. |
-| `released_at` | Recommended | Unix timestamp | When the release was executed. |
-| `payment_rail` | Recommended | String | Payment rail used. |
-| `settlement_reference` | Optional | String | External settlement reference from the payment rail. |
+| Tag                    | Required    | Format                      | Description                                                  |
+|------------------------|-------------|-----------------------------|--------------------------------------------------------------|
+| `d`                    | Yes         | `<task_id>:release:<party>` | Release identifier.                                          |
+| `e`                    | Yes         | `<event_id>`, `<relay>`     | References the Stake Lock event (kind 30532) being released. |
+| `domain`               | Recommended | String                      | Domain identifier.                                           |
+| `task_id`              | Yes         | String                      | Task identifier.                                             |
+| `party`                | Yes         | `requester` or `provider`   | Which party receives the released funds.                     |
+| `amount`               | Yes         | Integer string              | Net amount released (after fees).                            |
+| `currency`             | Yes         | ISO 4217 or crypto code     | Currency.                                                    |
+| `trust_model`          | Recommended | Enumerated string           | Trust model.                                                 |
+| `release_reason`       | Yes         | Enumerated string           | Why funds are being released (see Release Reasons).          |
+| `gross_amount`         | Recommended | Integer string              | Total amount before operator fees.                           |
+| `operator_fee`         | Optional    | Integer string              | Operator fee deducted.                                       |
+| `operator_fee_percent` | Optional    | Decimal string              | Operator fee as a percentage.                                |
+| `released_at`          | Recommended | Unix timestamp              | When the release was executed.                               |
+| `payment_rail`         | Recommended | String                      | Payment rail used.                                           |
+| `settlement_reference` | Optional    | String                      | External settlement reference from the payment rail.         |
 
 #### Release Reasons
 
-| Reason | Description |
-|--------|-------------|
-| `completed` | Task completed successfully. Full release to provider. |
-| `cancelled_mutual` | Both parties agreed to cancel. Funds returned to requester. |
-| `cancelled_grace` | Cancelled within the grace period. No penalty. |
-| `milestone` | Partial release at milestone completion. |
-| `dispute_resolved` | Released per dispute resolution outcome. |
-| `expired` | Lock expired without resolution. Funds returned to original party. |
+| Reason             | Description                                                        |
+|--------------------|--------------------------------------------------------------------|
+| `completed`        | Task completed successfully. Full release to provider.             |
+| `cancelled_mutual` | Both parties agreed to cancel. Funds returned to requester.        |
+| `cancelled_grace`  | Cancelled within the grace period. No penalty.                     |
+| `milestone`        | Partial release at milestone completion.                           |
+| `dispute_resolved` | Released per dispute resolution outcome.                           |
+| `expired`          | Lock expired without resolution. Funds returned to original party. |
 
 #### Requester Stake Return on Completion
 
@@ -518,17 +1006,51 @@ When a task completes successfully, the requester's stake is also released (retu
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1698766500,
   "tags": [
-    ["d", "task_abc123:release:requester"],
-    ["e", "<requester_lock_event_id_30532>", "wss://relay.example.com"],
-    ["domain", "ridesharing"],
-    ["task_id", "task_abc123"],
-    ["party", "requester"],
-    ["amount", "1500"],
-    ["currency", "GBP"],
-    ["trust_model", "fiat-escrow"],
-    ["release_reason", "completed"],
-    ["released_at", "1698766500"],
-    ["payment_rail", "strike"]
+    [
+      "d",
+      "task_abc123:release:requester"
+    ],
+    [
+      "e",
+      "<requester_lock_event_id_30532>",
+      "wss://relay.example.com"
+    ],
+    [
+      "domain",
+      "ridesharing"
+    ],
+    [
+      "task_id",
+      "task_abc123"
+    ],
+    [
+      "party",
+      "requester"
+    ],
+    [
+      "amount",
+      "1500"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "fiat-escrow"
+    ],
+    [
+      "release_reason",
+      "completed"
+    ],
+    [
+      "released_at",
+      "1698766500"
+    ],
+    [
+      "payment_rail",
+      "strike"
+    ]
   ],
   "content": ""
 }
@@ -542,23 +1064,75 @@ When a task completes successfully, the requester's stake is also released (retu
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1698767000,
   "tags": [
-    ["d", "task_pl77w2:release:milestone_2"],
-    ["e", "<stake_lock_event_id_30532>", "wss://relay.example.com"],
-    ["domain", "emergency_trades"],
-    ["task_id", "task_pl77w2"],
-    ["party", "provider"],
-    ["amount", "13875"],
-    ["currency", "GBP"],
-    ["trust_model", "operator-escrow"],
-    ["release_reason", "milestone"],
-    ["milestone_id", "2"],
-    ["milestone_description", "Emergency repair (stop the leak)"],
-    ["gross_amount", "15000"],
-    ["operator_fee", "1125"],
-    ["cumulative_released", "18875"],
-    ["total_milestones", "4"],
-    ["released_at", "1698767000"],
-    ["payment_rail", "stripe"]
+    [
+      "d",
+      "task_pl77w2:release:milestone_2"
+    ],
+    [
+      "e",
+      "<stake_lock_event_id_30532>",
+      "wss://relay.example.com"
+    ],
+    [
+      "domain",
+      "emergency_trades"
+    ],
+    [
+      "task_id",
+      "task_pl77w2"
+    ],
+    [
+      "party",
+      "provider"
+    ],
+    [
+      "amount",
+      "13875"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "operator-escrow"
+    ],
+    [
+      "release_reason",
+      "milestone"
+    ],
+    [
+      "milestone_id",
+      "2"
+    ],
+    [
+      "milestone_description",
+      "Emergency repair (stop the leak)"
+    ],
+    [
+      "gross_amount",
+      "15000"
+    ],
+    [
+      "operator_fee",
+      "1125"
+    ],
+    [
+      "cumulative_released",
+      "18875"
+    ],
+    [
+      "total_milestones",
+      "4"
+    ],
+    [
+      "released_at",
+      "1698767000"
+    ],
+    [
+      "payment_rail",
+      "stripe"
+    ]
   ],
   "content": ""
 }
@@ -568,7 +1142,8 @@ When a task completes successfully, the requester's stake is also released (retu
 
 ### Kind 30534: Stake Forfeit
 
-Published by the operator when locked funds are penalised due to cancellation, no-show, or dispute loss. The forfeited amount goes to the non-offending party (or is split per dispute resolution).
+Published by the operator when locked funds are penalised due to cancellation, no-show, or dispute loss. The forfeited
+amount goes to the non-offending party (or is split per dispute resolution).
 
 ```json
 {
@@ -576,21 +1151,67 @@ Published by the operator when locked funds are penalised due to cancellation, n
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1698766500,
   "tags": [
-    ["d", "task_abc123:forfeit:requester"],
-    ["e", "<stake_lock_event_id_30532>", "wss://relay.example.com"],
-    ["domain", "ridesharing"],
-    ["task_id", "task_abc123"],
-    ["party", "requester"],
-    ["forfeit_amount", "1500"],
-    ["currency", "GBP"],
-    ["trust_model", "fiat-escrow"],
-    ["forfeit_reason", "no_show"],
-    ["refund_amount", "0"],
-    ["refund_to", "provider"],
-    ["forfeited_at", "1698766500"],
-    ["payment_rail", "strike"],
-    ["grace_period_seconds", "300"],
-    ["waited_seconds", "600"]
+    [
+      "d",
+      "task_abc123:forfeit:requester"
+    ],
+    [
+      "e",
+      "<stake_lock_event_id_30532>",
+      "wss://relay.example.com"
+    ],
+    [
+      "domain",
+      "ridesharing"
+    ],
+    [
+      "task_id",
+      "task_abc123"
+    ],
+    [
+      "party",
+      "requester"
+    ],
+    [
+      "forfeit_amount",
+      "1500"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "fiat-escrow"
+    ],
+    [
+      "forfeit_reason",
+      "no_show"
+    ],
+    [
+      "refund_amount",
+      "0"
+    ],
+    [
+      "refund_to",
+      "provider"
+    ],
+    [
+      "forfeited_at",
+      "1698766500"
+    ],
+    [
+      "payment_rail",
+      "strike"
+    ],
+    [
+      "grace_period_seconds",
+      "300"
+    ],
+    [
+      "waited_seconds",
+      "600"
+    ]
   ],
   "content": ""
 }
@@ -598,46 +1219,46 @@ Published by the operator when locked funds are penalised due to cancellation, n
 
 **Tag reference:**
 
-| Tag | Required | Format | Description |
-|-----|----------|--------|-------------|
-| `d` | Yes | `<task_id>:forfeit:<party>` | Forfeit identifier. |
-| `e` | Yes | `<event_id>`, `<relay>` | References the Stake Lock event (kind 30532) being forfeited. |
-| `domain` | Recommended | String | Domain identifier. |
-| `task_id` | Yes | String | Task identifier. |
-| `party` | Yes | `requester` or `provider` | Which party's funds are forfeited. |
-| `forfeit_amount` | Yes | Integer string | Amount forfeited. |
-| `currency` | Yes | ISO 4217 or crypto code | Currency. |
-| `trust_model` | Recommended | Enumerated string | Trust model. |
-| `forfeit_reason` | Yes | Enumerated string | Why funds are forfeited (see Forfeit Reasons). |
-| `refund_amount` | Recommended | Integer string | Amount refunded to the forfeiting party (may be partial). |
-| `refund_to` | Recommended | `requester`, `provider`, or `operator` | Who receives the forfeited funds. |
-| `forfeited_at` | Recommended | Unix timestamp | When the forfeiture was executed. |
-| `payment_rail` | Recommended | String | Payment rail used. |
-| `grace_period_seconds` | Optional | Integer string | Grace period that was configured. |
-| `waited_seconds` | Optional | Integer string | How long the non-offending party waited. |
+| Tag                    | Required    | Format                                 | Description                                                   |
+|------------------------|-------------|----------------------------------------|---------------------------------------------------------------|
+| `d`                    | Yes         | `<task_id>:forfeit:<party>`            | Forfeit identifier.                                           |
+| `e`                    | Yes         | `<event_id>`, `<relay>`                | References the Stake Lock event (kind 30532) being forfeited. |
+| `domain`               | Recommended | String                                 | Domain identifier.                                            |
+| `task_id`              | Yes         | String                                 | Task identifier.                                              |
+| `party`                | Yes         | `requester` or `provider`              | Which party's funds are forfeited.                            |
+| `forfeit_amount`       | Yes         | Integer string                         | Amount forfeited.                                             |
+| `currency`             | Yes         | ISO 4217 or crypto code                | Currency.                                                     |
+| `trust_model`          | Recommended | Enumerated string                      | Trust model.                                                  |
+| `forfeit_reason`       | Yes         | Enumerated string                      | Why funds are forfeited (see Forfeit Reasons).                |
+| `refund_amount`        | Recommended | Integer string                         | Amount refunded to the forfeiting party (may be partial).     |
+| `refund_to`            | Recommended | `requester`, `provider`, or `operator` | Who receives the forfeited funds.                             |
+| `forfeited_at`         | Recommended | Unix timestamp                         | When the forfeiture was executed.                             |
+| `payment_rail`         | Recommended | String                                 | Payment rail used.                                            |
+| `grace_period_seconds` | Optional    | Integer string                         | Grace period that was configured.                             |
+| `waited_seconds`       | Optional    | Integer string                         | How long the non-offending party waited.                      |
 
 #### Forfeit Reasons
 
-| Reason | Description | Typical Refund |
-|--------|-------------|---------------|
-| `no_show` | Party failed to appear after commitment | 0% refund to offending party, 100% to counterparty |
-| `late_cancellation` | Cancelled after grace period | Domain-defined penalty (typically 50%) |
-| `abandonment` | Provider left during active task | 0% refund to provider, full refund to requester |
-| `misconduct` | Proven misconduct via dispute resolution | 0% refund to offending party |
-| `dispute_loss` | Lost a formal dispute | Per arbiter ruling |
-| `repeated_no_show` | Recurring no-show pattern (escalated penalty) | 0% refund, potential account suspension |
+| Reason              | Description                                   | Typical Refund                                     |
+|---------------------|-----------------------------------------------|----------------------------------------------------|
+| `no_show`           | Party failed to appear after commitment       | 0% refund to offending party, 100% to counterparty |
+| `late_cancellation` | Cancelled after grace period                  | Domain-defined penalty (typically 50%)             |
+| `abandonment`       | Provider left during active task              | 0% refund to provider, full refund to requester    |
+| `misconduct`        | Proven misconduct via dispute resolution      | 0% refund to offending party                       |
+| `dispute_loss`      | Lost a formal dispute                         | Per arbiter ruling                                 |
+| `repeated_no_show`  | Recurring no-show pattern (escalated penalty) | 0% refund, potential account suspension            |
 
 #### Cancellation Policies
 
 Cancellation policies are **domain-defined**, not specified by this protocol. Common patterns:
 
-| Domain | Grace Period | Post-Grace Penalty | No-Show Penalty |
-|--------|-------------|-------------------|-----------------|
-| Ridesharing | 2 minutes after match | 50% of stake | 100% of stake |
-| Locksmith | 5 minutes after acceptance | 30% of quoted price | 100% of call-out fee |
-| Delivery | Before collection | Free cancellation | 100% of stake |
-| Security | 24 hours before shift | 50% of shift value | 100% of shift value |
-| Emergency trades | 10 minutes after acceptance | Call-out fee only | 100% of stake |
+| Domain           | Grace Period                | Post-Grace Penalty  | No-Show Penalty      |
+|------------------|-----------------------------|---------------------|----------------------|
+| Ridesharing      | 2 minutes after match       | 50% of stake        | 100% of stake        |
+| Locksmith        | 5 minutes after acceptance  | 30% of quoted price | 100% of call-out fee |
+| Delivery         | Before collection           | Free cancellation   | 100% of stake        |
+| Security         | 24 hours before shift       | 50% of shift value  | 100% of shift value  |
+| Emergency trades | 10 minutes after acceptance | Call-out fee only   | 100% of stake        |
 
 #### Late Cancellation Forfeit Example
 
@@ -647,21 +1268,67 @@ Cancellation policies are **domain-defined**, not specified by this protocol. Co
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1698766200,
   "tags": [
-    ["d", "task_r7k9m2:forfeit:requester"],
-    ["e", "<stake_lock_event_id_30532>", "wss://relay.example.com"],
-    ["domain", "ridesharing"],
-    ["task_id", "task_r7k9m2"],
-    ["party", "requester"],
-    ["forfeit_amount", "750"],
-    ["currency", "GBP"],
-    ["trust_model", "fiat-escrow"],
-    ["forfeit_reason", "late_cancellation"],
-    ["refund_amount", "750"],
-    ["refund_to", "provider"],
-    ["forfeited_at", "1698766200"],
-    ["payment_rail", "strike"],
-    ["grace_period_seconds", "120"],
-    ["waited_seconds", "480"]
+    [
+      "d",
+      "task_r7k9m2:forfeit:requester"
+    ],
+    [
+      "e",
+      "<stake_lock_event_id_30532>",
+      "wss://relay.example.com"
+    ],
+    [
+      "domain",
+      "ridesharing"
+    ],
+    [
+      "task_id",
+      "task_r7k9m2"
+    ],
+    [
+      "party",
+      "requester"
+    ],
+    [
+      "forfeit_amount",
+      "750"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "fiat-escrow"
+    ],
+    [
+      "forfeit_reason",
+      "late_cancellation"
+    ],
+    [
+      "refund_amount",
+      "750"
+    ],
+    [
+      "refund_to",
+      "provider"
+    ],
+    [
+      "forfeited_at",
+      "1698766200"
+    ],
+    [
+      "payment_rail",
+      "strike"
+    ],
+    [
+      "grace_period_seconds",
+      "120"
+    ],
+    [
+      "waited_seconds",
+      "480"
+    ]
   ],
   "content": "Requester cancelled 8 minutes after match (2-minute grace period)."
 }
@@ -675,19 +1342,60 @@ Cancellation policies are **domain-defined**, not specified by this protocol. Co
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1698770000,
   "tags": [
-    ["d", "task_lk42x8:forfeit:provider"],
-    ["e", "<stake_lock_event_id_30532>", "wss://relay.example.com"],
-    ["e", "<dispute_resolution_event_id>", "wss://relay.example.com"],
-    ["domain", "locksmith"],
-    ["task_id", "task_lk42x8"],
-    ["party", "provider"],
-    ["forfeit_amount", "12000"],
-    ["currency", "GBP"],
-    ["trust_model", "operator-escrow"],
-    ["forfeit_reason", "dispute_loss"],
-    ["refund_amount", "0"],
-    ["refund_to", "requester"],
-    ["forfeited_at", "1698770000"]
+    [
+      "d",
+      "task_lk42x8:forfeit:provider"
+    ],
+    [
+      "e",
+      "<stake_lock_event_id_30532>",
+      "wss://relay.example.com"
+    ],
+    [
+      "e",
+      "<dispute_resolution_event_id>",
+      "wss://relay.example.com"
+    ],
+    [
+      "domain",
+      "locksmith"
+    ],
+    [
+      "task_id",
+      "task_lk42x8"
+    ],
+    [
+      "party",
+      "provider"
+    ],
+    [
+      "forfeit_amount",
+      "12000"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "operator-escrow"
+    ],
+    [
+      "forfeit_reason",
+      "dispute_loss"
+    ],
+    [
+      "refund_amount",
+      "0"
+    ],
+    [
+      "refund_to",
+      "requester"
+    ],
+    [
+      "forfeited_at",
+      "1698770000"
+    ]
   ],
   "content": "Dispute resolved in favour of requester. Provider damaged door frame during entry."
 }
@@ -697,7 +1405,8 @@ Cancellation policies are **domain-defined**, not specified by this protocol. Co
 
 ### Kind 30535: Payment Receipt
 
-Published by the operator (or provider in direct-payment scenarios) as final confirmation that money has changed hands. This is the settlement record — the immutable proof that payment was made.
+Published by the operator (or provider in direct-payment scenarios) as final confirmation that money has changed hands.
+This is the settlement record — the immutable proof that payment was made.
 
 ```json
 {
@@ -705,22 +1414,71 @@ Published by the operator (or provider in direct-payment scenarios) as final con
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1698766600,
   "tags": [
-    ["d", "task_abc123:receipt"],
-    ["e", "<stake_release_event_id_30533>", "wss://relay.example.com"],
-    ["domain", "ridesharing"],
-    ["task_id", "task_abc123"],
-    ["payer", "<requester_hex_pubkey>"],
-    ["payee", "<provider_hex_pubkey>"],
-    ["amount", "1425"],
-    ["currency", "GBP"],
-    ["trust_model", "fiat-escrow"],
-    ["gross_amount", "1500"],
-    ["operator_fee", "75"],
-    ["payment_rail", "strike"],
-    ["settlement_reference", "str_pi_3Nk..."],
-    ["settled_at", "1698766600"],
-    ["payment_count", "50"],
-    ["receipt_type", "final"]
+    [
+      "d",
+      "task_abc123:receipt"
+    ],
+    [
+      "e",
+      "<stake_release_event_id_30533>",
+      "wss://relay.example.com"
+    ],
+    [
+      "domain",
+      "ridesharing"
+    ],
+    [
+      "task_id",
+      "task_abc123"
+    ],
+    [
+      "payer",
+      "<requester_hex_pubkey>"
+    ],
+    [
+      "payee",
+      "<provider_hex_pubkey>"
+    ],
+    [
+      "amount",
+      "1425"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "fiat-escrow"
+    ],
+    [
+      "gross_amount",
+      "1500"
+    ],
+    [
+      "operator_fee",
+      "75"
+    ],
+    [
+      "payment_rail",
+      "strike"
+    ],
+    [
+      "settlement_reference",
+      "str_pi_3Nk..."
+    ],
+    [
+      "settled_at",
+      "1698766600"
+    ],
+    [
+      "payment_count",
+      "50"
+    ],
+    [
+      "receipt_type",
+      "final"
+    ]
   ],
   "content": ""
 }
@@ -728,30 +1486,31 @@ Published by the operator (or provider in direct-payment scenarios) as final con
 
 **Tag reference:**
 
-| Tag | Required | Format | Description |
-|-----|----------|--------|-------------|
-| `d` | Yes | `<task_id>:receipt` or `<task_id>:receipt:<sequence>` | Receipt identifier. Multiple receipts for milestone/streaming tasks. |
-| `e` | Recommended | `<event_id>`, `<relay>` | References the triggering event (Stake Release, Streaming Tick, or Forfeit). |
-| `domain` | Recommended | String | Domain identifier. |
-| `task_id` | Yes | String | Task identifier. |
-| `payer` | Yes | Hex pubkey | Who paid. |
-| `payee` | Yes | Hex pubkey | Who received payment. |
-| `amount` | Yes | Integer string | Net amount received by the payee. |
-| `currency` | Yes | ISO 4217 or crypto code | Currency. |
-| `trust_model` | Recommended | Enumerated string | Trust model. |
-| `gross_amount` | Recommended | Integer string | Amount before fees. |
-| `operator_fee` | Optional | Integer string | Operator fee. |
-| `payment_rail` | Recommended | String | Payment rail used. |
-| `settlement_reference` | Optional | String | External reference from the payment rail. |
-| `settled_at` | Recommended | Unix timestamp | When settlement was confirmed. |
-| `payment_count` | Optional | Integer string | For streaming tasks: total number of streaming ticks. |
-| `receipt_type` | Recommended | `final`, `milestone`, `partial` | Type of receipt. |
+| Tag                    | Required    | Format                                                | Description                                                                  |
+|------------------------|-------------|-------------------------------------------------------|------------------------------------------------------------------------------|
+| `d`                    | Yes         | `<task_id>:receipt` or `<task_id>:receipt:<sequence>` | Receipt identifier. Multiple receipts for milestone/streaming tasks.         |
+| `e`                    | Recommended | `<event_id>`, `<relay>`                               | References the triggering event (Stake Release, Streaming Tick, or Forfeit). |
+| `domain`               | Recommended | String                                                | Domain identifier.                                                           |
+| `task_id`              | Yes         | String                                                | Task identifier.                                                             |
+| `payer`                | Yes         | Hex pubkey                                            | Who paid.                                                                    |
+| `payee`                | Yes         | Hex pubkey                                            | Who received payment.                                                        |
+| `amount`               | Yes         | Integer string                                        | Net amount received by the payee.                                            |
+| `currency`             | Yes         | ISO 4217 or crypto code                               | Currency.                                                                    |
+| `trust_model`          | Recommended | Enumerated string                                     | Trust model.                                                                 |
+| `gross_amount`         | Recommended | Integer string                                        | Amount before fees.                                                          |
+| `operator_fee`         | Optional    | Integer string                                        | Operator fee.                                                                |
+| `payment_rail`         | Recommended | String                                                | Payment rail used.                                                           |
+| `settlement_reference` | Optional    | String                                                | External reference from the payment rail.                                    |
+| `settled_at`           | Recommended | Unix timestamp                                        | When settlement was confirmed.                                               |
+| `payment_count`        | Optional    | Integer string                                        | For streaming tasks: total number of streaming ticks.                        |
+| `receipt_type`         | Recommended | `final`, `milestone`, `partial`                       | Type of receipt.                                                             |
 
 ---
 
 ### Kind 30536: Streaming Tick
 
-Published during an active task at regular intervals to provide periodic proof-of-payment. Each tick includes a cumulative total for auditability — if any tick is lost, the cumulative field allows reconstruction.
+Published during an active task at regular intervals to provide periodic proof-of-payment. Each tick includes a
+cumulative total for auditability — if any tick is lost, the cumulative field allows reconstruction.
 
 ```json
 {
@@ -759,20 +1518,63 @@ Published during an active task at regular intervals to provide periodic proof-o
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1698765830,
   "tags": [
-    ["d", "task_abc123:tick:042"],
-    ["e", "<payment_terms_event_id_30531>", "wss://relay.example.com"],
-    ["domain", "ridesharing"],
-    ["task_id", "task_abc123"],
-    ["tick_number", "42"],
-    ["amount", "25"],
-    ["currency", "GBP"],
-    ["trust_model", "fiat-escrow"],
-    ["cumulative", "1050"],
-    ["interval_seconds", "30"],
-    ["payment_proof", "str_pi_tick_42..."],
-    ["payment_rail", "strike"],
-    ["provider_lat", "51.5074"],
-    ["provider_lon", "-0.1278"]
+    [
+      "d",
+      "task_abc123:tick:042"
+    ],
+    [
+      "e",
+      "<payment_terms_event_id_30531>",
+      "wss://relay.example.com"
+    ],
+    [
+      "domain",
+      "ridesharing"
+    ],
+    [
+      "task_id",
+      "task_abc123"
+    ],
+    [
+      "tick_number",
+      "42"
+    ],
+    [
+      "amount",
+      "25"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "fiat-escrow"
+    ],
+    [
+      "cumulative",
+      "1050"
+    ],
+    [
+      "interval_seconds",
+      "30"
+    ],
+    [
+      "payment_proof",
+      "str_pi_tick_42..."
+    ],
+    [
+      "payment_rail",
+      "strike"
+    ],
+    [
+      "provider_lat",
+      "51.5074"
+    ],
+    [
+      "provider_lon",
+      "-0.1278"
+    ]
   ],
   "content": ""
 }
@@ -780,36 +1582,37 @@ Published during an active task at regular intervals to provide periodic proof-o
 
 **Tag reference:**
 
-| Tag | Required | Format | Description |
-|-----|----------|--------|-------------|
-| `d` | Yes | `<task_id>:tick:<sequence>` | Unique per tick. Sequence is zero-padded for ordering. |
-| `e` | Recommended | `<event_id>`, `<relay>` | References the Payment Terms event (kind 30531). |
-| `domain` | Recommended | String | Domain identifier. |
-| `task_id` | Yes | String | Task identifier. |
-| `tick_number` | Yes | Integer string | Sequence number (1-indexed). Monotonically increasing. |
-| `amount` | Yes | Integer string | Amount for this individual tick. |
-| `currency` | Yes | ISO 4217 or crypto code | Currency. |
-| `trust_model` | Recommended | Enumerated string | Trust model. |
-| `cumulative` | Yes | Integer string | Running total of all ticks so far (including this one). Enables auditability. |
-| `interval_seconds` | Recommended | Integer string | Configured interval between ticks. |
-| `payment_proof` | Optional | String | External proof of payment (Lightning preimage, Stripe PI reference, etc.). |
-| `payment_rail` | Recommended | String | Payment rail used. |
-| `provider_lat` | Optional | Decimal string | Provider latitude at time of tick (for transit-based services). |
-| `provider_lon` | Optional | Decimal string | Provider longitude at time of tick. |
+| Tag                | Required    | Format                      | Description                                                                   |
+|--------------------|-------------|-----------------------------|-------------------------------------------------------------------------------|
+| `d`                | Yes         | `<task_id>:tick:<sequence>` | Unique per tick. Sequence is zero-padded for ordering.                        |
+| `e`                | Recommended | `<event_id>`, `<relay>`     | References the Payment Terms event (kind 30531).                              |
+| `domain`           | Recommended | String                      | Domain identifier.                                                            |
+| `task_id`          | Yes         | String                      | Task identifier.                                                              |
+| `tick_number`      | Yes         | Integer string              | Sequence number (1-indexed). Monotonically increasing.                        |
+| `amount`           | Yes         | Integer string              | Amount for this individual tick.                                              |
+| `currency`         | Yes         | ISO 4217 or crypto code     | Currency.                                                                     |
+| `trust_model`      | Recommended | Enumerated string           | Trust model.                                                                  |
+| `cumulative`       | Yes         | Integer string              | Running total of all ticks so far (including this one). Enables auditability. |
+| `interval_seconds` | Recommended | Integer string              | Configured interval between ticks.                                            |
+| `payment_proof`    | Optional    | String                      | External proof of payment (Lightning preimage, Stripe PI reference, etc.).    |
+| `payment_rail`     | Recommended | String                      | Payment rail used.                                                            |
+| `provider_lat`     | Optional    | Decimal string              | Provider latitude at time of tick (for transit-based services).               |
+| `provider_lon`     | Optional    | Decimal string              | Provider longitude at time of tick.                                           |
 
 #### Streaming Models by Domain
 
-| Domain | Typical Interval | Rate Basis | Example |
-|--------|-----------------|------------|---------|
-| Ridesharing | 30 seconds | Distance + time | GBP 0.25/tick while moving, GBP 0.10/tick while stationary |
-| Security guard | 3600 seconds (hourly) | Time | GBP 15.00/hour |
-| Babysitting | 3600 seconds (hourly) | Time | GBP 12.00/hour |
-| Delivery | Per 100 metres | Distance | GBP 0.05/100m |
-| Cleaning | 1800 seconds (half-hourly) | Time | GBP 7.50/half-hour |
+| Domain         | Typical Interval           | Rate Basis      | Example                                                    |
+|----------------|----------------------------|-----------------|------------------------------------------------------------|
+| Ridesharing    | 30 seconds                 | Distance + time | GBP 0.25/tick while moving, GBP 0.10/tick while stationary |
+| Security guard | 3600 seconds (hourly)      | Time            | GBP 15.00/hour                                             |
+| Babysitting    | 3600 seconds (hourly)      | Time            | GBP 12.00/hour                                             |
+| Delivery       | Per 100 metres             | Distance        | GBP 0.05/100m                                              |
+| Cleaning       | 1800 seconds (half-hourly) | Time            | GBP 7.50/half-hour                                         |
 
 #### Auditable Cumulative Field
 
-The `cumulative` field on each tick MUST equal the sum of all `amount` values from tick 1 through the current tick (inclusive). This enables:
+The `cumulative` field on each tick MUST equal the sum of all `amount` values from tick 1 through the current tick (
+inclusive). This enables:
 
 1. **Gap detection** — If tick 41 has cumulative 1025 and tick 43 has cumulative 1075, tick 42 (amount 25) is missing
 2. **Final reconciliation** — The last tick's cumulative MUST match the total in the Payment Receipt (kind 30535)
@@ -823,19 +1626,59 @@ The `cumulative` field on each tick MUST equal the sum of all `amount` values fr
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1698769200,
   "tags": [
-    ["d", "task_sec88q1:tick:003"],
-    ["e", "<payment_terms_event_id>", "wss://relay.example.com"],
-    ["domain", "security"],
-    ["task_id", "task_sec88q1"],
-    ["tick_number", "3"],
-    ["amount", "1500"],
-    ["currency", "GBP"],
-    ["trust_model", "operator-escrow"],
-    ["cumulative", "4500"],
-    ["interval_seconds", "3600"],
-    ["payment_rail", "strike"],
-    ["provider_lat", "51.5155"],
-    ["provider_lon", "-0.1416"]
+    [
+      "d",
+      "task_sec88q1:tick:003"
+    ],
+    [
+      "e",
+      "<payment_terms_event_id>",
+      "wss://relay.example.com"
+    ],
+    [
+      "domain",
+      "security"
+    ],
+    [
+      "task_id",
+      "task_sec88q1"
+    ],
+    [
+      "tick_number",
+      "3"
+    ],
+    [
+      "amount",
+      "1500"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "operator-escrow"
+    ],
+    [
+      "cumulative",
+      "4500"
+    ],
+    [
+      "interval_seconds",
+      "3600"
+    ],
+    [
+      "payment_rail",
+      "strike"
+    ],
+    [
+      "provider_lat",
+      "51.5155"
+    ],
+    [
+      "provider_lon",
+      "-0.1416"
+    ]
   ],
   "content": ""
 }
@@ -843,7 +1686,8 @@ The `cumulative` field on each tick MUST equal the sum of all `amount` values fr
 
 ### Kind 30537: Task Tip
 
-Published by the requester after task completion as a voluntary gratuity for the provider. Task Tips are append-only events — once published, they cannot be replaced or deleted. Tips are entirely separate from the agreed service fee.
+Published by the requester after task completion as a voluntary gratuity for the provider. Task Tips are append-only
+events — once published, they cannot be replaced or deleted. Tips are entirely separate from the agreed service fee.
 
 ```json
 {
@@ -851,15 +1695,43 @@ Published by the requester after task completion as a voluntary gratuity for the
   "pubkey": "<requester_hex_pubkey>",
   "created_at": 1698767200,
   "tags": [
-    ["d", "task_abc123:tip"],
-    ["e", "<payment_receipt_event_id_30535>", "wss://relay.example.com"],
-    ["task_id", "task_abc123"],
-    ["payee", "<provider_hex_pubkey>"],
-    ["amount", "300"],
-    ["currency", "GBP"],
-    ["trust_model", "fiat-escrow"],
-    ["payment_rail", "strike"],
-    ["anonymous", "false"]
+    [
+      "d",
+      "task_abc123:tip"
+    ],
+    [
+      "e",
+      "<payment_receipt_event_id_30535>",
+      "wss://relay.example.com"
+    ],
+    [
+      "task_id",
+      "task_abc123"
+    ],
+    [
+      "payee",
+      "<provider_hex_pubkey>"
+    ],
+    [
+      "amount",
+      "300"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "fiat-escrow"
+    ],
+    [
+      "payment_rail",
+      "strike"
+    ],
+    [
+      "anonymous",
+      "false"
+    ]
   ],
   "content": "Great service, arrived quickly and was very professional."
 }
@@ -867,19 +1739,20 @@ Published by the requester after task completion as a voluntary gratuity for the
 
 **Tag reference:**
 
-| Tag | Required | Format | Description |
-|-----|----------|--------|-------------|
-| `d` | Yes | `<task_id>:tip` | One tip event per task. |
-| `e` | Yes | `<event_id>`, `<relay>` | References the Payment Receipt event (kind 30535). |
-| `task_id` | Yes | String | Task identifier. |
-| `payee` | Yes | Hex pubkey | Provider receiving the tip. |
-| `amount` | Yes | Integer string | Tip amount in smallest currency unit. |
-| `currency` | Yes | ISO 4217 or crypto code | Currency. |
-| `trust_model` | Recommended | Enumerated string | Trust model of the tip payment rail. |
-| `payment_rail` | Recommended | String | Payment rail used for the tip. |
-| `anonymous` | Optional | `true` or `false` | Whether the tip should be presented anonymously to the provider. Default `false`. |
+| Tag            | Required    | Format                  | Description                                                                       |
+|----------------|-------------|-------------------------|-----------------------------------------------------------------------------------|
+| `d`            | Yes         | `<task_id>:tip`         | One tip event per task.                                                           |
+| `e`            | Yes         | `<event_id>`, `<relay>` | References the Payment Receipt event (kind 30535).                                |
+| `task_id`      | Yes         | String                  | Task identifier.                                                                  |
+| `payee`        | Yes         | Hex pubkey              | Provider receiving the tip.                                                       |
+| `amount`       | Yes         | Integer string          | Tip amount in smallest currency unit.                                             |
+| `currency`     | Yes         | ISO 4217 or crypto code | Currency.                                                                         |
+| `trust_model`  | Recommended | Enumerated string       | Trust model of the tip payment rail.                                              |
+| `payment_rail` | Recommended | String                  | Payment rail used for the tip.                                                    |
+| `anonymous`    | Optional    | `true` or `false`       | Whether the tip should be presented anonymously to the provider. Default `false`. |
 
-**Content:** Optional message to the provider. If `anonymous` is `true`, the content SHOULD be encrypted via NIP-44 to the provider's pubkey.
+**Content:** Optional message to the provider. If `anonymous` is `true`, the content SHOULD be encrypted via NIP-44 to
+the provider's pubkey.
 
 **Rules:**
 
@@ -893,7 +1766,8 @@ Published by the requester after task completion as a voluntary gratuity for the
 
 ### Kind 30538: Earnings Summary
 
-Parameterised replaceable event published by the operator as a convenience for providers. The content is NIP-44 encrypted to the provider's pubkey. Provides a pre-computed earnings view for tax filing and expense tracking.
+Parameterised replaceable event published by the operator as a convenience for providers. The content is NIP-44
+encrypted to the provider's pubkey. Provides a pre-computed earnings view for tax filing and expense tracking.
 
 ```json
 {
@@ -901,16 +1775,46 @@ Parameterised replaceable event published by the operator as a convenience for p
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1711929600,
   "tags": [
-    ["d", "earnings:<provider_hex_pubkey>:2026-Q1"],
-    ["provider_pubkey", "<provider_hex_pubkey>"],
-    ["period", "2026-Q1"],
-    ["currency", "GBP"],
-    ["total_gross", "285000"],
-    ["total_net", "256500"],
-    ["total_fees", "28500"],
-    ["total_tips", "12750"],
-    ["task_count", "47"],
-    ["domains", "ridesharing,delivery"]
+    [
+      "d",
+      "earnings:<provider_hex_pubkey>:2026-Q1"
+    ],
+    [
+      "provider_pubkey",
+      "<provider_hex_pubkey>"
+    ],
+    [
+      "period",
+      "2026-Q1"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "total_gross",
+      "285000"
+    ],
+    [
+      "total_net",
+      "256500"
+    ],
+    [
+      "total_fees",
+      "28500"
+    ],
+    [
+      "total_tips",
+      "12750"
+    ],
+    [
+      "task_count",
+      "47"
+    ],
+    [
+      "domains",
+      "ridesharing,delivery"
+    ]
   ],
   "content": "<NIP-44 encrypted breakdown per task>"
 }
@@ -918,22 +1822,24 @@ Parameterised replaceable event published by the operator as a convenience for p
 
 **Tag reference:**
 
-| Tag | Required | Format | Description |
-|-----|----------|--------|-------------|
-| `d` | Yes | `earnings:<provider_pubkey>:<period>` | One summary per provider per period. |
-| `provider_pubkey` | Yes | Hex pubkey | The provider this summary covers. |
-| `period` | Yes | String | Reporting period: `2026-Q1`, `2026-01`, or `2026`. |
-| `currency` | Yes | ISO 4217 or crypto code | Primary currency of the summary. |
-| `total_gross` | Yes | Integer string | Total gross earnings before fees (smallest currency unit). |
-| `total_net` | Yes | Integer string | Total net earnings after fees (smallest currency unit). |
-| `total_fees` | Yes | Integer string | Total operator fees deducted (smallest currency unit). |
-| `total_tips` | Recommended | Integer string | Total tips received (smallest currency unit). |
-| `task_count` | Recommended | Integer string | Number of completed tasks in the period. |
-| `domains` | Optional | Comma-separated string | Domains the provider worked across. |
+| Tag               | Required    | Format                                | Description                                                |
+|-------------------|-------------|---------------------------------------|------------------------------------------------------------|
+| `d`               | Yes         | `earnings:<provider_pubkey>:<period>` | One summary per provider per period.                       |
+| `provider_pubkey` | Yes         | Hex pubkey                            | The provider this summary covers.                          |
+| `period`          | Yes         | String                                | Reporting period: `2026-Q1`, `2026-01`, or `2026`.         |
+| `currency`        | Yes         | ISO 4217 or crypto code               | Primary currency of the summary.                           |
+| `total_gross`     | Yes         | Integer string                        | Total gross earnings before fees (smallest currency unit). |
+| `total_net`       | Yes         | Integer string                        | Total net earnings after fees (smallest currency unit).    |
+| `total_fees`      | Yes         | Integer string                        | Total operator fees deducted (smallest currency unit).     |
+| `total_tips`      | Recommended | Integer string                        | Total tips received (smallest currency unit).              |
+| `task_count`      | Recommended | Integer string                        | Number of completed tasks in the period.                   |
+| `domains`         | Optional    | Comma-separated string                | Domains the provider worked across.                        |
 
-**Content:** NIP-44 encrypted JSON containing per-task breakdown (task ID, date, gross, net, fee, tip, domain). Encrypted to the provider's pubkey so only the provider can read the detail.
+**Content:** NIP-44 encrypted JSON containing per-task breakdown (task ID, date, gross, net, fee, tip, domain).
+Encrypted to the provider's pubkey so only the provider can read the detail.
 
-This is an operator convenience — providers can also reconstruct earnings from their own Payment Receipt (kind 30535) and Task Tip (kind 30537) events. The summary provides a pre-computed view for tax filing.
+This is an operator convenience — providers can also reconstruct earnings from their own Payment Receipt (kind 30535)and
+Task Tip (kind 30537) events. The summary provides a pre-computed view for tax filing.
 
 ---
 
@@ -974,7 +1880,8 @@ Requester               Provider                Operator
 
 **Events published**: 30500, 30530, 30502, 30503, 30504, 30535
 
-This flow uses `trust_model: direct` — no escrow, no operator custody. Suitable for low-value tasks or where parties have established trust.
+This flow uses `trust_model: direct` — no escrow, no operator custody. Suitable for low-value tasks or where parties
+have established trust.
 
 #### Simple Flow Event Example (Payment Receipt)
 
@@ -984,17 +1891,50 @@ This flow uses `trust_model: direct` — no escrow, no operator custody. Suitabl
   "pubkey": "<provider_hex_pubkey>",
   "created_at": 1698766600,
   "tags": [
-    ["d", "task_cw12x5:receipt"],
-    ["domain", "locksmith"],
-    ["task_id", "task_cw12x5"],
-    ["payer", "<customer_pubkey>"],
-    ["payee", "<locksmith_pubkey>"],
-    ["amount", "7500"],
-    ["currency", "GBP"],
-    ["trust_model", "direct"],
-    ["payment_rail", "cash"],
-    ["settled_at", "1698766600"],
-    ["receipt_type", "final"]
+    [
+      "d",
+      "task_cw12x5:receipt"
+    ],
+    [
+      "domain",
+      "locksmith"
+    ],
+    [
+      "task_id",
+      "task_cw12x5"
+    ],
+    [
+      "payer",
+      "<customer_pubkey>"
+    ],
+    [
+      "payee",
+      "<locksmith_pubkey>"
+    ],
+    [
+      "amount",
+      "7500"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "direct"
+    ],
+    [
+      "payment_rail",
+      "cash"
+    ],
+    [
+      "settled_at",
+      "1698766600"
+    ],
+    [
+      "receipt_type",
+      "final"
+    ]
   ],
   "content": ""
 }
@@ -1053,7 +1993,8 @@ Requester               Provider                Operator
 
 ### Flow 3: Streaming
 
-For tasks billed by time or distance, payments stream during the active task. Useful for ridesharing, security shifts, and cleaning.
+For tasks billed by time or distance, payments stream during the active task. Useful for ridesharing, security shifts,
+and cleaning.
 
 ```
 Requester               Provider                Operator
@@ -1103,13 +2044,15 @@ Requester               Provider                Operator
 
 #### Streaming Reconciliation
 
-On task completion, the Payment Receipt's `amount` MUST equal the final Streaming Tick's `cumulative` value (minus operator fees). If they differ, either party MAY file a dispute.
+On task completion, the Payment Receipt's `amount` MUST equal the final Streaming Tick's `cumulative` value (minus
+operator fees). If they differ, either party MAY file a dispute.
 
 ---
 
 ### Flow 4: Milestone
 
-For multi-stage tasks, the total payment is divided across milestones. Each milestone triggers a partial release. The provider receives payment incrementally as work progresses.
+For multi-stage tasks, the total payment is divided across milestones. Each milestone triggers a partial release. The
+provider receives payment incrementally as work progresses.
 
 ```
 Requester               Provider                Operator
@@ -1188,7 +2131,8 @@ Milestones 1 and 2 are paid (work was done). Milestones 3 and 4 are forfeited ba
 
 ### Flow 5: Split
 
-For tasks involving multiple providers, the payment is divided according to pre-agreed splits. Each provider receives their portion independently.
+For tasks involving multiple providers, the payment is divided according to pre-agreed splits. Each provider receives
+their portion independently.
 
 ```
 Requester               Provider A              Provider B              Operator
@@ -1224,54 +2168,148 @@ Requester               Provider A              Provider B              Operator
 #### Split Release Examples
 
 **Provider A (lead guard):**
+
 ```json
 {
   "kind": 30533,
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1698795600,
   "tags": [
-    ["d", "task_sec88q1:release:provider_a"],
-    ["e", "<stake_lock_event_id>", "wss://relay.example.com"],
-    ["domain", "security"],
-    ["task_id", "task_sec88q1"],
-    ["party", "provider"],
-    ["p", "<guard_a_pubkey>"],
-    ["amount", "21600"],
-    ["currency", "GBP"],
-    ["trust_model", "operator-escrow"],
-    ["release_reason", "completed"],
-    ["gross_amount", "24000"],
-    ["operator_fee", "2400"],
-    ["split_role", "lead_guard"],
-    ["released_at", "1698795600"],
-    ["payment_rail", "strike"]
+    [
+      "d",
+      "task_sec88q1:release:provider_a"
+    ],
+    [
+      "e",
+      "<stake_lock_event_id>",
+      "wss://relay.example.com"
+    ],
+    [
+      "domain",
+      "security"
+    ],
+    [
+      "task_id",
+      "task_sec88q1"
+    ],
+    [
+      "party",
+      "provider"
+    ],
+    [
+      "p",
+      "<guard_a_pubkey>"
+    ],
+    [
+      "amount",
+      "21600"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "operator-escrow"
+    ],
+    [
+      "release_reason",
+      "completed"
+    ],
+    [
+      "gross_amount",
+      "24000"
+    ],
+    [
+      "operator_fee",
+      "2400"
+    ],
+    [
+      "split_role",
+      "lead_guard"
+    ],
+    [
+      "released_at",
+      "1698795600"
+    ],
+    [
+      "payment_rail",
+      "strike"
+    ]
   ],
   "content": ""
 }
 ```
 
 **Provider B (support guard):**
+
 ```json
 {
   "kind": 30533,
   "pubkey": "<operator_hex_pubkey>",
   "created_at": 1698795600,
   "tags": [
-    ["d", "task_sec88q1:release:provider_b"],
-    ["e", "<stake_lock_event_id>", "wss://relay.example.com"],
-    ["domain", "security"],
-    ["task_id", "task_sec88q1"],
-    ["party", "provider"],
-    ["p", "<guard_b_pubkey>"],
-    ["amount", "21600"],
-    ["currency", "GBP"],
-    ["trust_model", "operator-escrow"],
-    ["release_reason", "completed"],
-    ["gross_amount", "24000"],
-    ["operator_fee", "2400"],
-    ["split_role", "support_guard"],
-    ["released_at", "1698795600"],
-    ["payment_rail", "strike"]
+    [
+      "d",
+      "task_sec88q1:release:provider_b"
+    ],
+    [
+      "e",
+      "<stake_lock_event_id>",
+      "wss://relay.example.com"
+    ],
+    [
+      "domain",
+      "security"
+    ],
+    [
+      "task_id",
+      "task_sec88q1"
+    ],
+    [
+      "party",
+      "provider"
+    ],
+    [
+      "p",
+      "<guard_b_pubkey>"
+    ],
+    [
+      "amount",
+      "21600"
+    ],
+    [
+      "currency",
+      "GBP"
+    ],
+    [
+      "trust_model",
+      "operator-escrow"
+    ],
+    [
+      "release_reason",
+      "completed"
+    ],
+    [
+      "gross_amount",
+      "24000"
+    ],
+    [
+      "operator_fee",
+      "2400"
+    ],
+    [
+      "split_role",
+      "support_guard"
+    ],
+    [
+      "released_at",
+      "1698795600"
+    ],
+    [
+      "payment_rail",
+      "strike"
+    ]
   ],
   "content": ""
 }
@@ -1281,7 +2319,8 @@ Requester               Provider A              Provider B              Operator
 
 ## NIP-47 Integration (Trustless Payments)
 
-NIP-47 (Nostr Wallet Connect) enables **direct wallet-to-wallet payments** without intermediary custody. The operator orchestrates the payment flow by publishing signed events, but never holds funds.
+NIP-47 (Nostr Wallet Connect) enables **direct wallet-to-wallet payments** without intermediary custody. The operator
+orchestrates the payment flow by publishing signed events, but never holds funds.
 
 ### Trustless Escrow via Hold Invoices
 
@@ -1304,12 +2343,12 @@ NIP-47 (Nostr Wallet Connect) enables **direct wallet-to-wallet payments** witho
 
 ### NIP-47 Method Mapping
 
-| NIP-47 Method | TROTT-04 Event | Direction |
-|---------------|----------------|-----------|
-| `make_hold_invoice` | Stake Lock (30532) | Lock funds |
-| `settle_hold_invoice` | Stake Release (30533) | Release to counterparty |
-| `cancel_hold_invoice` | Stake Release (30533) | Return to original holder |
-| `pay_invoice` | Streaming Tick (30536) | Per-tick payment |
+| NIP-47 Method         | TROTT-04 Event         | Direction                 |
+|-----------------------|------------------------|---------------------------|
+| `make_hold_invoice`   | Stake Lock (30532)     | Lock funds                |
+| `settle_hold_invoice` | Stake Release (30533)  | Release to counterparty   |
+| `cancel_hold_invoice` | Stake Release (30533)  | Return to original holder |
+| `pay_invoice`         | Streaming Tick (30536) | Per-tick payment          |
 
 ### Trustless Streaming via NIP-47
 
@@ -1327,7 +2366,9 @@ For streaming payments, each tick corresponds to a `pay_invoice` call:
 
 ## Cashu Integration (Ecash Payments)
 
-Cashu (and Fedimint) ecash tokens provide a **privacy-preserving, offline-capable** payment rail for TROTT tasks. The key primitive is **NUT-14 HTLC** — Hash Time-Locked Contracts enforced by the mint — combined with **P2PK** (Pay-to-Public-Key) spending conditions. This gives cryptographic escrow without requiring an operator to hold funds.
+Cashu (and Fedimint) ecash tokens provide a **privacy-preserving, offline-capable** payment rail for TROTT tasks. The
+key primitive is **NUT-14 HTLC** — Hash Time-Locked Contracts enforced by the mint — combined with **P2PK** (
+Pay-to-Public-Key) spending conditions. This gives cryptographic escrow without requiring an operator to hold funds.
 
 ### Ecash Escrow via NUT-14 HTLC
 
@@ -1381,42 +2422,51 @@ Requester               Provider                Operator / Mint
 
 1. **Requester generates a preimage** and computes `payment_hash = SHA-256(preimage)`
 2. **Requester locks tokens** using NUT-14 HTLC with the hash condition AND P2PK to the provider's `wallet_pubkey`
-3. **Requester publishes Stake Lock** (kind 30532) with the `escrow_token`, `payment_hash`, `lock_type: ecash_lock`, and `trust_model: ecash-htlc`
+3. **Requester publishes Stake Lock** (kind 30532) with the `escrow_token`, `payment_hash`, `lock_type: ecash_lock`, and
+   `trust_model: ecash-htlc`
 4. **On task completion**, the requester shares the preimage with the provider (encrypted via NIP-44)
 5. **Provider claims** by performing a NUT-14 `/v1/swap` with both the preimage and their P2PK signature
 6. **Provider publishes** or operator publishes Stake Release (kind 30533) and Payment Receipt (kind 30535)
 
-The dual condition (HTLC + P2PK) ensures that **only the intended provider** can claim the tokens, and **only after the requester releases the preimage**. The mint enforces these conditions cryptographically without knowing the task context.
+The dual condition (HTLC + P2PK) ensures that **only the intended provider** can claim the tokens, and **only after the
+requester releases the preimage**. The mint enforces these conditions cryptographically without knowing the task
+context.
 
 ### Cashu Operation Mapping
 
-| Cashu Operation | TROTT-04 Event | Direction |
-|-----------------|----------------|-----------|
-| NUT-14 HTLC lock (requester locks tokens) | Stake Lock (30532) | Lock funds |
+| Cashu Operation                                    | TROTT-04 Event        | Direction           |
+|----------------------------------------------------|-----------------------|---------------------|
+| NUT-14 HTLC lock (requester locks tokens)          | Stake Lock (30532)    | Lock funds          |
 | NUT-14 swap with preimage + P2PK (provider claims) | Stake Release (30533) | Release to provider |
-| HTLC timeout (lock expires unclaimed) | Stake Forfeit (30534) | Return to requester |
-| NUT-07 proof state check | *(verification only)* | Check lock status |
-| NUT-04 deposit (fund wallet) | *(off-protocol)* | Wallet funding |
-| NUT-05 withdrawal (cash out) | *(off-protocol)* | Wallet withdrawal |
+| HTLC timeout (lock expires unclaimed)              | Stake Forfeit (30534) | Return to requester |
+| NUT-07 proof state check                           | *(verification only)* | Check lock status   |
+| NUT-04 deposit (fund wallet)                       | *(off-protocol)*      | Wallet funding      |
+| NUT-05 withdrawal (cash out)                       | *(off-protocol)*      | Wallet withdrawal   |
 
 ### Wallet Pubkey Handshake
 
-The provider's wallet pubkey (secp256k1, used for P2PK signing) MUST be shared during task negotiation. It is included as a `wallet_pubkey` tag on the Task Offer (kind 30501) or Payment Terms (kind 30531). This pubkey is **distinct from the provider's Nostr identity keypair** — it is used solely for cryptographic HTLC claiming.
+The provider's wallet pubkey (secp256k1, used for P2PK signing) MUST be shared during task negotiation. It is included
+as a `wallet_pubkey` tag on the Task Offer (kind 30501) or Payment Terms (kind 30531). This pubkey is **distinct from
+the provider's Nostr identity keypair** — it is used solely for cryptographic HTLC claiming.
 
-If the provider rotates their wallet pubkey between tasks, the requester MUST use the pubkey from the most recent Task Offer or Payment Terms event.
+If the provider rotates their wallet pubkey between tasks, the requester MUST use the pubkey from the most recent Task
+Offer or Payment Terms event.
 
 ### NIP-60 Wallet Sync
 
 For cross-device wallet backup, implementations SHOULD use NIP-60:
 
-| Kind | Purpose |
-|------|---------|
-| 7375 | Unspent ecash proofs (encrypted to self) |
-| 17375 | Wallet metadata (mint URL, settings) |
+| Kind  | Purpose                                  |
+|-------|------------------------------------------|
+| 7375  | Unspent ecash proofs (encrypted to self) |
+| 17375 | Wallet metadata (mint URL, settings)     |
 
-These kinds are outside the TROTT range but are complementary. The TROTT protocol does not mandate any specific wallet sync mechanism.
+These kinds are outside the TROTT range but are complementary. The TROTT protocol does not mandate any specific wallet
+sync mechanism.
 
-**Critical invariant:** Proofs MUST be published to NIP-60 (kind 7375) **BEFORE** being deleted locally. This prevents proof loss during device failure. Implementations that delete local proofs before confirming NIP-60 publication risk permanent fund loss.
+**Critical invariant:** Proofs MUST be published to NIP-60 (kind 7375) **BEFORE** being deleted locally. This prevents
+proof loss during device failure. Implementations that delete local proofs before confirming NIP-60 publication risk
+permanent fund loss.
 
 ### P2P Cashu Flow (No Operator)
 
@@ -1438,36 +2488,90 @@ This uses only TROTT-01 + TROTT-04 (typically just kinds 30500, 30502, 30532, 30
   "pubkey": "<requester_hex_pubkey>",
   "created_at": 1698765200,
   "tags": [
-    ["d", "task_r7k9m2:lock:requester"],
-    ["e", "<payment_terms_event_id_30531>", "wss://relay.example.com"],
-    ["domain", "ridesharing"],
-    ["task_id", "task_r7k9m2"],
-    ["party", "requester"],
-    ["amount", "50000"],
-    ["currency", "SAT"],
-    ["trust_model", "ecash-htlc"],
-    ["payment_rail", "cashu"],
-    ["lock_type", "ecash_lock"],
-    ["escrow_token", "EXAMPLE_VALUE"],
-    ["payment_hash", "d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5"],
-    ["wallet_pubkey", "<provider_wallet_secp256k1_pubkey>"],
-    ["locked_at", "1698765200"],
-    ["expiration", "1698772400"],
-    ["mint_url", "https://mint.example.com"]
+    [
+      "d",
+      "task_r7k9m2:lock:requester"
+    ],
+    [
+      "e",
+      "<payment_terms_event_id_30531>",
+      "wss://relay.example.com"
+    ],
+    [
+      "domain",
+      "ridesharing"
+    ],
+    [
+      "task_id",
+      "task_r7k9m2"
+    ],
+    [
+      "party",
+      "requester"
+    ],
+    [
+      "amount",
+      "50000"
+    ],
+    [
+      "currency",
+      "SAT"
+    ],
+    [
+      "trust_model",
+      "ecash-htlc"
+    ],
+    [
+      "payment_rail",
+      "cashu"
+    ],
+    [
+      "lock_type",
+      "ecash_lock"
+    ],
+    [
+      "escrow_token",
+      "EXAMPLE_VALUE"
+    ],
+    [
+      "payment_hash",
+      "d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5"
+    ],
+    [
+      "wallet_pubkey",
+      "<provider_wallet_secp256k1_pubkey>"
+    ],
+    [
+      "locked_at",
+      "1698765200"
+    ],
+    [
+      "expiration",
+      "1698772400"
+    ],
+    [
+      "mint_url",
+      "https://mint.example.com"
+    ]
   ],
   "content": ""
 }
 ```
 
-**Note:** The `mint_url` tag is informational — it tells the provider which mint to claim from. The `escrow_token` contains the serialised Cashu token with NUT-14 HTLC conditions. The `payment_hash` matches the hash condition in the HTLC, enabling the provider to verify the lock before starting work.
+**Note:** The `mint_url` tag is informational — it tells the provider which mint to claim from. The `escrow_token`
+contains the serialised Cashu token with NUT-14 HTLC conditions. The `payment_hash` matches the hash condition in the
+HTLC, enabling the provider to verify the lock before starting work.
 
 ### Multi-Mint Scenarios
 
-When requester and provider use different Cashu mints, an additional swap step is required. Payment Terms (kind 30531) and Provider Availability (kind 20500) SHOULD include a `supported_mints` tag (comma-separated mint URLs) to enable mint compatibility checks before task acceptance.
+When requester and provider use different Cashu mints, an additional swap step is required. Payment Terms (kind 30531)
+and Provider Availability (kind 20500) SHOULD include a `supported_mints` tag (comma-separated mint URLs) to enable mint
+compatibility checks before task acceptance.
 
 **Same-mint flow (zero additional fees):**
 
-If both parties use the same mint, the standard NUT-14 HTLC flow applies directly. The requester locks tokens on the shared mint; the provider claims from the same mint using the preimage and P2PK signature. No swap fees are incurred.
+If both parties use the same mint, the standard NUT-14 HTLC flow applies directly. The requester locks tokens on the
+shared mint; the provider claims from the same mint using the preimage and P2PK signature. No swap fees are incurred.
 
 **Cross-mint flow (Lightning swap):**
 
@@ -1476,17 +2580,22 @@ If the requester and provider use different mints, the following swap path is us
 1. Requester locks HTLC tokens on their mint (as normal)
 2. On task completion, provider receives the preimage
 3. Provider performs a Lightning swap:
-   - **NUT-08 melt** on the requester's mint — converts the claimed ecash proofs into a Lightning payment
-   - **NUT-04 mint** on the provider's mint — receives new ecash proofs from the Lightning payment
-4. The swap fee is borne by the requester as part of the task cost — Payment Terms (kind 30531) SHOULD include a `swap_fee` breakdown tag when cross-mint settlement is anticipated
+    - **NUT-08 melt** on the requester's mint — converts the claimed ecash proofs into a Lightning payment
+    - **NUT-04 mint** on the provider's mint — receives new ecash proofs from the Lightning payment
+4. The swap fee is borne by the requester as part of the task cost — Payment Terms (kind 30531) SHOULD include a
+   `swap_fee` breakdown tag when cross-mint settlement is anticipated
 
 **Stake Lock tag:**
 
-Stake Lock (kind 30532) SHOULD include a `mint_url` tag indicating which mint holds the locked tokens. This enables the provider to verify the lock and plan for any cross-mint swap before accepting the task.
+Stake Lock (kind 30532) SHOULD include a `mint_url` tag indicating which mint holds the locked tokens. This enables the
+provider to verify the lock and plan for any cross-mint swap before accepting the task.
 
 **Fallback:**
 
-If the requester's mint becomes unreachable during the task, the payment SHOULD fall back to an alternative rail (Lightning via NIP-47, or a fiat rail). The operator MAY publish updated Payment Terms (kind 30531) reflecting the rail change. The original Stake Lock remains valid until its `expiration` timestamp; if the mint recovers before expiry, the HTLC claim proceeds normally.
+If the requester's mint becomes unreachable during the task, the payment SHOULD fall back to an alternative rail (
+Lightning via NIP-47, or a fiat rail). The operator MAY publish updated Payment Terms (kind 30531) reflecting the rail
+change. The original Stake Lock remains valid until its `expiration` timestamp; if the mint recovers before expiry, the
+HTLC claim proceeds normally.
 
 ---
 
@@ -1496,8 +2605,12 @@ If the requester's mint becomes unreachable during the task, the payment SHOULD 
 
 ```json
 {
-  "kinds": [30530],
-  "#e": ["<service_request_event_id>"]
+  "kinds": [
+    30530
+  ],
+  "#e": [
+    "<service_request_event_id>"
+  ]
 }
 ```
 
@@ -1505,8 +2618,12 @@ If the requester's mint becomes unreachable during the task, the payment SHOULD 
 
 ```json
 {
-  "kinds": [30531],
-  "#d": ["task_abc123:terms"]
+  "kinds": [
+    30531
+  ],
+  "#d": [
+    "task_abc123:terms"
+  ]
 }
 ```
 
@@ -1514,8 +2631,12 @@ If the requester's mint becomes unreachable during the task, the payment SHOULD 
 
 ```json
 {
-  "kinds": [30532],
-  "#task_id": ["task_abc123"]
+  "kinds": [
+    30532
+  ],
+  "#task_id": [
+    "task_abc123"
+  ]
 }
 ```
 
@@ -1523,8 +2644,19 @@ If the requester's mint becomes unreachable during the task, the payment SHOULD 
 
 ```json
 {
-  "kinds": [30530, 30531, 30532, 30533, 30534, 30535, 30536, 30537],
-  "#task_id": ["task_abc123"]
+  "kinds": [
+    30530,
+    30531,
+    30532,
+    30533,
+    30534,
+    30535,
+    30536,
+    30537
+  ],
+  "#task_id": [
+    "task_abc123"
+  ]
 }
 ```
 
@@ -1532,12 +2664,17 @@ If the requester's mint becomes unreachable during the task, the payment SHOULD 
 
 ```json
 {
-  "kinds": [30536],
-  "#task_id": ["task_abc123"]
+  "kinds": [
+    30536
+  ],
+  "#task_id": [
+    "task_abc123"
+  ]
 }
 ```
 
-Results are ordered by `created_at`. The `tick_number` tag enables reconstruction of the correct sequence even if relay ordering differs.
+Results are ordered by `created_at`. The `tick_number` tag enables reconstruction of the correct sequence even if relay
+ordering differs.
 
 ---
 
@@ -1557,7 +2694,9 @@ Task Request (30500)
             └── Streaming Tick (30536) references terms via e tag
 ```
 
-Any participant or third party can reconstruct the complete payment history for a task by following the `e` tag chain from the Payment Receipt back to the original Task Request. Every event in the chain is cryptographically signed and independently verifiable.
+Any participant or third party can reconstruct the complete payment history for a task by following the `e` tag chain
+from the Payment Receipt back to the original Task Request. Every event in the chain is cryptographically signed and
+independently verifiable.
 
 ---
 
@@ -1565,10 +2704,15 @@ Any participant or third party can reconstruct the complete payment history for 
 
 Payment events contain pseudonymous identifiers (pubkeys) and financial data. Under GDPR:
 
-1. **Payment events are business records** — Operators have a legitimate interest (Article 6(1)(f)) and legal obligation (tax law) to retain payment records for the statutory period (typically 6 years in the UK)
-2. **Right to erasure** — Does not override legal retention requirements for financial records. After the retention period, crypto-shredding (destroying the key pair) renders pubkeys unlinkable.
-3. **Encrypted details** — Sensitive payment details (card numbers, bank details) MUST be exchanged via NIP-44 encrypted payloads, never in plaintext event tags.
-4. **Amount visibility** — The `amount` and `currency` tags on public events reveal transaction values. Operators requiring amount privacy SHOULD use NIP-44 encryption for the amount fields and publish only a commitment hash publicly.
+1. **Payment events are business records** — Operators have a legitimate interest (Article 6(1)(f)) and legal
+   obligation (tax law) to retain payment records for the statutory period (typically 6 years in the UK)
+2. **Right to erasure** — Does not override legal retention requirements for financial records. After the retention
+   period, crypto-shredding (destroying the key pair) renders pubkeys unlinkable.
+3. **Encrypted details** — Sensitive payment details (card numbers, bank details) MUST be exchanged via NIP-44 encrypted
+   payloads, never in plaintext event tags.
+4. **Amount visibility** — The `amount` and `currency` tags on public events reveal transaction values. Operators
+   requiring amount privacy SHOULD use NIP-44 encryption for the amount fields and publish only a commitment hash
+   publicly.
 
 ---
 

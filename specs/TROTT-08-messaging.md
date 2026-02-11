@@ -4,13 +4,19 @@
 
 ## Abstract
 
-This specification defines **task-scoped messaging, read receipts, personal task archives, and user preference storage** for the TROTT protocol. It provides encrypted communication between task participants during an active task, persistent personal records of completed tasks, and portable user settings — all built on Nostr events with NIP-44 encryption.
+This specification defines **task-scoped messaging, read receipts, personal task archives, and user preference storage**
+for the TROTT protocol. It provides encrypted communication between task participants during an active task, persistent
+personal records of completed tasks, and portable user settings — all built on Nostr events with NIP-44 encryption.
 
-TROTT-08 is optional. Tasks function fully without messaging (participants can use NIP-17 gift-wrapped direct messages for ad-hoc communication). This specification adds structured, task-scoped channels that auto-expire per GDPR requirements.
+TROTT-08 is optional. Tasks function fully without messaging (participants can use NIP-17 gift-wrapped direct messages
+for ad-hoc communication). This specification adds structured, task-scoped channels that auto-expire per GDPR
+requirements.
 
 ## Motivation
 
-Real-world service coordination requires communication during active tasks: "I'm at the back entrance", "The parcel is behind the gate", "Running 5 minutes late". Traditional platforms bundle proprietary chat into their apps, creating lock-in. This specification standardises task-scoped messaging on Nostr, enabling:
+Real-world service coordination requires communication during active tasks: "I'm at the back entrance", "The parcel is
+behind the gate", "Running 5 minutes late". Traditional platforms bundle proprietary chat into their apps, creating
+lock-in. This specification standardises task-scoped messaging on Nostr, enabling:
 
 - **Cross-client messaging** — Any TROTT-compatible client can participate in task chat
 - **GDPR-compliant auto-expiry** — Messages are time-limited with NIP-40 `expiration` tags
@@ -30,15 +36,16 @@ Real-world service coordination requires communication during active tasks: "I'm
 
 ## Event Kinds
 
-| Kind | Name | Replaceable | Publisher | Description |
-|------|------|-------------|-----------|-------------|
-| 30564 | Task Message | No (append-only) | Either party | Task-scoped encrypted chat message |
-| 30565 | Message Status | Yes (NIP-33) | Recipient | Read receipt and delivery confirmation |
-| 30566 | Task Archive Entry | Yes (NIP-33) | Either party (to self) | Personal encrypted summary of a completed task |
-| 30567 | User Preferences | Yes (NIP-33) | Either party (to self) | Portable user settings backup |
-| 20502 | Typing Indicator | No (ephemeral) | Either party | Real-time typing signal |
+| Kind  | Name               | Replaceable      | Publisher              | Description                                    |
+|-------|--------------------|------------------|------------------------|------------------------------------------------|
+| 30564 | Task Message       | No (append-only) | Either party           | Task-scoped encrypted chat message             |
+| 30565 | Message Status     | Yes (NIP-33)     | Recipient              | Read receipt and delivery confirmation         |
+| 30566 | Task Archive Entry | Yes (NIP-33)     | Either party (to self) | Personal encrypted summary of a completed task |
+| 30567 | User Preferences   | Yes (NIP-33)     | Either party (to self) | Portable user settings backup                  |
+| 20502 | Typing Indicator   | No (ephemeral)   | Either party           | Real-time typing signal                        |
 
-> **Note on kind 20502**: This is in the ephemeral event range (20000-29999). Relays MUST NOT persist these events. They are transient UX signals only.
+> **Note on kind 20502**: This is in the ephemeral event range (20000-29999). Relays MUST NOT persist these events. They
+> are transient UX signals only.
 
 ---
 
@@ -46,7 +53,8 @@ Real-world service coordination requires communication during active tasks: "I'm
 
 ### Kind 30564: Task Message
 
-Task-scoped encrypted chat between participants. NIP-44 encrypted to all task participants. Messages are only valid during an active task.
+Task-scoped encrypted chat between participants. NIP-44 encrypted to all task participants. Messages are only valid
+during an active task.
 
 ```json
 {
@@ -73,12 +81,12 @@ Task-scoped encrypted chat between participants. NIP-44 encrypted to all task pa
 
 #### Message Types
 
-| Type | Description |
-|------|-------------|
-| `text` | Free-text message |
-| `location` | Shared location (encrypted content includes lat/lon) |
-| `photo` | Photo reference (encrypted content includes URL; for full media, use Media Attachment kind 30547) |
-| `system` | System-generated message (e.g. "Driver is 2 minutes away", "Task cancelled by requester") |
+| Type       | Description                                                                                       |
+|------------|---------------------------------------------------------------------------------------------------|
+| `text`     | Free-text message                                                                                 |
+| `location` | Shared location (encrypted content includes lat/lon)                                              |
+| `photo`    | Photo reference (encrypted content includes URL; for full media, use Media Attachment kind 30547) |
+| `system`   | System-generated message (e.g. "Driver is 2 minutes away", "Task cancelled by requester")         |
 
 #### Lifecycle Binding
 
@@ -89,7 +97,8 @@ Task-scoped encrypted chat between participants. NIP-44 encrypted to all task pa
 
 #### Mediator Visibility
 
-During disputes (TROTT-05), the mediator's pubkey is added to the `p` tags on new messages, giving them read access to the conversation from that point forward. Historical messages are NOT retroactively shared unless both parties consent.
+During disputes (TROTT-05), the mediator's pubkey is added to the `p` tags on new messages, giving them read access to
+the conversation from that point forward. Historical messages are NOT retroactively shared unless both parties consent.
 
 ---
 
@@ -114,13 +123,15 @@ Read receipts and delivery confirmation. Parameterised replaceable — only the 
 
 **Required tags**: `d`, `task_id`, `last_read`, `last_read_at`
 
-The `d` tag format ensures one status event per reader per task via NIP-33 replacement semantics. When the reader opens a new message, they publish an updated kind 30565 with the new `last_read` event ID, replacing the previous status.
+The `d` tag format ensures one status event per reader per task via NIP-33 replacement semantics. When the reader opens
+a new message, they publish an updated kind 30565 with the new `last_read` event ID, replacing the previous status.
 
 ---
 
 ### Kind 20502: Typing Indicator (Ephemeral)
 
-A real-time UX signal indicating that a participant is composing a message. Ephemeral — relays MUST NOT persist these events.
+A real-time UX signal indicating that a participant is composing a message. Ephemeral — relays MUST NOT persist these
+events.
 
 ```json
 {
@@ -138,13 +149,15 @@ A real-time UX signal indicating that a participant is composing a message. Ephe
 
 **Required tags**: `task_id`, `p`, `typing`
 
-The `typing` tag accepts `true` or `false`. Clients SHOULD publish `typing: false` when the user stops typing or sends the message. Clients SHOULD treat a typing indicator as stale after 5 seconds without a refresh.
+The `typing` tag accepts `true` or `false`. Clients SHOULD publish `typing: false` when the user stops typing or sends
+the message. Clients SHOULD treat a typing indicator as stale after 5 seconds without a refresh.
 
 ---
 
 ### Kind 30566: Task Archive Entry
 
-A personal task backup, encrypted to self. Published after task completion. This is the user's durable personal record — even if relays delete events, the user's archive persists.
+A personal task backup, encrypted to self. Published after task completion. This is the user's durable personal record —
+even if relays delete events, the user's archive persists.
 
 ```json
 {
@@ -167,6 +180,7 @@ A personal task backup, encrypted to self. Published after task completion. This
 **Optional tags**: `domain`, `completed_at`
 
 Content is NIP-44 encrypted to the publisher's own pubkey. It contains:
+
 - Participants (pubkeys + display names if known)
 - Timeline (key state transitions with timestamps)
 - Financial summary (total paid/received, currency, fees, tip)
@@ -188,7 +202,8 @@ A user can retrieve their full task history:
 
 ### Kind 30567: User Preferences
 
-User settings backup, encrypted to self. Complements Requester Profile (30513) which has public fields. This kind stores purely private settings.
+User settings backup, encrypted to self. Complements Requester Profile (30513) which has public fields. This kind stores
+purely private settings.
 
 ```json
 {
@@ -205,6 +220,7 @@ User settings backup, encrypted to self. Complements Requester Profile (30513) w
 **Required tags**: `d`
 
 Content is NIP-44 encrypted to the publisher's own pubkey. Private settings include:
+
 - UI preferences (theme, units, language)
 - Notification settings
 - Default payment rail and currency
@@ -256,11 +272,15 @@ Content is NIP-44 encrypted to the publisher's own pubkey. Private settings incl
 
 ## GDPR Compliance
 
-- **Task Messages (30564)**: SHOULD include `expiration` tags. After task completion + 30 days, messages auto-expire. Operators MUST NOT persist message content beyond the declared retention period.
-- **Task Archive (30566)**: Encrypted to self — the user is both controller and data subject. Only the user can read or delete their archive.
-- **User Preferences (30567)**: Encrypted to self — no PII is exposed to relays. The user can delete by publishing a replacement with empty content.
+- **Task Messages (30564)**: SHOULD include `expiration` tags. After task completion + 30 days, messages auto-expire.
+  Operators MUST NOT persist message content beyond the declared retention period.
+- **Task Archive (30566)**: Encrypted to self — the user is both controller and data subject. Only the user can read or
+  delete their archive.
+- **User Preferences (30567)**: Encrypted to self — no PII is exposed to relays. The user can delete by publishing a
+  replacement with empty content.
 - **Typing Indicators (20502)**: Ephemeral — never persisted. No GDPR concern.
-- **Right to erasure**: Users can request relay deletion of kinds 30564-30567 per NIP-09 (event deletion). For kind 30564 messages, both parties' consent is RECOMMENDED before deletion (messages may be needed as dispute evidence).
+- **Right to erasure**: Users can request relay deletion of kinds 30564-30567 per NIP-09 (event deletion). For kind
+  30564 messages, both parties' consent is RECOMMENDED before deletion (messages may be needed as dispute evidence).
 
 ---
 
@@ -283,6 +303,7 @@ Content is NIP-44 encrypted to the publisher's own pubkey. Private settings incl
 ### Metadata Minimisation
 
 Implementations SHOULD:
+
 - Use NIP-17 gift wrap for the most sensitive messages (hides sender and recipient metadata)
 - Avoid publishing typing indicators over public relays (prefer operator WebSocket for real-time signals)
 - Set `expiration` tags aggressively on all messaging events
@@ -291,14 +312,14 @@ Implementations SHOULD:
 
 ## Referenced NIPs
 
-| NIP | Name | Usage in TROTT-08 |
-|-----|------|-------------------|
-| **NIP-01** | Basic Protocol Flow | Event format, relay communication |
-| **NIP-09** | Event Deletion | Right to erasure for messages and archives |
-| **NIP-17/59** | Private Messages (Gift Wrap) | Pre-task enquiries, sensitive message wrapping |
-| **NIP-33** | Parameterised Replaceable Events | Message status, archive entries, preferences |
-| **NIP-40** | Expiration Timestamp | Auto-expiry on messages and archives |
-| **NIP-44** | Encrypted Payloads | All content encryption |
+| NIP           | Name                             | Usage in TROTT-08                              |
+|---------------|----------------------------------|------------------------------------------------|
+| **NIP-01**    | Basic Protocol Flow              | Event format, relay communication              |
+| **NIP-09**    | Event Deletion                   | Right to erasure for messages and archives     |
+| **NIP-17/59** | Private Messages (Gift Wrap)     | Pre-task enquiries, sensitive message wrapping |
+| **NIP-33**    | Parameterised Replaceable Events | Message status, archive entries, preferences   |
+| **NIP-40**    | Expiration Timestamp             | Auto-expiry on messages and archives           |
+| **NIP-44**    | Encrypted Payloads               | All content encryption                         |
 
 ---
 
@@ -311,4 +332,5 @@ Implementations SHOULD:
 
 ### Domain Extensions
 
-All domain extensions benefit from task-scoped messaging. No domain-specific messaging kinds are required — the generic Task Message (30564) serves all domains.
+All domain extensions benefit from task-scoped messaging. No domain-specific messaging kinds are required — the generic
+Task Message (30564) serves all domains.

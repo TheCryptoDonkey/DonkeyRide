@@ -31,103 +31,117 @@ accepted --> scheduled --> arrived --> cleaning_active --> completed --> confirm
                              +--> no_show (client not home / no access)
 ```
 
-| Core state | Cleaning state | Description |
-|------------|---------------|-------------|
-| `accepted` (sub-phase) | `scheduled` | Session booked for a specific date and time |
-| `in_progress` (phase 1) | `arrived` | Cleaner has arrived at the property |
-| `in_progress` (phase 2) | `cleaning_active` | Cleaning underway |
-| `completed` | `completed` | Cleaning finished; client may inspect |
+| Core state              | Cleaning state    | Description                                 |
+|-------------------------|-------------------|---------------------------------------------|
+| `accepted` (sub-phase)  | `scheduled`       | Session booked for a specific date and time |
+| `in_progress` (phase 1) | `arrived`         | Cleaner has arrived at the property         |
+| `in_progress` (phase 2) | `cleaning_active` | Cleaning underway                           |
+| `completed`             | `completed`       | Cleaning finished; client may inspect       |
 
 Recurring bookings create separate task instances per session, each following the same state machine independently.
 
 ## Domain-Specific Tags
 
-| Tag | Description |
-|-----|-------------|
-| `property_type` | Property category: `flat`, `house`, `office`, `commercial`, `airbnb` |
-| `property_size` | Size indicator: `studio`, `1bed`, `2bed`, `3bed`, `4bed+`, `small_office`, `large_office` |
-| `cleaning_type` | Service category: `regular`, `deep`, `end_of_tenancy`, `commercial`, `post_construction`, `spring` |
-| `supplies` | Who provides cleaning supplies: `client`, `provider` |
-| `access_method` | How the cleaner gains entry: `client_present`, `key_held`, `lockbox`, `concierge` |
-| `recurring` | Standing booking: `true`/`false` |
-| `recurrence_pattern` | Schedule: `weekly`, `biweekly`, `monthly`, `fortnightly` |
-| `estimated_hours` | Expected session duration in hours |
-| `rooms` | Specific rooms to clean (optional; comma-separated) |
+| Tag                  | Description                                                                                        |
+|----------------------|----------------------------------------------------------------------------------------------------|
+| `property_type`      | Property category: `flat`, `house`, `office`, `commercial`, `airbnb`                               |
+| `property_size`      | Size indicator: `studio`, `1bed`, `2bed`, `3bed`, `4bed+`, `small_office`, `large_office`          |
+| `cleaning_type`      | Service category: `regular`, `deep`, `end_of_tenancy`, `commercial`, `post_construction`, `spring` |
+| `supplies`           | Who provides cleaning supplies: `client`, `provider`                                               |
+| `access_method`      | How the cleaner gains entry: `client_present`, `key_held`, `lockbox`, `concierge`                  |
+| `recurring`          | Standing booking: `true`/`false`                                                                   |
+| `recurrence_pattern` | Schedule: `weekly`, `biweekly`, `monthly`, `fortnightly`                                           |
+| `estimated_hours`    | Expected session duration in hours                                                                 |
+| `rooms`              | Specific rooms to clean (optional; comma-separated)                                                |
 
 ## Rating Criteria
 
-| Criterion | Weight |
-|-----------|--------|
-| `overall` | 0.25 |
-| `thoroughness` | 0.25 |
-| `punctuality` | 0.20 |
-| `trustworthiness` | 0.15 |
-| `attention_to_detail` | 0.15 |
+| Criterion             | Weight |
+|-----------------------|--------|
+| `overall`             | 0.25   |
+| `thoroughness`        | 0.25   |
+| `punctuality`         | 0.20   |
+| `trustworthiness`     | 0.15   |
+| `attention_to_detail` | 0.15   |
 
 ## Pricing Model
 
-**Hourly or fixed per session.** Regular cleaning typically uses hourly rates. Specialist cleans (deep clean, end-of-tenancy) use fixed quotes based on property size and type. Surcharges for supplies provided by cleaner, ironing, laundry, and oven cleaning.
+**Hourly or fixed per session.** Regular cleaning typically uses hourly rates. Specialist cleans (deep clean,
+end-of-tenancy) use fixed quotes based on property size and type. Surcharges for supplies provided by cleaner, ironing,
+laundry, and oven cleaning.
 
-Example hourly: `hourly_rate x estimated_hours`. Example fixed: flat rate per `property_size` and `cleaning_type` combination.
+Example hourly: `hourly_rate x estimated_hours`. Example fixed: flat rate per `property_size` and `cleaning_type`
+combination.
 
 ## Payment Configuration
 
-| Property | Value |
-|----------|-------|
-| Primary `payment_type` | `simple` |
+| Property                | Value                            |
+|-------------------------|----------------------------------|
+| Primary `payment_type`  | `simple`                         |
 | Optional `payment_type` | `streaming` (sessions > 2 hours) |
-| Streaming interval | 1800 seconds (half-hourly) |
-| Rate basis | Hourly or fixed per session |
+| Streaming interval      | 1800 seconds (half-hourly)       |
+| Rate basis              | Hourly or fixed per session      |
 
-Regular cleaning and specialist cleans (end-of-tenancy, deep clean) use TROTT-04 simple lump-sum payment. For long sessions exceeding 2 hours, operators MAY enable half-hourly streaming (kind 30536), giving the client real-time visibility of session duration and cost.
+Regular cleaning and specialist cleans (end-of-tenancy, deep clean) use TROTT-04 simple lump-sum payment. For long
+sessions exceeding 2 hours, operators MAY enable half-hourly streaming (kind 30536), giving the client real-time
+visibility of session duration and cost.
 
 ### Default Stakes
 
-| Party | Percentage | Basis |
-|-------|-----------|-------|
-| Client | 10% | Session fee |
-| Cleaner | 10% | Session fee |
+| Party   | Percentage | Basis       |
+|---------|------------|-------------|
+| Client  | 10%        | Session fee |
+| Cleaner | 10%        | Session fee |
 
 Stakes are symmetric — both parties have roughly equal commitment in a recurring relationship.
 
 ## Cancellation Policy
 
-| Stage | Penalty |
-|-------|---------|
-| Before match | None |
-| More than 24 hours before scheduled time | None |
-| Within 24 hours of scheduled time | 80% of staked amount |
-| No-show (client not home / no access) | 100% of client stake (automatic) |
-| Cancelling recurring arrangement | No penalty; affects future sessions only, not completed ones |
+| Stage                                    | Penalty                                                      |
+|------------------------------------------|--------------------------------------------------------------|
+| Before match                             | None                                                         |
+| More than 24 hours before scheduled time | None                                                         |
+| Within 24 hours of scheduled time        | 80% of staked amount                                         |
+| No-show (client not home / no access)    | 100% of client stake (automatic)                             |
+| Cancelling recurring arrangement         | No penalty; affects future sessions only, not completed ones |
 
 Stake amounts are defined in the Default Stakes table above.
 
 ## PII Requirements
 
-Client's home or office address, access method (key location, lockbox code, concierge details). Encrypted via NIP-44. For recurring clients with key-held access, access details are shared once and referenced thereafter. Retained for task duration plus 30 days; recurring arrangements retain PII for the duration of the arrangement.
+Client's home or office address, access method (key location, lockbox code, concierge details). Encrypted via NIP-44.
+For recurring clients with key-held access, access details are shared once and referenced thereafter. Retained for task
+duration plus 30 days; recurring arrangements retain PII for the duration of the arrangement.
 
 ## Safety Rules
 
-- **Check-ins:** Not required for regular clients with an established history. Optional check-in at arrival for first visits with a new client.
-- **Key held access:** When cleaners hold keys, the key arrangement should be documented in TROTT-06 PII Envelope for accountability.
+- **Check-ins:** Not required for regular clients with an established history. Optional check-in at arrival for first
+  visits with a new client.
+- **Key held access:** When cleaners hold keys, the key arrangement should be documented in TROTT-06 PII Envelope for
+  accountability.
 
 ## Completion Proof
 
 **For first visits and specialist cleans:** Optional before-and-after photographs. GPS arrival confirmation.
 
-**For regular recurring sessions:** GPS arrival and departure timestamps suffice. Client confirms via TROTT-01 Task Confirm or auto-confirms after 24 hours for trusted recurring arrangements.
+**For regular recurring sessions:** GPS arrival and departure timestamps suffice. Client confirms via TROTT-01 Task
+Confirm or auto-confirms after 24 hours for trusted recurring arrangements.
 
 ## Domain-Specific Event Kinds
 
-| Kind | Name | Description |
-|------|------|-------------|
-| 30740 | Cleaning Request | Booking request with property details and cleaning type |
-| 30741 | Recurring Schedule | Standing arrangement: frequency, day, time, duration |
-| 30742 | Session Report | Summary of work completed, any issues noted |
-| 30743 | Supply Request | Cleaner requests specific supplies from client |
-| 30744 | Property Inventory | Documented property condition for end-of-tenancy cleans |
-| 30745-30759 | *(Reserved)* | Future cleaning extensions |
+| Kind        | Name               | Description                                             |
+|-------------|--------------------|---------------------------------------------------------|
+| 30740       | Cleaning Request   | Booking request with property details and cleaning type |
+| 30741       | Recurring Schedule | Standing arrangement: frequency, day, time, duration    |
+| 30742       | Session Report     | Summary of work completed, any issues noted             |
+| 30743       | Supply Request     | Cleaner requests specific supplies from client          |
+| 30744       | Property Inventory | Documented property condition for end-of-tenancy cleans |
+| 30745-30759 | *(Reserved)*       | Future cleaning extensions                              |
 
 ## Regulatory Context
 
-Domestic cleaning is **unregulated in the UK**. No licensing or certification is required. Operators may wish to verify DBS (Disclosure and Barring Service) checks for cleaners working in private homes, though this is not a statutory requirement. Self-employed cleaners are responsible for their own tax affairs (HMRC registration). Employers of cleaners must comply with the National Minimum Wage Act 1998 and relevant employment legislation. Commercial cleaning may require COSHH (Control of Substances Hazardous to Health) compliance for certain products.
+Domestic cleaning is **unregulated in the UK**. No licensing or certification is required. Operators may wish to verify
+DBS (Disclosure and Barring Service) checks for cleaners working in private homes, though this is not a statutory
+requirement. Self-employed cleaners are responsible for their own tax affairs (HMRC registration). Employers of cleaners
+must comply with the National Minimum Wage Act 1998 and relevant employment legislation. Commercial cleaning may require
+COSHH (Control of Substances Hazardous to Health) compliance for certain products.

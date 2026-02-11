@@ -4,13 +4,21 @@
 
 ## Abstract
 
-This specification defines **provider discovery and availability advertising** for the TROTT protocol. It specifies how providers broadcast their availability, how requesters find matching providers, and how operators advertise their services. Three complementary discovery modes are defined: **geographic broadcast** (geohash-based), **category and skill search** (tag-based), and **trusted provider networks** (requester-curated lists). A progressive location reveal mechanism ensures that precise coordinates are never exposed in public events.
+This specification defines **provider discovery and availability advertising** for the TROTT protocol. It specifies how
+providers broadcast their availability, how requesters find matching providers, and how operators advertise their
+services. Three complementary discovery modes are defined: **geographic broadcast** (geohash-based), **category and
+skill search** (tag-based), and **trusted provider networks** (requester-curated lists). A progressive location reveal
+mechanism ensures that precise coordinates are never exposed in public events.
 
 ## Motivation
 
-Decentralised service coordination requires discovery mechanisms that do not depend on a single platform's matching algorithm. TROTT-02 enables any Nostr client to find available providers in any area or category, compare operators on transparent criteria (fee, reputation, trust model), and connect directly — all without a centralised directory.
+Decentralised service coordination requires discovery mechanisms that do not depend on a single platform's matching
+algorithm. TROTT-02 enables any Nostr client to find available providers in any area or category, compare operators on
+transparent criteria (fee, reputation, trust model), and connect directly — all without a centralised directory.
 
-Not all service domains are geographic. Online tutoring, consulting, and many skilled trades operate virtually or across wide regions. TROTT-02 therefore defines multiple discovery modes, with geographic broadcast as the default for location-bound services and category/skill search for virtual or specialist services.
+Not all service domains are geographic. Online tutoring, consulting, and many skilled trades operate virtually or across
+wide regions. TROTT-02 therefore defines multiple discovery modes, with geographic broadcast as the default for
+location-bound services and category/skill search for virtual or specialist services.
 
 ## Depends On
 
@@ -24,15 +32,16 @@ Not all service domains are geographic. Online tutoring, consulting, and many sk
 
 ## Event Kinds
 
-| Kind | Name | Type | Publisher | Description |
-|------|------|------|-----------|-------------|
-| 20500 | Provider Availability | Ephemeral | Provider | "I'm available now, here" — real-time beacon |
-| 30510 | Provider Profile | Parameterised replaceable (NIP-33) | Provider | Capabilities, credentials, domains served, areas covered |
-| 30511 | Operator Bond | Parameterised replaceable (NIP-33) | Operator | Operator stake, supported domains, terms, SLA |
-| 30512 | Trusted Provider List | Parameterised replaceable (NIP-33) | Requester | Requester's preferred providers with personal ratings |
-| 30513 | Requester Profile | Parameterised replaceable (NIP-33) | Requester | Requester's portable profile — saved locations, preferences, defaults |
+| Kind  | Name                  | Type                               | Publisher | Description                                                           |
+|-------|-----------------------|------------------------------------|-----------|-----------------------------------------------------------------------|
+| 20500 | Provider Availability | Ephemeral                          | Provider  | "I'm available now, here" — real-time beacon                          |
+| 30510 | Provider Profile      | Parameterised replaceable (NIP-33) | Provider  | Capabilities, credentials, domains served, areas covered              |
+| 30511 | Operator Bond         | Parameterised replaceable (NIP-33) | Operator  | Operator stake, supported domains, terms, SLA                         |
+| 30512 | Trusted Provider List | Parameterised replaceable (NIP-33) | Requester | Requester's preferred providers with personal ratings                 |
+| 30513 | Requester Profile     | Parameterised replaceable (NIP-33) | Requester | Requester's portable profile — saved locations, preferences, defaults |
 
-> **Note on kind 20500**: This is in the ephemeral event range (20000-29999). Relays MUST NOT persist these events. They are transient signals indicating current availability only.
+> **Note on kind 20500**: This is in the ephemeral event range (20000-29999). Relays MUST NOT persist these events. They
+> are transient signals indicating current availability only.
 
 > **Note on kinds 30510-30513**: These kinds are used for discovery-specific purposes as defined in this specification.
 
@@ -42,11 +51,14 @@ Not all service domains are geographic. Online tutoring, consulting, and many sk
 
 ### Mode 1: Geographic Broadcast
 
-The default discovery mode for location-bound services (ridesharing, locksmith, delivery, towing, pet services). Providers broadcast their current location at coarse geohash precision. Requesters subscribe to geohash cells covering their area.
+The default discovery mode for location-bound services (ridesharing, locksmith, delivery, towing, pet services).
+Providers broadcast their current location at coarse geohash precision. Requesters subscribe to geohash cells covering
+their area.
 
 **How it works:**
 
-1. Provider publishes kind 20500 (Provider Availability) ephemeral events every 30 seconds with a coarse geohash (precision 4-5, approximately 5-40 km)
+1. Provider publishes kind 20500 (Provider Availability) ephemeral events every 30 seconds with a coarse geohash (
+   precision 4-5, approximately 5-40 km)
 2. Requester subscribes to kind 20500 events matching their geohash cell and its eight neighbours (9 cells total)
 3. Matching providers appear in the requester's client
 4. Requester publishes a Task Request (TROTT-01, kind 30500) with geohash tags
@@ -54,17 +66,18 @@ The default discovery mode for location-bound services (ridesharing, locksmith, 
 
 **Geohash precision table:**
 
-| Precision | Approximate Cell Size | Use In TROTT |
-|-----------|----------------------|--------------|
-| 3 | ~156 km x 156 km | Regional fallback, rural areas |
-| 4 | ~39 km x 39 km | City-level discovery, default for availability |
-| 5 | ~5 km x 5 km | Neighbourhood-level, default for service areas |
-| 6 | ~1.2 km x 1.2 km | Post-acceptance only (NIP-44 encrypted) |
-| 7+ | <300 m | In-progress only (NIP-44 encrypted, never public) |
+| Precision | Approximate Cell Size | Use In TROTT                                      |
+|-----------|-----------------------|---------------------------------------------------|
+| 3         | ~156 km x 156 km      | Regional fallback, rural areas                    |
+| 4         | ~39 km x 39 km        | City-level discovery, default for availability    |
+| 5         | ~5 km x 5 km          | Neighbourhood-level, default for service areas    |
+| 6         | ~1.2 km x 1.2 km      | Post-acceptance only (NIP-44 encrypted)           |
+| 7+        | <300 m                | In-progress only (NIP-44 encrypted, never public) |
 
 **Nine-cell subscription:**
 
-To avoid edge effects when a provider is near a geohash cell boundary, requesters MUST subscribe to the target cell plus its eight neighbours:
+To avoid edge effects when a provider is near a geohash cell boundary, requesters MUST subscribe to the target cell plus
+its eight neighbours:
 
 ```
 ┌─────┬─────┬─────┐
@@ -90,7 +103,9 @@ The REQ filter for geographic discovery:
 
 ### Mode 2: Category & Skill Search
 
-For services where expertise or specialisation matters more than proximity (emergency trades, tutoring, consulting), or where services span wide geographic areas. Providers declare their skills, credentials, and service categories in their Provider Profile (kind 30510). Requesters search by category, skill tag, or credential.
+For services where expertise or specialisation matters more than proximity (emergency trades, tutoring, consulting), or
+where services span wide geographic areas. Providers declare their skills, credentials, and service categories in their
+Provider Profile (kind 30510). Requesters search by category, skill tag, or credential.
 
 **How it works:**
 
@@ -121,35 +136,48 @@ For services where expertise or specialisation matters more than proximity (emer
 **Multi-domain providers** are supported. A single Provider Profile MAY list multiple domains and skills:
 
 ```json
-["domain", "emergency_trades"],
+[
+  "domain",
+  "emergency_trades"
+],
 ["domain", "locksmith"],
 ["skill", "plumber"],
-["skill", "locksmith"],
-["credential", "gas_safe_registered"],
-["credential", "mla_approved"]
+[
+"skill", "locksmith"
+],
+[
+"credential", "gas_safe_registered"
+],
+[
+"credential", "mla_approved"
+]
 ```
 
 ### Mode 3: Trusted Provider Network
 
-Requesters maintain a personal list of preferred providers via kind 30512 (Trusted Provider List). This enables a "BatPhone" pattern where a requester's favourite providers are contacted first, falling back to broadcast discovery only if none are available.
+Requesters maintain a personal list of preferred providers via kind 30512 (Trusted Provider List). This enables a "
+BatPhone" pattern where a requester's favourite providers are contacted first, falling back to broadcast discovery only
+if none are available.
 
 **How it works:**
 
-1. Requester publishes kind 30512 (Trusted Provider List) with `p` tags for each preferred provider, tagged with domain and a personal trust rating
+1. Requester publishes kind 30512 (Trusted Provider List) with `p` tags for each preferred provider, tagged with domain
+   and a personal trust rating
 2. When the requester creates a task, the operator checks the trusted list first
 3. If a trusted provider is available and matches the request criteria, they are offered the task with priority
 4. If no trusted provider is available, the operator falls back to geographic broadcast or category search
-5. The requester MAY also instruct the operator to use both modes simultaneously (direct offer to trusted providers + broadcast to all)
+5. The requester MAY also instruct the operator to use both modes simultaneously (direct offer to trusted providers +
+   broadcast to all)
 
 **Priority tiers:**
 
-| Tier | Source | Priority |
-|------|--------|----------|
-| 1. Trusted list | Providers in requester's kind 30512 event | Highest |
-| 2. Direct follows | Providers in requester's NIP-02 follow list (kind 3) | High |
-| 3. Previous providers | Providers with completed task history (verified via TROTT-06 rating events) | Medium |
-| 4. Social proof | Providers followed by requester's follows (2-hop web of trust) | Low |
-| 5. Open matching | Any available provider meeting minimum criteria | Default fallback |
+| Tier                  | Source                                                                      | Priority         |
+|-----------------------|-----------------------------------------------------------------------------|------------------|
+| 1. Trusted list       | Providers in requester's kind 30512 event                                   | Highest          |
+| 2. Direct follows     | Providers in requester's NIP-02 follow list (kind 3)                        | High             |
+| 3. Previous providers | Providers with completed task history (verified via TROTT-06 rating events) | Medium           |
+| 4. Social proof       | Providers followed by requester's follows (2-hop web of trust)              | Low              |
+| 5. Open matching      | Any available provider meeting minimum criteria                             | Default fallback |
 
 ---
 
@@ -157,7 +185,8 @@ Requesters maintain a personal list of preferred providers via kind 30512 (Trust
 
 ### Kind 20500: Provider Availability
 
-Ephemeral beacon published by providers to signal real-time availability. Relays MUST NOT persist these events. Providers SHOULD publish every 30 seconds whilst on shift, with a 30-minute `expiration` tag as a safety net.
+Ephemeral beacon published by providers to signal real-time availability. Relays MUST NOT persist these events.
+Providers SHOULD publish every 30 seconds whilst on shift, with a 30-minute `expiration` tag as a safety net.
 
 #### Geographic Availability (Location-Bound Services)
 
@@ -192,11 +221,11 @@ Ephemeral beacon published by providers to signal real-time availability. Relays
 
 **Status values:**
 
-| Status | Description |
-|--------|-------------|
-| `available` | Ready to accept tasks |
-| `busy` | Currently on a task (visible but not accepting new work) |
-| `offline` | Ending shift (final beacon before going offline) |
+| Status      | Description                                              |
+|-------------|----------------------------------------------------------|
+| `available` | Ready to accept tasks                                    |
+| `busy`      | Currently on a task (visible but not accepting new work) |
+| `offline`   | Ending shift (final beacon before going offline)         |
 
 #### Virtual Availability (Non-Geographic Services)
 
@@ -228,7 +257,8 @@ For domains without geographic requirements (tutoring, consulting, remote suppor
 }
 ```
 
-The `g` tag is OPTIONAL for virtual services. Discovery relies on `skill`, `category`, and availability window tags instead.
+The `g` tag is OPTIONAL for virtual services. Discovery relies on `skill`, `category`, and availability window tags
+instead.
 
 #### Combined Availability (Multi-Mode Discovery)
 
@@ -260,7 +290,8 @@ For domains using both geographic and skill-based discovery (e.g. emergency plum
 
 ### Kind 30510: Provider Profile
 
-A persistent, parameterised replaceable declaration of a provider's capabilities, credentials, and service areas. Unlike kind 20500 (ephemeral availability), this event is stored on relays and represents the provider's long-term profile.
+A persistent, parameterised replaceable declaration of a provider's capabilities, credentials, and service areas. Unlike
+kind 20500 (ephemeral availability), this event is stored on relays and represents the provider's long-term profile.
 
 ```json
 {
@@ -302,11 +333,15 @@ A persistent, parameterised replaceable declaration of a provider's capabilities
 
 **Recommended tags**: `domain` (at least one), `skill` (at least one)
 
-**Optional tags**: `t`, `credential`, `credential_proof`, `coverage_geohash`, `coverage_radius_km`, `languages`, `operating_hours`, `timezone`, `emergency_available`, `rating`, `completed_tasks`, `member_since`, `operator_pubkey`, `expiration`
+**Optional tags**: `t`, `credential`, `credential_proof`, `coverage_geohash`, `coverage_radius_km`, `languages`,
+`operating_hours`, `timezone`, `emergency_available`, `rating`, `completed_tasks`, `member_since`, `operator_pubkey`,
+`expiration`
 
-**Multi-domain providers**: A provider who serves multiple domains (e.g. locksmith and emergency plumber) includes multiple `domain` and `skill` tags. A single profile covers all domains.
+**Multi-domain providers**: A provider who serves multiple domains (e.g. locksmith and emergency plumber) includes
+multiple `domain` and `skill` tags. A single profile covers all domains.
 
-**Multi-operator providers**: A provider who works with multiple operators includes multiple `operator_pubkey` tags. This signals to requesters that the provider is discoverable through several operators.
+**Multi-operator providers**: A provider who works with multiple operators includes multiple `operator_pubkey` tags.
+This signals to requesters that the provider is discoverable through several operators.
 
 #### REQ Filters for Provider Profile
 
@@ -340,7 +375,8 @@ A persistent, parameterised replaceable declaration of a provider's capabilities
 
 ### Kind 30511: Operator Bond
 
-A persistent declaration of an operator's financial commitment, supported domains, terms, and service-level agreement. This event enables requesters and providers to evaluate operators before choosing one.
+A persistent declaration of an operator's financial commitment, supported domains, terms, and service-level agreement.
+This event enables requesters and providers to evaluate operators before choosing one.
 
 ```json
 {
@@ -386,9 +422,14 @@ A persistent declaration of an operator's financial commitment, supported domain
 
 **Recommended tags**: `domain` (at least one), `fee_percent`, `service_area_geohash` or `service_area_name`, `api_url`
 
-**Optional tags**: `t`, `trust_model`, `bond_txid`, `bond_address`, `supported_currencies`, `payment_providers`, `trust_models`, `min_provider_rating`, `max_response_seconds`, `auto_confirm_timeout_hours`, `safety_monitoring`, `background_checks`, `insurance_required`, `guardian_threshold`, `ws_url`, `relay_url`, `expiration`
+**Optional tags**: `t`, `trust_model`, `bond_txid`, `bond_address`, `supported_currencies`, `payment_providers`,
+`trust_models`, `min_provider_rating`, `max_response_seconds`, `auto_confirm_timeout_hours`, `safety_monitoring`,
+`background_checks`, `insurance_required`, `guardian_threshold`, `ws_url`, `relay_url`, `expiration`
 
-**SLA tags**: The `max_response_seconds` tag declares the operator's maximum time to match a request with a provider. The `auto_confirm_timeout_hours` tag declares how long the operator waits for requester confirmation before auto-confirming. These are commitments — operators who consistently fail to meet their SLA risk reputation damage and bond slashing.
+**SLA tags**: The `max_response_seconds` tag declares the operator's maximum time to match a request with a provider.
+The `auto_confirm_timeout_hours` tag declares how long the operator waits for requester confirmation before
+auto-confirming. These are commitments — operators who consistently fail to meet their SLA risk reputation damage and
+bond slashing.
 
 #### REQ Filters for Operator Bonds
 
@@ -423,21 +464,22 @@ A persistent declaration of an operator's financial commitment, supported domain
 
 Requesters (or their client applications) compare operators on the following criteria:
 
-| Criterion | Tag | Description |
-|-----------|-----|-------------|
-| Fee | `fee_percent` | Operator's commission percentage |
-| Bond size | `amount` + `currency` | Financial commitment at stake |
-| Trust models | `trust_models` | Available trust levels (trustless, custodial, etc.) |
-| Payment methods | `payment_providers` | Supported payment rails |
-| Currencies | `supported_currencies` | Accepted currencies |
-| Safety | `safety_monitoring`, `background_checks`, `insurance_required` | Safety infrastructure |
-| SLA | `max_response_seconds`, `auto_confirm_timeout_hours` | Service-level commitments |
-| Domains | `domain` tags | Which service types are supported |
-| Guardian oversight | `guardian_threshold` | Bond slashing governance model |
+| Criterion          | Tag                                                            | Description                                         |
+|--------------------|----------------------------------------------------------------|-----------------------------------------------------|
+| Fee                | `fee_percent`                                                  | Operator's commission percentage                    |
+| Bond size          | `amount` + `currency`                                          | Financial commitment at stake                       |
+| Trust models       | `trust_models`                                                 | Available trust levels (trustless, custodial, etc.) |
+| Payment methods    | `payment_providers`                                            | Supported payment rails                             |
+| Currencies         | `supported_currencies`                                         | Accepted currencies                                 |
+| Safety             | `safety_monitoring`, `background_checks`, `insurance_required` | Safety infrastructure                               |
+| SLA                | `max_response_seconds`, `auto_confirm_timeout_hours`           | Service-level commitments                           |
+| Domains            | `domain` tags                                                  | Which service types are supported                   |
+| Guardian oversight | `guardian_threshold`                                           | Bond slashing governance model                      |
 
 ### Kind 30512: Trusted Provider List
 
-A requester's personal list of preferred providers, with per-provider domain and trust rating. This enables the "BatPhone" pattern where favourite providers are contacted first.
+A requester's personal list of preferred providers, with per-provider domain and trust rating. This enables the "
+BatPhone" pattern where favourite providers are contacted first.
 
 ```json
 {
@@ -459,11 +501,11 @@ A requester's personal list of preferred providers, with per-provider domain and
 
 Each `p` tag has four elements:
 
-| Position | Description | Example |
-|----------|-------------|---------|
-| 1 | Provider's hex pubkey | `<hex>` |
-| 2 | Domain for which this provider is trusted | `locksmith` |
-| 3 | Personal trust rating (1-5) | `5` |
+| Position | Description                               | Example     |
+|----------|-------------------------------------------|-------------|
+| 1        | Provider's hex pubkey                     | `<hex>`     |
+| 2        | Domain for which this provider is trusted | `locksmith` |
+| 3        | Personal trust rating (1-5)               | `5`         |
 
 **Required tags**: `d`
 
@@ -492,21 +534,25 @@ Operators query for a requester's trusted provider list when processing task req
 3. Operator fetches the requester's kind 30512 event
 4. Operator cross-references the trusted providers against current availability (kind 20500 events)
 5. If a trusted provider is available and matches the request criteria:
-   - Operator sends the task directly to the trusted provider (highest priority)
-   - If the trusted provider declines or does not respond within `max_response_seconds`, fall back to broader discovery
+    - Operator sends the task directly to the trusted provider (highest priority)
+    - If the trusted provider declines or does not respond within `max_response_seconds`, fall back to broader discovery
 6. If no trusted providers are available, fall back to geographic broadcast or category search
-7. The requester MAY include `["discovery_mode", "trusted_first"]` or `["discovery_mode", "broadcast_and_trusted"]` on the Task Request to control the behaviour:
+7. The requester MAY include `["discovery_mode", "trusted_first"]` or `["discovery_mode", "broadcast_and_trusted"]` on
+   the Task Request to control the behaviour:
 
-| Discovery Mode | Behaviour |
-|---------------|-----------|
-| `trusted_first` | Try trusted providers first, then fall back to broadcast (default) |
-| `broadcast_and_trusted` | Simultaneously offer to trusted providers AND broadcast to all |
-| `trusted_only` | Only offer to trusted providers; cancel if none available |
-| `broadcast_only` | Skip trusted provider list; use geographic/category discovery only |
+| Discovery Mode          | Behaviour                                                          |
+|-------------------------|--------------------------------------------------------------------|
+| `trusted_first`         | Try trusted providers first, then fall back to broadcast (default) |
+| `broadcast_and_trusted` | Simultaneously offer to trusted providers AND broadcast to all     |
+| `trusted_only`          | Only offer to trusted providers; cancel if none available          |
+| `broadcast_only`        | Skip trusted provider list; use geographic/category discovery only |
 
 ### Kind 30513: Requester Profile
 
-A persistent, parameterised replaceable profile published by the requester. Public tags enable relay filtering and provider-side discovery; private fields are NIP-44 encrypted to self, so only the requester can read them. This is the requester's **portable profile** — switching to a different client or operator preserves saved locations, payment defaults, and domain-specific preferences. Symmetric with Provider Profile (kind 30510) but for the requester side.
+A persistent, parameterised replaceable profile published by the requester. Public tags enable relay filtering and
+provider-side discovery; private fields are NIP-44 encrypted to self, so only the requester can read them. This is the
+requester's **portable profile** — switching to a different client or operator preserves saved locations, payment
+defaults, and domain-specific preferences. Symmetric with Provider Profile (kind 30510) but for the requester side.
 
 ```json
 {
@@ -529,20 +575,21 @@ A persistent, parameterised replaceable profile published by the requester. Publ
 
 **Public tags** (visible to relays for filtering):
 
-| Tag | Description |
-|-----|-------------|
-| `d` | Always `requester-profile` (one per requester) |
-| `domain` (multiple) | Domains the requester uses |
-| `languages` | Spoken languages (comma-separated, ISO 639-1) |
-| `g` | Home area geohash (precision 3-4 only, for regional filtering) |
-| `rating` | Requester's current aggregate rating |
-| `completed_tasks` | Total completed tasks |
+| Tag                 | Description                                                    |
+|---------------------|----------------------------------------------------------------|
+| `d`                 | Always `requester-profile` (one per requester)                 |
+| `domain` (multiple) | Domains the requester uses                                     |
+| `languages`         | Spoken languages (comma-separated, ISO 639-1)                  |
+| `g`                 | Home area geohash (precision 3-4 only, for regional filtering) |
+| `rating`            | Requester's current aggregate rating                           |
+| `completed_tasks`   | Total completed tasks                                          |
 
 **Private content** (NIP-44 encrypted to self):
 
 - **Saved locations** — home, work, airport, favourites — each with label + coordinates
 - **Payment defaults** — preferred rail, preferred currency, wallet pubkey
-- **Domain-specific preferences** — vehicle type for ridesharing, pet details for pet-services, parcel size defaults for delivery
+- **Domain-specific preferences** — vehicle type for ridesharing, pet details for pet-services, parcel size defaults for
+  delivery
 - **Notification preferences** — alert channels and quiet hours
 
 **Required tags**: `d`
@@ -567,26 +614,33 @@ Fetch a requester's profile (e.g. for a provider or operator reviewing an incomi
 
 ## Progressive Location Reveal
 
-TROTT enforces a **progressive location reveal** protocol to protect participant privacy. Precise coordinates are never published in public events. Location precision increases only as the task progresses and trust is established.
+TROTT enforces a **progressive location reveal** protocol to protect participant privacy. Precise coordinates are never
+published in public events. Location precision increases only as the task progresses and trust is established.
 
 ### Precision by Task Phase
 
-| Task Phase | Location Precision | Mechanism | Visible To |
-|------------|-------------------|-----------|------------|
-| **Availability** (kind 20500) | ~5-40 km (geohash precision 4-5) | Public `g` tag | Anyone |
-| **Task Request** (kind 30500) | ~1-5 km (geohash precision 5) | Public `g` tag | Anyone |
-| **Task Accepted** (kind 30502) | ~150 m (geohash precision 6-7) | NIP-44 encrypted to matched parties | Requester + Provider only |
-| **In Progress** (kind 30503) | Precise coordinates | NIP-44 encrypted or operator WebSocket | Requester + Provider + Operator only |
+| Task Phase                     | Location Precision               | Mechanism                              | Visible To                           |
+|--------------------------------|----------------------------------|----------------------------------------|--------------------------------------|
+| **Availability** (kind 20500)  | ~5-40 km (geohash precision 4-5) | Public `g` tag                         | Anyone                               |
+| **Task Request** (kind 30500)  | ~1-5 km (geohash precision 5)    | Public `g` tag                         | Anyone                               |
+| **Task Accepted** (kind 30502) | ~150 m (geohash precision 6-7)   | NIP-44 encrypted to matched parties    | Requester + Provider only            |
+| **In Progress** (kind 30503)   | Precise coordinates              | NIP-44 encrypted or operator WebSocket | Requester + Provider + Operator only |
 
 ### Privacy Rules
 
-1. **Kind 20500 (Provider Availability)** events MUST NOT contain coordinates more precise than geohash precision 5 (~5 km). The `g` tag MUST use precision 4 or 5. Latitude/longitude tags MUST NOT appear on public availability events.
+1. **Kind 20500 (Provider Availability)** events MUST NOT contain coordinates more precise than geohash precision 5 (~5
+   km). The `g` tag MUST use precision 4 or 5. Latitude/longitude tags MUST NOT appear on public availability events.
 
-2. **Kind 30500 (Task Request)** events SHOULD use geohash precision 5. If `location_lat` and `location_lon` tags are present on a public event, they MUST be rounded to at least 2 decimal places (~1.1 km precision).
+2. **Kind 30500 (Task Request)** events SHOULD use geohash precision 5. If `location_lat` and `location_lon` tags are
+   present on a public event, they MUST be rounded to at least 2 decimal places (~1.1 km precision).
 
-3. **Kind 30502 (Task Accept)** events MAY include precise coordinates, but these MUST be encrypted using NIP-44 to the counterparty's pubkey. The precise location is exchanged via NIP-17 gift-wrapped direct messages or via the operator's private API, never in plain text on public relays.
+3. **Kind 30502 (Task Accept)** events MAY include precise coordinates, but these MUST be encrypted using NIP-44 to the
+   counterparty's pubkey. The precise location is exchanged via NIP-17 gift-wrapped direct messages or via the
+   operator's private API, never in plain text on public relays.
 
-4. **Kind 30503 (Task Update)** events during the `in_progress` phase transmit real-time location via the operator's WebSocket connection or NIP-44 encrypted ephemeral events. These MUST NOT be published as plain text on public relays.
+4. **Kind 30503 (Task Update)** events during the `in_progress` phase transmit real-time location via the operator's
+   WebSocket connection or NIP-44 encrypted ephemeral events. These MUST NOT be published as plain text on public
+   relays.
 
 ### Location Reveal Example
 
@@ -658,7 +712,8 @@ This returns all operators serving the requester's area for the requested domain
 
 ### Step 2: Compare Operators
 
-The client presents operators for comparison on fee, bond size, trust models, safety features, and SLA. The requester selects an operator (or the client auto-selects based on preferences).
+The client presents operators for comparison on fee, bond size, trust models, safety features, and SLA. The requester
+selects an operator (or the client auto-selects based on preferences).
 
 ### Step 3: Find Available Providers
 
@@ -698,13 +753,16 @@ Requester publishes a Task Request (TROTT-01, kind 30500) and connects to the ch
 
 ### Step 5: Operator Matches
 
-The operator checks the requester's trusted provider list (kind 30512), cross-references with available providers, and matches according to the discovery priority tiers.
+The operator checks the requester's trusted provider list (kind 30512), cross-references with available providers, and
+matches according to the discovery priority tiers.
 
 ---
 
 ## NIP-02 Integration: Social Discovery
 
-Beyond the explicit Trusted Provider List (kind 30512), TROTT-02 leverages **NIP-02 follow lists** (kind 3) as implicit trust signals. When a requester follows a provider's pubkey on Nostr, this acts as a "favourite provider" bookmark — visible to any operator, across all domains.
+Beyond the explicit Trusted Provider List (kind 30512), TROTT-02 leverages **NIP-02 follow lists** (kind 3) as implicit
+trust signals. When a requester follows a provider's pubkey on Nostr, this acts as a "favourite provider" bookmark —
+visible to any operator, across all domains.
 
 ### Implementation
 
@@ -719,12 +777,16 @@ Beyond the explicit Trusted Provider List (kind 30512), TROTT-02 leverages **NIP
    ```
 
 2. The operator extracts `p` tags and cross-references with available providers
-3. Providers who appear in the follow list receive Tier 2 priority (after explicit Trusted Provider List, before history-based matching)
-4. If both the requester follows the provider AND the provider follows the requester (mutual follow), the operator MAY increase priority further
+3. Providers who appear in the follow list receive Tier 2 priority (after explicit Trusted Provider List, before
+   history-based matching)
+4. If both the requester follows the provider AND the provider follows the requester (mutual follow), the operator MAY
+   increase priority further
 
 ### Caching
 
-Operators SHOULD cache NIP-02 follow list lookups with a TTL of 5-10 minutes. Follow lists change infrequently relative to task requests. For 2-hop social proof (Tier 4), operators MAY limit fan-out to the requester's most recent 50 follows to bound lookup cost.
+Operators SHOULD cache NIP-02 follow list lookups with a TTL of 5-10 minutes. Follow lists change infrequently relative
+to task requests. For 2-hop social proof (Tier 4), operators MAY limit fan-out to the requester's most recent 50 follows
+to bound lookup cost.
 
 ---
 
@@ -734,23 +796,28 @@ Operators SHOULD cache NIP-02 follow list lookups with a TTL of 5-10 minutes. Fo
 
 For optimal discovery performance, the following relay architecture is RECOMMENDED:
 
-| Relay Type | Event Kinds | Purpose |
-|------------|------------|---------|
-| **Public discovery relays** | 20500, 30510, 30511, 30512, 30513 | Widely replicated, high availability. Used for finding providers, operators, and requester profiles. |
-| **Operator relays** | 30500-30507 (TROTT-01 lifecycle) | Authoritative task state. Operated by each TROTT operator. |
-| **General Nostr relays** | 3 (NIP-02 follows), 30530+ (reputation) | Social graph and reputation data. |
+| Relay Type                  | Event Kinds                             | Purpose                                                                                              |
+|-----------------------------|-----------------------------------------|------------------------------------------------------------------------------------------------------|
+| **Public discovery relays** | 20500, 30510, 30511, 30512, 30513       | Widely replicated, high availability. Used for finding providers, operators, and requester profiles. |
+| **Operator relays**         | 30500-30507 (TROTT-01 lifecycle)        | Authoritative task state. Operated by each TROTT operator.                                           |
+| **General Nostr relays**    | 3 (NIP-02 follows), 30530+ (reputation) | Social graph and reputation data.                                                                    |
 
 ### Relay Selection
 
-- **Provider Availability (kind 20500)**: Publish to 2-3 public discovery relays with high uptime. Ephemeral events should reach requesters quickly.
+- **Provider Availability (kind 20500)**: Publish to 2-3 public discovery relays with high uptime. Ephemeral events
+  should reach requesters quickly.
 - **Provider Profile (kind 30510)**: Publish to 3+ public relays for durability. This is a persistent advertisement.
-- **Operator Bond (kind 30511)**: Publish to 3+ public relays. This is a high-stakes commitment that must be widely visible.
-- **Trusted Provider List (kind 30512)**: Publish to the requester's preferred relays. Operators query these when processing task requests.
-- **Requester Profile (kind 30513)**: Publish to 2-3 personal relays. Private content is encrypted to self; only the requester can read it.
+- **Operator Bond (kind 30511)**: Publish to 3+ public relays. This is a high-stakes commitment that must be widely
+  visible.
+- **Trusted Provider List (kind 30512)**: Publish to the requester's preferred relays. Operators query these when
+  processing task requests.
+- **Requester Profile (kind 30513)**: Publish to 2-3 personal relays. Private content is encrypted to self; only the
+  requester can read it.
 
 ### Ephemeral Event Handling
 
 Relays receiving kind 20500 events:
+
 - MUST NOT persist them to storage
 - SHOULD forward them immediately to active subscriptions
 - SHOULD honour the `expiration` tag as a maximum lifetime hint
@@ -774,13 +841,16 @@ Relays receiving kind 20500 events:
 - Operator service areas and capabilities
 - Provider skills, credentials, and coverage areas
 - Operator bonds, fee structures, and SLA terms
-- Personal trust ratings (kind 30512) — these reveal which providers a requester prefers, which the requester opts into by publishing
+- Personal trust ratings (kind 30512) — these reveal which providers a requester prefers, which the requester opts into
+  by publishing
 
 ### Provider Tracking Mitigation
 
 To prevent long-term tracking of provider movements via kind 20500 events:
+
 - Providers SHOULD vary their publication interval slightly (25-35 seconds, not exactly 30)
-- Providers SHOULD use geohash precision 4 (~39 km) when not actively seeking tasks, and precision 5 (~5 km) only when actively available
+- Providers SHOULD use geohash precision 4 (~39 km) when not actively seeking tasks, and precision 5 (~5 km) only when
+  actively available
 - Relays MUST NOT persist ephemeral events
 - Operators SHOULD NOT log or retain provider availability beacons beyond the current session
 
@@ -788,38 +858,43 @@ To prevent long-term tracking of provider movements via kind 20500 events:
 
 ## Combining Discovery Modes
 
-Domains commonly combine multiple discovery modes. The `discovery_method` tag on Task Request events (TROTT-01, kind 30500) declares which modes apply:
+Domains commonly combine multiple discovery modes. The `discovery_method` tag on Task Request events (TROTT-01, kind
+30500) declares which modes apply:
 
-| Domain | Discovery Modes | Explanation |
-|--------|----------------|-------------|
-| Ridesharing | `geohash` | Provider must be nearby |
-| Locksmith | `geohash` | Provider must be nearby |
-| Delivery | `geohash` | Provider must be near collection point |
-| Emergency plumber | `geohash,skill` | Must be nearby AND qualified |
-| Pet walking | `geohash,category` | Must be nearby AND offer right service |
-| Online tutoring | `skill,availability` | Must have right expertise AND be available |
-| Process serving | `jurisdiction,geohash` | Must be authorised in correct court AND within travel distance |
-| Security guard | `geohash,credential` | Must be nearby AND hold SIA licence |
+| Domain            | Discovery Modes        | Explanation                                                    |
+|-------------------|------------------------|----------------------------------------------------------------|
+| Ridesharing       | `geohash`              | Provider must be nearby                                        |
+| Locksmith         | `geohash`              | Provider must be nearby                                        |
+| Delivery          | `geohash`              | Provider must be near collection point                         |
+| Emergency plumber | `geohash,skill`        | Must be nearby AND qualified                                   |
+| Pet walking       | `geohash,category`     | Must be nearby AND offer right service                         |
+| Online tutoring   | `skill,availability`   | Must have right expertise AND be available                     |
+| Process serving   | `jurisdiction,geohash` | Must be authorised in correct court AND within travel distance |
+| Security guard    | `geohash,credential`   | Must be nearby AND hold SIA licence                            |
 
-The `discovery_method` tag uses a comma-separated list. When multiple modes are specified, relay filters SHOULD match on all (logical AND):
+The `discovery_method` tag uses a comma-separated list. When multiple modes are specified, relay filters SHOULD match on
+all (logical AND):
 
 ```json
-["discovery_method", "geohash,skill"]
+[
+  "discovery_method",
+  "geohash,skill"
+]
 ```
 
 ---
 
 ## Referenced NIPs
 
-| NIP | Name | Usage in TROTT-02 |
-|-----|------|-------------------|
-| **NIP-01** | Basic Protocol Flow | Event format, relay communication, REQ filters |
-| **NIP-02** | Contact List / Follow List | Social discovery, implicit trust signals (BatPhone pattern) |
-| **NIP-33** | Parameterised Replaceable Events | Provider Profile, Operator Bond, Trusted Provider List, Requester Profile |
-| **NIP-40** | Expiration Timestamp | Availability beacon expiration, bond expiration |
-| **NIP-44** | Encrypted Payloads | Post-acceptance precise location exchange |
-| **NIP-17 + NIP-59** | Private Messages (Gift Wrap) | PII exchange (addresses, phone numbers) |
-| **NIP-89** | App Handlers | Operators MAY publish kind 31990 to declare TROTT support |
+| NIP                 | Name                             | Usage in TROTT-02                                                         |
+|---------------------|----------------------------------|---------------------------------------------------------------------------|
+| **NIP-01**          | Basic Protocol Flow              | Event format, relay communication, REQ filters                            |
+| **NIP-02**          | Contact List / Follow List       | Social discovery, implicit trust signals (BatPhone pattern)               |
+| **NIP-33**          | Parameterised Replaceable Events | Provider Profile, Operator Bond, Trusted Provider List, Requester Profile |
+| **NIP-40**          | Expiration Timestamp             | Availability beacon expiration, bond expiration                           |
+| **NIP-44**          | Encrypted Payloads               | Post-acceptance precise location exchange                                 |
+| **NIP-17 + NIP-59** | Private Messages (Gift Wrap)     | PII exchange (addresses, phone numbers)                                   |
+| **NIP-89**          | App Handlers                     | Operators MAY publish kind 31990 to declare TROTT support                 |
 
 ---
 

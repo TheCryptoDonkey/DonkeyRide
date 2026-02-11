@@ -32,86 +32,90 @@ accepted --> provider_en_route --> provider_arrived --> trip_active --> complete
                                         +--> no_show (rider absent; automatic stake forfeit)
 ```
 
-| Core state | Ridesharing state | Description |
-|------------|-------------------|-------------|
+| Core state              | Ridesharing state   | Description                 |
+|-------------------------|---------------------|-----------------------------|
 | `in_progress` (phase 1) | `provider_en_route` | Driver travelling to pickup |
-| `in_progress` (phase 2) | `provider_arrived` | Driver waiting at pickup |
-| `in_progress` (phase 3) | `trip_active` | Rider aboard, ride underway |
+| `in_progress` (phase 2) | `provider_arrived`  | Driver waiting at pickup    |
+| `in_progress` (phase 3) | `trip_active`       | Rider aboard, ride underway |
 
 Additional terminal state: `no_show` -- rider fails to appear within the waiting limit.
 
 ## Domain-Specific Tags
 
-| Tag | Description |
-|-----|-------------|
-| `vehicle_type` | Vehicle category: `sedan`, `suv`, `van`, `mpv`, `bike` |
-| `vehicle_make` | Manufacturer |
-| `vehicle_model` | Model name |
-| `vehicle_colour` | Vehicle colour |
-| `vehicle_plate` | Registration plate (encrypted via NIP-44) |
-| `seats_available` | Number of available passenger seats |
-| `passenger_count` | Number of passengers for this ride |
-| `luggage` | Luggage size: `none`, `small`, `medium`, `large` |
-| `quiet_ride` | Rider prefers silence: `true`/`false` |
-| `surge_multiplier` | Current surge pricing multiplier |
+| Tag                | Description                                            |
+|--------------------|--------------------------------------------------------|
+| `vehicle_type`     | Vehicle category: `sedan`, `suv`, `van`, `mpv`, `bike` |
+| `vehicle_make`     | Manufacturer                                           |
+| `vehicle_model`    | Model name                                             |
+| `vehicle_colour`   | Vehicle colour                                         |
+| `vehicle_plate`    | Registration plate (encrypted via NIP-44)              |
+| `seats_available`  | Number of available passenger seats                    |
+| `passenger_count`  | Number of passengers for this ride                     |
+| `luggage`          | Luggage size: `none`, `small`, `medium`, `large`       |
+| `quiet_ride`       | Rider prefers silence: `true`/`false`                  |
+| `surge_multiplier` | Current surge pricing multiplier                       |
 
 ## Rating Criteria
 
 **Driver rated by Rider:**
 
-| Criterion | Weight |
-|-----------|--------|
-| `overall` | 0.25 |
-| `punctuality` | 0.20 |
-| `safety` | 0.20 |
-| `vehicle_condition` | 0.15 |
-| `communication` | 0.20 |
+| Criterion           | Weight |
+|---------------------|--------|
+| `overall`           | 0.25   |
+| `punctuality`       | 0.20   |
+| `safety`            | 0.20   |
+| `vehicle_condition` | 0.15   |
+| `communication`     | 0.20   |
 
 **Rider rated by Driver:**
 
-| Criterion | Weight |
-|-----------|--------|
-| `overall` | 0.40 |
-| `punctuality` | 0.30 |
-| `communication` | 0.30 |
+| Criterion       | Weight |
+|-----------------|--------|
+| `overall`       | 0.40   |
+| `punctuality`   | 0.30   |
+| `communication` | 0.30   |
 
 ## Pricing Model
 
-**Distance + time + surge.** Fare = `base_fare + (distance_metres x per_metre_rate) + (duration_seconds x per_second_rate)`. Final fare multiplied by `surge_multiplier` when demand exceeds supply. All amounts in smallest currency unit.
+**Distance + time + surge.** Fare =
+`base_fare + (distance_metres x per_metre_rate) + (duration_seconds x per_second_rate)`. Final fare multiplied by
+`surge_multiplier` when demand exceeds supply. All amounts in smallest currency unit.
 
 ## Payment Configuration
 
-| Property | Value |
-|----------|-------|
-| Primary `payment_type` | `streaming` |
-| Fallback `payment_type` | `simple` |
-| Streaming interval | 30 seconds |
-| Rate basis | Distance + time |
-| Streaming model | GBP 0.25/tick while moving, GBP 0.10/tick while stationary |
+| Property                | Value                                                      |
+|-------------------------|------------------------------------------------------------|
+| Primary `payment_type`  | `streaming`                                                |
+| Fallback `payment_type` | `simple`                                                   |
+| Streaming interval      | 30 seconds                                                 |
+| Rate basis              | Distance + time                                            |
+| Streaming model         | GBP 0.25/tick while moving, GBP 0.10/tick while stationary |
 
-Ridesharing uses TROTT-04 streaming payments (kind 30536) as the primary model, with per-tick amounts varying by speed. A `simple` lump-sum fallback is available for short trips or when the payment rail does not support streaming.
+Ridesharing uses TROTT-04 streaming payments (kind 30536) as the primary model, with per-tick amounts varying by speed.
+A `simple` lump-sum fallback is available for short trips or when the payment rail does not support streaming.
 
 ### Default Stakes
 
-| Party | Percentage | Basis |
-|-------|-----------|-------|
-| Rider | 10% | Estimated fare |
-| Driver | 15% | Estimated fare |
+| Party  | Percentage | Basis          |
+|--------|------------|----------------|
+| Rider  | 10%        | Estimated fare |
+| Driver | 15%        | Estimated fare |
 
 ## Cancellation Policy
 
-| Stage | Penalty |
-|-------|---------|
-| Before match | None |
-| Within 5 minutes of match (grace period) | None |
-| After grace period, before pickup | 80% of staked amount |
-| No-show (rider absent after 10 minutes) | 100% of rider stake (automatic) |
+| Stage                                    | Penalty                         |
+|------------------------------------------|---------------------------------|
+| Before match                             | None                            |
+| Within 5 minutes of match (grace period) | None                            |
+| After grace period, before pickup        | 80% of staked amount            |
+| No-show (rider absent after 10 minutes)  | 100% of rider stake (automatic) |
 
 Stake amounts are defined in the Default Stakes table above.
 
 ## PII Requirements
 
-Pickup address, dropoff address, rider phone number (optional). Transmitted via TROTT-06 PII Envelope (NIP-17 gift wrap). Retained for task duration plus 30 days.
+Pickup address, dropoff address, rider phone number (optional). Transmitted via TROTT-06 PII Envelope (NIP-17 gift
+wrap). Retained for task duration plus 30 days.
 
 ## Safety Rules
 
@@ -122,49 +126,58 @@ Pickup address, dropoff address, rider phone number (optional). Transmitted via 
 
 ## Completion Proof
 
-GPS trace of the route taken, confirming pickup at origin and dropoff at destination. Rider confirms arrival via TROTT-01 Task Confirm (30505).
+GPS trace of the route taken, confirming pickup at origin and dropoff at destination. Rider confirms arrival via
+TROTT-01 Task Confirm (30505).
 
 ## Domain-Specific Event Kinds
 
-| Kind | Name | Description |
-|------|------|-------------|
-| 30600 | Wait Time Charge | Driver charges for excess waiting at pickup |
-| 30601 | No-Show Fee | Rider failed to appear; fee event |
-| 30602 | Additional Charge | Incidental charge: toll, parking, cleaning |
-| 30603 | Destination Change | Rider changes dropoff mid-ride |
-| 30604 | Surge Pricing Zone | Operator publishes current surge zone and multiplier |
-| 30605 | Scheduled Ride Request | Pre-booked ride for a future time |
-| 30606 | Carpool Request | Rider signals willingness to share a ride on an overlapping route |
-| 30607 | Carpool Seat Offer | Driver advertises available seats on a planned route |
-| 30608 | Split Payment Request | Fare split definition for a shared ride among multiple passengers |
-| 30609 | Ride Preferences | Rider's standing preferences (music, temperature, quiet) |
-| 30610-30619 | *(Reserved)* | Future ridesharing extensions |
+| Kind        | Name                   | Description                                                       |
+|-------------|------------------------|-------------------------------------------------------------------|
+| 30600       | Wait Time Charge       | Driver charges for excess waiting at pickup                       |
+| 30601       | No-Show Fee            | Rider failed to appear; fee event                                 |
+| 30602       | Additional Charge      | Incidental charge: toll, parking, cleaning                        |
+| 30603       | Destination Change     | Rider changes dropoff mid-ride                                    |
+| 30604       | Surge Pricing Zone     | Operator publishes current surge zone and multiplier              |
+| 30605       | Scheduled Ride Request | Pre-booked ride for a future time                                 |
+| 30606       | Carpool Request        | Rider signals willingness to share a ride on an overlapping route |
+| 30607       | Carpool Seat Offer     | Driver advertises available seats on a planned route              |
+| 30608       | Split Payment Request  | Fare split definition for a shared ride among multiple passengers |
+| 30609       | Ride Preferences       | Rider's standing preferences (music, temperature, quiet)          |
+| 30610-30619 | *(Reserved)*           | Future ridesharing extensions                                     |
 
 ## Regulatory Context
 
-Private hire vehicle licensing in the UK is governed by the **Private Hire Vehicles (London) Act 1998** (London) and the **Local Government (Miscellaneous Provisions) Act 1976** (rest of England and Wales). Drivers require a private hire driver licence and vehicles require a private hire vehicle licence from the relevant local authority. Operators coordinating bookings require a private hire operator licence. Insurance must cover hire and reward use.
+Private hire vehicle licensing in the UK is governed by the **Private Hire Vehicles (London) Act 1998** (London) and the
+**Local Government (Miscellaneous Provisions) Act 1976** (rest of England and Wales). Drivers require a private hire
+driver licence and vehicles require a private hire vehicle licence from the relevant local authority. Operators
+coordinating bookings require a private hire operator licence. Insurance must cover hire and reward use.
 
 ## Carpool / Shared Rides
 
-Carpooling allows multiple riders heading in roughly the same direction to share a single vehicle, splitting the fare proportionally. Three domain-specific event kinds support this workflow: Carpool Request (30606), Carpool Seat Offer (30607), and Split Payment Request (30608). These events complement the core TROTT-01 task lifecycle and TROTT-04 payment flow.
+Carpooling allows multiple riders heading in roughly the same direction to share a single vehicle, splitting the fare
+proportionally. Three domain-specific event kinds support this workflow: Carpool Request (30606), Carpool Seat Offer (
+30607), and Split Payment Request (30608). These events complement the core TROTT-01 task lifecycle and TROTT-04 payment
+flow.
 
 ### Kind 30606: Carpool Request
 
-Published by a rider willing to share a ride with others on an overlapping route. This is a **discovery event** -- riders publish it to signal willingness to share. It does **not** create a task (30500) yet; a task is created only when a match is found.
+Published by a rider willing to share a ride with others on an overlapping route. This is a **discovery event** --
+riders publish it to signal willingness to share. It does **not** create a task (30500) yet; a task is created only when
+a match is found.
 
 **Tags:**
 
-| Tag | Description |
-|-----|-------------|
-| `d` | `carpool_req:<request_id>` |
-| `g` (multiple) | Geohash tags for pickup area (precision 3-5) |
-| `destination_geohash` | Approximate destination (precision 4-5) |
-| `seats_requested` | Number of seats needed (default `1`) |
-| `departure_window_start` | Earliest acceptable departure (unix timestamp) |
-| `departure_window_end` | Latest acceptable departure (unix timestamp) |
-| `flexibility_metres` | How far the rider is willing to walk to a common pickup point |
-| `max_detour_minutes` | Maximum acceptable detour versus direct route |
-| `expiration` | NIP-40 expiration timestamp |
+| Tag                      | Description                                                   |
+|--------------------------|---------------------------------------------------------------|
+| `d`                      | `carpool_req:<request_id>`                                    |
+| `g` (multiple)           | Geohash tags for pickup area (precision 3-5)                  |
+| `destination_geohash`    | Approximate destination (precision 4-5)                       |
+| `seats_requested`        | Number of seats needed (default `1`)                          |
+| `departure_window_start` | Earliest acceptable departure (unix timestamp)                |
+| `departure_window_end`   | Latest acceptable departure (unix timestamp)                  |
+| `flexibility_metres`     | How far the rider is willing to walk to a common pickup point |
+| `max_detour_minutes`     | Maximum acceptable detour versus direct route                 |
+| `expiration`             | NIP-40 expiration timestamp                                   |
 
 **Content:** optional rider note.
 
@@ -196,19 +209,19 @@ Published by a driver advertising available seats on a planned route.
 
 **Tags:**
 
-| Tag | Description |
-|-----|-------------|
-| `d` | `carpool_offer:<offer_id>` |
-| `g` (multiple) | Geohash tags for route corridor (precision 3-5) |
-| `origin_geohash` | Approximate origin |
-| `destination_geohash` | Approximate destination |
-| `seats_available` | Remaining seats |
-| `departure_at` | Planned departure time (unix timestamp) |
-| `price_per_seat` | Per-seat price (smallest currency unit) |
-| `currency` | Currency code |
-| `vehicle_type` | Vehicle category |
-| `detour_tolerance_minutes` | How much detour the driver accepts for pickups |
-| `expiration` | NIP-40 expiration timestamp |
+| Tag                        | Description                                     |
+|----------------------------|-------------------------------------------------|
+| `d`                        | `carpool_offer:<offer_id>`                      |
+| `g` (multiple)             | Geohash tags for route corridor (precision 3-5) |
+| `origin_geohash`           | Approximate origin                              |
+| `destination_geohash`      | Approximate destination                         |
+| `seats_available`          | Remaining seats                                 |
+| `departure_at`             | Planned departure time (unix timestamp)         |
+| `price_per_seat`           | Per-seat price (smallest currency unit)         |
+| `currency`                 | Currency code                                   |
+| `vehicle_type`             | Vehicle category                                |
+| `detour_tolerance_minutes` | How much detour the driver accepts for pickups  |
+| `expiration`               | NIP-40 expiration timestamp                     |
 
 **Content:** optional driver note (e.g. "Heathrow run, leaving from central London").
 
@@ -238,19 +251,20 @@ Published by a driver advertising available seats on a planned route.
 
 ### Kind 30608: Split Payment Request
 
-Published when a carpool ride's fare needs splitting among passengers. Each passenger is expected to lock their share via Stake Lock (30532). The driver receives the combined total (minus operator fee) via Stake Release (30533).
+Published when a carpool ride's fare needs splitting among passengers. Each passenger is expected to lock their share
+via Stake Lock (30532). The driver receives the combined total (minus operator fee) via Stake Release (30533).
 
 **Tags:**
 
-| Tag | Description |
-|-----|-------------|
-| `d` | `<task_id>:split_req` |
-| `task_id` | Parent task identifier |
-| `e` | References Payment Terms (30531) |
-| `split_method` | `equal`, `distance_proportional`, or `fixed_per_seat` |
+| Tag                    | Description                                                           |
+|------------------------|-----------------------------------------------------------------------|
+| `d`                    | `<task_id>:split_req`                                                 |
+| `task_id`              | Parent task identifier                                                |
+| `e`                    | References Payment Terms (30531)                                      |
+| `split_method`         | `equal`, `distance_proportional`, or `fixed_per_seat`                 |
 | `passenger` (multiple) | `<pubkey>, <amount>, <currency>, <pickup_geohash>, <dropoff_geohash>` |
-| `total_amount` | Total fare |
-| `currency` | Currency code |
+| `total_amount`         | Total fare                                                            |
+| `currency`             | Currency code                                                         |
 
 ```json
 {
@@ -295,4 +309,8 @@ The end-to-end flow for a carpool ride:
 
 ### Airport Shuttle Example
 
-A hotel concierge or travel app publishes four Carpool Requests (30606), one per hotel guest heading to Heathrow. A driver publishes a Carpool Seat Offer (30607) for "Heathrow, departing 06:00". The operator groups the compatible requests, creates a task for each guest, and publishes a Leg Plan (30508) with the pickup sequence: Hotel 1 -> Hotel 2 -> Hotel 3 -> Hotel 4 -> Heathrow. Each hotel guest pays their distance-proportional share via Split Payment Request (30608). As each guest is dropped at Heathrow, their individual task completes and their stake releases.
+A hotel concierge or travel app publishes four Carpool Requests (30606), one per hotel guest heading to Heathrow. A
+driver publishes a Carpool Seat Offer (30607) for "Heathrow, departing 06:00". The operator groups the compatible
+requests, creates a task for each guest, and publishes a Leg Plan (30508) with the pickup sequence: Hotel 1 -> Hotel
+2 -> Hotel 3 -> Hotel 4 -> Heathrow. Each hotel guest pays their distance-proportional share via Split Payment Request (
+30608). As each guest is dropped at Heathrow, their individual task completes and their stake releases.
