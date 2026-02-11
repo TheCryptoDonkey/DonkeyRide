@@ -185,8 +185,8 @@ required (e.g. security guard dispatch mandates them; ridesharing does not) and 
       "all_clear"
     ],
     [
-      "interval_minutes",
-      "30"
+      "checkin_interval_seconds",
+      "1800"
     ],
     [
       "next_expected",
@@ -205,7 +205,7 @@ required (e.g. security guard dispatch mandates them; ridesharing does not) and 
 }
 ```
 
-**Required tags**: `d`, `task_id`, `status`, `interval_minutes`, `next_expected`
+**Required tags**: `d`, `task_id`, `status`, `checkin_interval_seconds`, `next_expected`
 **Optional tags**: `domain`, `check_in_number`, `expiration`
 
 This is a parameterised replaceable event (NIP-33) — each new check-in for a task overwrites the previous one, so
@@ -233,7 +233,7 @@ When a check-in is not received by the `next_expected` timestamp, the following 
 5. On late check-in received: escalation stands down, next cycle resumes
 ```
 
-Domain profiles MAY customise escalation timings and thresholds. The `interval_minutes` tag on the check-in event
+Domain profiles MAY customise escalation timings and thresholds. The `checkin_interval_seconds` tag on the check-in event
 indicates the expected frequency — implementations SHOULD use this rather than hardcoding intervals.
 
 #### Configurable Check-In Cadence
@@ -846,7 +846,7 @@ Domain profiles declare safety and dispute parameters:
 {
   "safety": {
     "check_in_required": true,
-    "check_in_interval_minutes": 30,
+    "checkin_interval_seconds": 1800,
     "missed_check_in_escalation_minutes": 5,
     "safety_contact_share_enabled": true,
     "emergency_signal_enabled": true

@@ -15,6 +15,7 @@
 - TROTT-05: Safety (disputes) **Yes**
 - TROTT-06: Coordination (recommended) **Yes**
 - TROTT-07: Navigation **No** (dispatch only; no transport phase)
+- TROTT-08: Messaging (optional -- in-task communication between parties) **Optional**
 
 ## Roles
 

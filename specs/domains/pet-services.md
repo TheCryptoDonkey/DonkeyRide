@@ -15,6 +15,7 @@
 - TROTT-05: Safety (emergency vet incidents, disputes) **Yes**
 - TROTT-06: Coordination (optional) **Yes**
 - TROTT-07: Navigation **No** (carer travels to pet, but routing not critical)
+- TROTT-08: Messaging (optional -- in-task communication between parties) **Optional**
 
 ## Roles
 

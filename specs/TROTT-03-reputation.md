@@ -582,6 +582,37 @@ across domains when computing cross-domain reputation.
 | `package_care`  | No        | Package arrived undamaged and in good condition |
 | `communication` | Yes       | Updates during transit, responsiveness          |
 
+#### Towing
+
+| Criterion          | Universal | Description                                                 |
+|--------------------|-----------|-------------------------------------------------------------|
+| `overall`          | --        | Holistic assessment (1-5)                                   |
+| `punctuality`      | Yes       | Arrival time vs ETA                                         |
+| `safety`           | No        | Safe handling of vehicle during tow                         |
+| `vehicle_care`     | No        | Care taken with towed vehicle (no additional damage)        |
+| `communication`    | Yes       | Updates and professionalism                                 |
+
+#### Emergency Trades
+
+| Criterion          | Universal | Description                                                 |
+|--------------------|-----------|-------------------------------------------------------------|
+| `overall`          | --        | Holistic assessment (1-5)                                   |
+| `punctuality`      | Yes       | Arrival time vs ETA                                         |
+| `workmanship`      | No        | Quality of repair or installation                           |
+| `pricing_fairness` | No        | Fair pricing relative to quote                              |
+| `tidiness`         | No        | Left workspace clean                                        |
+| `communication`    | Yes       | Explained work clearly                                      |
+
+#### Pet Services
+
+| Criterion       | Universal | Description                                          |
+|-----------------|-----------|------------------------------------------------------|
+| `overall`       | --        | Holistic assessment (1-5)                            |
+| `punctuality`   | Yes       | Arrival and return time                              |
+| `animal_care`   | No        | Quality of care for the animal                       |
+| `safety`        | No        | Animal kept safe throughout                          |
+| `communication` | Yes       | Updates and photos during service                    |
+
 #### Cleaning
 
 | Criterion             | Universal | Description                               |
@@ -601,6 +632,17 @@ across domains when computing cross-domain reputation.
 | `professionalism` | No        | Conduct, uniform, bearing                    |
 | `communication`   | Yes       | Clarity of handover notes and status updates |
 | `punctuality`     | Yes       | Arrived for the shift on time                |
+
+#### Moving
+
+| Criterion        | Universal | Description                                    |
+|------------------|-----------|------------------------------------------------|
+| `overall`        | --        | Holistic assessment (1-5)                      |
+| `punctuality`    | Yes       | Arrival time                                   |
+| `item_care`      | No        | Careful handling of belongings                 |
+| `efficiency`     | No        | Speed and organisation of move                 |
+| `communication`  | Yes       | Coordination and updates                       |
+| `value`          | No        | Quality relative to price                      |
 
 ### Cross-Domain Transfer Rules
 

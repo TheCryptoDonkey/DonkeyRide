@@ -15,6 +15,7 @@
 - TROTT-05: Safety (check-ins -- central to this domain, emergency signal, disputes) **Yes**
 - TROTT-06: Coordination (recommended -- SIA licence verification, site briefings) **Yes**
 - TROTT-07: Navigation **No** (guard travels to site, but on-site thereafter)
+- TROTT-08: Messaging (optional -- in-task communication between parties) **Optional**
 
 ## Roles
 

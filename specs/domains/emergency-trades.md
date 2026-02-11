@@ -15,6 +15,7 @@
 - TROTT-05: Safety (emergency signal, disputes) **Yes**
 - TROTT-06: Coordination (recommended -- especially for certification verification) **Yes**
 - TROTT-07: Navigation **No** (dispatch only)
+- TROTT-08: Messaging (optional -- in-task communication between parties) **Optional**
 
 ## Roles
 

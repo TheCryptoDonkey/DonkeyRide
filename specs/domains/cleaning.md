@@ -15,6 +15,7 @@
 - TROTT-05: Safety (optional -- first-visit check-ins, disputes) **Yes**
 - TROTT-06: Coordination (optional) **Yes**
 - TROTT-07: Navigation **No**
+- TROTT-08: Messaging (optional -- in-task communication between parties) **Optional**
 
 ## Roles
 

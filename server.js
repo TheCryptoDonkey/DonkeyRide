@@ -1661,7 +1661,10 @@ app.post('/api/rides/:rideId/start', async (req, res) => {
         const { rideId } = req.params;
 
         const ride = rideManager.startTrip(rideId);
-        startStreamingForRide(rideId);
+        const rideProfile = rideManager.getProfileForRide(rideId);
+        if (!rideProfile || rideProfile.features?.streaming !== false) {
+            startStreamingForRide(rideId);
+        }
 
         // Notify rider
         broadcastToRide(rideId, {

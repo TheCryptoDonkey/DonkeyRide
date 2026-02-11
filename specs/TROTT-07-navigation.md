@@ -154,7 +154,7 @@ route data:
 | `waypoints`    | Array of `[lat, lon]` coordinate pairs along the route                                                           |
 | `geometry`     | GeoJSON LineString for map rendering                                                                             |
 | `instructions` | Turn-by-turn instruction array                                                                                   |
-| `stops`        | Array of intermediate stop objects (if `stop_count > 0`), each with `lat`, `lon`, `purpose`, `estimated_arrival` |
+| `stops`        | Array of intermediate stop objects (if `stop_count > 0`), each with `lat`, `lon`, `purpose`, `eta` |
 
 Relays see the public tags (distance, duration, geohash-precision origin/destination) but cannot read exact coordinates
 or the route geometry. This enables relay-level filtering (e.g. "routes in London") without exposing private location
@@ -222,7 +222,7 @@ tags indicate the route structure:
       "<provider_pubkey>"
     ]
   ],
-  "content": "<NIP-44 encrypted: {\"stops\": [{\"lat\": 51.47, \"lon\": -0.12, \"purpose\": \"collection\", \"estimated_arrival\": 1698766200}, {\"lat\": 51.50, \"lon\": -0.09, \"purpose\": \"delivery\", \"estimated_arrival\": 1698767400}, {\"lat\": 51.53, \"lon\": -0.07, \"purpose\": \"delivery\", \"estimated_arrival\": 1698768600}], ...}>"
+  "content": "<NIP-44 encrypted: {\"stops\": [{\"lat\": 51.47, \"lon\": -0.12, \"purpose\": \"collection\", \"eta\": 1698766200}, {\"lat\": 51.50, \"lon\": -0.09, \"purpose\": \"delivery\", \"eta\": 1698767400}, {\"lat\": 51.53, \"lon\": -0.07, \"purpose\": \"delivery\", \"eta\": 1698768600}], ...}>"
 }
 ```
 

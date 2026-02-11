@@ -143,12 +143,12 @@ const profile = {
     appealRequest: 30551,
     slashingProposal: 30553,
     guardianVote: 30554,
-    proofOfCollection: 30620,
-    proofOfDelivery: 30621,
-    conditionReport: 30622,
-    deliveryAttemptFailed: 30623,
-    redeliveryScheduled: 30624,
-    returnToSender: 30625,
+    proofOfCollection: 30640,
+    proofOfDelivery: 30641,
+    conditionReport: 30642,
+    deliveryAttemptFailed: 30643,
+    redeliveryScheduled: 30644,
+    returnToSender: 30645,
     panic: 30560
   }
 };

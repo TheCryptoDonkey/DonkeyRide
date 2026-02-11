@@ -15,6 +15,7 @@
 - TROTT-05: Safety (emergency signal, disputes) **Yes**
 - TROTT-06: Coordination (recommended) **Yes**
 - TROTT-07: Navigation (routing to breakdown, routing to garage) **Yes**
+- TROTT-08: Messaging (optional -- in-task communication between parties) **Optional**
 
 ## Roles
 

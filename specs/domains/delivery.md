@@ -15,6 +15,7 @@
 - TROTT-05: Safety (disputes, damage claims) **Yes**
 - TROTT-06: Coordination (recommended) **Yes**
 - TROTT-07: Navigation (routing, ETA, live tracking) **Yes**
+- TROTT-08: Messaging (optional -- in-task communication between parties) **Optional**
 
 ## Roles
 

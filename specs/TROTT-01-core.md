@@ -129,7 +129,7 @@ Implementations MUST accept both the generic and aliased forms.
 | `recurrence`      | Optional | Recurrence frequency                           | `["recurrence", "weekly"]`          |
 | `recurrence_end`  | Optional | End date for recurring series (unix timestamp) | `["recurrence_end", "1730000000"]`  |
 | `scheduled_end`    | Optional | Planned end time (unix timestamp)              | `["scheduled_end", "1699004400"]`   |
-| `expected_duration`| Optional | Expected service duration in seconds           | `["expected_duration", "3600"]`     |
+| `estimated_duration_seconds`| Optional | Estimated service duration in seconds  | `["estimated_duration_seconds", "3600"]` |
 | `urgency`          | Optional | Request urgency level                          | `["urgency", "standard"]`          |
 
 Valid recurrence values: `daily`, `weekdays`, `weekly`, `biweekly`, `monthly`.
@@ -315,7 +315,7 @@ Published by the requester to announce "I need something done." This is the entr
 virtual or category-discovered services)
 
 **Optional tags**: `domain`, `destination_lat`, `destination_lon`, `g`, `amount`, `currency`, `trust_model`,
-`expiration`, `scheduled_start`, `scheduled_end`, `recurrence`, `recurrence_end`, `expected_duration`, `urgency`,
+`expiration`, `scheduled_start`, `scheduled_end`, `recurrence`, `recurrence_end`, `estimated_duration_seconds`, `urgency`,
 `provider_count`
 
 **Validation rules**:
@@ -390,7 +390,7 @@ the same task, enabling the requester to choose.
     ["amount", "7500"],
     ["currency", "GBP"],
     ["trust_model", "operator-escrow"],
-    ["estimated_arrival", "15"],
+    ["eta_minutes", "15"],
     ["expiration", "1698769032"]
   ],
   "content": "Standard lock — non-destructive entry. If drilling is needed, I will requote before proceeding."
@@ -399,14 +399,14 @@ the same task, enabling the requester to choose.
 
 **Required tags**: `d`, `t`, `e` (referencing the Task Request), `provider_pubkey`
 
-**Optional tags**: `domain`, `status`, `p`, `amount`, `currency`, `trust_model`, `estimated_arrival`, `expiration`
+**Optional tags**: `domain`, `status`, `p`, `amount`, `currency`, `trust_model`, `eta_minutes`, `expiration`
 
 **Validation rules**:
 
 - The `e` tag MUST reference a valid Task Request (30500) event
 - The `d` tag MUST match the `d` tag of the referenced Task Request
 - If `amount` is present, `currency` MUST also be present
-- `estimated_arrival` is in minutes
+- `eta_minutes` is in minutes
 
 ### Kind 30502: Task Accept
 
@@ -457,7 +457,7 @@ Published to formalise a match. Two usage patterns:
     ["p", "<requester_hex_pubkey>"],
     ["requester_pubkey", "<requester_hex_pubkey>"],
     ["provider_pubkey", "<provider_hex_pubkey>"],
-    ["estimated_arrival", "8"],
+    ["eta_minutes", "8"],
     ["amount", "1500"],
     ["currency", "GBP"],
     ["trust_model", "fiat-escrow"],
@@ -470,7 +470,7 @@ Published to formalise a match. Two usage patterns:
 **Required tags**: `d`, `status`, `t`, `e` (referencing a Task Request or Task Offer)
 
 **Optional tags**: `domain`, `p`, `requester_pubkey`, `provider_pubkey`, `amount`, `currency`, `trust_model`,
-`estimated_arrival`, `expiration`
+`eta_minutes`, `expiration`
 
 **Validation rules**:
 
@@ -680,7 +680,7 @@ profile.
 **Required tags**: `d`, `status`, `t`, `completion_proof`
 
 **Optional tags**: `domain`, `e`, `p`, `provider_pubkey`, `proof_data`, `final_amount`, `currency`, `trust_model`,
-`distance_metres`, `duration_seconds`, `actual_duration`, `expiration`
+`distance_metres`, `duration_seconds`, `actual_duration_seconds`, `expiration`
 
 **Validation rules**:
 
@@ -765,7 +765,7 @@ Domain profiles declare which proof types are required. The core protocol define
 ### Kind 30505: Task Confirm
 
 Published by the requester to confirm that the work has been completed satisfactorily. This event triggers payment
-release (via the payment and stakes layers defined in TROTT-03 and TROTT-04).
+release (via the payment layer defined in TROTT-04).
 
 ```json
 {
@@ -875,7 +875,7 @@ protocol.
     ["t", "trott-task"],
     ["e", "<task_complete_event_id>", "wss://relay.example.com"],
     ["p", "<provider_hex_pubkey>"],
-    ["dispute_type", "payment"],
+    ["dispute_type", "pricing"],
     ["claimed_amount", "800"],
     ["currency", "GBP"],
     ["evidence", "[\"photo_url_1\", \"photo_url_2\"]"]
@@ -892,7 +892,7 @@ protocol.
 
 - `status` MUST be `disputed`
 - The referenced task MUST be in state `accepted`, `in_progress`, or `completed`
-- `dispute_type` MUST be one of: `payment`, `conduct`, `safety`, `quality`, `no_show`
+- `dispute_type` MUST be one of: `no_show`, `quality`, `pricing`, `damage`, `safety`, `fraud`
 
 ---
 
@@ -923,13 +923,14 @@ Domain extensions MAY define additional event kinds within their allocated range
 | Range              | Domain                                                    | Extension Spec         |
 |--------------------|-----------------------------------------------------------|------------------------|
 | 30500-30509        | Core task lifecycle (incl. multi-leg and recurring tasks) | TROTT-01 (this spec)   |
-| 30510-30512, 20500 | Discovery                                                 | TROTT-02               |
+| 30510-30513, 20500 | Discovery                                                 | TROTT-02               |
 | 30520-30522        | Reputation                                                | TROTT-03               |
-| 30530-30536        | Payments                                                  | TROTT-04               |
-| 30540-30546        | Safety & Disputes                                         | TROTT-05               |
-| 30550-30554        | Coordination                                              | TROTT-06               |
-| 30560-30563, 20501 | Navigation                                                | TROTT-07               |
-| 30564-30599        | Reserved for future core expansion                        | —                      |
+| 30530-30538        | Payments                                                  | TROTT-04               |
+| 30540-30547        | Safety & Disputes                                         | TROTT-05               |
+| 30550-30555        | Coordination                                              | TROTT-06               |
+| 30560-30563, 20501  | Navigation                                              | TROTT-07               |
+| 30564-30567, 20502  | Messaging                                               | TROTT-08               |
+| 30568-30599         | Reserved for future core expansion                       | —                      |
 | 30600-30619        | Ridesharing                                               | TROTT-ridesharing      |
 | 30620-30639        | Locksmith                                                 | TROTT-locksmith        |
 | 30640-30659        | Delivery                                                  | TROTT-delivery         |

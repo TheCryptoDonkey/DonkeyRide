@@ -304,7 +304,7 @@ Three locksmiths quote the same lockout:
     ],
     [
       "breakdown",
-      "call_out",
+      "callout",
       "4000",
       "GBP"
     ],
@@ -366,7 +366,7 @@ Three locksmiths quote the same lockout:
     ],
     [
       "breakdown",
-      "call_out",
+      "callout",
       "3500",
       "GBP"
     ],
@@ -428,7 +428,7 @@ Three locksmiths quote the same lockout:
     ],
     [
       "breakdown",
-      "call_out",
+      "callout",
       "2500",
       "GBP"
     ],
@@ -546,7 +546,7 @@ breakdowns, and multi-provider splits. One Payment Terms event per task.
 | `guarantee_holdback_percent` | Optional    | Integer string (0-100)                         | Percentage of payment held back for guarantee period.                                 |
 | `guarantee_period_days`      | Optional    | Integer string                                 | Duration of guarantee hold-back in days.                                              |
 | `overtime_rate`              | Optional    | Integer string                                 | Rate (smallest currency unit per `rate_unit`) applied beyond expected duration.       |
-| `overtime_threshold_seconds` | Optional    | Integer string                                 | Seconds beyond `expected_duration` before overtime rate applies.                      |
+| `overtime_threshold_seconds` | Optional    | Integer string                                 | Seconds beyond `estimated_duration_seconds` before overtime rate applies.             |
 
 #### Payment Types
 
@@ -580,13 +580,13 @@ the held-back amount is subject to TROTT-05 dispute resolution.
 
 #### Duration-Based Billing
 
-Tasks priced by time (e.g. hourly cleaning, security shifts) SHOULD include `expected_duration` on the Task Request
+Tasks priced by time (e.g. hourly cleaning, security shifts) SHOULD include `estimated_duration_seconds` on the Task Request
 (TROTT-01, kind 30500) and the Quote (kind 30530). The actual duration is recorded on the Task Complete event (TROTT-01,
-kind 30504) as `actual_duration` and on the Payment Receipt (kind 30535).
+kind 30504) as `actual_duration_seconds` and on the Payment Receipt (kind 30535).
 
 Time-based billing SHOULD round to the nearest whole unit of the declared `rate_unit`. Partial units below 50% of the
 unit round down; 50% and above round up. Operators MAY define domain-specific rounding rules (e.g. 15-minute increments
-for cleaning). When actual duration exceeds the `overtime_threshold_seconds` beyond `expected_duration`, the
+for cleaning). When actual duration exceeds the `overtime_threshold_seconds` beyond `estimated_duration_seconds`, the
 `overtime_rate` applies to the excess.
 
 #### Zero-Value Tasks
