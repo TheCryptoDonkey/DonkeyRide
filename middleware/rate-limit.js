@@ -17,8 +17,11 @@ class RateLimiter {
         // Map: key -> { count, resetTime }
         this.requests = new Map();
 
-        // Cleanup old entries every minute
-        setInterval(() => this.cleanup(), 60000);
+        // Cleanup old entries every minute (unref so it never blocks process exit)
+        const cleanupTimer = setInterval(() => this.cleanup(), 60000);
+        if (typeof cleanupTimer.unref === 'function') {
+            cleanupTimer.unref();
+        }
     }
 
     /**

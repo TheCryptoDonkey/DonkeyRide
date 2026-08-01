@@ -151,6 +151,7 @@ The three-layer architecture supports GDPR compliance: public Nostr events use o
 Key test files:
 - `reputation-flow.test.js` — NIP-98 auth validation, rating event publishing, reputation caching
 - `domain-profiles.test.js` — Schema validation, profile loading, TaskManager lifecycle across all domains, RideManager backward compatibility
+- `http-api.test.js` — Full HTTP lifecycle (request→accept→arrive→start→complete→rate) with signed NIP-98 requests, role authorisation (403s), cancellation, driver presence/geo-dispatch, task-store rehydration
 
 **Frontend:** Uses vitest with `@testing-library/react` and jsdom. Run with `npm run web:test`.
 

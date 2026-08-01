@@ -64,6 +64,49 @@ class TaskManager {
     this.tasks = new Map();
     this.requesterTasks = new Map();
     this.providerTasks = new Map();
+    this.store = null;
+  }
+
+  /**
+   * Attach a persistence store (see src/storage/task-store.js).
+   * Every mutation is persisted; failures are logged, never thrown,
+   * so a storage outage degrades to in-memory operation.
+   *
+   * @param {Object} store - TaskStore instance
+   */
+  setStore(store) {
+    this.store = store;
+  }
+
+  _persist(task) {
+    if (!this.store || !task) {
+      return;
+    }
+    this.store
+      .saveTask(task, { terminal: this.isTerminal(task.status) })
+      .catch((error) => {
+        console.error(`[storage] Failed to persist task ${task.id}:`, error.message);
+      });
+  }
+
+  /**
+   * Restore a task loaded from the store into memory.
+   * Used at startup to survive restarts. No-op if the id already exists.
+   *
+   * @param {Object} task - Task payload as previously persisted
+   */
+  hydrateTask(task) {
+    if (!task || !task.id || this.tasks.has(task.id)) {
+      return;
+    }
+    this.tasks.set(task.id, task);
+    if (!this.isTerminal(task.status)) {
+      identityKeys(task.requester || {}).forEach((key) => this.requesterTasks.set(key, task.id));
+      const provider = task.provider || task.driver;
+      if (provider) {
+        identityKeys(provider).forEach((key) => this.providerTasks.set(key, task.id));
+      }
+    }
   }
 
   /**
@@ -175,6 +218,7 @@ class TaskManager {
 
     this.tasks.set(taskId, task);
     identityKeys(requester).forEach((key) => this.requesterTasks.set(key, taskId));
+    this._persist(task);
 
     console.log(`\u2705 Task created: ${taskId} [${this.domainId}] (${requester.npub || requester.pubkey || 'unknown'})`);
 
@@ -226,6 +270,7 @@ class TaskManager {
     });
 
     identityKeys(providerIdentity).forEach((key) => this.providerTasks.set(key, taskId));
+    this._persist(task);
 
     console.log(`\u2705 Task ${taskId} matched with ${this.roles.provider} ${providerIdentity.npub || providerIdentity.pubkey || 'unknown'}`);
 
@@ -256,6 +301,7 @@ class TaskManager {
       timestamp: Date.now()
     });
 
+    this._persist(task);
     console.log(`\uD83D\uDE97 ${this.roles.provider} en route for task ${taskId}`);
 
     return task;
@@ -285,6 +331,7 @@ class TaskManager {
       timestamp: Date.now()
     });
 
+    this._persist(task);
     console.log(`\uD83D\uDCCD ${this.roles.provider} arrived for task ${taskId}`);
 
     return task;
@@ -319,6 +366,7 @@ class TaskManager {
       task.metadata = { ...(task.metadata || {}), ...metadata };
     }
 
+    this._persist(task);
     console.log(`\u27A1\uFE0F  Task ${taskId} transitioned to '${newState}'`);
 
     return task;
@@ -347,6 +395,7 @@ class TaskManager {
       timestamp: Date.now()
     });
 
+    this._persist(task);
     console.log(`\uD83D\uDE80 Task ${taskId} is now active`);
 
     return task;
@@ -383,16 +432,20 @@ class TaskManager {
       task.duration = Math.round(duration / 1000);
     }
 
+    this._persist(task);
     console.log(`\u2705 Task ${taskId} completed${task.duration ? ` (${task.duration}s)` : ''}`);
 
-    // Clean up references after 5 minutes
-    setTimeout(() => {
+    // Clean up references after 5 minutes (unref so it never blocks process exit)
+    const cleanupTimer = setTimeout(() => {
       identityKeys(task.requester).forEach((key) => this.requesterTasks.delete(key));
       const provider = task.provider || task.driver;
       if (provider) {
         identityKeys(provider).forEach((key) => this.providerTasks.delete(key));
       }
     }, 300000);
+    if (typeof cleanupTimer.unref === 'function') {
+      cleanupTimer.unref();
+    }
 
     return task;
   }
@@ -424,6 +477,7 @@ class TaskManager {
       timestamp: Date.now()
     };
 
+    this._persist(task);
     return task;
   }
 
@@ -459,6 +513,7 @@ class TaskManager {
       reason
     });
 
+    this._persist(task);
     console.log(`\u274C Task ${taskId} cancelled by ${cancelledBy}: ${reason}`);
 
     // Clean up references
@@ -493,6 +548,7 @@ class TaskManager {
       provider.eta = eta;
     }
 
+    this._persist(task);
     return task;
   }
 

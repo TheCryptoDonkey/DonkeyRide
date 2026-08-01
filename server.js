@@ -16,7 +16,7 @@ const reputation = require('./src/nostr/reputation');
 const stakeEvents = require('./src/nostr/stake-events');
 const disputeEvents = require('./src/nostr/dispute-events');
 const { validateNIP98Auth } = require('./middleware/nip98-auth');
-const { getPublicKey: nostrGetPublicKey } = require('nostr-tools');
+const { getPublicKey: nostrGetPublicKey, nip19 } = require('nostr-tools');
 const {
     publicRateLimiter,
     authenticatedRateLimiter,
@@ -32,10 +32,11 @@ const { RideManager, RideStatus } = require('./src/ride-manager');
 const { TaskManager } = require('./src/task-manager');
 const { loadProfile, listProfiles } = require('./src/domain-profiles');
 const { getRoute } = require('./src/osrm-routing');
+const { createTaskStore } = require('./src/storage/task-store');
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // photo/signature proofs arrive as base64 data URLs
 app.use(express.static('public')); // Serve demo.html and other static files (legacy)
 
 // Domain-agnostic route aliases: /api/tasks/* → /api/rides/*, /api/providers/* → /api/drivers/*
@@ -47,6 +48,87 @@ app.use((req, res, next) => {
     }
     next();
 });
+
+// ==========================================
+// NIP-98 AUTHENTICATION GATE
+// When ENABLE_NIP98_AUTH=true, every mutating API route requires a valid
+// NIP-98 signature. Stateless compute endpoints stay public.
+// ==========================================
+
+const nip98Enabled = (process.env.ENABLE_NIP98_AUTH || '').toLowerCase() === 'true';
+const NIP98_PUBLIC_PATHS = new Set([
+    '/api/trips/estimate',
+    '/api/routes/preview'
+]);
+
+if (nip98Enabled) {
+    app.use((req, res, next) => {
+        const mutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
+        const guarded = req.path.startsWith('/api/') || req.path.startsWith('/rides');
+        if (!mutating || !guarded || NIP98_PUBLIC_PATHS.has(req.path)) {
+            return next();
+        }
+        if (req.user) {
+            return next();
+        }
+        return validateNIP98Auth(req, res, next);
+    });
+    console.log('🔐 NIP-98 authentication enforced on mutating API routes');
+} else {
+    console.log('⚠️  NIP-98 authentication DISABLED (set ENABLE_NIP98_AUTH=true for production)');
+}
+
+/**
+ * Does the authenticated signer match a stored party identity?
+ * Identities may carry a hex pubkey, an npub, or both.
+ */
+function actorMatchesIdentity(reqUser, identity) {
+    if (!reqUser || !identity) {
+        return false;
+    }
+    const signerPubkey = (reqUser.pubkey || '').toLowerCase();
+    if (identity.pubkey && identity.pubkey.toLowerCase() === signerPubkey) {
+        return true;
+    }
+    if (identity.npub) {
+        try {
+            return identity.npub.toLowerCase() === nip19.npubEncode(signerPubkey).toLowerCase();
+        } catch (error) {
+            return false;
+        }
+    }
+    return false;
+}
+
+/**
+ * Role authorisation for ride actions. Returns null when the signer is
+ * permitted (or auth is disabled), otherwise a { status, error, details }
+ * object the route should return.
+ *
+ * @param {Object} req - Express request (req.user set by NIP-98 middleware)
+ * @param {Object} ride - The ride/task record
+ * @param {string[]} allowed - Roles permitted: 'requester' and/or 'provider'
+ */
+function authoriseRideActor(req, ride, allowed = ['requester', 'provider']) {
+    if (!nip98Enabled || !req.user) {
+        return null;
+    }
+    const identities = [];
+    if (allowed.includes('requester')) {
+        identities.push(ride.requester || ride.rider);
+    }
+    if (allowed.includes('provider')) {
+        identities.push(ride.provider || ride.driver);
+    }
+    if (identities.some((identity) => actorMatchesIdentity(req.user, identity))) {
+        return null;
+    }
+    return {
+        status: 403,
+        error: 'Forbidden',
+        details: `Signer is not the ${allowed.join(' or ')} on this ride`
+    };
+}
 
 // Serve React frontend build if available (web/dist/)
 const path = require('path');
@@ -233,12 +315,45 @@ const STREAM_STEPS = 15;
 const _domainManagers = new Map();
 _domainManagers.set(domainProfile.id, new TaskManager(domainProfile));
 
+// Task persistence — attached to every domain manager once initialised in startServer()
+let taskStore = null;
+
 function _getManagerForDomain(domainId) {
     if (!_domainManagers.has(domainId)) {
         const profile = loadProfile(domainId);
-        _domainManagers.set(domainId, new TaskManager(profile));
+        const manager = new TaskManager(profile);
+        if (taskStore) {
+            manager.setStore(taskStore);
+        }
+        _domainManagers.set(domainId, manager);
     }
     return _domainManagers.get(domainId);
+}
+
+async function initializeTaskStore() {
+    try {
+        const store = createTaskStore(process.env.DATABASE_URL);
+        await store.init();
+        taskStore = store;
+        for (const manager of _domainManagers.values()) {
+            manager.setStore(taskStore);
+        }
+
+        const persisted = await taskStore.loadActiveTasks();
+        for (const task of persisted) {
+            try {
+                const manager = _getManagerForDomain(task.domain || domainProfile.id);
+                manager.hydrateTask(task);
+                _rideIndex.set(task.id, task.domain || domainProfile.id);
+            } catch (error) {
+                console.warn(`⚠️  Could not rehydrate task ${task.id}:`, error.message);
+            }
+        }
+        console.log(`💾 Task store ready (${store.backend}) — rehydrated ${persisted.length} active task(s)`);
+    } catch (error) {
+        console.warn('⚠️  Task store unavailable — running in-memory only:', error.message);
+        taskStore = null;
+    }
 }
 
 // Index: rideId → domainId (populated on create, lazy-filled on lookup)
@@ -285,6 +400,15 @@ const rideManager = {
     transitionTo(rideId, ...args) { return _getManagerForRide(rideId).transitionTo(rideId, ...args); },
     updateDriverLocation(rideId, ...args) { return _getManagerForRide(rideId).updateDriverLocation(rideId, ...args); },
     recordRating(rideId, ...args) { return _getManagerForRide(rideId).recordRating(rideId, ...args); },
+
+    // Persist mutations made directly on the ride object (proofs, tips, safety, quotes)
+    persistRide(rideId) {
+        const mgr = _getManagerForRide(rideId);
+        const ride = mgr.getRide(rideId);
+        if (ride) {
+            mgr._persist(ride);
+        }
+    },
 
     // Terminal check — uses the ride's own domain
     isTerminal(status) {
@@ -372,9 +496,24 @@ if (wss) {
 
                 case 'register_driver':
                     ws.driverNpub = data.npub;
+                    ws.driverPubkey = (data.pubkey || '').toLowerCase() || null;
                     ws.clientType = 'driver';
-                    console.log(`Driver ${data.npub} registered for ride requests`);
+                    updateDriverPresence({
+                        npub: data.npub,
+                        pubkey: data.pubkey,
+                        location: data.location
+                    });
+                    console.log(`Driver ${data.npub} registered for ride requests${data.location ? ` at ${data.location.lat},${data.location.lon}` : ''}`);
                     sendPendingRideRequests(ws);
+                    break;
+
+                case 'driver_location':
+                    // Presence heartbeat while online (not tied to an active ride)
+                    updateDriverPresence({
+                        npub: data.npub || ws.driverNpub,
+                        pubkey: data.pubkey || ws.driverPubkey,
+                        location: data.location || (Number.isFinite(data.lat) ? { lat: data.lat, lon: data.lon } : null)
+                    });
                     break;
 
                     case 'get_status':
@@ -426,14 +565,81 @@ function broadcastToRide(rideId, message) {
     });
 }
 
-// Broadcast to all drivers
-function broadcastToDrivers(message) {
+// ==========================================
+// DRIVER PRESENCE & GEO-DISPATCH
+// Drivers report their location (WS register/location messages or
+// POST /api/drivers/location). Ride requests are only dispatched to
+// drivers within DISPATCH_RADIUS_KM of the pickup.
+// ==========================================
+
+const DISPATCH_RADIUS_KM = parseFloat(process.env.DISPATCH_RADIUS_KM) || 15;
+const DRIVER_PRESENCE_TTL_MS = 2 * 60 * 1000; // location older than this is stale
+// STRICT_DISPATCH=true excludes drivers with no known location from dispatch
+const strictDispatch = (process.env.STRICT_DISPATCH || '').toLowerCase() === 'true';
+
+// key: npub or pubkey (lowercase) → { npub, pubkey, location: {lat, lon}, lastSeen }
+const driverPresence = new Map();
+
+function updateDriverPresence({ npub, pubkey, location }) {
+    const key = (npub || pubkey || '').toLowerCase();
+    if (!key) {
+        return null;
+    }
+    const existing = driverPresence.get(key) || {};
+    const entry = {
+        npub: npub || existing.npub || null,
+        pubkey: (pubkey || existing.pubkey || null),
+        location: location && Number.isFinite(location.lat) && Number.isFinite(location.lon)
+            ? { lat: location.lat, lon: location.lon }
+            : existing.location || null,
+        lastSeen: Date.now()
+    };
+    driverPresence.set(key, entry);
+    return entry;
+}
+
+function getDriverPresence(identifier) {
+    if (!identifier) {
+        return null;
+    }
+    const entry = driverPresence.get(identifier.toLowerCase());
+    if (!entry || (Date.now() - entry.lastSeen) > DRIVER_PRESENCE_TTL_MS) {
+        return null;
+    }
+    return entry;
+}
+
+/**
+ * Should this driver receive a request with the given origin?
+ * Drivers with a fresh location get a haversine radius check; drivers
+ * without one are included unless STRICT_DISPATCH=true.
+ */
+function driverInRange(driverIdentifier, origin) {
+    if (!origin || !Number.isFinite(origin.lat) || !Number.isFinite(origin.lon)) {
+        return true;
+    }
+    const presence = getDriverPresence(driverIdentifier);
+    if (!presence || !presence.location) {
+        return !strictDispatch;
+    }
+    const distanceKm = calculateDistance(
+        presence.location.lat, presence.location.lon,
+        origin.lat, origin.lon
+    );
+    return distanceKm <= DISPATCH_RADIUS_KM;
+}
+
+// Broadcast to drivers, geo-filtered by origin when provided
+function broadcastToDrivers(message, origin = null) {
     if (!wss) {
         return 0;
     }
     let count = 0;
     wss.clients.forEach(client => {
         if (client.clientType === 'driver' && client.readyState === WebSocket.OPEN) {
+            if (!driverInRange(client.driverNpub || client.driverPubkey, origin)) {
+                return;
+            }
             client.send(JSON.stringify(message));
             count++;
         }
@@ -466,6 +672,9 @@ function sendPendingRideRequests(ws) {
     );
 
     pendingRides.forEach((ride) => {
+        if (!driverInRange(ws.driverNpub || ws.driverPubkey, ride.pickup)) {
+            return;
+        }
         const session = activeRides.get(ride.id) || {};
         const estimate = session.estimate || null;
         const distanceKm = typeof session?.estimate?.distance?.km === 'number'
@@ -872,8 +1081,8 @@ app.post('/rides/:rideId/complete', async (req, res) => {
         if (ride.status !== 'active') throw new Error('Ride not active');
         
         // Release both stakes
-        const riderRelease = await stakeManager.releaseStakes(`${rideId}_rider`);
-        const driverRelease = await stakeManager.releaseStakes(`${rideId}_driver`);
+        const riderRelease = await stakeManager.releaseStake(`${rideId}_rider`);
+        const driverRelease = await stakeManager.releaseStake(`${rideId}_driver`);
         stakeEvents.publishStakeRelease({
             rideId,
             role: 'rider',
@@ -977,7 +1186,7 @@ app.post('/rides/:rideId/cancel', async (req, res) => {
                 );
                 
                 // Release rider stake
-                riderReleaseResult = await stakeManager.releaseStakes(`${rideId}_rider`);
+                riderReleaseResult = await stakeManager.releaseStake(`${rideId}_rider`);
             } else if (cancelledBy === ride.riderId) {
                 // Rider cancelled - forfeit 80% of rider stake to driver  
                 penaltyResult = await stakeManager.forfeitStake(
@@ -987,12 +1196,12 @@ app.post('/rides/:rideId/cancel', async (req, res) => {
                 );
                 
                 // Release driver stake
-                driverReleaseResult = await stakeManager.releaseStakes(`${rideId}_driver`);
+                driverReleaseResult = await stakeManager.releaseStake(`${rideId}_driver`);
             }
         } else if (ride.status === 'waiting_driver' || ride.status === 'waiting_rider_stake') {
             if (ride.riderStakeLocked) {
                 try {
-                    riderReleaseResult = await stakeManager.releaseStakes(`${rideId}_rider`);
+                    riderReleaseResult = await stakeManager.releaseStake(`${rideId}_rider`);
                     penalty.refund = ride.riderStake || 0;
                 } catch (releaseError) {
                     console.warn(`Failed to release rider stake for ${rideId}:`, releaseError.message);
@@ -1152,40 +1361,76 @@ app.get('/health', (req, res) => {
 // DEMO & TRACKING API ENDPOINTS
 // ==========================================
 
-// Get available drivers
+// Get available drivers — merges live presence (real drivers) with Redis
+// entries (demo/simulator fleets). Optional ?lat/&lon/&radius filter.
 app.get('/api/drivers/available', publicRateLimiter, async (req, res) => {
     try {
-        if (!redis) {
-            return res.json({ drivers: [] });
+        const byKey = new Map();
+
+        // Live presence from real connected drivers
+        const now = Date.now();
+        for (const [key, entry] of driverPresence) {
+            if ((now - entry.lastSeen) > DRIVER_PRESENCE_TTL_MS) {
+                continue;
+            }
+            byKey.set(key, {
+                npub: entry.npub,
+                pubkey: entry.pubkey,
+                name: 'Driver',
+                location: entry.location,
+                available: true,
+                rating: 5.0,
+                totalRides: 0,
+                lastUpdate: entry.lastSeen,
+                source: 'live'
+            });
         }
 
-        // Get all online drivers from Redis
-        const keys = await redis.keys('driver:online:*');
-
-        if (keys.length === 0) {
-            return res.json({ drivers: [] });
+        // Redis-backed entries (demo bot fleets, external feeders)
+        if (redis) {
+            const keys = await redis.keys('driver:online:*');
+            const driversData = await Promise.all(
+                keys.map(async (key) => {
+                    const data = await redis.get(key);
+                    return data ? JSON.parse(data) : null;
+                })
+            );
+            driversData.filter(Boolean).forEach((driver) => {
+                const key = (driver.npub || '').toLowerCase();
+                if (key && !byKey.has(key)) {
+                    byKey.set(key, {
+                        npub: driver.npub,
+                        name: driver.name || 'Driver',
+                        location: driver.location,
+                        available: driver.available !== false,
+                        rating: driver.rating || 5.0,
+                        totalRides: driver.totalRides || 0,
+                        lastUpdate: driver.lastUpdate,
+                        source: 'redis'
+                    });
+                }
+            });
         }
 
-        // Fetch driver data
-        const driversData = await Promise.all(
-            keys.map(async (key) => {
-                const data = await redis.get(key);
-                return data ? JSON.parse(data) : null;
-            })
-        );
+        let drivers = Array.from(byKey.values());
 
-        // Filter out null entries and add additional info
-        const drivers = driversData
-            .filter(d => d !== null)
-            .map(driver => ({
-                npub: driver.npub,
-                name: driver.name || 'Driver',
-                location: driver.location,
-                available: driver.available !== false,
-                rating: driver.rating || 5.0,
-                totalRides: driver.totalRides || 0,
-                lastUpdate: driver.lastUpdate
-            }));
+        // Optional proximity filter
+        const lat = parseFloat(req.query.lat);
+        const lon = parseFloat(req.query.lon ?? req.query.lng);
+        const radius = parseFloat(req.query.radius) || DISPATCH_RADIUS_KM;
+        if (Number.isFinite(lat) && Number.isFinite(lon)) {
+            drivers = drivers.filter((driver) => {
+                if (!driver.location) {
+                    return false;
+                }
+                const dLat = driver.location.lat;
+                const dLon = driver.location.lon ?? driver.location.lng;
+                if (!Number.isFinite(dLat) || !Number.isFinite(dLon)) {
+                    return false;
+                }
+                return calculateDistance(dLat, dLon, lat, lon) <= radius;
+            });
+        }
 
         res.json({
             drivers,
@@ -1199,6 +1444,41 @@ app.get('/api/drivers/available', publicRateLimiter, async (req, res) => {
             error: 'Failed to fetch drivers',
             details: error.message
         });
+    }
+});
+
+// Driver reports presence + location (used by the driver app while online)
+app.post('/api/drivers/location', async (req, res) => {
+    try {
+        const { npub, pubkey, lat, lon } = req.body || {};
+        const signerPubkey = req.user?.pubkey || null;
+
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+            return res.status(400).json({ error: 'Missing or invalid lat/lon' });
+        }
+
+        // When auth is on, the driver may only report their own position
+        if (nip98Enabled && req.user && !actorMatchesIdentity(req.user, { pubkey, npub })) {
+            return res.status(403).json({
+                error: 'Forbidden',
+                details: 'Signer does not match the reported driver identity'
+            });
+        }
+
+        const entry = updateDriverPresence({
+            npub,
+            pubkey: pubkey || signerPubkey,
+            location: { lat, lon }
+        });
+
+        if (!entry) {
+            return res.status(400).json({ error: 'Missing driver identity (npub or pubkey)' });
+        }
+
+        res.json({ success: true, lastSeen: entry.lastSeen });
+    } catch (error) {
+        console.error('Error updating driver presence:', error);
+        res.status(500).json({ error: 'Failed to update driver presence' });
     }
 });
 
@@ -1452,7 +1732,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
 
             ride.currency = fiatCurrency;
 
-            // Broadcast to all drivers
+            // Broadcast to drivers within DISPATCH_RADIUS_KM of the pickup
             const driverCount = broadcastToDrivers({
                 type: 'ride_request',
                 ride: {
@@ -1469,7 +1749,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                         pubkey: ride.rider.pubkey
                     } : null
                 }
-            });
+            }, ride.pickup);
 
             console.log(`📢 Broadcast ride request ${ride.id} to ${driverCount} drivers`);
 
@@ -1501,6 +1781,13 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
     try {
         const { rideId } = req.params;
         const { driver_npub, driver_name, driver_location, driver_rating, driver_pubkey } = req.body;
+
+        if (nip98Enabled && req.user && !actorMatchesIdentity(req.user, { pubkey: driver_pubkey, npub: driver_npub })) {
+            return res.status(403).json({
+                error: 'Forbidden',
+                details: 'Signer does not match the accepting driver identity'
+            });
+        }
 
         const ride = rideManager.acceptRide(rideId, driver_npub, {
             name: driver_name,
@@ -1583,6 +1870,11 @@ app.post('/api/rides/:rideId/location', async (req, res) => {
             return res.status(404).json({ error: 'Ride not found' });
         }
 
+        const authErr = authoriseRideActor(req, ride, ['provider']);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+
         // Determine destination based on status (using the ride's domain profile)
         const rideProfile = rideManager.getProfileForRide(rideId);
         let destination;
@@ -1632,6 +1924,15 @@ app.post('/api/rides/:rideId/arrive', async (req, res) => {
     try {
         const { rideId } = req.params;
 
+        const existing = rideManager.getRide(rideId);
+        if (!existing) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+        const authErr = authoriseRideActor(req, existing, ['provider']);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+
         const ride = rideManager.arriveAtPickup(rideId);
 
         // Notify rider
@@ -1660,6 +1961,15 @@ app.post('/api/rides/:rideId/start', async (req, res) => {
     try {
         const { rideId } = req.params;
 
+        const existing = rideManager.getRide(rideId);
+        if (!existing) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+        const authErr = authoriseRideActor(req, existing, ['provider']);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+
         const ride = rideManager.startTrip(rideId);
         const rideProfile = rideManager.getProfileForRide(rideId);
         if (!rideProfile || rideProfile.features?.streaming !== false) {
@@ -1687,6 +1997,50 @@ app.post('/api/rides/:rideId/start', async (req, res) => {
     }
 });
 
+// Cancel ride (MVP flow — reached by the React app via /api/tasks/:id/cancel)
+app.post('/api/rides/:rideId/cancel', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const { cancelledBy, reason } = req.body || {};
+
+        const ride = rideManager.getRide(rideId);
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        const authErr = authoriseRideActor(req, ride);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+
+        const cancelled = rideManager.cancelRide(
+            rideId,
+            cancelledBy || req.user?.pubkey || 'unknown',
+            reason || 'No reason given'
+        );
+        stopStreamingForRide(rideId);
+        finalizeRideSession(rideId, 'cancelled');
+
+        const cancelPayload = {
+            ride_id: rideId,
+            task_id: rideId,
+            reason: reason || null,
+            cancelled_by: cancelledBy || null
+        };
+        broadcastToRide(rideId, { type: 'ride_cancelled', ...cancelPayload });
+        broadcastToRide(rideId, { type: 'task_cancelled', ...cancelPayload });
+
+        res.json({ success: true, ride: cancelled });
+
+    } catch (error) {
+        console.error('Error cancelling ride:', error);
+        res.status(400).json({
+            error: 'Failed to cancel ride',
+            details: error.message
+        });
+    }
+});
+
 // Generic state transition (for domain-specific intermediate states)
 app.post('/api/rides/:rideId/transition', async (req, res) => {
     try {
@@ -1700,6 +2054,11 @@ app.post('/api/rides/:rideId/transition', async (req, res) => {
         const ride = rideManager.getRide(rideId);
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        const authErr = authoriseRideActor(req, ride);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
         }
 
         rideManager.transitionTo(rideId, targetState, metadata || {});
@@ -1741,6 +2100,11 @@ app.post('/api/rides/:rideId/panic', async (req, res) => {
         const ride = rideManager.getRide(rideId);
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        const authErr = authoriseRideActor(req, ride);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
         }
 
         const publishResult = await reputation.publishPanic(event, ride);
@@ -1802,6 +2166,11 @@ app.post('/api/rides/:rideId/check-in', (req, res) => {
             return res.status(404).json({ error: 'Ride not found' });
         }
 
+        const authErr = authoriseRideActor(req, ride);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+
         const timestamp = Date.now();
         ride.safety = ride.safety || { panicEvents: [], checkIns: [] };
         ride.safety.checkIns.push({
@@ -1811,6 +2180,7 @@ app.post('/api/rides/:rideId/check-in', (req, res) => {
             by: by || null,
             timestamp
         });
+        rideManager.persistRide(rideId);
 
         broadcastToRide(rideId, {
             type: 'safety_check_update',
@@ -1845,6 +2215,11 @@ app.post('/api/rides/:rideId/rate', async (req, res) => {
         const rideProfile = rideManager.getProfileForRide(rideId);
         if (!rideManager.isTerminal(ride.status) || ride.status === rideProfile.states.values.CANCELLED) {
             return res.status(400).json({ error: 'Task not completed yet' });
+        }
+
+        const authErr = authoriseRideActor(req, ride);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
         }
 
         // Path A: Full Nostr event (legacy / advanced clients)
@@ -1896,6 +2271,17 @@ app.post('/api/rides/:rideId/rate', async (req, res) => {
             : raterRole === 'provider' ? 'driver'
             : raterRole === 'requester' ? 'rider'
             : 'rider';
+
+        // The signer must actually hold the role they claim to rate as
+        const raterIdentity = role === 'rider'
+            ? (ride.requester || ride.rider)
+            : (ride.provider || ride.driver);
+        if (nip98Enabled && req.user && !actorMatchesIdentity(req.user, raterIdentity)) {
+            return res.status(403).json({
+                error: 'Forbidden',
+                details: 'Signer does not match the claimed rating role on this ride'
+            });
+        }
 
         // Determine the rating target
         const targetPubkey = role === 'rider'
@@ -1956,8 +2342,14 @@ app.post('/api/rides/:rideId/tip', async (req, res) => {
             return res.status(404).json({ error: 'Ride not found' });
         }
 
+        const authErr = authoriseRideActor(req, ride, ['requester']);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+
         ride.tips = ride.tips || [];
         ride.tips.push({ amount_sats: amount, timestamp: Date.now() });
+        rideManager.persistRide(rideId);
 
         broadcastToRide(rideId, {
             type: 'tip_sent',
@@ -1986,6 +2378,11 @@ app.post('/api/rides/:rideId/proof', async (req, res) => {
             return res.status(404).json({ error: 'Ride not found' });
         }
 
+        const authErr = authoriseRideActor(req, ride, ['provider']);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+
         ride.proofs = ride.proofs || [];
 
         // Handle JSON-based signature proofs
@@ -1996,19 +2393,22 @@ app.post('/api/rides/:rideId/proof', async (req, res) => {
                 timestamp: Date.now(),
                 providerPubkey: req.body.providerPubkey,
             });
+            rideManager.persistRide(rideId);
             return res.json({ success: true, proofCount: ride.proofs.length });
         }
 
-        // Handle photo proofs (JSON with base64 data URL)
-        // Store metadata only — file storage is an operator concern
+        // Handle photo proofs (JSON with base64 data URL).
+        // The data URL is stored with the task — proofs are dispute evidence.
         ride.proofs.push({
             type: req.body?.type || 'photo',
             fileName: req.body?.fileName,
             mimeType: req.body?.mimeType,
             sizeBytes: req.body?.sizeBytes,
+            data: req.body?.dataUrl || null,
             timestamp: Date.now(),
             providerPubkey: req.body?.providerPubkey,
         });
+        rideManager.persistRide(rideId);
 
         res.json({ success: true, proofCount: ride.proofs.length });
     } catch (error) {
@@ -2035,6 +2435,11 @@ app.post('/api/rides/:rideId/quote', async (req, res) => {
             return res.status(404).json({ error: 'Ride not found' });
         }
 
+        const authErr = authoriseRideActor(req, ride, ['provider']);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+
         ride.quote = {
             amount_sats,
             description,
@@ -2042,6 +2447,7 @@ app.post('/api/rides/:rideId/quote', async (req, res) => {
             submitted_at: new Date().toISOString(),
             provider_pubkey: providerPubkey,
         };
+        rideManager.persistRide(rideId);
 
         broadcastToRide(rideId, {
             type: 'quote_submitted',
@@ -2069,9 +2475,15 @@ app.post('/api/rides/:rideId/quote/accept', async (req, res) => {
             return res.status(400).json({ error: 'No pending quote to accept' });
         }
 
+        const authErr = authoriseRideActor(req, ride, ['requester']);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+
         ride.quote.status = 'accepted';
         ride.quote.responded_at = new Date().toISOString();
         ride.fare = ride.quote.amount_sats;
+        rideManager.persistRide(rideId);
 
         broadcastToRide(rideId, {
             type: 'quote_accepted',
@@ -2099,9 +2511,15 @@ app.post('/api/rides/:rideId/quote/decline', async (req, res) => {
             return res.status(400).json({ error: 'No pending quote to decline' });
         }
 
+        const authErr = authoriseRideActor(req, ride, ['requester']);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+
         ride.quote.status = 'declined';
         ride.quote.responded_at = new Date().toISOString();
         if (req.body?.reason) ride.quote.decline_reason = req.body.reason;
+        rideManager.persistRide(rideId);
 
         broadcastToRide(rideId, {
             type: 'quote_declined',
@@ -2437,7 +2855,7 @@ app.post('/api/disputes/:disputeId/resolve', async (req, res) => {
                     // Release complainant stake
                     if (cStake === 'released') {
                         try {
-                            const releaseResult = await stakeManager.releaseStakes(`${rideId}_${complainantRole}`);
+                            const releaseResult = await stakeManager.releaseStake(`${rideId}_${complainantRole}`);
                             await stakeEvents.publishStakeRelease({
                                 rideId,
                                 role: complainantRole,
@@ -2472,7 +2890,7 @@ app.post('/api/disputes/:disputeId/resolve', async (req, res) => {
                         }
                     } else if (aStake === 'released') {
                         try {
-                            const releaseResult = await stakeManager.releaseStakes(`${rideId}_${accusedRole}`);
+                            const releaseResult = await stakeManager.releaseStake(`${rideId}_${accusedRole}`);
                             await stakeEvents.publishStakeRelease({
                                 rideId,
                                 role: accusedRole,
@@ -3148,6 +3566,11 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
             return res.status(404).json({ error: 'Ride not found' });
         }
 
+        const authErr = authoriseRideActor(req, ride, ['provider']);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+
         // Mock payment
         const payment = {
             success: true,
@@ -3400,6 +3823,9 @@ async function startServer(options = {}) {
     // Initialize Redis for driver tracking
     await initializeRedis();
 
+    // Initialize task persistence and rehydrate active tasks
+    await initializeTaskStore();
+
     // Pre-fetch BTC prices
     try {
         await fetchBitcoinPrices();
@@ -3480,8 +3906,8 @@ process.on('SIGTERM', async () => {
     // Release all active stakes before shutdown
     activeRides.forEach(async (ride, rideId) => {
         if (ride.status === 'active') {
-            await stakeManager.releaseStakes(`${rideId}_rider`);
-            await stakeManager.releaseStakes(`${rideId}_driver`);
+            await stakeManager.releaseStake(`${rideId}_rider`);
+            await stakeManager.releaseStake(`${rideId}_driver`);
         }
         stopStreamingForRide(rideId);
     });

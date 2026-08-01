@@ -150,7 +150,10 @@ function validateAuthEvent(event, req) {
         };
     }
 
-    // Check URL tag matches request URL
+    // Check URL tag matches request URL.
+    // Default comparison is path+query only: dev proxies (Vite) and reverse
+    // proxies rewrite the Host header, so a strict full-URL match breaks
+    // legitimate clients. Set NIP98_STRICT_URLS=true to enforce the full URL.
     const urlTag = event.tags.find(t => t[0] === 'u');
     if (!urlTag) {
         return {
@@ -159,12 +162,32 @@ function validateAuthEvent(event, req) {
         };
     }
 
-    const expectedUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
-    if (urlTag[1] !== expectedUrl) {
-        return {
-            valid: false,
-            error: `URL mismatch. Expected: ${expectedUrl}, Got: ${urlTag[1]}`
-        };
+    const strictUrls = (process.env.NIP98_STRICT_URLS || '').toLowerCase() === 'true';
+    if (strictUrls) {
+        const expectedUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+        if (urlTag[1] !== expectedUrl) {
+            return {
+                valid: false,
+                error: `URL mismatch. Expected: ${expectedUrl}, Got: ${urlTag[1]}`
+            };
+        }
+    } else {
+        let signedPath;
+        try {
+            const signedUrl = new URL(urlTag[1]);
+            signedPath = signedUrl.pathname + signedUrl.search;
+        } catch (error) {
+            return {
+                valid: false,
+                error: 'Invalid "u" tag — not a valid URL'
+            };
+        }
+        if (signedPath !== req.originalUrl) {
+            return {
+                valid: false,
+                error: `URL path mismatch. Expected: ${req.originalUrl}, Got: ${signedPath}`
+            };
+        }
     }
 
     // Check method tag matches HTTP method
@@ -243,9 +266,11 @@ function requireOwnership(getResourceOwner) {
  * Helper: Generate NIP-98 auth event (for documentation/testing)
  */
 function generateAuthEvent(url, method, privateKey) {
-    const { getPublicKey, finalizeEvent } = require('nostr-tools');
+    const tools = require('nostr-tools');
+    // v1 exposes finishEvent, v2 exposes finalizeEvent
+    const signEvent = tools.finishEvent || tools.finalizeEvent;
 
-    const pubkey = getPublicKey(privateKey);
+    const pubkey = tools.getPublicKey(privateKey);
 
     const event = {
         kind: 27235,
@@ -258,7 +283,7 @@ function generateAuthEvent(url, method, privateKey) {
         pubkey
     };
 
-    return finalizeEvent(event, privateKey);
+    return signEvent(event, privateKey);
 }
 
 /**

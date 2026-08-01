@@ -23,6 +23,12 @@ export function DashboardPage() {
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Use a ref to track "should be online" — avoids stale closure in onclose
   const onlineRef = useRef(false);
+  // Latest GPS fix without re-creating the WebSocket on every movement
+  const locationRef = useRef(location);
+
+  useEffect(() => {
+    locationRef.current = location;
+  }, [location]);
 
   // Fetch operator info
   useEffect(() => {
@@ -61,9 +67,13 @@ export function DashboardPage() {
       console.log('[DashboardWS] Connected — registering as provider');
       setWsConnected(true);
       // Register as a provider — server uses this to tag us for task broadcasts
+      // and geo-filter dispatch by our reported position
+      const loc = locationRef.current;
       ws.send(JSON.stringify({
         type: WS_PROTOCOL.registerProvider,
         npub: identity?.npub || '',
+        pubkey: identity?.pubKeyHex || '',
+        location: loc ? { lat: loc.lat, lon: loc.lng } : undefined,
       }));
     };
 
@@ -101,6 +111,27 @@ export function DashboardPage() {
 
     wsRef.current = ws;
   }, [identity, navigate, setActiveTask]);
+
+  // Presence heartbeat — keeps geo-dispatch fresh while online
+  useEffect(() => {
+    if (!online || !wsConnected) return;
+
+    const sendPresence = () => {
+      const loc = locationRef.current;
+      const ws = wsRef.current;
+      if (!loc || !ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({
+        type: 'driver_location',
+        npub: identity?.npub || '',
+        pubkey: identity?.pubKeyHex || '',
+        location: { lat: loc.lat, lon: loc.lng },
+      }));
+    };
+
+    sendPresence();
+    const timer = setInterval(sendPresence, 30_000);
+    return () => clearInterval(timer);
+  }, [online, wsConnected, identity]);
 
   const toggleOnline = useCallback(() => {
     if (onlineRef.current) {
