@@ -66,6 +66,11 @@ export function EarningsPage() {
                 {ride.id}
                 {ride.rating != null && <span className="ml-2 text-donkey-orange">★ {ride.rating}</span>}
               </p>
+              {ride.settlement && (
+                <p className="text-xs text-donkey-muted">
+                  {ride.settlement.method} · {ride.settlement.status}
+                </p>
+              )}
             </div>
             <div className="text-right">
               <DualPrice sats={ride.fare} size="sm" />

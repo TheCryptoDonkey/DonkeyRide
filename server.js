@@ -1665,7 +1665,12 @@ app.get('/api/drivers/:pubkey/earnings', optionalNip98, async (req, res) => {
                 fare: task.fare || 0,
                 tips,
                 currency: task.currency || 'GBP',
-                rating: task.feedback?.rider?.rating ?? null
+                rating: task.feedback?.rider?.rating ?? null,
+                settlement: task.payment ? {
+                    method: task.payment.method || null,
+                    status: task.payment.status || null,
+                    trust_model: task.payment.trust_model || null
+                } : null
             });
         }
         rides.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));

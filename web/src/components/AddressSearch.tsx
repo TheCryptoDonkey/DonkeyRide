@@ -31,9 +31,27 @@ function formatLabel(p: PhotonFeature['properties']): string {
  * Debounced address search backed by Photon (komoot) — free, no API key,
  * OpenStreetMap data. Falls back gracefully: tapping the map still works.
  */
+const RECENTS_KEY = 'donkeyride.recentPlaces';
+
+interface RecentPlace { label: string; lat: number; lng: number }
+
+function loadRecents(): RecentPlace[] {
+  try {
+    return JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveRecent(place: RecentPlace) {
+  const recents = [place, ...loadRecents().filter((r) => r.label !== place.label)].slice(0, 5);
+  localStorage.setItem(RECENTS_KEY, JSON.stringify(recents));
+}
+
 export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }: AddressSearchProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PhotonFeature[]>([]);
+  const [recents, setRecents] = useState<RecentPlace[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -80,7 +98,16 @@ export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }
     setQuery(label);
     setOpen(false);
     setResults([]);
+    saveRecent({ label, lat, lng });
     onSelect({ lat, lng }, label);
+  };
+
+  const pickRecent = (place: RecentPlace) => {
+    selectedRef.current = true;
+    setQuery(place.label);
+    setOpen(false);
+    saveRecent(place);
+    onSelect({ lat: place.lat, lng: place.lng }, place.label);
   };
 
   return (
@@ -92,10 +119,32 @@ export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }
         value={query}
         autoFocus={autoFocus}
         onChange={(e) => setQuery(e.target.value)}
-        onFocus={() => results.length > 0 && setOpen(true)}
+        onFocus={() => {
+          if (results.length > 0) {
+            setOpen(true);
+          } else if (query.trim().length < 3) {
+            setRecents(loadRecents());
+            setOpen(true);
+          }
+        }}
       />
       {loading && (
         <div className="absolute right-3 top-3.5 animate-spin h-4 w-4 border-2 border-donkey-blue border-t-transparent rounded-full" />
+      )}
+      {open && results.length === 0 && recents.length > 0 && query.trim().length < 3 && (
+        <ul className="absolute left-0 right-0 mt-1 bg-donkey-surface border border-donkey-border rounded-lg shadow-panel overflow-hidden">
+          <li className="px-4 py-2 text-xs uppercase tracking-wider text-donkey-muted border-b border-donkey-border/50">Recent</li>
+          {recents.map((place) => (
+            <li key={place.label}>
+              <button
+                className="w-full text-left px-4 py-3 text-sm hover:bg-donkey-card border-b border-donkey-border/50 last:border-0"
+                onClick={() => pickRecent(place)}
+              >
+                {place.label}
+              </button>
+            </li>
+          ))}
+        </ul>
       )}
       {open && results.length > 0 && (
         <ul className="absolute left-0 right-0 mt-1 bg-donkey-surface border border-donkey-border rounded-lg shadow-panel overflow-hidden">

@@ -307,6 +307,33 @@ export function ActiveTaskPage() {
           </div>
         )}
 
+        {/* Hand off to the driver's preferred navigation app — drivers trust
+            their own nav; never trap them in ours */}
+        {(() => {
+          const navTarget = status === profile?.states.values.ACTIVE
+            ? activeTask.dropoff
+            : activeTask.pickup;
+          if (!navTarget) return null;
+          return (
+            <div className="flex gap-3">
+              <a
+                className="btn-secondary flex-1 text-center"
+                href={`https://waze.com/ul?ll=${navTarget.lat},${navTarget.lng}&navigate=yes`}
+                target="_blank" rel="noreferrer"
+              >
+                Navigate (Waze)
+              </a>
+              <a
+                className="btn-secondary flex-1 text-center"
+                href={`https://www.google.com/maps/dir/?api=1&destination=${navTarget.lat},${navTarget.lng}`}
+                target="_blank" rel="noreferrer"
+              >
+                Google Maps
+              </a>
+            </div>
+          );
+        })()}
+
         {profile?.features.safetyAlerts && (
           <PanicButton onPanic={handlePanic} />
         )}

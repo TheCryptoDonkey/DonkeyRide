@@ -17,6 +17,11 @@ export const WS_PROTOCOL = {
 } as const;
 
 export function getWsBaseUrl(): string {
+  // Native (Capacitor) builds bake in the operator's WebSocket URL
+  const envUrl = import.meta.env.VITE_WS_URL;
+  if (envUrl) {
+    return envUrl;
+  }
   // Behind TLS the WebSocket is reverse-proxied on the same origin at /ws;
   // local dev connects straight to the WS port.
   if (window.location.protocol === 'https:') {

@@ -5,7 +5,8 @@ import type {
 import type { DomainProfile } from '../types/domain';
 import { createNip98Auth } from './nostr';
 
-const BASE = '';
+// Same-origin by default; native (Capacitor) builds bake in the operator URL
+const BASE = import.meta.env.VITE_API_BASE || '';
 
 /** Module-level auth private key — set via setAuthPrivKey() */
 let _authPrivKey: string | null = null;
@@ -24,7 +25,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // Add NIP-98 auth header if key is set
   if (_authPrivKey) {
     try {
-      const url = `${window.location.origin}${path}`;
+      const url = BASE ? `${BASE}${path}` : `${window.location.origin}${path}`;
       const method = init?.method || 'GET';
       const authToken = await createNip98Auth(url, method, _authPrivKey);
       headers['Authorization'] = `Nostr ${authToken}`;
@@ -542,6 +543,7 @@ export interface DriverEarnings {
     tips: number;
     currency: string;
     rating: number | null;
+    settlement: { method: string | null; status: string | null; trust_model: string | null } | null;
   }>;
 }
 
