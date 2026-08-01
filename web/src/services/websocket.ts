@@ -16,9 +16,13 @@ export const WS_PROTOCOL = {
   taskBroadcast: 'ride_request',        // server → client
 } as const;
 
-function getWsBaseUrl(): string {
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  return `${protocol}://${window.location.hostname}:${WS_PORT}`;
+export function getWsBaseUrl(): string {
+  // Behind TLS the WebSocket is reverse-proxied on the same origin at /ws;
+  // local dev connects straight to the WS port.
+  if (window.location.protocol === 'https:') {
+    return `wss://${window.location.host}/ws`;
+  }
+  return `ws://${window.location.hostname}:${WS_PORT}`;
 }
 
 export class TaskWebSocket {

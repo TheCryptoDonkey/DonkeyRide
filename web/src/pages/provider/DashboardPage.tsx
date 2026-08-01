@@ -7,7 +7,7 @@ import { useIdentity } from '../../context/IdentityContext';
 import { useTask } from '../../context/TaskContext';
 import { useDomain } from '../../context/DomainContext';
 import { getTaskStats, getOperatorInfo, normaliseTask } from '../../services/api';
-import { WS_PROTOCOL } from '../../services/websocket';
+import { WS_PROTOCOL, getWsBaseUrl } from '../../services/websocket';
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -58,8 +58,7 @@ export function DashboardPage() {
     if (reconnectRef.current) clearTimeout(reconnectRef.current);
     wsRef.current?.close();
 
-    const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    const wsUrl = `${protocol}://${window.location.hostname}:3001`;
+    const wsUrl = getWsBaseUrl();
     console.log('[DashboardWS] Connecting to', wsUrl);
     const ws = new WebSocket(wsUrl);
 

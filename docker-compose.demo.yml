@@ -1,0 +1,48 @@
+# ==========================================
+# Minimal public demo stack
+# ==========================================
+# Operator + PostgreSQL + Redis, ports bound to loopback only.
+# Front with a TLS reverse proxy (Caddy/nginx):
+#   HTTPS  →  127.0.0.1:3999  (API + web app)
+#   /ws    →  127.0.0.1:3998  (WebSocket)
+#
+#   docker compose -f docker-compose.demo.yml up -d --build
+
+services:
+  operator:
+    build: .
+    restart: unless-stopped
+    environment:
+      OPERATOR_NAME: "DonkeyRide Public Demo"
+      DOMAIN: ridesharing
+      PAYMENT_PROVIDER: demo
+      ENABLE_NIP98_AUTH: "true"
+      ENABLE_RATE_LIMITING: "true"
+      DISPATCH_RADIUS_KM: "15"
+      DATABASE_URL: postgresql://donkey:donkey@postgres:5432/donkeyride
+      REDIS_URL: redis://redis:6379
+      PORT: 3000
+      WS_PORT: 3001
+    ports:
+      - "127.0.0.1:3999:3000"
+      - "127.0.0.1:3998:3001"
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: donkey
+      POSTGRES_PASSWORD: donkey
+      POSTGRES_DB: donkeyride
+    volumes:
+      - demo-pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+volumes:
+  demo-pgdata:
