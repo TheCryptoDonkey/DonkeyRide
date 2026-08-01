@@ -33,31 +33,31 @@ class PaymentProvider {
     }
 
     /**
-     * Release a stake after successful ride completion
-     * @param {string} rideId - Unique ride identifier
+     * Release a single party's stake (money goes back to the payer)
+     * @param {string} stakeId - `${rideId}_${role}` (role: 'rider'|'driver')
      * @returns {Promise<StakeRelease>} Release confirmation
      */
-    async releaseStake(rideId) {
+    async releaseStake(stakeId) {
         throw new Error(`releaseStake() not implemented in ${this.providerName}`);
     }
 
     /**
-     * Forfeit a stake (penalty for cancellation)
-     * @param {string} rideId - Unique ride identifier
+     * Forfeit a single party's stake (penalty for cancellation)
+     * @param {string} stakeId - `${rideId}_${role}` of the forfeiting party
      * @param {string} cancellingParty - Pubkey of party that cancelled
      * @param {string} reason - Cancellation reason
      * @returns {Promise<StakeForfeit>} Penalty distribution details
      */
-    async forfeitStake(rideId, cancellingParty, reason) {
+    async forfeitStake(stakeId, cancellingParty, reason) {
         throw new Error(`forfeitStake() not implemented in ${this.providerName}`);
     }
 
     /**
      * Get current status of a stake
-     * @param {string} rideId - Unique ride identifier
+     * @param {string} stakeId - `${rideId}_${role}`
      * @returns {Promise<StakeStatus>} Current stake status
      */
-    async getStakeStatus(rideId) {
+    async getStakeStatus(stakeId) {
         throw new Error(`getStakeStatus() not implemented in ${this.providerName}`);
     }
 

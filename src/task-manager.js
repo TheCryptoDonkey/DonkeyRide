@@ -578,11 +578,11 @@ class TaskManager {
     const tasks = Array.from(this.tasks.values());
     const stats = { total: tasks.length };
 
-    // Count by each state value
+    // Count by each state value, keyed in camelCase (REQUESTED → requested,
+    // PROVIDER_EN_ROUTE → providerEnRoute)
     for (const [key, value] of Object.entries(this.states)) {
       const count = tasks.filter(t => t.status === value).length;
-      // Use camelCase key for the stat
-      const statKey = key.charAt(0).toLowerCase() + key.slice(1).replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+      const statKey = key.toLowerCase().replace(/_([a-z])/g, (_, c) => c.toUpperCase());
       stats[statKey] = count;
     }
 

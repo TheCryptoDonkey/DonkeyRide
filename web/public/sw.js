@@ -9,8 +9,9 @@
  *   still opens in a car park with no signal.
  */
 
-const CACHE_NAME = 'donkeyride-v1';
-const APP_SHELL = ['/', '/manifest.webmanifest'];
+const CACHE_NAME = 'donkeyride-v2';
+// Two app shells: rider ('/') and driver ('/provide')
+const APP_SHELL = ['/', '/provide', '/manifest.webmanifest', '/manifest-driver.webmanifest'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -52,16 +53,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Navigations — network-first, fall back to cached shell offline
+  // Navigations — network-first, fall back to the right app shell offline
   if (event.request.mode === 'navigate') {
+    const isDriverPath = url.pathname.startsWith('/provide') || url.pathname.startsWith('/drive');
+    const shellKey = isDriverPath ? '/provide' : '/';
     event.respondWith(
       fetch(event.request)
         .then((response) => {
           const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put('/', copy));
+          caches.open(CACHE_NAME).then((cache) => cache.put(shellKey, copy));
           return response;
         })
-        .catch(() => caches.match('/'))
+        .catch(() => caches.match(shellKey))
     );
   }
 });

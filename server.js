@@ -931,19 +931,43 @@ app.post('/rides/:rideId/rider-stake', async (req, res) => {
         const ride = activeRides.get(rideId);
         const rideRecord = rideManager.getRide(rideId);
         if (!ride) throw new Error('Ride not found');
-        
-        // Verify payment and lock stake
+
+        // Create the stake lock with the payment provider
         const stakeLock = await stakeManager.lockStake(
             rideId,
             ride.riderId,
             ride.riderStake,
             'rider'
         );
-        
+
+        if (!stakeLock || !stakeLock.success) {
+            return res.status(502).json({
+                error: 'Stake lock failed',
+                details: stakeLock?.error || 'Payment provider rejected the stake lock'
+            });
+        }
+
+        // Non-instant rails (hodl invoices): the stake is only enforceable
+        // once the payer's payment is actually held. Hand back the invoice
+        // and require confirmation via /rider-stake/confirm.
+        const instantLock = stakeManager.currentProvider?.getCapabilities?.().features?.instantLock !== false;
+        if (!instantLock) {
+            ride.status = 'waiting_rider_stake_payment';
+            ride.riderStakeProof = stakeLock.holdId || stakeLock.lockId;
+            ride.riderStakeInvoice = stakeLock.invoice;
+            return res.json({
+                success: true,
+                status: 'awaiting_payment',
+                invoice: stakeLock.invoice,
+                stakeAmount: ride.riderStake,
+                confirm: `/rides/${rideId}/rider-stake/confirm`
+            });
+        }
+
         ride.status = 'waiting_driver';
         ride.riderStakeLocked = true;
-        ride.riderStakeProof = stakeLock.holdId;
-        
+        ride.riderStakeProof = stakeLock.holdId || stakeLock.lockId;
+
         // Broadcast to WebSocket clients
         broadcastToRide(rideId, {
             type: 'rider_stake_locked',
@@ -1018,7 +1042,7 @@ app.post('/rides/:rideId/driver-stake', async (req, res) => {
         
         const ride = activeRides.get(rideId);
         if (!ride) throw new Error('Ride not found');
-        
+
         // Lock driver stake
         const stakeLock = await stakeManager.lockStake(
             rideId,
@@ -1026,10 +1050,31 @@ app.post('/rides/:rideId/driver-stake', async (req, res) => {
             ride.driverStake,
             'driver'
         );
-        
+
+        if (!stakeLock || !stakeLock.success) {
+            return res.status(502).json({
+                error: 'Stake lock failed',
+                details: stakeLock?.error || 'Payment provider rejected the stake lock'
+            });
+        }
+
+        const instantLock = stakeManager.currentProvider?.getCapabilities?.().features?.instantLock !== false;
+        if (!instantLock) {
+            ride.status = 'waiting_driver_stake_payment';
+            ride.driverStakeProof = stakeLock.holdId || stakeLock.lockId;
+            ride.driverStakeInvoice = stakeLock.invoice;
+            return res.json({
+                success: true,
+                status: 'awaiting_payment',
+                invoice: stakeLock.invoice,
+                stakeAmount: ride.driverStake,
+                confirm: `/rides/${rideId}/driver-stake/confirm`
+            });
+        }
+
         ride.status = 'active';
         ride.driverStakeLocked = true;
-        ride.driverStakeProof = stakeLock.holdId;
+        ride.driverStakeProof = stakeLock.holdId || stakeLock.lockId;
         ride.startedAt = Date.now();
 
         // Notify rider that driver stake is locked
@@ -1064,6 +1109,74 @@ app.post('/rides/:rideId/driver-stake', async (req, res) => {
     }
 });
 
+// Confirm a non-instant stake payment landed (hodl invoice held).
+// Kept separate per role so each party confirms their own payment.
+async function confirmStakePayment(req, res, role) {
+    try {
+        const { rideId } = req.params;
+        const ride = activeRides.get(rideId);
+        if (!ride) throw new Error('Ride not found');
+
+        const provider = stakeManager.currentProvider;
+        if (typeof provider?.confirmStakePaid !== 'function') {
+            return res.status(400).json({
+                error: `Provider ${provider?.providerName || 'unknown'} does not require payment confirmation`
+            });
+        }
+
+        const result = await provider.confirmStakePaid(`${rideId}_${role}`);
+        if (!result.paid) {
+            return res.status(402).json({
+                success: false,
+                paid: false,
+                status: result.status,
+                details: 'Stake invoice not yet paid/held'
+            });
+        }
+
+        if (role === 'rider') {
+            ride.status = 'waiting_driver';
+            ride.riderStakeLocked = true;
+            broadcastToRide(rideId, { type: 'rider_stake_locked', amount: ride.riderStake });
+            stakeEvents.publishStakeLock({
+                rideId,
+                role: 'rider',
+                amount: ride.riderStake,
+                participant: ride.riderId,
+                escrowId: ride.riderStakeProof,
+                currency: ride.currency || 'SAT',
+                trustModel: provider.getTrustModel()
+            }).catch((err) => console.warn(`Failed to publish rider stake lock for ${rideId}:`, err.message));
+        } else {
+            ride.status = 'active';
+            ride.driverStakeLocked = true;
+            ride.startedAt = Date.now();
+            broadcastToRide(rideId, {
+                type: 'driver_stake_locked',
+                driver: ride.driverId,
+                stake: ride.driverStake,
+                timestamp: ride.startedAt
+            });
+            stakeEvents.publishStakeLock({
+                rideId,
+                role: 'driver',
+                amount: ride.driverStake,
+                participant: ride.driverId,
+                escrowId: ride.driverStakeProof,
+                currency: ride.currency || 'SAT',
+                trustModel: provider.getTrustModel()
+            }).catch((err) => console.warn(`Failed to publish driver stake lock for ${rideId}:`, err.message));
+        }
+
+        res.json({ success: true, paid: true, status: ride.status });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
+
+app.post('/rides/:rideId/rider-stake/confirm', (req, res) => confirmStakePayment(req, res, 'rider'));
+app.post('/rides/:rideId/driver-stake/confirm', (req, res) => confirmStakePayment(req, res, 'driver'));
+
 // Complete ride and release stakes
 app.post('/rides/:rideId/complete', async (req, res) => {
     try {
@@ -1074,9 +1187,20 @@ app.post('/rides/:rideId/complete', async (req, res) => {
         if (!ride) throw new Error('Ride not found');
         if (ride.status !== 'active') throw new Error('Ride not active');
         
-        // Release both stakes
+        // Release both stakes — a failed release is an operator incident,
+        // not something to paper over with a success response
         const riderRelease = await stakeManager.releaseStake(`${rideId}_rider`);
         const driverRelease = await stakeManager.releaseStake(`${rideId}_driver`);
+
+        if (!riderRelease?.success || !driverRelease?.success) {
+            return res.status(502).json({
+                error: 'Stake release failed — ride left active',
+                riderStakeReleased: !!riderRelease?.success,
+                driverStakeReleased: !!driverRelease?.success,
+                details: [riderRelease?.error, driverRelease?.error].filter(Boolean)
+            });
+        }
+
         stakeEvents.publishStakeRelease({
             rideId,
             role: 'rider',
@@ -1150,7 +1274,7 @@ app.post('/rides/:rideId/complete', async (req, res) => {
             riderStakeReleased: true,
             driverStakeReleased: true,
             operatorFeePaid: ride.operatorFee,
-            releases: [riderRelease.event, driverRelease.event]
+            releases: [riderRelease.event, driverRelease.event].filter(Boolean)
         });
         
     } catch (error) {
@@ -3642,6 +3766,39 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
     }
 });
 
+// Ride statistics — MUST be registered before /api/rides/:rideId or the
+// literal path 'stats' is captured as a ride id and 404s
+app.get('/api/rides/stats', (req, res) => {
+    try {
+        const stats = rideManager.getStats();
+        const activeRides = rideManager.getActiveRides();
+
+        res.json({
+            success: true,
+            // Flat summary consumed by the driver dashboard
+            total: stats.total || 0,
+            active: activeRides.length,
+            completed: stats.completed || 0,
+            cancelled: stats.cancelled || 0,
+            stats,
+            active_rides: activeRides.length,
+            rides: activeRides.map(r => ({
+                id: r.id,
+                status: r.status,
+                rider: r.rider.npub,
+                driver: r.driver?.npub || null
+            }))
+        });
+
+    } catch (error) {
+        console.error('Error getting stats:', error);
+        res.status(500).json({
+            error: 'Failed to get stats',
+            details: error.message
+        });
+    }
+});
+
 // Get ride status
 app.get('/api/rides/:rideId', (req, res) => {
     try {
@@ -3668,31 +3825,6 @@ app.get('/api/rides/:rideId', (req, res) => {
 });
 
 // Get ride stats
-app.get('/api/rides/stats', (req, res) => {
-    try {
-        const stats = rideManager.getStats();
-        const activeRides = rideManager.getActiveRides();
-
-        res.json({
-            success: true,
-            stats,
-            active_rides: activeRides.length,
-            rides: activeRides.map(r => ({
-                id: r.id,
-                status: r.status,
-                rider: r.rider.npub,
-                driver: r.driver?.npub || null
-            }))
-        });
-
-    } catch (error) {
-        console.error('Error getting stats:', error);
-        res.status(500).json({
-            error: 'Failed to get stats',
-            details: error.message
-        });
-    }
-});
 
 // ==========================================
 // DOMAIN PROFILE API
@@ -3790,7 +3922,12 @@ app.get('*', (req, res, next) => {
         req.path.endsWith('.css') || req.path.endsWith('.map')) {
         return next();
     }
-    // Serve React app if the build exists
+    // Rider and driver are separate apps sharing one origin: driver paths
+    // get the driver shell, everything else gets the rider shell.
+    const driverShellPath = path.join(reactBuildPath, 'driver.html');
+    if ((req.path.startsWith('/provide') || req.path.startsWith('/drive')) && fs.existsSync(driverShellPath)) {
+        return res.sendFile(driverShellPath);
+    }
     if (fs.existsSync(reactIndexPath)) {
         return res.sendFile(reactIndexPath);
     }

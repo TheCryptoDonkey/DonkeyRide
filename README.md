@@ -100,12 +100,12 @@ The implementation is **payment-agnostic**. Every monetary event includes explic
 
 Implemented today:
 
-| Provider | Trust Model | Currencies | Best For |
-|----------|------------|------------|----------|
-| Cash (record-only) | `social` | Any | Cash-first markets — the operator never touches money |
-| LND / CLN / BTCPay | `custodial` | SAT/BTC | Self-hosted operators, hodl-invoice stakes |
-| Alby | `custodial-third-party` | SAT/BTC | Easy Lightning setup |
-| Demo | `demo` | Any | Testing and demos |
+| Provider | Trust Model | Currencies | Status |
+|----------|------------|------------|--------|
+| Cash (record-only) | `social` | Any | Working — the operator never touches money |
+| LND (hodl invoices) | `trustless` | SAT/BTC | Semantics proven on regtest: release cancels (refund), forfeit settles (real penalty) |
+| Demo | `demo` | Any | Testing and demos only |
+| BTCPay / Alby / CLN | `custodial` | SAT/BTC | Experimental — never verified against their real APIs |
 
 Planned (the factory rejects these with a clear error rather than pretending): NIP-47/NWC hold invoices (`trustless`), Cashu ecash, Stripe (pure fiat), M-Pesa (mobile money).
 

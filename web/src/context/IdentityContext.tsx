@@ -37,9 +37,9 @@ const IdentityContext = createContext<IdentityState>({
   setRole: () => {},
 });
 
-export function IdentityProvider({ children }: { children: ReactNode }) {
+export function IdentityProvider({ children, fixedRole }: { children: ReactNode; fixedRole?: Role }) {
   const [identity, setIdentity] = useState<NostrIdentity | null>(null);
-  const [role, setRoleState] = useState<Role>(readStoredRole);
+  const [role, setRoleState] = useState<Role>(fixedRole ?? readStoredRole);
   const [loading, setLoading] = useState(true);
 
   const loadIdentity = useCallback(async (r: Role) => {

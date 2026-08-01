@@ -365,7 +365,7 @@ test('TaskManager getStats returns counts per state', () => {
 
   const stats = tm.getStats();
   assert.equal(stats.total, 2);
-  assert.equal(stats.rEQUESTED, 2);
+  assert.equal(stats.requested, 2);
 });
 
 test('TaskManager getActiveTasks excludes terminal states', () => {

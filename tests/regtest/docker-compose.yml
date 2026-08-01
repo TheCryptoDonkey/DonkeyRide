@@ -1,0 +1,69 @@
+# Regtest Lightning harness: bitcoind + operator LND + payer LND.
+# Used by run.sh to prove hodl-invoice stake semantics against real nodes.
+services:
+  bitcoind:
+    image: polarlightning/bitcoind:27.0
+    command:
+      - bitcoind
+      - -regtest
+      - -server=1
+      - -txindex=1
+      - -fallbackfee=0.0002
+      - -rpcbind=0.0.0.0
+      - -rpcallowip=0.0.0.0/0
+      - -rpcuser=donkey
+      - -rpcpassword=donkey
+      - -zmqpubrawblock=tcp://0.0.0.0:28334
+      - -zmqpubrawtx=tcp://0.0.0.0:28335
+
+  lnd-operator:
+    image: polarlightning/lnd:0.18.3-beta
+    depends_on: [bitcoind]
+    command:
+      - lnd
+      - --noseedbackup
+      - --debuglevel=info
+      - --listen=0.0.0.0:9735
+      - --rpclisten=0.0.0.0:10009
+      - --restlisten=0.0.0.0:8080
+      - --tlsextradomain=lnd-operator
+      - --tlsextraip=127.0.0.1
+      - --bitcoin.regtest
+      - --bitcoin.node=bitcoind
+      - --bitcoind.rpchost=bitcoind
+      - --bitcoind.rpcuser=donkey
+      - --bitcoind.rpcpass=donkey
+      - --bitcoind.zmqpubrawblock=tcp://bitcoind:28334
+      - --bitcoind.zmqpubrawtx=tcp://bitcoind:28335
+    ports:
+      - "127.0.0.1:10009:10009"
+    volumes:
+      - operator-lnd:/home/lnd/.lnd
+
+  lnd-payer:
+    image: polarlightning/lnd:0.18.3-beta
+    depends_on: [bitcoind]
+    command:
+      - lnd
+      - --noseedbackup
+      - --debuglevel=info
+      - --listen=0.0.0.0:9735
+      - --rpclisten=0.0.0.0:10009
+      - --restlisten=0.0.0.0:8080
+      - --tlsextradomain=lnd-payer
+      - --tlsextraip=127.0.0.1
+      - --bitcoin.regtest
+      - --bitcoin.node=bitcoind
+      - --bitcoind.rpchost=bitcoind
+      - --bitcoind.rpcuser=donkey
+      - --bitcoind.rpcpass=donkey
+      - --bitcoind.zmqpubrawblock=tcp://bitcoind:28334
+      - --bitcoind.zmqpubrawtx=tcp://bitcoind:28335
+    ports:
+      - "127.0.0.1:10010:10009"
+    volumes:
+      - payer-lnd:/home/lnd/.lnd
+
+volumes:
+  operator-lnd:
+  payer-lnd:

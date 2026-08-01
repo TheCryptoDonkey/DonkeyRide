@@ -46,14 +46,17 @@ class PaymentProviderFactory {
 
             case 'btcpay':
             case 'btcpayserver':
+                console.warn('⚠️  btcpay provider is EXPERIMENTAL: never verified against a real BTCPay instance, and release/forfeit still use the legacy both-stakes key convention.');
                 return new BTCPayProvider(config);
 
             case 'alby':
+                console.warn('⚠️  alby provider is EXPERIMENTAL: never verified against the real Alby API, and release/forfeit still use the legacy both-stakes key convention.');
                 return new AlbyProvider(config);
 
             case 'cln':
             case 'core-lightning':
             case 'c-lightning':
+                console.warn('⚠️  cln provider is EXPERIMENTAL: never verified against a real Core Lightning node, and release/forfeit still use the legacy both-stakes key convention.');
                 return new CoreLightningProvider(config);
 
             default:

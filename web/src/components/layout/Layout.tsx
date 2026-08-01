@@ -2,7 +2,11 @@ import { Outlet } from 'react-router-dom';
 import { Header } from './Header';
 import { useDomain } from '../../context/DomainContext';
 
-export function Layout() {
+interface LayoutProps {
+  app: 'rider' | 'driver';
+}
+
+export function Layout({ app }: LayoutProps) {
   const { loading, error } = useDomain();
 
   if (loading) {
@@ -35,7 +39,7 @@ export function Layout() {
 
   return (
     <div className="h-screen flex flex-col">
-      <Header />
+      <Header app={app} />
       <main className="flex-1 overflow-hidden relative">
         <Outlet />
       </main>

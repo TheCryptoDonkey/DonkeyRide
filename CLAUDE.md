@@ -86,7 +86,9 @@ Each profile defines: state machine (states + valid transitions), role names (re
 
 `payment-providers/factory.js` — Factory + fallback chain via `ResilientStakeManager`. All providers extend `payment-providers/base.js` with the interface: `lockStake()`, `releaseStake()`, `forfeitStake()`, `healthCheck()`, `getCapabilities()`.
 
-Providers: `cash` (record-only, no custody — fare settles face-to-face, inDrive model), `lnd` (custodial, operator hodl invoices), `btcpay` (custodial, self-hosted), `alby` (custodial-third-party), `cln` (custodial, Core Lightning), `demo` (mock for testing). Planned, not yet implemented: `nwc` (NIP-47 hold invoices), `stripe` (pure fiat), Cashu, M-Pesa — the factory throws a clear error if these are selected.
+Providers: `cash` (record-only, no custody — fare settles face-to-face, inDrive model), `lnd` (hodl invoices, regtest-proven semantics: release = cancel/refund, forfeit = settle/claim penalty; `confirmStakePaid()` gates enforcement on the payment actually being held), `demo` (mock for testing). Experimental (never verified against their real APIs, legacy both-stakes key convention): `btcpay`, `alby`, `cln`. Planned, not yet implemented: `nwc` (NIP-47 hold invoices), `stripe` (pure fiat), Cashu, M-Pesa — the factory throws a clear error if these are selected.
+
+Stake interface is **per-stake**: `releaseStake`/`forfeitStake`/`getStakeStatus` take a stakeId of `${rideId}_${role}`. Non-instant rails (`instantLock: false`) return `awaiting_payment` from the stake endpoints and require `/rides/:id/{rider,driver}-stake/confirm`, which calls the provider's `confirmStakePaid()`.
 
 Every payment event includes explicit `amount`, `currency`, and `trust_model` tags. Amounts are in the smallest unit of the specified currency (pence for GBP, cents for USD, satoshis for SAT).
 

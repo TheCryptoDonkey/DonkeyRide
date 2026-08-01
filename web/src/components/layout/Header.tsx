@@ -1,33 +1,42 @@
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useDomain } from '../../context/DomainContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { DomainSwitcher } from './DomainSwitcher';
 
-export function Header() {
-  const { profile } = useDomain();
-  const { role, setRole, identity } = useIdentity();
-  const location = useLocation();
-  const navigate = useNavigate();
+interface HeaderProps {
+  app: 'rider' | 'driver';
+}
 
-  const isProvider = role === 'provider' || location.pathname.startsWith('/provide');
+export function Header({ app }: HeaderProps) {
+  const { profile } = useDomain();
+  const { identity } = useIdentity();
+
+  const isDriver = app === 'driver';
+  const homePath = isDriver ? '/provide' : '/';
+  const providerNoun = profile?.roles.provider || 'Driver';
+  const appSuffix = isDriver
+    ? providerNoun.charAt(0).toUpperCase() + providerNoun.slice(1)
+    : null;
+
   const truncatedPub = identity?.npub
     ? `${identity.npub.slice(0, 12)}...${identity.npub.slice(-4)}`
     : '...';
 
-  const handleRoleChange = (newRole: 'requester' | 'provider') => {
-    setRole(newRole);
-    navigate(newRole === 'provider' ? '/provide' : '/request');
-  };
+  // Switching apps is a full navigation — rider and driver are separate PWAs
+  const switchHref = isDriver ? '/' : '/provide';
+  const switchLabel = isDriver
+    ? `${profile?.roles.requester || 'Rider'} app`
+    : `${providerNoun} app`;
 
   return (
     <header className="bg-brand-gradient text-white px-6 py-4 flex items-center justify-between z-20"
             style={{ boxShadow: '0 8px 25px rgba(0, 0, 0, 0.35)' }}>
-      <Link to="/" className="flex items-center gap-3">
+      <Link to={homePath} className="flex items-center gap-3">
         <div>
           <div className="flex items-center gap-2">
             <span className="text-2xl font-black" style={{ letterSpacing: '-0.02em' }}>
               {profile?.theme?.emoji && <span className="mr-1">{profile.theme.emoji}</span>}
-              DonkeyRide
+              DonkeyRide{appSuffix && <span className="font-semibold opacity-80"> {appSuffix}</span>}
             </span>
           </div>
           <div className="text-xs uppercase opacity-70" style={{ letterSpacing: '0.2em' }}>
@@ -40,28 +49,14 @@ export function Header() {
         {/* Domain picker */}
         <DomainSwitcher />
 
-        {/* Role toggle */}
-        <div className="flex rounded-full overflow-hidden text-sm"
-             style={{ background: 'rgba(0, 0, 0, 0.25)', border: '1px solid rgba(255, 255, 255, 0.2)' }}>
-          <button
-            className={`px-4 py-2 transition-all font-semibold ${
-              !isProvider ? 'bg-white/25' : 'hover:bg-white/10'
-            }`}
-            style={{ letterSpacing: '0.05em' }}
-            onClick={() => handleRoleChange('requester')}
-          >
-            {profile?.roles.requester || 'Requester'}
-          </button>
-          <button
-            className={`px-4 py-2 transition-all font-semibold ${
-              isProvider ? 'bg-white/25' : 'hover:bg-white/10'
-            }`}
-            style={{ letterSpacing: '0.05em' }}
-            onClick={() => handleRoleChange('provider')}
-          >
-            {profile?.roles.provider || 'Provider'}
-          </button>
-        </div>
+        {/* Cross-app link */}
+        <a
+          href={switchHref}
+          className="px-4 py-2 rounded-full text-sm font-semibold transition-all hover:bg-white/10"
+          style={{ background: 'rgba(0, 0, 0, 0.25)', border: '1px solid rgba(255, 255, 255, 0.2)', letterSpacing: '0.05em' }}
+        >
+          {switchLabel}
+        </a>
 
         {/* Identity badge */}
         <div className="text-xs font-mono opacity-70" title={identity?.npub}

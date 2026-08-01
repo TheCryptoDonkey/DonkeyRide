@@ -254,6 +254,14 @@ test('driver cannot report presence as somebody else', async () => {
   assert.equal(res.status, 403, JSON.stringify(res.body));
 });
 
+test('/api/rides/stats resolves as the stats route, not a ride id', async () => {
+  const res = await get('/api/rides/stats');
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(typeof res.body.total, 'number');
+  assert.equal(typeof res.body.active, 'number');
+  assert.equal(typeof res.body.completed, 'number');
+});
+
 // ── Persistence & rehydration ───────────────────────
 
 test('tasks survive a manager restart via the task store', async () => {

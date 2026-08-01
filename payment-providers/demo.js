@@ -82,42 +82,33 @@ class DemoProvider extends PaymentProvider {
     }
 
     /**
-     * Mock stake release
+     * Mock stake release.
+     * Per-stake: stakeId = `${rideId}_${role}` — release exactly one party's
+     * stake, matching how the server releases/forfeits parties independently.
      */
-    async releaseStake(rideId) {
+    async releaseStake(stakeId) {
         try {
-            const riderStake = this.stakes.get(`${rideId}_rider`);
-            const driverStake = this.stakes.get(`${rideId}_driver`);
-
-            if (!riderStake && !driverStake) {
-                throw new Error('No stakes found for this ride');
+            const stake = this.stakes.get(stakeId);
+            if (!stake) {
+                throw new Error(`No stake found for ${stakeId}`);
             }
 
-            if (riderStake) {
-                riderStake.status = 'released';
-                riderStake.releasedAt = Date.now();
-            }
-
-            if (driverStake) {
-                driverStake.status = 'released';
-                driverStake.releasedAt = Date.now();
-            }
-
-            const totalAmount = (riderStake?.amount || 0) + (driverStake?.amount || 0);
+            stake.status = 'released';
+            stake.releasedAt = Date.now();
 
             const event = this.createStakeEvent('released', {
-                rideId,
-                amount: totalAmount,
-                providerTxId: rideId
+                rideId: stake.rideId,
+                amount: stake.amount,
+                providerTxId: stake.lockId
             });
 
-            console.log(`🎭 DEMO: Released ${totalAmount} sats for ride ${rideId}`);
+            console.log(`🎭 DEMO: Released ${stake.amount} sats (${stakeId})`);
 
             return {
                 success: true,
-                releaseId: rideId,
-                amount: totalAmount,
-                releasedAt: Date.now(),
+                releaseId: stakeId,
+                amount: stake.amount,
+                releasedAt: stake.releasedAt,
                 event
             };
 
@@ -131,54 +122,35 @@ class DemoProvider extends PaymentProvider {
     }
 
     /**
-     * Mock stake forfeit
+     * Mock stake forfeit — per-stake (stakeId = `${rideId}_${role}`).
+     * The server decides which party forfeits and releases the innocent
+     * party's stake separately.
      */
-    async forfeitStake(rideId, cancellingParty, reason) {
+    async forfeitStake(stakeId, cancellingParty, reason) {
         try {
-            const riderStake = this.stakes.get(`${rideId}_rider`);
-            const driverStake = this.stakes.get(`${rideId}_driver`);
-
-            if (!riderStake && !driverStake) {
-                throw new Error('No stakes found for this ride');
-            }
-
-            let forfeitingStake, innocentStake;
-
-            if (cancellingParty === riderStake?.userId) {
-                forfeitingStake = riderStake;
-                innocentStake = driverStake;
-            } else {
-                forfeitingStake = driverStake;
-                innocentStake = riderStake;
-            }
-
-            if (!forfeitingStake) {
-                throw new Error('Could not determine forfeiting party');
+            const stake = this.stakes.get(stakeId);
+            if (!stake) {
+                throw new Error(`No stake found for ${stakeId}`);
             }
 
             // Mock penalty calculation (80% penalty)
-            const penalty = Math.floor(forfeitingStake.amount * 0.8);
-            const refund = forfeitingStake.amount - penalty;
+            const penalty = Math.floor(stake.amount * 0.8);
+            const refund = stake.amount - penalty;
 
-            forfeitingStake.status = 'forfeited';
-            forfeitingStake.forfeitedAt = Date.now();
-            forfeitingStake.penalty = penalty;
-
-            if (innocentStake) {
-                innocentStake.status = 'released';
-                innocentStake.releasedAt = Date.now();
-            }
+            stake.status = 'forfeited';
+            stake.forfeitedAt = Date.now();
+            stake.penalty = penalty;
 
             const event = this.createStakeEvent('forfeited', {
-                rideId,
-                amount: forfeitingStake.amount,
+                rideId: stake.rideId,
+                amount: stake.amount,
                 penalty,
                 refund,
                 reason,
-                providerTxId: forfeitingStake.lockId
+                providerTxId: stake.lockId
             });
 
-            console.log(`🎭 DEMO: Forfeited ${penalty} sats from ride ${rideId} (${reason})`);
+            console.log(`🎭 DEMO: Forfeited ${penalty} sats (${stakeId}, ${reason})`);
 
             return {
                 success: true,
@@ -198,16 +170,10 @@ class DemoProvider extends PaymentProvider {
     }
 
     /**
-     * Get stake status
+     * Get stake status — per-stake (stakeId = `${rideId}_${role}`)
      */
-    async getStakeStatus(rideId) {
-        const riderStake = this.stakes.get(`${rideId}_rider`);
-        const driverStake = this.stakes.get(`${rideId}_driver`);
-
-        return {
-            rider: riderStake || null,
-            driver: driverStake || null
-        };
+    async getStakeStatus(stakeId) {
+        return this.stakes.get(stakeId) || null;
     }
 
     /**

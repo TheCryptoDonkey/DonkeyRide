@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
-import { RiderApp } from './apps/RiderApp';
+import { DriverApp } from './apps/DriverApp';
 import { DomainProvider } from './context/DomainContext';
 import { IdentityProvider } from './context/IdentityContext';
 import { TaskProvider } from './context/TaskContext';
@@ -14,9 +14,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <BrowserRouter>
       <DomainProvider>
-        <IdentityProvider fixedRole="requester">
+        <IdentityProvider fixedRole="provider">
           <TaskProvider>
-            <RiderApp />
+            <DriverApp />
           </TaskProvider>
         </IdentityProvider>
       </DomainProvider>

@@ -140,70 +140,84 @@ class LNDProvider extends PaymentProvider {
     }
 
     /**
-     * Release stake by settling hodl invoice
-     * Reveals preimage, allowing payment to complete
+     * Confirm a stake invoice has actually been paid (payment HELD).
+     * Transitions pending → locked. A hodl invoice is only enforceable once
+     * the payer's HTLC is held — lockStake alone just creates the invoice.
+     *
+     * @param {string} stakeId - `${rideId}_${role}`
+     * @returns {Promise<{paid: boolean, status: string}>}
      */
-    async releaseStake(rideId) {
+    async confirmStakePaid(stakeId) {
+        await this.initialize();
+
+        const stake = this.stakes.get(stakeId);
+        if (!stake) {
+            return { paid: false, status: 'not_found' };
+        }
+
+        const lnService = require('ln-service');
+        const invoice = await lnService.getInvoice({
+            lnd: this.lnd.lnd,
+            id: stake.hash
+        });
+
+        if (invoice.is_held) {
+            stake.status = 'locked';
+            stake.heldAt = Date.now();
+        } else if (invoice.is_canceled) {
+            stake.status = 'cancelled';
+        }
+
+        return { paid: !!invoice.is_held, status: stake.status };
+    }
+
+    /**
+     * Release a stake by CANCELLING the hodl invoice.
+     *
+     * Semantics matter here: with a held hodl invoice, `settle` claims the
+     * payer's money for the operator's node, `cancel` returns it to the
+     * payer. Releasing a stake after a successful ride means giving the
+     * money BACK — so release cancels. (The previous implementation settled
+     * on release, i.e. the operator quietly kept every stake.)
+     *
+     * @param {string} stakeId - `${rideId}_${role}`
+     */
+    async releaseStake(stakeId) {
         await this.initialize();
 
         try {
             const lnService = require('ln-service');
 
-            // Get both stakes
-            const riderStake = this.stakes.get(`${rideId}_rider`);
-            const driverStake = this.stakes.get(`${rideId}_driver`);
-
-            if (!riderStake && !driverStake) {
-                throw new Error('No stakes found for ride');
+            const stake = this.stakes.get(stakeId);
+            if (!stake) {
+                throw new Error(`No stake found for ${stakeId}`);
             }
 
-            const settlements = [];
+            // Cancel returns held funds to the payer; on an unpaid invoice it
+            // simply prevents late payment. Both are correct for release.
+            await lnService.cancelHodlInvoice({
+                lnd: this.lnd.lnd,
+                id: stake.hash
+            });
 
-            // Settle rider stake
-            if (riderStake && riderStake.status === 'locked') {
-                await lnService.settleHodlInvoice({
-                    lnd: this.lnd.lnd,
-                    secret: riderStake.preimage
-                });
+            stake.status = 'released';
+            stake.releasedAt = Date.now();
 
-                riderStake.status = 'released';
-                riderStake.releasedAt = Date.now();
-                settlements.push('rider');
-            }
-
-            // Settle driver stake
-            if (driverStake && driverStake.status === 'locked') {
-                await lnService.settleHodlInvoice({
-                    lnd: this.lnd.lnd,
-                    secret: driverStake.preimage
-                });
-
-                driverStake.status = 'released';
-                driverStake.releasedAt = Date.now();
-                settlements.push('driver');
-            }
-
-            const totalAmount = (riderStake?.amount || 0) + (driverStake?.amount || 0);
-
-            // Create Nostr event
             const event = this.createStakeEvent('released', {
-                rideId,
-                amount: totalAmount,
-                providerTxId: settlements.join(',')
+                rideId: stake.rideId,
+                amount: stake.amount,
+                providerTxId: stake.hash
             });
 
             return {
                 success: true,
-                releaseId: rideId,
-                amount: totalAmount,
-                releasedAt: Date.now(),
-                settlements,
+                releaseId: stakeId,
+                amount: stake.amount,
+                releasedAt: stake.releasedAt,
                 proof: {
                     provider: 'lnd',
-                    preimages: {
-                        rider: riderStake?.preimage,
-                        driver: driverStake?.preimage
-                    }
+                    mechanism: 'hodl_cancel_refund',
+                    hash: stake.hash
                 },
                 event
             };
@@ -218,76 +232,65 @@ class LNDProvider extends PaymentProvider {
     }
 
     /**
-     * Forfeit stake by cancelling hodl invoice
-     * Automatically refunds user (trustless!)
+     * Forfeit a stake by SETTLING the hodl invoice with the preimage —
+     * the operator claims the held funds as the penalty. This makes the
+     * penalty real and enforceable (the operator then compensates the
+     * wronged party per its published policy).
+     *
+     * If the invoice was never paid there is nothing to claim; it is
+     * cancelled instead and the forfeit is recorded with penalty 0.
+     *
+     * @param {string} stakeId - `${rideId}_${role}`
      */
-    async forfeitStake(rideId, cancellingParty, reason) {
+    async forfeitStake(stakeId, cancellingParty, reason) {
         await this.initialize();
 
         try {
             const lnService = require('ln-service');
 
-            const riderStake = this.stakes.get(`${rideId}_rider`);
-            const driverStake = this.stakes.get(`${rideId}_driver`);
-
-            let forfeitingStake, innocentStake;
-
-            // Determine who cancelled
-            if (cancellingParty === riderStake?.userId) {
-                forfeitingStake = riderStake;
-                innocentStake = driverStake;
-            } else {
-                forfeitingStake = driverStake;
-                innocentStake = riderStake;
+            const stake = this.stakes.get(stakeId);
+            if (!stake) {
+                throw new Error(`No stake found for ${stakeId}`);
             }
 
-            // Cancel forfeiting party's invoice (automatic refund)
-            await lnService.cancelHodlInvoice({
+            const invoice = await lnService.getInvoice({
                 lnd: this.lnd.lnd,
-                id: forfeitingStake.hash
+                id: stake.hash
             });
 
-            forfeitingStake.status = 'forfeited';
-            forfeitingStake.forfeitedAt = Date.now();
-
-            // Settle innocent party's stake (return their money)
-            if (innocentStake && innocentStake.status === 'locked') {
+            let penalty = 0;
+            if (invoice.is_held) {
                 await lnService.settleHodlInvoice({
                     lnd: this.lnd.lnd,
-                    secret: innocentStake.preimage
+                    secret: stake.preimage
                 });
-
-                innocentStake.status = 'released';
+                penalty = stake.amount;
+            } else if (!invoice.is_confirmed && !invoice.is_canceled) {
+                // Unpaid — nothing to claim, just close the invoice
+                await lnService.cancelHodlInvoice({
+                    lnd: this.lnd.lnd,
+                    id: stake.hash
+                });
             }
 
-            /**
-             * NOTE: With hodl invoices, we can't easily transfer
-             * the penalty to the innocent party. The cancelling party
-             * simply doesn't get their money locked (automatic refund).
-             *
-             * For penalty enforcement, we'd need:
-             * 1. Settle both invoices
-             * 2. Use regular Lightning payment to send penalty
-             * 3. Or use a separate penalty mechanism
-             *
-             * This is a tradeoff: Trustless but no automatic penalties
-             */
+            stake.status = 'forfeited';
+            stake.forfeitedAt = Date.now();
+            stake.penalty = penalty;
 
             const event = this.createStakeEvent('forfeited', {
-                rideId,
-                amount: forfeitingStake.amount,
-                penalty: 0, // No penalty with pure hodl invoices
-                refund: forfeitingStake.amount, // Full refund on cancel
+                rideId: stake.rideId,
+                amount: stake.amount,
+                penalty,
+                refund: stake.amount - penalty,
                 reason,
-                providerTxId: forfeitingStake.hash
+                providerTxId: stake.hash
             });
 
             return {
                 success: true,
-                penalty: 0,
-                refund: forfeitingStake.amount,
+                penalty,
+                refund: stake.amount - penalty,
                 reason,
-                note: 'Hodl invoices provide full refund on cancel. No automatic penalty transfer.',
                 event
             };
 
@@ -301,68 +304,39 @@ class LNDProvider extends PaymentProvider {
     }
 
     /**
-     * Get stake status from LND
+     * Get stake status from LND — per-stake (stakeId = `${rideId}_${role}`)
      */
-    async getStakeStatus(rideId) {
+    async getStakeStatus(stakeId) {
         await this.initialize();
 
-        const riderStake = this.stakes.get(`${rideId}_rider`);
-        const driverStake = this.stakes.get(`${rideId}_driver`);
-
-        if (!riderStake && !driverStake) {
+        const stake = this.stakes.get(stakeId);
+        if (!stake) {
             return null;
         }
 
         const lnService = require('ln-service');
-        const status = {};
+        try {
+            const invoice = await lnService.getInvoice({
+                lnd: this.lnd.lnd,
+                id: stake.hash
+            });
 
-        // Check rider stake status
-        if (riderStake) {
-            try {
-                const invoice = await lnService.getInvoice({
-                    lnd: this.lnd.lnd,
-                    id: riderStake.hash
-                });
-
-                status.rider = {
-                    ...riderStake,
-                    lndStatus: invoice.is_confirmed ? 'paid' : 'pending',
-                    verified: true,
-                    lastChecked: Date.now()
-                };
-            } catch (error) {
-                status.rider = {
-                    ...riderStake,
-                    verified: false,
-                    error: error.message
-                };
-            }
+            return {
+                ...stake,
+                lndStatus: invoice.is_held ? 'held'
+                    : invoice.is_confirmed ? 'settled'
+                    : invoice.is_canceled ? 'cancelled'
+                    : 'unpaid',
+                verified: true,
+                lastChecked: Date.now()
+            };
+        } catch (error) {
+            return {
+                ...stake,
+                verified: false,
+                error: error.message
+            };
         }
-
-        // Check driver stake status
-        if (driverStake) {
-            try {
-                const invoice = await lnService.getInvoice({
-                    lnd: this.lnd.lnd,
-                    id: driverStake.hash
-                });
-
-                status.driver = {
-                    ...driverStake,
-                    lndStatus: invoice.is_confirmed ? 'paid' : 'pending',
-                    verified: true,
-                    lastChecked: Date.now()
-                };
-            } catch (error) {
-                status.driver = {
-                    ...driverStake,
-                    verified: false,
-                    error: error.message
-                };
-            }
-        }
-
-        return status;
     }
 
     /**
