@@ -527,3 +527,25 @@ export function declineQuote(taskId: string, params: {
     body: JSON.stringify(params),
   });
 }
+
+// ── Earnings ────────────────────────────────────────
+
+export interface EarningsSummaryBucket { rides: number; sats: number }
+export interface DriverEarnings {
+  success: boolean;
+  summary: { today: EarningsSummaryBucket; week: EarningsSummaryBucket; allTime: EarningsSummaryBucket };
+  rides: Array<{
+    id: string;
+    domain: string;
+    completedAt: number | null;
+    fare: number;
+    tips: number;
+    currency: string;
+    rating: number | null;
+  }>;
+}
+
+/** GET /api/drivers/:pubkey/earnings — driver earnings + completed rides */
+export function getDriverEarnings(pubkey: string): Promise<DriverEarnings> {
+  return request(`/api/drivers/${pubkey}/earnings`);
+}

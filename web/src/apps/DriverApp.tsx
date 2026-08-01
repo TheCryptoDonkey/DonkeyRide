@@ -4,6 +4,8 @@ import { DashboardPage } from '../pages/provider/DashboardPage';
 import { IncomingTaskPage } from '../pages/provider/IncomingTaskPage';
 import { ActiveTaskPage } from '../pages/provider/ActiveTaskPage';
 import { CompletionPage } from '../pages/provider/CompletionPage';
+import { EarningsPage } from '../pages/provider/EarningsPage';
+import { ProfilePage } from '../pages/shared/ProfilePage';
 import { ExternalRedirect } from './ExternalRedirect';
 
 export function DriverApp() {
@@ -14,6 +16,8 @@ export function DriverApp() {
         <Route path="/provide/incoming" element={<IncomingTaskPage />} />
         <Route path="/provide/active" element={<ActiveTaskPage />} />
         <Route path="/provide/complete" element={<CompletionPage />} />
+        <Route path="/provide/earnings" element={<EarningsPage />} />
+        <Route path="/provide/profile" element={<ProfilePage role="provider" />} />
 
         {/* Backward-compatible redirects */}
         <Route path="/drive" element={<Navigate to="/provide" replace />} />

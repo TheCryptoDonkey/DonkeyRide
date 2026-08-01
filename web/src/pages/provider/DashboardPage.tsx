@@ -222,6 +222,13 @@ export function DashboardPage() {
           {online ? 'Go Offline' : 'Go Online'}
         </button>
 
+        <button
+          className="btn-secondary w-full"
+          onClick={() => navigate('/provide/earnings')}
+        >
+          Earnings
+        </button>
+
         {online && wsConnected && (
           <p className="text-donkey-green text-sm text-center font-semibold animate-pulse">
             Listening for {taskNoun} requests...

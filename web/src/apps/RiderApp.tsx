@@ -4,6 +4,7 @@ import { HomePage } from '../pages/requester/HomePage';
 import { RequestPage } from '../pages/requester/RequestPage';
 import { ActiveTaskPage } from '../pages/requester/ActiveTaskPage';
 import { CompletionPage } from '../pages/requester/CompletionPage';
+import { ProfilePage } from '../pages/shared/ProfilePage';
 import { ExternalRedirect } from './ExternalRedirect';
 
 export function RiderApp() {
@@ -15,6 +16,7 @@ export function RiderApp() {
         <Route path="/request/new" element={<RequestPage />} />
         <Route path="/request/active" element={<ActiveTaskPage />} />
         <Route path="/request/complete" element={<CompletionPage />} />
+        <Route path="/request/profile" element={<ProfilePage role="requester" />} />
 
         {/* Backward-compatible redirects */}
         <Route path="/ride" element={<Navigate to="/request" replace />} />

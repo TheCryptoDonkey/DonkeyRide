@@ -58,11 +58,15 @@ export function Header({ app }: HeaderProps) {
           {switchLabel}
         </a>
 
-        {/* Identity badge */}
-        <div className="text-xs font-mono opacity-70" title={identity?.npub}
-             style={{ letterSpacing: '0.04em' }}>
+        {/* Identity badge → profile (key backup/restore) */}
+        <Link
+          to={isDriver ? '/provide/profile' : '/request/profile'}
+          className="text-xs font-mono opacity-70 hover:opacity-100 underline decoration-dotted underline-offset-4"
+          title={`${identity?.npub || ''} — tap to back up your key`}
+          style={{ letterSpacing: '0.04em' }}
+        >
           {truncatedPub}
-        </div>
+        </Link>
       </div>
     </header>
   );

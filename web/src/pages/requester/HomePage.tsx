@@ -6,6 +6,7 @@ import { useLocation } from '../../hooks/useLocation';
 import { useTask } from '../../context/TaskContext';
 import { useDomain } from '../../context/DomainContext';
 import { getAvailableProviders } from '../../services/api';
+import { AddressSearch } from '../../components/AddressSearch';
 import type { AvailableProvider } from '../../types/api';
 import type { LatLng } from '../../types/api';
 
@@ -90,6 +91,33 @@ export function HomePage() {
             {/* Click handler */}
             <MapClickHandler onClick={handleMapClick} />
           </MapView>
+
+          {/* Address search — sits above Leaflet's panes (z-index ≥ 1000) */}
+          <div className="absolute top-3 left-3 right-3 z-[1100] space-y-2">
+            <AddressSearch
+              placeholder={`${originLabel} — search address or tap the map`}
+              biasLocation={location}
+              onSelect={(loc) => {
+                setOrigin(loc);
+                setSelectedOrigin(loc);
+                setOriginSet(true);
+                if (requiresDestination) {
+                  setClickMode('destination');
+                }
+              }}
+            />
+            {requiresDestination && originSet && (
+              <AddressSearch
+                placeholder="Destination — search address or tap the map"
+                biasLocation={selectedOrigin || location}
+                autoFocus
+                onSelect={(loc) => {
+                  setDestination(loc);
+                  navigate('/request/new');
+                }}
+              />
+            )}
+          </div>
         </div>
       ) : (
         <div className="flex-1 flex items-center justify-center bg-donkey-bg">

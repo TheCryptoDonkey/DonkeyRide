@@ -78,6 +78,9 @@ if (nip98Enabled) {
     console.log('⚠️  NIP-98 authentication DISABLED (set ENABLE_NIP98_AUTH=true for production)');
 }
 
+// For sensitive GET endpoints: require NIP-98 only when auth is enabled
+const optionalNip98 = nip98Enabled ? validateNIP98Auth : (req, res, next) => next();
+
 /**
  * Does the authenticated signer match a stored party identity?
  * Identities may carry a hex pubkey, an npub, or both.
@@ -402,6 +405,23 @@ const rideManager = {
         if (ride) {
             mgr._persist(ride);
         }
+    },
+
+    // All in-memory tasks where the pubkey is a party (either role)
+    getTasksByParticipant(pubkey) {
+        const key = (pubkey || '').toLowerCase();
+        const matches = [];
+        for (const mgr of _domainManagers.values()) {
+            for (const task of mgr.tasks.values()) {
+                const provider = task.provider || task.driver;
+                const requester = task.requester || task.rider;
+                if (provider?.pubkey?.toLowerCase() === key
+                    || requester?.pubkey?.toLowerCase() === key) {
+                    matches.push(task);
+                }
+            }
+        }
+        return matches;
     },
 
     // Terminal check — uses the ride's own domain
@@ -1602,6 +1622,74 @@ app.post('/api/drivers/location', async (req, res) => {
     } catch (error) {
         console.error('Error updating driver presence:', error);
         res.status(500).json({ error: 'Failed to update driver presence' });
+    }
+});
+
+// Driver earnings and completed-ride history (memory + task store).
+// With auth enabled, a driver may only read their own earnings.
+app.get('/api/drivers/:pubkey/earnings', optionalNip98, async (req, res) => {
+    try {
+        const pubkey = (req.params.pubkey || '').toLowerCase();
+        if (nip98Enabled && req.user && req.user.pubkey.toLowerCase() !== pubkey) {
+            return res.status(403).json({
+                error: 'Forbidden',
+                details: 'You can only view your own earnings'
+            });
+        }
+
+        const byId = new Map();
+        rideManager.getTasksByParticipant(pubkey).forEach((task) => byId.set(task.id, task));
+        if (taskStore) {
+            try {
+                const persisted = await taskStore.loadTasksByParticipant(pubkey);
+                persisted.forEach((task) => {
+                    if (!byId.has(task.id)) {
+                        byId.set(task.id, task);
+                    }
+                });
+            } catch (error) {
+                console.warn('Earnings: task store lookup failed:', error.message);
+            }
+        }
+
+        const rides = [];
+        for (const task of byId.values()) {
+            const provider = task.provider || task.driver;
+            if (provider?.pubkey?.toLowerCase() !== pubkey) continue;
+            if (task.status !== 'completed') continue;
+            const tips = (task.tips || []).reduce((acc, tip) => acc + (tip.amount_sats || 0), 0);
+            rides.push({
+                id: task.id,
+                domain: task.domain,
+                completedAt: task.timestamps?.completed || null,
+                fare: task.fare || 0,
+                tips,
+                currency: task.currency || 'GBP',
+                rating: task.feedback?.rider?.rating ?? null
+            });
+        }
+        rides.sort((a, b) => (b.completedAt || 0) - (a.completedAt || 0));
+
+        const dayStart = new Date();
+        dayStart.setHours(0, 0, 0, 0);
+        const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+        const sumSats = (list) => list.reduce((acc, r) => acc + r.fare + r.tips, 0);
+        const todayRides = rides.filter((r) => (r.completedAt || 0) >= dayStart.getTime());
+        const weekRides = rides.filter((r) => (r.completedAt || 0) >= weekAgo);
+
+        res.json({
+            success: true,
+            pubkey,
+            summary: {
+                today: { rides: todayRides.length, sats: sumSats(todayRides) },
+                week: { rides: weekRides.length, sats: sumSats(weekRides) },
+                allTime: { rides: rides.length, sats: sumSats(rides) }
+            },
+            rides: rides.slice(0, 100)
+        });
+    } catch (error) {
+        console.error('Error computing earnings:', error);
+        res.status(500).json({ error: 'Failed to compute earnings', details: error.message });
     }
 });
 

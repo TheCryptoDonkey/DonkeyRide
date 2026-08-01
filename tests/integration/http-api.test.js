@@ -254,6 +254,26 @@ test('driver cannot report presence as somebody else', async () => {
   assert.equal(res.status, 403, JSON.stringify(res.body));
 });
 
+test('driver earnings reflect completed rides and are self-only', async () => {
+  // The lifecycle test above completed a ride for driverPub
+  const path = `/api/drivers/${driverPub}/earnings`;
+  const url = `${baseUrl}${path}`;
+
+  const own = await fetch(url, {
+    headers: { Authorization: createAuthHeader(generateAuthEvent(url, 'GET', driverPriv)) }
+  });
+  const body = await own.json();
+  assert.equal(own.status, 200, JSON.stringify(body));
+  assert.ok(body.summary.allTime.rides >= 1, 'completed ride appears in earnings');
+  assert.ok(body.summary.allTime.sats > 0, 'earnings are non-zero');
+  assert.equal(body.rides[0].currency, 'GBP');
+
+  const other = await fetch(url, {
+    headers: { Authorization: createAuthHeader(generateAuthEvent(url, 'GET', strangerPriv)) }
+  });
+  assert.equal(other.status, 403, 'strangers cannot read another driver\'s earnings');
+});
+
 test('/api/rides/stats resolves as the stats route, not a ride id', async () => {
   const res = await get('/api/rides/stats');
   assert.equal(res.status, 200, JSON.stringify(res.body));

@@ -35,6 +35,19 @@ class MemoryTaskStore {
       .map((row) => row.payload);
   }
 
+  async loadTasksByParticipant(pubkey) {
+    const key = (pubkey || '').toLowerCase();
+    return Array.from(this.rows.values())
+      .filter((row) => {
+        const p = row.payload;
+        const provider = p.provider || p.driver;
+        const requester = p.requester || p.rider;
+        return provider?.pubkey?.toLowerCase() === key
+          || requester?.pubkey?.toLowerCase() === key;
+      })
+      .map((row) => row.payload);
+  }
+
   async close() {}
 }
 
@@ -95,6 +108,18 @@ class PgTaskStore {
 
   async loadActiveTasks() {
     const result = await this.pool.query('SELECT payload FROM tasks WHERE NOT terminal');
+    return result.rows.map((row) => row.payload);
+  }
+
+  async loadTasksByParticipant(pubkey) {
+    const key = (pubkey || '').toLowerCase();
+    const result = await this.pool.query(
+      `SELECT payload FROM tasks
+       WHERE provider_pubkey = $1 OR requester_pubkey = $1
+       ORDER BY updated_at DESC
+       LIMIT 500`,
+      [key]
+    );
     return result.rows.map((row) => row.payload);
   }
 

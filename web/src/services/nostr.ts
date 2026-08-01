@@ -101,3 +101,38 @@ export async function createNip98Auth(
   const signedEvent = finalizeEvent(eventTemplate, privBytes);
   return btoa(JSON.stringify(signedEvent));
 }
+
+/** Encode the private key as nsec for backup */
+export async function encodeNsec(privKeyHex: string): Promise<string> {
+  const { nip19 } = await import('nostr-tools');
+  return nip19.nsecEncode(hexToBytes(privKeyHex));
+}
+
+/**
+ * Import an identity from an nsec (or raw hex) backup.
+ * Overwrites the stored key for the given role. Returns the npub.
+ */
+export async function importIdentity(
+  role: 'requester' | 'provider',
+  secret: string,
+): Promise<string> {
+  const { getPublicKey, nip19 } = await import('nostr-tools');
+  const trimmed = secret.trim();
+
+  let privKeyHex: string;
+  if (trimmed.startsWith('nsec1')) {
+    const decoded = nip19.decode(trimmed);
+    if (decoded.type !== 'nsec') {
+      throw new Error('Not an nsec key');
+    }
+    privKeyHex = bytesToHex(decoded.data as Uint8Array);
+  } else if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+    privKeyHex = trimmed.toLowerCase();
+  } else {
+    throw new Error('Expected an nsec1… key or 64-character hex');
+  }
+
+  const pubKeyHex = getPublicKey(hexToBytes(privKeyHex));
+  localStorage.setItem(role === 'provider' ? PROVIDER_KEY : REQUESTER_KEY, privKeyHex);
+  return nip19.npubEncode(pubKeyHex);
+}
