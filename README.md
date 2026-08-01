@@ -86,7 +86,7 @@ PAYMENT PROVIDERS             →  Stakes + Streaming Payments + Settlement
 
 The operator is a **thin compliance layer** — handling only what the law mandates. Everything else runs on decentralised rails:
 
-- **Stake custody** → NIP-47 (user wallet to user wallet, operator never touches funds)
+- **Stake custody** → operator-configured rail, from record-only cash (no custody at all) to hodl invoices; NIP-47 wallet-to-wallet planned
 - **PII exchange** → NIP-17 gift-wrapped messages (relay can't read, operator can't read)
 - **Coordination** → NIP-44 encrypted Nostr events
 - **Discovery** → Geohash-based on public relays
@@ -96,14 +96,18 @@ See the [architecture documentation](https://github.com/TheCryptoDonkey/trott/bl
 
 ### Payment Providers
 
-The implementation is **payment-agnostic**. Every monetary event includes explicit `amount`, `currency`, and `trust_model` tags:
+The implementation is **payment-agnostic**. Every monetary event includes explicit `amount`, `currency`, and `trust_model` tags.
+
+Implemented today:
 
 | Provider | Trust Model | Currencies | Best For |
 |----------|------------|------------|----------|
-| NIP-47 (hold invoices) | `trustless` | SAT/BTC | Sovereignty-minded users |
-| Strike | `fiat-escrow` | GBP/USD/EUR/SAT | Fiat UX, everyday use |
-| Stripe | `operator-escrow` | Any fiat | Fiat-only markets |
-| LND / CLN / BTCPay | `custodial` | SAT/BTC | Self-hosted operators |
+| Cash (record-only) | `social` | Any | Cash-first markets — the operator never touches money |
+| LND / CLN / BTCPay | `custodial` | SAT/BTC | Self-hosted operators, hodl-invoice stakes |
+| Alby | `custodial-third-party` | SAT/BTC | Easy Lightning setup |
+| Demo | `demo` | Any | Testing and demos |
+
+Planned (the factory rejects these with a clear error rather than pretending): NIP-47/NWC hold invoices (`trustless`), Cashu ecash, Stripe (pure fiat), M-Pesa (mobile money).
 
 Selected via `PAYMENT_PROVIDER` env var. See [docs/PAYMENT-PROVIDERS.md](./docs/PAYMENT-PROVIDERS.md) for integration details.
 

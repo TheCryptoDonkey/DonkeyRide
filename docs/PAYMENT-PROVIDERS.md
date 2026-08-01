@@ -1,6 +1,12 @@
 # Payment Providers Integration Guide
 
-**Last Updated**: 2026-02-08
+**Last Updated**: 2026-08-01
+
+> **Implementation status.** Implemented today: `cash` (record-only, no
+> custody), `lnd`, `btcpay`, `alby`, `cln`, `demo`. Everything else described
+> in this guide (NIP-47/NWC, Strike, Stripe, Cashu, M-Pesa) is **design and
+> intent, not code** — selecting one throws a clear error. Sections below
+> covering unimplemented providers describe the target architecture.
 
 ---
 

@@ -147,9 +147,6 @@ const config = {
     operatorLightningAddress: process.env.OPERATOR_LIGHTNING,
     operatorFeePercent: parseFloat(process.env.OPERATOR_FEE_PERCENT) || 0.005, // Market-driven fee (default 0.5%)
 
-    // Strike API (for now, later multiple providers)
-    strikeApiKey: process.env.STRIKE_API_KEY,
-
     // Server settings
     port: process.env.PORT || 3000,
     wsPort: process.env.WS_PORT || 3001,
@@ -211,10 +208,7 @@ async function initializePaymentProvider() {
 function buildProviderConfigsFromEnv() {
     return {
         demo: {},
-        strike: {
-            apiKey: process.env.STRIKE_API_KEY,
-            baseUrl: process.env.STRIKE_BASE_URL
-        },
+        cash: {},
         lnd: {
             host: process.env.LND_HOST || 'localhost:10009',
             cert: process.env.LND_CERT_PATH || '~/.lnd/tls.cert',
@@ -1110,10 +1104,15 @@ app.post('/rides/:rideId/complete', async (req, res) => {
         const operatorPayment = await payOperatorFee(ride.operatorFee);
 
         const completionTimestamp = Date.now();
+        // Fare settlement itself is out-of-band on this flow (stakes are the
+        // enforced part) — record it honestly rather than faking a hash.
         const payment = {
             success: true,
-            payment_hash: `mock_hash_${completionTimestamp}`,
-            amount_sats: ride.fareAmount,
+            method: stakeManager.currentProvider?.providerName || 'unknown',
+            status: 'stakes_released',
+            amount: ride.fareAmount,
+            currency: ride.currency || 'SAT',
+            trust_model: stakeManager.currentProvider?.getTrustModel() || 'unknown',
             timestamp: completionTimestamp
         };
         
@@ -3571,13 +3570,49 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
             return res.status(authErr.status).json(authErr);
         }
 
-        // Mock payment
-        const payment = {
-            success: true,
-            payment_hash: `mock_hash_${Date.now()}`,
-            amount_sats: ride.fare,
-            timestamp: Date.now()
-        };
+        // Settle via the configured payment provider — every payment record
+        // carries an explicit method, amount, currency and trust_model, never
+        // a fake payment hash dressed up as real settlement.
+        const currency = ride.currency || 'GBP';
+        let payment;
+        if (paymentProvider && typeof paymentProvider.recordSettlement === 'function') {
+            // Record-only rails (cash): the fare changes hands face-to-face
+            const record = await paymentProvider.recordSettlement(rideId, ride.fare, currency);
+            payment = {
+                success: true,
+                method: paymentProvider.providerName,
+                status: 'declared',
+                amount: ride.fare,
+                currency,
+                trust_model: paymentProvider.getTrustModel(),
+                record,
+                timestamp: Date.now()
+            };
+        } else if (paymentProvider && paymentProvider.providerName === 'demo') {
+            payment = {
+                success: true,
+                method: 'demo',
+                status: 'simulated',
+                payment_hash: `demo_${Date.now()}`,
+                amount: ride.fare,
+                currency,
+                trust_model: 'demo',
+                timestamp: Date.now()
+            };
+        } else {
+            // Lightning rails settle through the stake flow (hold invoices on
+            // /rides/:id/*-stake). Completion here records that out-of-band
+            // settlement is pending rather than pretending it happened.
+            payment = {
+                success: true,
+                method: paymentProvider?.providerName || 'none',
+                status: 'settlement_pending',
+                amount: ride.fare,
+                currency,
+                trust_model: paymentProvider?.getTrustModel?.() || 'unknown',
+                timestamp: Date.now()
+            };
+        }
 
         const completedRide = rideManager.completeTrip(rideId, payment);
         stopStreamingForRide(rideId);

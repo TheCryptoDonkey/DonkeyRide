@@ -1,0 +1,15 @@
+.git
+node_modules
+web/node_modules
+web/dist
+docker
+docs
+guides
+specs
+implementation
+tests
+assets
+*.md
+.env
+.env.*
+!.env.example

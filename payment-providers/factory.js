@@ -3,12 +3,12 @@
 // Creates payment provider instances based on configuration
 // ==========================================
 
-const StrikeProvider = require('./strike');
 const LNDProvider = require('./lnd');
 const BTCPayProvider = require('./btcpay');
 const AlbyProvider = require('./alby');
 const CoreLightningProvider = require('./core-lightning');
 const DemoProvider = require('./demo');
+const CashProvider = require('./cash');
 
 /**
  * Factory for creating payment provider instances
@@ -17,7 +17,7 @@ const DemoProvider = require('./demo');
 class PaymentProviderFactory {
     /**
      * Create a payment provider
-     * @param {string} type - Provider type: 'strike'|'lnd'|'btcpay'|'alby'|'cln'
+     * @param {string} type - Provider type: 'cash'|'demo'|'lnd'|'btcpay'|'alby'|'cln'
      * @param {Object} config - Provider configuration
      * @returns {PaymentProvider} Configured provider instance
      */
@@ -28,8 +28,17 @@ class PaymentProviderFactory {
             case 'test':
                 return new DemoProvider(config);
 
+            case 'cash':
+                return new CashProvider(config);
+
             case 'strike':
-                return new StrikeProvider(config);
+            case 'nip47':
+            case 'nwc':
+            case 'stripe':
+                throw new Error(
+                    `Payment provider '${type}' is planned but not yet implemented. ` +
+                    `Available today: cash, demo, lnd, btcpay, alby, cln.`
+                );
 
             case 'lnd':
             case 'lightning':
@@ -92,15 +101,12 @@ class PaymentProviderFactory {
      * @returns {PaymentProvider} Configured provider
      */
     static fromEnv() {
-        const type = process.env.PAYMENT_PROVIDER || 'strike';
+        const type = process.env.PAYMENT_PROVIDER || 'demo';
 
         // Build config from environment
         const configs = {
             demo: {},  // Demo provider needs no config
-            strike: {
-                apiKey: process.env.STRIKE_API_KEY,
-                baseUrl: process.env.STRIKE_BASE_URL
-            },
+            cash: {},  // Record-only rail needs no config
             lnd: {
                 host: process.env.LND_HOST || 'localhost:10009',
                 cert: process.env.LND_CERT_PATH || '~/.lnd/tls.cert',
@@ -122,10 +128,10 @@ class PaymentProviderFactory {
             }
         };
 
-        // Get fallback chain from env (or empty if demo mode)
+        // Get fallback chain from env (or empty for standalone rails)
         const fallbacks = process.env.PAYMENT_FALLBACKS
             ? process.env.PAYMENT_FALLBACKS.split(',').map(s => s.trim())
-            : (type === 'demo' ? [] : ['lnd', 'btcpay', 'alby']);
+            : (['demo', 'cash'].includes(type) ? [] : ['lnd', 'btcpay', 'alby']);
 
         return this.createWithFallbacks(type, fallbacks, configs);
     }
@@ -135,7 +141,7 @@ class PaymentProviderFactory {
      * @returns {Array<string>} Provider type names
      */
     static getAvailableProviders() {
-        return ['strike', 'lnd', 'btcpay', 'alby', 'cln'];
+        return ['cash', 'demo', 'lnd', 'btcpay', 'alby', 'cln'];
     }
 
     /**
@@ -168,7 +174,7 @@ class PaymentProviderFactory {
      * @param {Object} configs - Configurations for each provider
      * @returns {ResilientStakeManager}
      */
-    static createResilient(providers = ['strike', 'lnd', 'btcpay'], configs = {}) {
+    static createResilient(providers = ['lnd', 'btcpay'], configs = {}) {
         return new ResilientStakeManager(providers, configs, this);
     }
 }

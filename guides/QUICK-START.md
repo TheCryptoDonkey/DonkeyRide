@@ -71,38 +71,19 @@ PAYMENT_PROVIDER=demo
 ```
 Virtual funds, no real money. Perfect for development.
 
-#### Option B: Strike (Fiat UX — Easiest Production Setup)
+#### Option B: Cash (Easiest Production Setup — No Custody)
 ```env
-PAYMENT_PROVIDER=strike
-STRIKE_API_KEY=sk_live_...         # Get from dashboard.strike.me
-STRIKE_DEFAULT_CURRENCY=GBP        # GBP, USD, or EUR
+PAYMENT_PROVIDER=cash
 ```
-Customers pay in their local currency. Strike converts to Lightning transparently. Neither party has a taxable crypto event.
+The fare settles face-to-face in cash. The operator records the settlement but never touches the money — the model that powers inDrive across cash-first markets.
 
-**Trust model:** `custodial-third-party` — Strike holds funds during conversion (milliseconds). The operator never has custody.
+**Trust model:** `social` — commitments and forfeits are recorded against each party's pubkey; nothing is held.
 
-#### Option C: NIP-47 (Trustless — Most Decentralised)
-```env
-PAYMENT_PROVIDER=nip47
-NIP47_RELAY=wss://relay.example.com
-NIP47_CONNECT_STRING=nostr+walletconnect://...
-```
-Direct wallet-to-wallet via hold invoices. The operator never has custody of funds.
+> **Planned rails (not yet implemented — the factory rejects them with a clear
+> error):** `nwc` (NIP-47 wallet-to-wallet hold invoices), `stripe` (pure
+> fiat), Cashu ecash, M-Pesa mobile money.
 
-**Trust model:** `trustless` — funds are locked in Lightning hold invoices. Nobody can steal.
-
-#### Option D: Stripe (Pure Fiat)
-```env
-PAYMENT_PROVIDER=stripe
-STRIPE_SECRET_KEY=sk_live_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-STRIPE_DEFAULT_CURRENCY=GBP
-```
-Traditional card payments with escrow. Best for markets where Lightning adoption is low.
-
-**Trust model:** `custodial-escrow` — Stripe holds funds until the operator confirms completion.
-
-#### Option E: LND (Operator Lightning Node)
+#### Option C: LND (Operator Lightning Node)
 ```env
 PAYMENT_PROVIDER=lnd
 LND_HOST=localhost:10009
@@ -136,15 +117,15 @@ For the full payment provider guide (trust models, capabilities, adding custom p
 For maximum resilience, configure backup providers:
 
 ```env
-PAYMENT_PROVIDER=strike                # Primary
-PAYMENT_FALLBACKS=lnd,demo             # Backups (comma-separated)
+PAYMENT_PROVIDER=lnd                   # Primary
+PAYMENT_FALLBACKS=btcpay,demo          # Backups (comma-separated)
 
 # Configure credentials for all providers
-STRIKE_API_KEY=...
+BTCPAY_URL=...
 LND_HOST=...
 ```
 
-If Strike fails, the `ResilientStakeManager` automatically falls back to LND, then demo.
+If LND fails, the `ResilientStakeManager` automatically falls back to BTCPay, then demo.
 
 ---
 
@@ -160,7 +141,7 @@ You should see:
 DonkeyRide Operator Server
 ========================================
 Domain: ridesharing
-Payment provider: strike (custodial-third-party)
+Payment provider: lnd (custodial)
 Features: instantRelease, refunds
 
 Operator: npub1abc...
@@ -202,7 +183,7 @@ Response:
   "domain": "ridesharing",
   "activeTasks": 0,
   "paymentProvider": {
-    "name": "strike",
+    "name": "lnd",
     "trustModel": "custodial-third-party",
     "features": {
       "instantRelease": true,
@@ -235,15 +216,13 @@ PAYMENT_PROVIDER=demo
 DOMAIN=ridesharing
 ```
 
-### Fiat-First (Strike — Recommended for UK/EU Launch)
+### Cash-First (No Custody — Simplest Real Deployment)
 ```env
 OPERATOR_PUBKEY=npub1...
 OPERATOR_NSEC=nsec1...
 OPERATOR_LIGHTNING=you@getalby.com
 OPERATOR_FEE_PERCENT=0.03
-PAYMENT_PROVIDER=strike
-STRIKE_API_KEY=sk_live_...
-STRIKE_DEFAULT_CURRENCY=GBP
+PAYMENT_PROVIDER=cash
 DOMAIN=ridesharing
 NOSTR_RELAYS=wss://relay.damus.io,wss://nos.lol
 ENABLE_NIP98_AUTH=true
@@ -268,10 +247,8 @@ OPERATOR_FEE_PERCENT=0.03
 BOND_AMOUNT=5000000
 
 DOMAIN=ridesharing
-PAYMENT_PROVIDER=strike
-PAYMENT_FALLBACKS=lnd,demo
-STRIKE_API_KEY=sk_live_...
-STRIKE_DEFAULT_CURRENCY=GBP
+PAYMENT_PROVIDER=lnd
+PAYMENT_FALLBACKS=btcpay,demo
 LND_HOST=localhost:10009
 LND_CERT_PATH=~/.lnd/tls.cert
 LND_MACAROON_PATH=~/.lnd/data/chain/bitcoin/mainnet/admin.macaroon
@@ -337,7 +314,7 @@ ls -la ~/.lnd/data/chain/bitcoin/mainnet/admin.macaroon  # Check macaroon
 
 1. Get operator running with `demo` provider
 2. Test with the React frontend (`npm run web:dev`)
-3. Switch to production payment provider (Strike recommended)
+3. Switch to a production payment provider (`cash` for no-custody, `lnd` for Lightning stakes)
 4. Configure GDPR compliance ([../docs/GDPR-COMPLIANCE.md](../docs/GDPR-COMPLIANCE.md))
 5. Publish operator bond event (kind 30540) to Nostr
 6. Start earning fees

@@ -86,7 +86,7 @@ Each profile defines: state machine (states + valid transitions), role names (re
 
 `payment-providers/factory.js` — Factory + fallback chain via `ResilientStakeManager`. All providers extend `payment-providers/base.js` with the interface: `lockStake()`, `releaseStake()`, `forfeitStake()`, `healthCheck()`, `getCapabilities()`.
 
-Providers: `nip47` (trustless, NIP-47 hold invoices), `strike` (custodial-third-party, fiat UX), `stripe` (custodial-escrow, pure fiat), `lnd` (custodial, operator hodl invoices), `btcpay` (custodial, self-hosted), `alby` (custodial-third-party), `cln` (custodial, Core Lightning), `demo` (mock for testing).
+Providers: `cash` (record-only, no custody — fare settles face-to-face, inDrive model), `lnd` (custodial, operator hodl invoices), `btcpay` (custodial, self-hosted), `alby` (custodial-third-party), `cln` (custodial, Core Lightning), `demo` (mock for testing). Planned, not yet implemented: `nwc` (NIP-47 hold invoices), `stripe` (pure fiat), Cashu, M-Pesa — the factory throws a clear error if these are selected.
 
 Every payment event includes explicit `amount`, `currency`, and `trust_model` tags. Amounts are in the smallest unit of the specified currency (pence for GBP, cents for USD, satoshis for SAT).
 
@@ -160,7 +160,7 @@ Key test files:
 Copy `.env.example` for configuration. Key variables:
 - `DOMAIN` — Domain profile selection (ridesharing|locksmith|delivery, default: ridesharing)
 - `OPERATOR_PUBKEY` / `OPERATOR_PRIVKEY` — Operator Nostr identity
-- `PAYMENT_PROVIDER` — Payment backend (strike|lnd|btcpay|alby|cln|demo)
+- `PAYMENT_PROVIDER` — Payment backend (cash|lnd|btcpay|alby|cln|demo)
 - `NAVIGATION_PROVIDER` — Routing backend (osrm|ors)
 - `DATABASE_URL` — PostgreSQL connection
 - `REDIS_URL` — Redis connection
