@@ -27,8 +27,10 @@ services:
       - "127.0.0.1:3999:3000"
       - "127.0.0.1:3998:3001"
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   postgres:
     image: postgres:16-alpine
@@ -39,6 +41,11 @@ services:
       POSTGRES_DB: donkeyride
     volumes:
       - demo-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U donkey -d donkeyride"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
 
   redis:
     image: redis:7-alpine
