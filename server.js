@@ -10,6 +10,13 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const WebSocket = require('ws');
+
+// nostr-tools' SimplePool references a global WebSocket. Node < 21 has none,
+// so without this every relay read and write silently fails and the whole
+// Nostr layer becomes inert. Set it before any pool is constructed.
+if (typeof globalThis.WebSocket === 'undefined') {
+    globalThis.WebSocket = WebSocket;
+}
 const Redis = require('redis');
 const { PaymentProviderFactory, ResilientStakeManager } = require('./payment-providers/factory');
 const reputation = require('./src/nostr/reputation');

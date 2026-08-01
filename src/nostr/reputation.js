@@ -1,3 +1,9 @@
+// nostr-tools' SimplePool needs a global WebSocket (absent on Node < 21).
+// Guard here too so relay I/O works regardless of the entry point.
+if (typeof globalThis.WebSocket === 'undefined') {
+  globalThis.WebSocket = require('ws');
+}
+
 const { SimplePool, getEventHash, verifySignature, nip19 } = require('nostr-tools');
 const { KINDS } = require('./kinds');
 
