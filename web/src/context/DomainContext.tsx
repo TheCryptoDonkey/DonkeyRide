@@ -38,8 +38,8 @@ function applyTheme(profile: DomainProfile) {
 
   const emoji = profile.theme?.emoji;
   document.title = emoji
-    ? `${emoji} DonkeyRide — ${profile.name}`
-    : `DonkeyRide — ${profile.name}`;
+    ? `${emoji} DonkeyRide | ${profile.name}`
+    : `DonkeyRide | ${profile.name}`;
 }
 
 export function DomainProvider({ children }: { children: ReactNode }) {

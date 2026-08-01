@@ -1,4 +1,5 @@
 const { getPublicKey, getEventHash, getSignature } = require('nostr-tools');
+const { KINDS, EXPERIMENTAL } = require('./kinds');
 
 let operatorPrivkey = null;
 let operatorPubkey = null;
@@ -106,7 +107,7 @@ async function publishDisputeFiling({
   if (evidence) {
     tags.push(['evidence', evidence]);
   }
-  return publishEvent(30522, tags, content);
+  return publishEvent(KINDS.DISPUTE_CLAIM, tags, content);
 }
 
 async function publishArbiterAssignment({
@@ -118,6 +119,7 @@ async function publishArbiterAssignment({
   const assignedAt = Math.floor(Date.now() / 1000);
   const tags = [
     ['d', `${disputeId}_arbiter`],
+    ['status', 'assigned'],
     ['dispute_id', disputeId],
     ['arbiter_pubkey', arbiterPubkey],
     ['arbiter_type', arbiterType],
@@ -126,7 +128,7 @@ async function publishArbiterAssignment({
   if (deadline) {
     tags.push(['deadline', String(deadline)]);
   }
-  return publishEvent(30523, tags, '');
+  return publishEvent(KINDS.DISPUTE_RESOLUTION, tags, '');
 }
 
 async function publishDisputeResolution({
@@ -143,6 +145,7 @@ async function publishDisputeResolution({
   const resolvedAt = Math.floor(Date.now() / 1000);
   const tags = [
     ['d', `${disputeId}_resolution`],
+    ['status', 'resolved'],
     ['dispute_id', disputeId],
     ['outcome', outcome],
     ['arbiter_pubkey', arbiterPubkey],
@@ -166,7 +169,7 @@ async function publishDisputeResolution({
   if (reasoning) {
     tags.push(['reasoning', reasoning]);
   }
-  return publishEvent(30524, tags, reasoning);
+  return publishEvent(KINDS.DISPUTE_RESOLUTION, tags, reasoning);
 }
 
 async function publishSuspiciousActivity({
@@ -179,6 +182,7 @@ async function publishSuspiciousActivity({
 }) {
   const tags = [
     ['d', `suspicious_${Date.now().toString(36)}`],
+    ['report_type', 'suspicious_activity'],
     ['p', suspectPubkey],
     ['activity_type', activityType],
     ['domain', domain]
@@ -192,7 +196,7 @@ async function publishSuspiciousActivity({
   if (evidence) {
     tags.push(['evidence', evidence]);
   }
-  return publishEvent(30549, tags, description || '');
+  return publishEvent(KINDS.ABUSE_REPORT, tags, description || '');
 }
 
 async function publishAccountSuspension({
@@ -212,7 +216,7 @@ async function publishAccountSuspension({
   if (effectiveFrom) {
     tags.push(['effective_from', String(effectiveFrom)]);
   }
-  return publishEvent(30550, tags, reason || '');
+  return publishEvent(EXPERIMENTAL.ACCOUNT_SUSPENSION, tags, reason || '');
 }
 
 async function publishAppealRequest({
@@ -235,7 +239,7 @@ async function publishAppealRequest({
   if (evidence) {
     tags.push(['evidence', evidence]);
   }
-  return publishEvent(30551, tags, defence || '');
+  return publishEvent(EXPERIMENTAL.APPEAL_REQUEST, tags, defence || '');
 }
 
 async function publishTheftReport({
@@ -251,6 +255,7 @@ async function publishTheftReport({
 }) {
   const tags = [
     ['d', reportId],
+    ['report_type', 'operator_theft'],
     ['operator', opPubkey],
     ['lock_event', lockEventId],
     ['completion_event', completionEventId],
@@ -268,7 +273,7 @@ async function publishTheftReport({
   if (reporterRole) {
     tags.push(['reporter_role', reporterRole]);
   }
-  return publishEvent(30525, tags, '');
+  return publishEvent(KINDS.ABUSE_REPORT, tags, '');
 }
 
 async function publishWatchdogClaim({
@@ -289,7 +294,7 @@ async function publishWatchdogClaim({
     ['verification_method', verificationMethod || 'manual'],
     ['checked_at', String(checkedAt)]
   ];
-  return publishEvent(30526, tags, '');
+  return publishEvent(EXPERIMENTAL.WATCHDOG_CLAIM, tags, '');
 }
 
 async function publishOperatorSlashing({
@@ -322,7 +327,7 @@ async function publishOperatorSlashing({
   if (distribution) {
     tags.push(['distribution', distribution]);
   }
-  return publishEvent(30527, tags, '');
+  return publishEvent(EXPERIMENTAL.OPERATOR_SLASHING, tags, '');
 }
 
 async function publishSlashingProposal({
@@ -361,7 +366,7 @@ async function publishSlashingProposal({
   if (distributionProposal) {
     tags.push(['distribution_proposal', distributionProposal]);
   }
-  return publishEvent(30553, tags, '');
+  return publishEvent(EXPERIMENTAL.SLASHING_PROPOSAL, tags, '');
 }
 
 async function publishGuardianVote({
@@ -382,7 +387,7 @@ async function publishGuardianVote({
   if (reasoning) {
     tags.push(['reasoning', reasoning]);
   }
-  return publishEvent(30554, tags, reasoning || '');
+  return publishEvent(EXPERIMENTAL.GUARDIAN_VOTE, tags, reasoning || '');
 }
 
 async function publishOperatorBond({
@@ -398,7 +403,9 @@ async function publishOperatorBond({
     return null;
   }
   const tags = [
-    ['d', operatorPubkey],
+    ['d', `${operatorPubkey}_bond`],
+    ['t', 'trott-operator'],
+    ['operator_pubkey', operatorPubkey],
     ['amount', String(amount)],
     ['currency', currency],
     ['trust_model', trustModel || 'custodial']
@@ -415,7 +422,7 @@ async function publishOperatorBond({
   if (expiration) {
     tags.push(['expiration', String(expiration)]);
   }
-  return publishEvent(30540, tags, '');
+  return publishEvent(KINDS.OPERATOR_BOND, tags, '');
 }
 
 module.exports = {

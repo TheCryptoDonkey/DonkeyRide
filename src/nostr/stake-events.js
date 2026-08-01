@@ -1,13 +1,18 @@
 const { getPublicKey, getEventHash, getSignature } = require('nostr-tools');
+const { KINDS } = require('./kinds');
 
 let operatorPrivkey = null;
 let operatorPubkey = null;
 let publisher = null;
+let domainId = 'ridesharing';
 
-function configure({ operatorPrivkey: privkey, publishGeneric }) {
+function configure({ operatorPrivkey: privkey, publishGeneric, domain }) {
   operatorPrivkey = null;
   operatorPubkey = null;
   publisher = null;
+  if (domain) {
+    domainId = domain;
+  }
 
   if (!privkey) {
     console.warn('[StakeEvents] Operator privkey not configured – stake events will remain local only.');
@@ -67,14 +72,6 @@ async function publishEvent(kind, tags, content) {
   return event;
 }
 
-function safeNumber(value) {
-  if (value == null) {
-    return null;
-  }
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
-}
-
 function extractTagValue(event, tagKey) {
   if (!event?.tags) {
     return null;
@@ -102,6 +99,24 @@ function serialiseProviderEvent(event) {
   }
 }
 
+/**
+ * Normalise DonkeyRide's internal role names to TROTT party names.
+ * The spec uses requester/provider on payment events.
+ */
+function toParty(role) {
+  if (role === 'rider' || role === 'requester' || role === 'customer' || role === 'sender') {
+    return 'requester';
+  }
+  if (role === 'driver' || role === 'provider' || role === 'locksmith' || role === 'courier') {
+    return 'provider';
+  }
+  return role || 'unknown';
+}
+
+/**
+ * TROTT-04 Kind 30532 Escrow Lock — funds committed for a task.
+ * d tag: `{taskId}:lock:{party}` (addressable, one live lock per party).
+ */
 async function publishStakeLock({
   rideId,
   role,
@@ -110,37 +125,49 @@ async function publishStakeLock({
   providerEvent,
   escrowId,
   currency = 'SAT',
-  trustModel = 'unknown'
+  trustModel = 'unknown',
+  paymentRail
 }) {
+  const party = toParty(role);
   const tags = [
-    ['ride', rideId],
-    ['event', 'stake_lock'],
-    ['role', role],
+    ['d', `${rideId}:lock:${party}`],
+    ['domain', domainId],
+    ['task_id', rideId],
+    ['party', party],
     ['amount', String(amount || extractTagValue(providerEvent, 'amount') || 0)],
     ['currency', currency],
-    ['trust_model', trustModel]
+    ['trust_model', trustModel],
+    ['locked_at', String(Math.floor(Date.now() / 1000))]
   ];
   if (participant) {
-    tags.push(['participant', participant.toLowerCase()]);
+    tags.push(['p', participant.toLowerCase()]);
   }
-  const provider = extractTagValue(providerEvent, 'provider');
-  if (provider) {
-    tags.push(['provider', provider]);
+  const rail = paymentRail || extractTagValue(providerEvent, 'provider');
+  if (rail) {
+    tags.push(['payment_rail', rail]);
   }
   const mechanism = extractTagValue(providerEvent, 'mechanism');
   if (mechanism) {
-    tags.push(['mechanism', mechanism]);
+    tags.push(['lock_type', mechanism]);
+  }
+  const paymentHash = extractTagValue(providerEvent, 'payment_hash');
+  if (paymentHash) {
+    tags.push(['payment_hash', paymentHash]);
   }
   if (escrowId) {
     tags.push(['escrow_id', String(escrowId)]);
   }
   if (providerEvent?.id) {
-    tags.push(['provider_event', providerEvent.id]);
+    tags.push(['e', providerEvent.id]);
   }
 
-  return publishEvent(30502, tags, serialiseProviderEvent(providerEvent));
+  return publishEvent(KINDS.ESCROW_LOCK, tags, serialiseProviderEvent(providerEvent));
 }
 
+/**
+ * TROTT-04 Kind 30533 Settlement with outcome=released.
+ * d tag: `{taskId}:settlement:{party}`.
+ */
 async function publishStakeRelease({
   rideId,
   role,
@@ -150,24 +177,32 @@ async function publishStakeRelease({
   currency = 'SAT',
   trustModel = 'unknown'
 }) {
+  const party = toParty(role);
   const derivedAmount = amount || extractTagValue(providerEvent, 'amount') || 0;
   const tags = [
-    ['ride', rideId],
-    ['event', 'stake_release'],
-    ['role', role],
+    ['d', `${rideId}:settlement:${party}`],
+    ['domain', domainId],
+    ['task_id', rideId],
+    ['outcome', 'released'],
+    ['party', party],
     ['amount', String(derivedAmount)],
     ['currency', currency],
     ['trust_model', trustModel],
-    ['reason', reason]
+    ['release_reason', reason],
+    ['released_at', String(Math.floor(Date.now() / 1000))]
   ];
   if (providerEvent?.id) {
-    tags.push(['provider_event', providerEvent.id]);
+    tags.push(['e', providerEvent.id]);
   }
-  return publishEvent(30520, tags, serialiseProviderEvent(providerEvent));
+  return publishEvent(KINDS.SETTLEMENT, tags, serialiseProviderEvent(providerEvent));
 }
 
+/**
+ * TROTT-04 Kind 30533 Settlement with outcome=forfeited / partial_forfeit.
+ */
 async function publishStakePenalty({
   rideId,
+  role,
   reason,
   penalty,
   refund,
@@ -175,32 +210,48 @@ async function publishStakePenalty({
   currency = 'SAT',
   trustModel = 'unknown'
 }) {
+  const party = toParty(role);
+  const penaltyAmount = Number(penalty || extractTagValue(providerEvent, 'penalty') || 0);
+  const refundAmount = Number(refund || extractTagValue(providerEvent, 'refund') || 0);
+  const outcome = refundAmount > 0 ? 'partial_forfeit' : 'forfeited';
   const tags = [
-    ['ride', rideId],
-    ['event', 'stake_penalty'],
-    ['reason', reason || 'unspecified'],
-    ['penalty', String(penalty || extractTagValue(providerEvent, 'penalty') || 0)],
-    ['refund', String(refund || extractTagValue(providerEvent, 'refund') || 0)],
+    ['d', `${rideId}:settlement:${party}`],
+    ['domain', domainId],
+    ['task_id', rideId],
+    ['outcome', outcome],
+    ['party', party],
+    ['amount', String(penaltyAmount)],
+    ['refund', String(refundAmount)],
     ['currency', currency],
-    ['trust_model', trustModel]
+    ['trust_model', trustModel],
+    ['release_reason', reason || 'unspecified'],
+    ['released_at', String(Math.floor(Date.now() / 1000))]
   ];
-  if (providerEvent?.id) {
-    tags.push(['provider_event', providerEvent.id]);
+  if (refundAmount > 0 && penaltyAmount + refundAmount > 0) {
+    const pct = ((penaltyAmount / (penaltyAmount + refundAmount)) * 100).toFixed(1);
+    tags.push(['forfeit_percentage', pct]);
   }
-  return publishEvent(30521, tags, serialiseProviderEvent(providerEvent));
+  if (providerEvent?.id) {
+    tags.push(['e', providerEvent.id]);
+  }
+  return publishEvent(KINDS.SETTLEMENT, tags, serialiseProviderEvent(providerEvent));
 }
 
+/**
+ * TROTT-04b Kind 30535 Payment Receipt — streaming ticks carry tick_number.
+ */
 async function publishStreamPayment({
   rideId,
   amount,
   totalPaid,
   fare,
+  tickNumber,
   currency = 'SAT',
   trustModel = 'unknown'
 }) {
   const tags = [
-    ['ride', rideId],
-    ['event', 'stream_payment'],
+    ['domain', domainId],
+    ['task_id', rideId],
     ['amount', String(amount)],
     ['total', String(totalPaid)],
     ['fare', String(fare)],
@@ -208,7 +259,10 @@ async function publishStreamPayment({
     ['trust_model', trustModel],
     ['status', totalPaid >= fare ? 'settled' : 'in_progress']
   ];
-  return publishEvent(30510, tags, '');
+  if (tickNumber != null) {
+    tags.push(['tick_number', String(tickNumber)]);
+  }
+  return publishEvent(KINDS.PAYMENT_RECEIPT, tags, '');
 }
 
 module.exports = {

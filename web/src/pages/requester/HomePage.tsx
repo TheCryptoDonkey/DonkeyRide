@@ -13,7 +13,7 @@ import type { LatLng } from '../../types/api';
 export function HomePage() {
   const navigate = useNavigate();
   const { location } = useLocation();
-  const { setOrigin, setDestination } = useTask();
+  const { setOrigin, setDestination, activeTask } = useTask();
   const { profile } = useDomain();
   const [providers, setProviders] = useState<AvailableProvider[]>([]);
   const [clickMode, setClickMode] = useState<'origin' | 'destination'>('origin');
@@ -21,6 +21,13 @@ export function HomePage() {
   const [selectedOrigin, setSelectedOrigin] = useState<LatLng | null>(null);
 
   const requiresDestination = profile?.features.requiresDestination !== false;
+
+  // A live task (including one rehydrated after a restart) resumes here
+  useEffect(() => {
+    if (activeTask && profile && !profile.states.terminal.includes(activeTask.status)) {
+      navigate('/request/active');
+    }
+  }, [activeTask, profile, navigate]);
 
   // Fetch available providers
   useEffect(() => {
@@ -95,7 +102,7 @@ export function HomePage() {
           {/* Address search — sits above Leaflet's panes (z-index ≥ 1000) */}
           <div className="absolute top-3 left-3 right-3 z-[1100] space-y-2">
             <AddressSearch
-              placeholder={`${originLabel} — search address or tap the map`}
+              placeholder={`${originLabel}: search address or tap the map`}
               biasLocation={location}
               onSelect={(loc) => {
                 setOrigin(loc);
@@ -108,7 +115,7 @@ export function HomePage() {
             />
             {requiresDestination && originSet && (
               <AddressSearch
-                placeholder="Destination — search address or tap the map"
+                placeholder="Destination: search address or tap the map"
                 biasLocation={selectedOrigin || location}
                 autoFocus
                 onSelect={(loc) => {
@@ -170,7 +177,7 @@ export function HomePage() {
 
         {originSet && (requiresDestination ? clickMode === 'destination' : true) && (
           <button
-            className="text-xs text-donkey-purple underline w-full text-center"
+            className="text-xs text-donkey-purple underline w-full text-center min-h-[44px]"
             onClick={() => { setClickMode('origin'); setOriginSet(false); setOrigin(null); setSelectedOrigin(null); }}
           >
             Reset {originLabel.toLowerCase()}

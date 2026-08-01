@@ -148,7 +148,7 @@ function buildDriverRatingEvent({ rideId, targetKey, rating, notes }) {
     throw new Error('Invalid rider key for rating');
   }
   const event = {
-    kind: 30530,
+    kind: 30520, // TROTT-03 Task Rating
     created_at: Math.floor(Date.now() / 1000),
     tags: [
       ['ride', rideId],
@@ -176,7 +176,7 @@ function buildDriverPanicEvent({ rideId, note, targetKey }) {
     tags.push(['p', targetHex]);
   }
   const event = {
-    kind: 30560,
+    kind: 30540, // TROTT-05 Emergency Signal
     created_at: Math.floor(Date.now() / 1000),
     tags,
     content: note || ''

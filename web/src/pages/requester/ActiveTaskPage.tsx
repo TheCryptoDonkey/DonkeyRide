@@ -7,22 +7,30 @@ import { StatusBadge } from '../../components/common/StatusBadge';
 import { DualPrice } from '../../components/common/DualPrice';
 import { PanicButton } from '../../components/safety/PanicButton';
 import { Loading } from '../../components/common/Loading';
+import { TaskStakePanel } from '../../components/payment/TaskStakePanel';
+import { showToast } from '../../components/common/Toast';
 import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { useDomain } from '../../context/DomainContext';
 import { useLocation } from '../../hooks/useLocation';
 import { useWebSocket } from '../../hooks/useWebSocket';
-import { triggerPanic, cancelTask, getTask, acceptQuote, declineQuote } from '../../services/api';
+import {
+  triggerPanic, cancelTask, getTask, acceptQuote, declineQuote,
+  getOperatorInfoCached,
+} from '../../services/api';
 import { QuotePanel } from '../../components/task/QuotePanel';
-import type { WsMessage } from '../../types/api';
+import type { WsMessage, Task, OperatorPaymentInfo } from '../../types/api';
 
 export function ActiveTaskPage() {
   const navigate = useNavigate();
-  const { activeTask, setActiveTask, origin, destination, providerLocation, setProviderLocation } = useTask();
+  const { activeTask, setActiveTask, origin, destination, providerLocation, setProviderLocation, reset } = useTask();
   const { identity } = useIdentity();
   const { profile } = useDomain();
   const { location: currentLocation } = useLocation(true);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [payment, setPayment] = useState<OperatorPaymentInfo | null>(null);
 
   const originLabel = profile?.labels?.originLabel || 'Pickup';
   const destinationLabel = profile?.labels?.destinationLabel || 'Dropoff';
@@ -30,30 +38,74 @@ export function ActiveTaskPage() {
   const requiresDestination = profile?.features.requiresDestination !== false;
   const providerRoleLabel = profile?.roles.provider || 'Provider';
 
+  const terminalStates = profile?.states.terminal || [];
+  const cancelledValue = profile?.states.values.CANCELLED || 'cancelled';
+  const activeValue = profile?.states.values.ACTIVE || 'active';
+
   // Redirect if no active task
   useEffect(() => {
     if (!activeTask) navigate('/request');
   }, [activeTask, navigate]);
 
-  // Handle WebSocket messages
+  // Honest payment copy needs to know the rail
+  useEffect(() => {
+    getOperatorInfoCached()
+      .then((info) => setPayment(info.payment || null))
+      .catch(() => {});
+  }, []);
+
+  // Route a task that has reached a terminal state
+  const routeTerminal = useCallback((task: Task) => {
+    if (task.status === cancelledValue) {
+      showToast(`${providerRoleLabel} cancelled the ${taskNoun}`, { type: 'error' });
+      reset();
+      navigate('/request');
+    } else {
+      // Completion page distinguishes completed from no_show
+      navigate('/request/complete');
+    }
+  }, [cancelledValue, providerRoleLabel, taskNoun, reset, navigate]);
+
+  // Re-fetch the task (used when a WS event signals a state change)
+  const refreshTask = useCallback(async () => {
+    if (!activeTask) return;
+    try {
+      const updated = await getTask(activeTask.id);
+      setActiveTask(updated);
+      if (terminalStates.includes(updated.status)) routeTerminal(updated);
+    } catch {
+      // Poll will catch up
+    }
+  }, [activeTask?.id, setActiveTask, terminalStates, routeTerminal]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Handle WebSocket messages — state updates arrive live, not just via poll
   const handleWsMessage = useCallback((msg: WsMessage) => {
     switch (msg.type) {
       case 'location_update':
         if (profile?.features.liveTracking) {
-          setProviderLocation({ lat: msg.data.lat, lng: msg.data.lng });
+          setProviderLocation(msg.location);
         }
         break;
       case 'status_change':
         if (activeTask) {
-          setActiveTask({ ...activeTask, status: msg.data.status });
+          const updated = { ...activeTask, status: msg.status };
+          setActiveTask(updated);
+          if (terminalStates.includes(msg.status)) routeTerminal(updated);
         }
         break;
-      case 'ride_cancelled':
+      case 'task_matched':
+      case 'provider_arrived':
+      case 'task_started':
+      case 'task_completed':
+        void refreshTask();
+        break;
       case 'task_cancelled':
+        showToast(`${taskNoun} cancelled`, { type: 'error' });
+        reset();
         navigate('/request');
         break;
     }
-  }, [activeTask, setActiveTask, setProviderLocation, navigate]);
+  }, [activeTask, setActiveTask, setProviderLocation, navigate, profile, terminalStates, routeTerminal, refreshTask, reset, taskNoun]);
 
   const { connected } = useWebSocket(activeTask?.id || null, handleWsMessage);
 
@@ -64,12 +116,7 @@ export function ActiveTaskPage() {
       try {
         const updated = await getTask(activeTask.id);
         setActiveTask(updated);
-        const terminalStates = profile?.states.terminal || [];
-        const cancelledValue = profile?.states.values.CANCELLED || 'cancelled';
-        if (terminalStates.includes(updated.status)) {
-          if (updated.status !== cancelledValue) navigate('/request/complete');
-          else navigate('/request');
-        }
+        if (terminalStates.includes(updated.status)) routeTerminal(updated);
       } catch {
         // Ignore poll errors
       }
@@ -80,21 +127,37 @@ export function ActiveTaskPage() {
   if (!activeTask || !origin) return <Loading message={`Loading ${taskNoun}...`} />;
 
   const handlePanic = async () => {
-    if (!identity) return;
+    if (!identity) throw new Error('No identity');
     await triggerPanic(activeTask.id, {
-      triggeredBy: identity.pubKeyHex,
+      role: 'requester',
       location: currentLocation,
     });
   };
 
   const handleCancel = async () => {
-    if (!identity) return;
-    await cancelTask(activeTask.id, {
-      cancelledBy: identity.pubKeyHex,
-      reason: 'Requester cancelled',
-    });
-    navigate('/request');
+    if (!identity || cancelling) return;
+    setCancelling(true);
+    setActionError(null);
+    try {
+      await cancelTask(activeTask.id, {
+        cancelledBy: identity.pubKeyHex,
+        reason: 'Requester cancelled',
+      });
+      reset();
+      navigate('/request');
+    } catch (err) {
+      const message = err instanceof Error ? err.message : `Failed to cancel ${taskNoun}`;
+      setActionError(message);
+      showToast(message, { type: 'error' });
+    } finally {
+      setCancelling(false);
+    }
   };
+
+  // Cancel is available in every non-terminal state before the active phase
+  const canCancel = !terminalStates.includes(activeTask.status)
+    && activeTask.status !== activeValue
+    && !activeTask.startedAt;
 
   const centre = providerLocation || origin;
 
@@ -164,29 +227,25 @@ export function ActiveTaskPage() {
           </div>
         )}
 
-        {/* Streaming payment progress */}
-        {profile?.features.streaming && activeTask.streamingPayment && (
+        {/* Honest payment copy per rail */}
+        {payment?.provider === 'cash' && (
           <div className="meta-card">
-            <div className="flex justify-between text-xs mb-2">
-              <span className="meta-label">Streaming payment</span>
-              <span className="text-donkey-green font-bold text-sm">
-                {activeTask.streamingPayment.totalPaidSats} sats
-              </span>
-            </div>
-            <div className="h-2 bg-donkey-border rounded-full overflow-hidden">
-              <div
-                className="h-full bg-donkey-green transition-all rounded-full"
-                style={{
-                  width: `${Math.min(
-                    (activeTask.streamingPayment.totalPaidSats / activeTask.fareEstimateSats) * 100,
-                    100,
-                  )}%`,
-                  boxShadow: '0 0 8px rgba(var(--theme-accent-rgb), 0.5)',
-                }}
-              />
-            </div>
+            <p className="meta-label">Payment</p>
+            <p className="text-sm text-donkey-text mt-1">
+              Pay your {providerRoleLabel.toLowerCase()} directly. Agreed amount:{' '}
+              <DualPrice sats={activeTask.fareEstimateSats} size="sm" />
+            </p>
           </div>
         )}
+        {payment?.provider === 'demo' && (
+          <div className="meta-card">
+            <p className="meta-label">Payment</p>
+            <p className="text-sm text-donkey-text mt-1">Demo mode: no real payment moves.</p>
+          </div>
+        )}
+
+        {/* Stake — only on rails that support custody (never cash) */}
+        <TaskStakePanel task={activeTask} role="requester" />
 
         {/* Quote review — requester sees when provider has submitted a quote */}
         {profile?.features.quoteNegotiation && activeTask.quote &&
@@ -214,7 +273,7 @@ export function ActiveTaskPage() {
 
         {/* Actions */}
         <div className="flex gap-3">
-          {activeTask.status === profile?.states.initial && !showCancelConfirm && (
+          {canCancel && !showCancelConfirm && (
             <button
               className="btn-secondary flex-1"
               onClick={() => setShowCancelConfirm(true)}
@@ -227,14 +286,16 @@ export function ActiveTaskPage() {
               <button
                 className="btn-secondary flex-1"
                 onClick={() => setShowCancelConfirm(false)}
+                disabled={cancelling}
               >
                 Keep
               </button>
               <button
                 className="btn-danger flex-1"
                 onClick={handleCancel}
+                disabled={cancelling}
               >
-                Confirm Cancel
+                {cancelling ? 'Cancelling...' : 'Confirm Cancel'}
               </button>
             </>
           )}
@@ -244,6 +305,8 @@ export function ActiveTaskPage() {
             </div>
           )}
         </div>
+
+        {actionError && <p className="text-donkey-red text-sm">{actionError}</p>}
       </div>
     </div>
   );

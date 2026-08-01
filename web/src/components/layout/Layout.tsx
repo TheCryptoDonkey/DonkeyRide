@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom';
 import { Header } from './Header';
+import { ToastHost } from '../common/Toast';
 import { useDomain } from '../../context/DomainContext';
 
 interface LayoutProps {
@@ -11,7 +12,7 @@ export function Layout({ app }: LayoutProps) {
 
   if (loading) {
     return (
-      <div className="h-screen flex items-center justify-center bg-donkey-bg">
+      <div className="h-dvh flex items-center justify-center bg-donkey-bg">
         <div className="text-center">
           <div className="animate-spin h-8 w-8 border-2 border-donkey-purple border-t-transparent rounded-full mx-auto mb-4" />
           <p className="text-donkey-muted">Loading domain profile...</p>
@@ -22,7 +23,7 @@ export function Layout({ app }: LayoutProps) {
 
   if (error) {
     return (
-      <div className="h-screen flex items-center justify-center bg-donkey-bg">
+      <div className="h-dvh flex items-center justify-center bg-donkey-bg">
         <div className="card max-w-md text-center">
           <p className="text-donkey-red mb-2">Failed to load domain profile</p>
           <p className="text-donkey-muted text-sm">{error}</p>
@@ -38,11 +39,15 @@ export function Layout({ app }: LayoutProps) {
   }
 
   return (
-    <div className="h-screen flex flex-col">
+    <div
+      className="h-dvh flex flex-col"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+    >
       <Header app={app} />
       <main className="flex-1 overflow-hidden relative">
         <Outlet />
       </main>
+      <ToastHost />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapView } from '../../components/map/MapView';
 import { LocationMarker } from '../../components/map/LocationMarker';
@@ -6,6 +6,8 @@ import { RoutePolyline } from '../../components/map/RoutePolyline';
 import { StatusBadge } from '../../components/common/StatusBadge';
 import { DualPrice } from '../../components/common/DualPrice';
 import { PanicButton } from '../../components/safety/PanicButton';
+import { TaskStakePanel } from '../../components/payment/TaskStakePanel';
+import { showToast } from '../../components/common/Toast';
 import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { useDomain } from '../../context/DomainContext';
@@ -15,7 +17,7 @@ import { useLiveTracking } from '../../modules/pii';
 import {
   arriveAtOrigin, startTask, completeTask, transitionTask,
   triggerPanic, getTask, submitProof,
-  submitSignatureProof, submitQuote,
+  submitSignatureProof, submitQuote, cancelTask,
 } from '../../services/api';
 import { PhotoProof } from '../../components/task/PhotoProof';
 import { SignatureCapture } from '../../components/task/SignatureCapture';
@@ -41,15 +43,19 @@ const STATE_KEY_LABELS: Record<string, string> = {
 
 export function ActiveTaskPage() {
   const navigate = useNavigate();
-  const { activeTask, setActiveTask } = useTask();
+  const { activeTask, setActiveTask, reset } = useTask();
   const { identity } = useIdentity();
   const { profile } = useDomain();
   const { location } = useLocation(true);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const originLabel = profile?.labels?.originLabel || 'Pickup';
   const destinationLabel = profile?.labels?.destinationLabel || 'Dropoff';
   const taskNoun = profile?.labels?.taskNoun || 'task';
   const requiresDestination = profile?.features.requiresDestination !== false;
+  const terminalStates = profile?.states.terminal || [];
 
   useEffect(() => {
     if (!activeTask) navigate('/provide');
@@ -64,15 +70,43 @@ export function ActiveTaskPage() {
     enabled: !!(profile?.features.liveTracking && activeTask && identity),
   });
 
-  // Handle WebSocket messages
+  // Re-fetch the task when a WS event signals a state change
+  const refreshTask = useCallback(async () => {
+    if (!activeTask) return;
+    try {
+      const updated = await getTask(activeTask.id);
+      setActiveTask(updated);
+      if (terminalStates.includes(updated.status)) {
+        navigate('/provide/complete');
+      }
+    } catch {
+      // Poll will catch up
+    }
+  }, [activeTask?.id, setActiveTask, terminalStates, navigate]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Handle WebSocket messages — state updates arrive live, not just via poll
   const handleWsMessage = useCallback((msg: WsMessage) => {
-    if (msg.type === 'status_change' && activeTask) {
-      setActiveTask({ ...activeTask, status: msg.data.status });
+    switch (msg.type) {
+      case 'status_change':
+        if (activeTask) {
+          setActiveTask({ ...activeTask, status: msg.status });
+          if (terminalStates.includes(msg.status)) navigate('/provide/complete');
+        }
+        break;
+      case 'task_started':
+      case 'task_completed':
+        void refreshTask();
+        break;
+      case 'tip_sent':
+        showToast('Tip received');
+        break;
+      case 'task_cancelled':
+        showToast(`${taskNoun} cancelled`, { type: 'error' });
+        reset();
+        navigate('/provide');
+        break;
     }
-    if (msg.type === 'ride_cancelled' || msg.type === 'task_cancelled') {
-      navigate('/provide');
-    }
-  }, [activeTask, setActiveTask, navigate]);
+  }, [activeTask, setActiveTask, navigate, terminalStates, refreshTask, reset, taskNoun]);
 
   const { connected } = useWebSocket(activeTask?.id || null, handleWsMessage);
 
@@ -92,49 +126,74 @@ export function ActiveTaskPage() {
 
   if (!activeTask || !identity) return null;
 
-  const handleArrive = async () => {
+  /** Run a lifecycle action with in-flight guard and inline error surface */
+  const runAction = async (key: string, fn: () => Promise<void>) => {
+    if (busyAction) return;
+    setBusyAction(key);
+    setActionError(null);
+    try {
+      await fn();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Action failed';
+      setActionError(message);
+      showToast(message, { type: 'error' });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleArrive = () => runAction('arrive', async () => {
     const updated = await arriveAtOrigin(activeTask.id, {
       providerPubkey: identity.pubKeyHex,
     });
     setActiveTask(updated);
-  };
+  });
 
-  const handleStart = async () => {
+  const handleStart = () => runAction('start', async () => {
     const updated = await startTask(activeTask.id, {
       providerPubkey: identity.pubKeyHex,
     });
     setActiveTask(updated);
-  };
+  });
 
-  const handleComplete = async () => {
+  const handleComplete = () => runAction('complete', async () => {
     const updated = await completeTask(activeTask.id, {
       providerPubkey: identity.pubKeyHex,
     });
     setActiveTask(updated);
     navigate('/provide/complete');
-  };
+  });
 
-  const handleTransition = async (targetState: string) => {
+  const handleTransition = (targetState: string) => runAction(targetState, async () => {
     const updated = await transitionTask(activeTask.id, {
       targetState,
       providerPubkey: identity.pubKeyHex,
     });
     setActiveTask(updated);
     // Navigate to completion if we've reached a terminal state
-    const terminalStates = profile?.states.terminal || [];
     if (terminalStates.includes(updated.status)) {
       navigate('/provide/complete');
     }
-  };
+  });
+
+  const handleCancel = () => runAction('cancel', async () => {
+    await cancelTask(activeTask.id, {
+      cancelledBy: identity.pubKeyHex,
+      reason: 'Provider cancelled',
+    });
+    reset();
+    navigate('/provide');
+  });
 
   const handlePanic = async () => {
     await triggerPanic(activeTask.id, {
-      triggeredBy: identity.pubKeyHex,
+      role: 'provider',
       location,
     });
   };
 
   const status = activeTask.status;
+  const isTerminal = terminalStates.includes(status);
 
   // Build dynamic action buttons from profile transitions
   const getActionButtons = () => {
@@ -155,7 +214,7 @@ export function ActiveTaskPage() {
 
       // Decide which handler to use
       const endpoint = KNOWN_ENDPOINTS[stateKey];
-      let handler: () => Promise<void>;
+      let handler: () => void;
       if (endpoint === 'arrive') handler = handleArrive;
       else if (endpoint === 'start') handler = handleStart;
       else if (endpoint === 'complete') handler = handleComplete;
@@ -219,29 +278,8 @@ export function ActiveTaskPage() {
           </div>
         )}
 
-        {/* Streaming payment progress */}
-        {profile?.features.streaming && activeTask.streamingPayment && (
-          <div className="earnings-card">
-            <div className="flex justify-between text-xs mb-2">
-              <span className="meta-label">Earning</span>
-              <span className="text-donkey-green font-bold text-sm">
-                {activeTask.streamingPayment.totalPaidSats} sats
-              </span>
-            </div>
-            <div className="h-2 bg-donkey-border rounded-full overflow-hidden">
-              <div
-                className="h-full bg-donkey-green transition-all rounded-full"
-                style={{
-                  width: `${Math.min(
-                    (activeTask.streamingPayment.totalPaidSats / activeTask.fareEstimateSats) * 100,
-                    100,
-                  )}%`,
-                  boxShadow: '0 0 8px rgba(var(--theme-accent-rgb), 0.5)',
-                }}
-              />
-            </div>
-          </div>
-        )}
+        {/* Stake — only on rails that support custody (never cash) */}
+        <TaskStakePanel task={activeTask} role="provider" />
 
         {/* Quote negotiation — provider submits quote after arrival */}
         {profile?.features.quoteNegotiation &&
@@ -297,15 +335,54 @@ export function ActiveTaskPage() {
         )}
 
         {/* Dynamic action buttons */}
-        {buttons.length > 0 && (
+        {buttons.length > 0 && !showCancelConfirm && (
           <div className="flex gap-3">
             {buttons.map(({ label, handler, stateKey }) => (
-              <button key={stateKey} className="btn-primary flex-1" onClick={handler}>
-                {label}
+              <button
+                key={stateKey}
+                className="btn-primary flex-1"
+                onClick={handler}
+                disabled={busyAction !== null}
+              >
+                {busyAction !== null ? 'Working...' : label}
               </button>
             ))}
           </div>
         )}
+
+        {/* Cancel job — with confirm step */}
+        {!isTerminal && (
+          <div className="flex gap-3">
+            {!showCancelConfirm ? (
+              <button
+                className="btn-secondary flex-1"
+                onClick={() => setShowCancelConfirm(true)}
+                disabled={busyAction !== null}
+              >
+                Cancel job
+              </button>
+            ) : (
+              <>
+                <button
+                  className="btn-secondary flex-1"
+                  onClick={() => setShowCancelConfirm(false)}
+                  disabled={busyAction !== null}
+                >
+                  Keep job
+                </button>
+                <button
+                  className="btn-danger flex-1"
+                  onClick={handleCancel}
+                  disabled={busyAction !== null}
+                >
+                  {busyAction === 'cancel' ? 'Cancelling...' : 'Confirm cancel'}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {actionError && <p className="text-donkey-red text-sm">{actionError}</p>}
 
         {/* Hand off to the driver's preferred navigation app — drivers trust
             their own nav; never trap them in ours */}

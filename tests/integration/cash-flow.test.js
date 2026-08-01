@@ -82,7 +82,7 @@ test('CashProvider stake lifecycle is record-only', async () => {
   const lock = await provider.lockStake('ride_test', 'c'.repeat(64), 500, 'rider');
   assert.equal(lock.success, true);
   assert.match(lock.proof.note, /no funds held/);
-  assert.equal(lock.event.kind, 30502);
+  assert.equal(lock.event.kind, 30532);
 
   const status = await provider.getStakeStatus('ride_test_rider');
   assert.equal(status.status, 'committed');

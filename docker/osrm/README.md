@@ -283,7 +283,7 @@ Create update script:
 
 MAP_URL="http://download.geofabrik.de/north-america/us/new-york-latest.osm.pbf"
 MAP_NAME="new-york-latest"
-DATA_DIR="/Users/example/WebstormProjects/DonkeyRide/docker/osrm/data"
+DATA_DIR="$(git rev-parse --show-toplevel)/docker/osrm/data"
 
 cd "$DATA_DIR"
 
@@ -304,7 +304,7 @@ docker run -t -v "${PWD}:/data" ghcr.io/project-osrm/osrm-backend \
 
 # Restart OSRM
 echo "Restarting OSRM..."
-cd /Users/example/WebstormProjects/DonkeyRide
+cd "$(git rev-parse --show-toplevel)"
 docker-compose restart osrm-backend
 
 echo "✅ Maps updated successfully"

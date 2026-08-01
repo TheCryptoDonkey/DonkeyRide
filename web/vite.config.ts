@@ -1,4 +1,5 @@
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig } from 'vitest/config';
+import type { Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 
@@ -57,5 +58,8 @@ export default defineConfig({
         driver: path.resolve(__dirname, 'driver.html'),
       },
     },
+  },
+  test: {
+    environment: 'jsdom',
   },
 });

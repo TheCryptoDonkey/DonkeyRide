@@ -22,14 +22,26 @@ const BUILTIN_PROFILES = {
  * Resolution order:
  * 1. Built-in profiles (ridesharing, locksmith, delivery)
  * 2. Custom profile file at src/domain-profiles/{id}.js
- * 3. Absolute path to a profile module
  *
- * @param {string} [domainId] - Domain identifier or path. Defaults to DOMAIN env var or 'ridesharing'.
+ * The id is strictly validated BEFORE touching the filesystem: this
+ * function is reachable from unauthenticated route parameters, and
+ * `require()` on an attacker-shaped path executes arbitrary local modules
+ * (`..%2f` traversal was demonstrated). Arbitrary-path resolution has been
+ * removed for the same reason — custom profiles belong in this directory.
+ *
+ * @param {string} [domainId] - Domain identifier. Defaults to DOMAIN env var or 'ridesharing'.
  * @returns {Object} Validated domain profile
  * @throws {Error} If profile cannot be found or is invalid
  */
 function loadProfile(domainId) {
   const id = (domainId || process.env.DOMAIN || 'ridesharing').toLowerCase().trim();
+
+  if (!/^[a-z0-9_-]+$/.test(id)) {
+    throw new Error(
+      `Invalid domain profile id. ` +
+      `Available built-in profiles: ${Object.keys(BUILTIN_PROFILES).join(', ')}`
+    );
+  }
 
   let rawProfile;
 
@@ -38,19 +50,14 @@ function loadProfile(domainId) {
     rawProfile = BUILTIN_PROFILES[id]();
   }
 
-  // 2. Try loading from domain-profiles directory
+  // 2. Try loading from the domain-profiles directory (validated id only)
   if (!rawProfile) {
-    try {
-      rawProfile = require(path.resolve(__dirname, `${id}.js`));
-    } catch (_err) {
-      // Not found in built-in directory, try absolute/relative path
+    const candidate = path.resolve(__dirname, `${id}.js`);
+    if (path.dirname(candidate) !== __dirname) {
+      throw new Error(`Invalid domain profile id '${id}'`);
     }
-  }
-
-  // 3. Try as an absolute or relative path
-  if (!rawProfile) {
     try {
-      rawProfile = require(path.resolve(id));
+      rawProfile = require(candidate);
     } catch (_err) {
       throw new Error(
         `Domain profile '${id}' not found. ` +

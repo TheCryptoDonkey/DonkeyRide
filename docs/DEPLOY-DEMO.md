@@ -25,6 +25,9 @@ restarts and are rehydrated on startup).
 donkeyride.example.com {
 	@ws path /ws
 	reverse_proxy @ws localhost:3998
+	handle_path /relay* {
+		reverse_proxy localhost:3997
+	}
 	reverse_proxy localhost:3999
 }
 ```
@@ -37,7 +40,31 @@ only run in secure contexts.
 No domain yet? `donkeyride.<server-ip>.sslip.io` resolves to your server
 without any DNS setup and Caddy will issue a certificate for it.
 
-## 3. Verify
+## 3. Operator identity and Nostr relays
+
+The demo stack now includes a strfry Nostr relay (loopback `:3997`,
+proxied at `/relay`). Give the operator a stable signing identity and
+advertise client-reachable relay URLs in a `.env` next to the compose file:
+
+```bash
+umask 077
+cat > .env <<ENV
+OPERATOR_PRIVKEY=$(openssl rand -hex 32)
+NODE_ENV=production
+ALLOW_DEMO_PAYMENTS=true
+NOSTR_RELAYS=wss://relay.damus.io,wss://nos.lol
+PUBLIC_RELAY_URLS=wss://donkeyride.example.com/relay,wss://relay.damus.io
+PUBLIC_BASE_URL=https://donkeyride.example.com
+ENV
+```
+
+Without `OPERATOR_PRIVKEY` (or `OPERATOR_NSEC`) the operator cannot sign
+any public events — stake locks, settlements, its service announcement —
+and says so loudly at boot. With it, the operator publishes a TROTT kind
+30511 announcement at startup and a kind 30554 heartbeat every 5 minutes,
+making it discoverable from the relays alone.
+
+## 4. Verify
 
 ```bash
 curl https://donkeyride.example.com/health

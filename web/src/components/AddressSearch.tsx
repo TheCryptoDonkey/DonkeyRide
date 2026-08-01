@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { showToast } from './common/Toast';
 import type { LatLng } from '../types/api';
 
 interface PhotonFeature {
@@ -56,6 +57,18 @@ export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const selectedRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Close the dropdown on outside tap
+  useEffect(() => {
+    const onPointerDown = (e: PointerEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, []);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -81,6 +94,7 @@ export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }
         setOpen(true);
       } catch {
         setResults([]);
+        showToast('Address search failed. Tap the map to set the location instead.', { type: 'error' });
       } finally {
         setLoading(false);
       }
@@ -111,7 +125,7 @@ export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }
   };
 
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       <input
         type="text"
         className="w-full bg-donkey-surface/95 backdrop-blur border border-donkey-border rounded-lg px-4 py-3 text-sm shadow-panel focus:outline-none focus:border-donkey-blue"
@@ -119,6 +133,9 @@ export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }
         value={query}
         autoFocus={autoFocus}
         onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') setOpen(false);
+        }}
         onFocus={() => {
           if (results.length > 0) {
             setOpen(true);

@@ -128,27 +128,34 @@ function validateProfile(profile) {
       ...profile.features
     },
     eventKinds: {
-      request: 30500,
-      acceptance: 30501,
-      streamPayment: 30510,
-      completion: 30511,
-      statusUpdate: 30512,
-      tip: 30513,
-      stakeLock: 30502,
-      stakeRelease: 30520,
-      stakeCancel: 30521,
-      dispute: 30522,
-      arbiterAssignment: 30523,
-      resolution: 30524,
-      theftReport: 30525,
-      watchdogClaim: 30526,
-      operatorSlashing: 30527,
-      rating: 30530,
-      suspiciousActivity: 30549,
-      accountSuspension: 30550,
-      appealRequest: 30551,
-      slashingProposal: 30553,
-      guardianVote: 30554,
+      // TROTT-02 discovery
+      taskAnnouncement: 37500,
+      providerAvailability: 20500,
+      operatorBond: 30511,
+      // TROTT-01 lifecycle
+      stateTransition: 7501,
+      stateSnapshot: 30078,
+      // TROTT-04 / TROTT-04b payments
+      quote: 30530,
+      paymentTerms: 30531,
+      stakeLock: 30532,
+      settlement: 30533,
+      paymentReceipt: 30535,
+      earningsSummary: 30538,
+      // TROTT-03 reputation
+      rating: 30520,
+      // TROTT-05 safety
+      panic: 30540,
+      safetyCheckIn: 30541,
+      // TROTT-05b / TROTT-05c disputes and abuse
+      disputeClaim: 7543,
+      disputeResolution: 30545,
+      abuseReport: 30546,
+      // TROTT-06 operator participation
+      operatorClaim: 30550,
+      operatorHeartbeat: 30554,
+      // NIP-57 zaps
+      tip: 9735,
       ...profile.eventKinds
     },
     theme: {

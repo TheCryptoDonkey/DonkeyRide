@@ -18,7 +18,7 @@ DonkeyRide is the **reference implementation** of the [TROTT Protocol](https://g
 
 | Domain | Env Var | Description |
 |--------|---------|-------------|
-| **Ridesharing** | `DOMAIN=ridesharing` | Rider/driver coordination, streaming payments, live tracking |
+| **Ridesharing** | `DOMAIN=ridesharing` | Rider/driver coordination, stake escrow, live tracking |
 | **Locksmith** | `DOMAIN=locksmith` | Customer/locksmith dispatch, quote negotiation, flat-rate pricing |
 | **Delivery** | `DOMAIN=delivery` | Sender/courier, chain of custody, photo/signature proofs |
 
@@ -81,13 +81,13 @@ DonkeyRide uses a **three-layer federated architecture**:
 ```
 NOSTR (public, permanent)     →  Discovery + Reputation + PII Exchange + Coordination
 OPERATOR (private, compliant) →  Safety Monitoring + Background Checks + Insurance
-PAYMENT PROVIDERS             →  Stakes + Streaming Payments + Settlement
+PAYMENT PROVIDERS             →  Stakes (hodl escrow) + Settlement
 ```
 
 The operator is a **thin compliance layer** — handling only what the law mandates. Everything else runs on decentralised rails:
 
 - **Stake custody** → operator-configured rail, from record-only cash (no custody at all) to hodl invoices; NIP-47 wallet-to-wallet planned
-- **PII exchange** → NIP-17 gift-wrapped messages (relay can't read, operator can't read)
+- **PII exchange** → operator-held over authenticated HTTPS/WSS today; NIP-17 gift-wrapped P2P exchange is specified but not yet implemented in this server (no PII is published to relays either way)
 - **Coordination** → NIP-44 encrypted Nostr events
 - **Discovery** → Geohash-based on public relays
 - **Reputation** → Cryptographically signed on Nostr

@@ -48,6 +48,34 @@ class MemoryTaskStore {
       .map((row) => row.payload);
   }
 
+  async saveStake(stake) {
+    if (!this.stakes) this.stakes = new Map();
+    this.stakes.set(stake.stakeId, JSON.parse(JSON.stringify(stake)));
+  }
+
+  async loadStakes() {
+    if (!this.stakes) return [];
+    return Array.from(this.stakes.values());
+  }
+
+  async saveOutboxEvent(event) {
+    if (!this.outbox) this.outbox = new Map();
+    this.outbox.set(event.id, JSON.parse(JSON.stringify(event)));
+  }
+
+  async deleteOutboxEvent(eventId) {
+    if (this.outbox) this.outbox.delete(eventId);
+  }
+
+  async loadOutboxEvents(limit = 100) {
+    if (!this.outbox) return [];
+    return Array.from(this.outbox.values()).slice(0, limit);
+  }
+
+  async healthCheck() {
+    return true;
+  }
+
   async close() {}
 }
 
@@ -80,6 +108,28 @@ class PgTaskStore {
     await this.pool.query(
       'CREATE INDEX IF NOT EXISTS tasks_active_idx ON tasks (terminal, domain)'
     );
+
+    // Stake persistence: hodl-invoice preimages MUST survive a restart or
+    // held customer funds become permanently unsettleable.
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS stakes (
+        stake_id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        payload JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+
+    // Nostr outbox: events that failed to reach any relay are retried,
+    // not silently dropped.
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS nostr_outbox (
+        event_id TEXT PRIMARY KEY,
+        event JSONB NOT NULL,
+        attempts INT NOT NULL DEFAULT 0,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
   }
 
   async saveTask(task, { terminal = false } = {}) {
@@ -121,6 +171,49 @@ class PgTaskStore {
       [key]
     );
     return result.rows.map((row) => row.payload);
+  }
+
+  async saveStake(stake) {
+    await this.pool.query(
+      `INSERT INTO stakes (stake_id, provider, payload, updated_at)
+       VALUES ($1, $2, $3, now())
+       ON CONFLICT (stake_id) DO UPDATE SET
+         provider = EXCLUDED.provider,
+         payload = EXCLUDED.payload,
+         updated_at = now()`,
+      [stake.stakeId, stake.provider || 'unknown', JSON.stringify(stake)]
+    );
+  }
+
+  async loadStakes() {
+    const result = await this.pool.query('SELECT payload FROM stakes');
+    return result.rows.map((row) => row.payload);
+  }
+
+  async saveOutboxEvent(event) {
+    await this.pool.query(
+      `INSERT INTO nostr_outbox (event_id, event, attempts)
+       VALUES ($1, $2, 0)
+       ON CONFLICT (event_id) DO UPDATE SET attempts = nostr_outbox.attempts + 1`,
+      [event.id, JSON.stringify(event)]
+    );
+  }
+
+  async deleteOutboxEvent(eventId) {
+    await this.pool.query('DELETE FROM nostr_outbox WHERE event_id = $1', [eventId]);
+  }
+
+  async loadOutboxEvents(limit = 100) {
+    const result = await this.pool.query(
+      'SELECT event FROM nostr_outbox WHERE attempts < 50 ORDER BY created_at LIMIT $1',
+      [limit]
+    );
+    return result.rows.map((row) => row.event);
+  }
+
+  async healthCheck() {
+    await this.pool.query('SELECT 1');
+    return true;
   }
 
   async close() {

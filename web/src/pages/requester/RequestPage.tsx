@@ -9,11 +9,12 @@ import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { useDomain } from '../../context/DomainContext';
 import { getTripEstimate, requestTask } from '../../services/api';
+import { publishTaskAnnouncement } from '../../services/events';
 import { formatDistance, formatDuration } from '../../services/pricing';
 
 export function RequestPage() {
   const navigate = useNavigate();
-  const { origin, destination, estimate, setEstimate, setActiveTask } = useTask();
+  const { origin, destination, estimate, setEstimate, setActiveTask, activeTask } = useTask();
   const { identity } = useIdentity();
   const { profile } = useDomain();
   const [loading, setLoading] = useState(false);
@@ -24,6 +25,13 @@ export function RequestPage() {
   const originLabel = profile?.labels?.originLabel || 'Pickup';
   const destinationLabel = profile?.labels?.destinationLabel || 'Dropoff';
   const taskNoun = profile?.labels?.taskNoun || 'ride';
+
+  // Back-navigation guard: an existing active task means no second request
+  useEffect(() => {
+    if (activeTask && profile && !profile.states.terminal.includes(activeTask.status)) {
+      navigate('/request/active', { replace: true });
+    }
+  }, [activeTask, profile, navigate]);
 
   // Redirect if no origin, or no destination when required
   useEffect(() => {
@@ -71,6 +79,10 @@ export function RequestPage() {
         domain: profile?.id,
       });
       setActiveTask(task);
+      // Decentralised announcement — geohash-only, best-effort, relays only
+      if (profile?.id) {
+        void publishTaskAnnouncement(task.id, origin, profile.id, identity.privKeyHex);
+      }
       navigate('/request/active');
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to request ${taskNoun}`);
@@ -188,7 +200,7 @@ export function RequestPage() {
                 <>
                   <p className="text-lg font-bold text-donkey-text">Hourly rate</p>
                   <p className="text-donkey-muted text-sm mt-1">
-                    Billed by the hour — final price based on time spent
+                    Billed by the hour. Final price based on time spent
                   </p>
                 </>
               )}

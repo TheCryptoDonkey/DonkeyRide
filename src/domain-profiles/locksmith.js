@@ -116,35 +116,6 @@ const profile = {
     routeColour: '#f59e0b',
     emoji: '🔑',
   },
-
-  eventKinds: {
-    request: 30500,
-    acceptance: 30501,
-    streamPayment: 30510,
-    completion: 30511,
-    statusUpdate: 30512,
-    tip: 30513,
-    stakeLock: 30502,
-    stakeRelease: 30520,
-    stakeCancel: 30521,
-    dispute: 30522,
-    arbiterAssignment: 30523,
-    resolution: 30524,
-    theftReport: 30525,
-    watchdogClaim: 30526,
-    operatorSlashing: 30527,
-    rating: 30530,
-    suspiciousActivity: 30549,
-    accountSuspension: 30550,
-    appealRequest: 30551,
-    slashingProposal: 30553,
-    guardianVote: 30554,
-    quoteIssued: 30601,
-    quoteAccepted: 30602,
-    accessMethodConfirmed: 30603,
-    guaranteeStart: 30605,
-    panic: 30560
-  }
 };
 
 module.exports = profile;

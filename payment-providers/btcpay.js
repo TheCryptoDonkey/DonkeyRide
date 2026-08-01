@@ -4,6 +4,7 @@
 // ==========================================
 
 const PaymentProvider = require('./base');
+const { fetchWithTimeout: fetch } = require('../src/utils/fetch-timeout');
 
 /**
  * BTCPay Server Provider

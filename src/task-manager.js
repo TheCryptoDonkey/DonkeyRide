@@ -65,6 +65,7 @@ class TaskManager {
     this.requesterTasks = new Map();
     this.providerTasks = new Map();
     this.store = null;
+    this._pendingPersists = new Set();
   }
 
   /**
@@ -82,11 +83,21 @@ class TaskManager {
     if (!this.store || !task) {
       return;
     }
-    this.store
+    const write = this.store
       .saveTask(task, { terminal: this.isTerminal(task.status) })
       .catch((error) => {
         console.error(`[storage] Failed to persist task ${task.id}:`, error.message);
       });
+    this._pendingPersists.add(write);
+    write.finally(() => this._pendingPersists.delete(write));
+  }
+
+  /**
+   * Wait for all in-flight persistence writes. Called on graceful shutdown
+   * so `docker stop` cannot lose the most recent state transitions.
+   */
+  async flushPersistence() {
+    await Promise.allSettled(Array.from(this._pendingPersists));
   }
 
   /**
@@ -446,8 +457,24 @@ class TaskManager {
     if (typeof cleanupTimer.unref === 'function') {
       cleanupTimer.unref();
     }
+    this._scheduleEviction(taskId);
 
     return task;
+  }
+
+  /**
+   * Evict a terminal task from memory after a retention window. The task
+   * lives on in the persistent store; without eviction the in-memory Map
+   * grows forever. Retention is generous so post-ride ratings still work.
+   */
+  _scheduleEviction(taskId) {
+    const retainMs = parseInt(process.env.TERMINAL_TASK_RETAIN_MS || String(6 * 60 * 60 * 1000), 10);
+    const evictionTimer = setTimeout(() => {
+      this.tasks.delete(taskId);
+    }, retainMs);
+    if (typeof evictionTimer.unref === 'function') {
+      evictionTimer.unref();
+    }
   }
 
   /**
@@ -522,6 +549,7 @@ class TaskManager {
     if (provider) {
       identityKeys(provider).forEach((key) => this.providerTasks.delete(key));
     }
+    this._scheduleEviction(taskId);
 
     return task;
   }

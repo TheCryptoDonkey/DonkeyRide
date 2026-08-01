@@ -59,7 +59,7 @@ function unhush() {
 
 function buildDisputeEvent(rideId, complainantPrivBytes, complainantPubKey, accusedPubKey, disputeType, content) {
   const event = {
-    kind: 30522,
+    kind: 7543,
     created_at: Math.floor(Date.now() / 1000),
     tags: [
       ['d', `dispute_${rideId}`],
@@ -80,7 +80,7 @@ function buildDisputeEvent(rideId, complainantPrivBytes, complainantPubKey, accu
 
 function buildCounterEvidenceEvent(originalEventId, accusedPrivBytes, accusedPubKey, content) {
   const event = {
-    kind: 30522,
+    kind: 7543,
     created_at: Math.floor(Date.now() / 1000),
     tags: [
       ['e', originalEventId],
@@ -97,7 +97,7 @@ function buildCounterEvidenceEvent(originalEventId, accusedPrivBytes, accusedPub
 
 function buildAppealEvent(resolutionEventId, appellantPrivBytes, appellantPubKey, appealType, content) {
   const event = {
-    kind: 30551,
+    kind: 39503,
     created_at: Math.floor(Date.now() / 1000),
     tags: [
       ['e', resolutionEventId],
@@ -114,7 +114,7 @@ function buildAppealEvent(resolutionEventId, appellantPrivBytes, appellantPubKey
 
 function buildTheftReportEvent(opPubKey, lockEventId, completionEventId, overdueSeconds, reporterPrivBytes, reporterPubKey) {
   const event = {
-    kind: 30525,
+    kind: 30546,
     created_at: Math.floor(Date.now() / 1000),
     tags: [
       ['operator', opPubKey],
@@ -132,7 +132,7 @@ function buildTheftReportEvent(opPubKey, lockEventId, completionEventId, overdue
 
 function buildWatchdogClaimEvent(theftReportEventId, opPubKey, verifierPrivBytes, verifierPubKey, verified) {
   const event = {
-    kind: 30526,
+    kind: 39500,
     created_at: Math.floor(Date.now() / 1000),
     tags: [
       ['e', theftReportEventId],
@@ -149,7 +149,7 @@ function buildWatchdogClaimEvent(theftReportEventId, opPubKey, verifierPrivBytes
 
 function buildSlashingProposalEvent(opPubKey, theftReportEventId, proposerPrivBytes, proposerPubKey, slashAmount, threshold) {
   const event = {
-    kind: 30553,
+    kind: 39504,
     created_at: Math.floor(Date.now() / 1000),
     tags: [
       ['e', theftReportEventId],
@@ -168,7 +168,7 @@ function buildSlashingProposalEvent(opPubKey, theftReportEventId, proposerPrivBy
 
 function buildGuardianVoteEvent(proposalEventId, guardianPrivBytes, guardianPubKey, vote) {
   const event = {
-    kind: 30554,
+    kind: 39505,
     created_at: Math.floor(Date.now() / 1000),
     tags: [
       ['e', proposalEventId],
@@ -259,7 +259,7 @@ test('dispute-events module configures and publishes correctly', async () => {
       accusedPubkey: driverPubKey,
       disputeType: 'payment'
     });
-    assert.equal(filingEvent.kind, 30522);
+    assert.equal(filingEvent.kind, 7543);
     assert.ok(filingEvent.tags.find(t => t[0] === 'd' && t[1] === 'test_dispute_1'));
 
     const arbiterEvent = await disputeEvents.publishArbiterAssignment({
@@ -267,7 +267,7 @@ test('dispute-events module configures and publishes correctly', async () => {
       arbiterPubkey: operatorPubKey,
       arbiterType: 'operator'
     });
-    assert.equal(arbiterEvent.kind, 30523);
+    assert.equal(arbiterEvent.kind, 30545);
     assert.ok(arbiterEvent.tags.find(t => t[0] === 'd' && t[1] === 'test_dispute_1_arbiter'));
     assert.ok(arbiterEvent.tags.find(t => t[0] === 'dispute_id'));
 
@@ -278,7 +278,7 @@ test('dispute-events module configures and publishes correctly', async () => {
       complainantStake: 'released',
       accusedStake: 'forfeited'
     });
-    assert.equal(resolutionEvent.kind, 30524);
+    assert.equal(resolutionEvent.kind, 30545);
     assert.ok(resolutionEvent.tags.find(t => t[0] === 'd' && t[1] === 'test_dispute_1_resolution'));
     assert.ok(resolutionEvent.tags.find(t => t[0] === 'outcome' && t[1] === 'refund'));
     assert.ok(resolutionEvent.tags.find(t => t[0] === 'resolved_at'));
@@ -288,7 +288,7 @@ test('dispute-events module configures and publishes correctly', async () => {
       activityType: 'fraud',
       domain: 'ridesharing'
     });
-    assert.equal(suspiciousEvent.kind, 30549);
+    assert.equal(suspiciousEvent.kind, 30546);
     assert.ok(suspiciousEvent.tags.find(t => t[0] === 'p' && t[1] === driverPubKey));
     assert.ok(suspiciousEvent.tags.find(t => t[0] === 'activity_type'));
 
@@ -297,7 +297,7 @@ test('dispute-events module configures and publishes correctly', async () => {
       reason: 'repeated violations',
       duration: 86400
     });
-    assert.equal(suspensionEvent.kind, 30550);
+    assert.equal(suspensionEvent.kind, 39502);
     assert.ok(suspensionEvent.tags.find(t => t[0] === 'd' && t[1] === `${driverPubKey}_suspension`));
     assert.ok(suspensionEvent.tags.find(t => t[0] === 'reason'));
 
@@ -307,7 +307,7 @@ test('dispute-events module configures and publishes correctly', async () => {
       appellantPubkey: driverPubKey,
       appealType: 'standard'
     });
-    assert.equal(appealEvent.kind, 30551);
+    assert.equal(appealEvent.kind, 39503);
     assert.ok(appealEvent.tags.find(t => t[0] === 'e' && t[1] === resolutionEvent.id));
 
     const theftEvent = await disputeEvents.publishTheftReport({
@@ -317,7 +317,7 @@ test('dispute-events module configures and publishes correctly', async () => {
       completionEventId: 'completion_event_123',
       overdueSeconds: 3600
     });
-    assert.equal(theftEvent.kind, 30525);
+    assert.equal(theftEvent.kind, 30546);
     assert.ok(theftEvent.tags.find(t => t[0] === 'operator'));
     assert.ok(theftEvent.tags.find(t => t[0] === 'overdue_seconds'));
 
@@ -328,7 +328,7 @@ test('dispute-events module configures and publishes correctly', async () => {
       verified: true,
       verifierPubkey: guardian1PubKey
     });
-    assert.equal(watchdogEvent.kind, 30526);
+    assert.equal(watchdogEvent.kind, 39500);
     assert.ok(watchdogEvent.tags.find(t => t[0] === 'e' && t[1] === theftEvent.id));
     assert.ok(watchdogEvent.tags.find(t => t[0] === 'verified' && t[1] === 'true'));
 
@@ -339,7 +339,7 @@ test('dispute-events module configures and publishes correctly', async () => {
       slashCurrency: 'SAT',
       guardianVotes: 3
     });
-    assert.equal(slashingEvent.kind, 30527);
+    assert.equal(slashingEvent.kind, 39501);
     assert.ok(slashingEvent.tags.find(t => t[0] === 'slash_amount' && t[1] === '50000'));
 
     const proposalEvent = await disputeEvents.publishSlashingProposal({
@@ -350,7 +350,7 @@ test('dispute-events module configures and publishes correctly', async () => {
       slashCurrency: 'SAT',
       threshold: 3
     });
-    assert.equal(proposalEvent.kind, 30553);
+    assert.equal(proposalEvent.kind, 39504);
     assert.ok(proposalEvent.tags.find(t => t[0] === 'threshold' && t[1] === '3'));
 
     const voteEvent = await disputeEvents.publishGuardianVote({
@@ -360,7 +360,7 @@ test('dispute-events module configures and publishes correctly', async () => {
       vote: 'approve',
       operatorPubkey: operatorPubKey
     });
-    assert.equal(voteEvent.kind, 30554);
+    assert.equal(voteEvent.kind, 39505);
     assert.ok(voteEvent.tags.find(t => t[0] === 'e' && t[1] === proposalEvent.id));
     assert.ok(voteEvent.tags.find(t => t[0] === 'vote' && t[1] === 'approve'));
 
@@ -371,7 +371,7 @@ test('dispute-events module configures and publishes correctly', async () => {
       guardianThreshold: 3,
       expiration: Math.floor(Date.now() / 1000) + 86400 * 365
     });
-    assert.equal(bondEvent.kind, 30540);
+    assert.equal(bondEvent.kind, 30511);
     assert.ok(bondEvent.tags.find(t => t[0] === 'guardian_threshold' && t[1] === '3'));
     assert.ok(bondEvent.tags.find(t => t[0] === 'expiration'));
 
@@ -385,7 +385,7 @@ test('dispute-events module configures and publishes correctly', async () => {
 // Test 2: dispute filing on completed ride
 // ==========================================
 
-test('dispute filing on completed ride produces kind 30522 with correct tags', async () => {
+test('dispute filing on completed ride produces kind 7543 with correct tags', async () => {
   hush();
   try {
     reputation.setRelays(['memory://test']);
@@ -394,7 +394,7 @@ test('dispute filing on completed ride produces kind 30522 with correct tags', a
     const disputeEvent = buildDisputeEvent(ride.id, riderPrivBytes, riderPubKey, driverPubKey, 'payment', 'Overcharged');
     reputation.ensureEventIntegrity(disputeEvent);
 
-    assert.equal(disputeEvent.kind, 30522);
+    assert.equal(disputeEvent.kind, 7543);
     assert.ok(disputeEvent.tags.find(t => t[0] === 'dispute_type' && t[1] === 'payment'));
     assert.ok(disputeEvent.tags.find(t => t[0] === 'task_id' && t[1] === ride.id));
     assert.ok(disputeEvent.tags.find(t => t[0] === 'complainant_pubkey'));
@@ -417,7 +417,7 @@ test('dispute filing on active ride is allowed', async () => {
     const disputeEvent = buildDisputeEvent(ride.id, riderPrivBytes, riderPubKey, driverPubKey, 'safety', 'Dangerous driving');
     reputation.ensureEventIntegrity(disputeEvent);
 
-    assert.equal(disputeEvent.kind, 30522);
+    assert.equal(disputeEvent.kind, 7543);
     assert.equal(ride.status, 'active');
     assert.ok(disputeEvent.tags.find(t => t[0] === 'dispute_type' && t[1] === 'safety'));
   } finally {
@@ -454,7 +454,7 @@ test('dispute filing on cancelled ride is allowed', async () => {
     const disputeEvent = buildDisputeEvent(cancelledRide.id, riderPrivBytes, riderPubKey, driverPubKey, 'no_show', 'Driver never came');
     reputation.ensureEventIntegrity(disputeEvent);
 
-    assert.equal(disputeEvent.kind, 30522);
+    assert.equal(disputeEvent.kind, 7543);
   } finally {
     unhush();
   }
@@ -485,10 +485,10 @@ test('counter-evidence references original dispute via e tag', async () => {
 });
 
 // ==========================================
-// Test 6: arbiter assignment publishes kind 30523
+// Test 6: arbiter assignment publishes kind 30545
 // ==========================================
 
-test('arbiter assignment publishes kind 30523 with correct d tag pattern', async () => {
+test('arbiter assignment publishes kind 30545 with correct d tag pattern', async () => {
   hush();
   try {
     const publishedEvents = [];
@@ -504,7 +504,7 @@ test('arbiter assignment publishes kind 30523 with correct d tag pattern', async
       deadline: Math.floor(Date.now() / 1000) + 86400
     });
 
-    assert.equal(event.kind, 30523);
+    assert.equal(event.kind, 30545);
     assert.ok(event.tags.find(t => t[0] === 'd' && t[1] === 'dispute_abc_arbiter'));
     assert.ok(event.tags.find(t => t[0] === 'dispute_id' && t[1] === 'dispute_abc'));
     assert.ok(event.tags.find(t => t[0] === 'arbiter_type' && t[1] === 'operator'));
@@ -515,10 +515,10 @@ test('arbiter assignment publishes kind 30523 with correct d tag pattern', async
 });
 
 // ==========================================
-// Test 7: resolution publishes kind 30524 per outcome
+// Test 7: resolution publishes kind 30545 per outcome
 // ==========================================
 
-test('resolution publishes kind 30524 for each valid outcome', async () => {
+test('resolution publishes kind 30545 for each valid outcome', async () => {
   hush();
   try {
     const publishedEvents = [];
@@ -534,7 +534,7 @@ test('resolution publishes kind 30524 for each valid outcome', async () => {
         arbiterPubkey: operatorPubKey
       });
 
-      assert.equal(event.kind, 30524);
+      assert.equal(event.kind, 30545);
       assert.ok(event.tags.find(t => t[0] === 'outcome' && t[1] === outcome));
       assert.ok(event.tags.find(t => t[0] === 'resolved_at'));
     }
@@ -567,7 +567,7 @@ test('resolution with refund includes released/forfeited stake tags', async () =
       currency: 'SAT'
     });
 
-    assert.equal(event.kind, 30524);
+    assert.equal(event.kind, 30545);
     assert.ok(event.tags.find(t => t[0] === 'complainant_stake' && t[1] === 'released'));
     assert.ok(event.tags.find(t => t[0] === 'accused_stake' && t[1] === 'forfeited'));
   } finally {
@@ -622,7 +622,7 @@ test('escalation outcome produces event but signals ongoing dispute', async () =
       arbiterPubkey: operatorPubKey
     });
 
-    assert.equal(event.kind, 30524);
+    assert.equal(event.kind, 30545);
     assert.ok(event.tags.find(t => t[0] === 'outcome' && t[1] === 'escalation'));
     // The caller is responsible for setting status to 'escalated' not 'resolved'
   } finally {
@@ -634,7 +634,7 @@ test('escalation outcome produces event but signals ongoing dispute', async () =
 // Test 11: appeal references resolution event
 // ==========================================
 
-test('appeal event (kind 30551) references resolution via e tag', async () => {
+test('appeal event (kind 39503) references resolution via e tag', async () => {
   hush();
   try {
     reputation.setRelays(['memory://test']);
@@ -643,7 +643,7 @@ test('appeal event (kind 30551) references resolution via e tag', async () => {
     const appealEvent = buildAppealEvent(resolutionEventId, driverPrivBytes, driverPubKey, 'standard', 'Unfair resolution');
     reputation.ensureEventIntegrity(appealEvent);
 
-    assert.equal(appealEvent.kind, 30551);
+    assert.equal(appealEvent.kind, 39503);
     const eTag = appealEvent.tags.find(t => t[0] === 'e');
     assert.ok(eTag);
     assert.equal(eTag[1], resolutionEventId);
@@ -698,14 +698,14 @@ test('theft report and watchdog verification lifecycle', async () => {
       riderPrivBytes, riderPubKey
     );
     reputation.ensureEventIntegrity(theftEvent);
-    assert.equal(theftEvent.kind, 30525);
+    assert.equal(theftEvent.kind, 30546);
     assert.ok(theftEvent.tags.find(t => t[0] === 'operator' && t[1] === operatorPubKey));
     assert.ok(theftEvent.tags.find(t => t[0] === 'overdue_seconds' && t[1] === '3600'));
 
     // 3 watchdog claims
     const claim1 = buildWatchdogClaimEvent(theftEvent.id, operatorPubKey, guardian1PrivBytes, guardian1PubKey, true);
     reputation.ensureEventIntegrity(claim1);
-    assert.equal(claim1.kind, 30526);
+    assert.equal(claim1.kind, 39500);
 
     const claim2 = buildWatchdogClaimEvent(theftEvent.id, operatorPubKey, guardian2PrivBytes, guardian2PubKey, true);
     reputation.ensureEventIntegrity(claim2);
@@ -749,7 +749,7 @@ test('slashing proposal and guardian vote threshold', async () => {
       50000, 3
     );
     reputation.ensureEventIntegrity(proposal);
-    assert.equal(proposal.kind, 30553);
+    assert.equal(proposal.kind, 39504);
     assert.ok(proposal.tags.find(t => t[0] === 'threshold' && t[1] === '3'));
 
     // Vote 1: approve (not met)
@@ -779,7 +779,7 @@ test('slashing proposal and guardian vote threshold', async () => {
     assert.equal(approvals, 3);
     assert.ok(approvals >= 3, 'Threshold met after 3 votes');
 
-    // Verify kind 30527 can be published
+    // Verify kind 39501 can be published
     disputeEvents.configure({
       operatorPrivkey: OPERATOR_PRIV_HEX,
       publishGeneric: async () => {}
@@ -793,7 +793,7 @@ test('slashing proposal and guardian vote threshold', async () => {
       theftReportEventId: theftEvent.id,
       proposalEventId: proposal.id
     });
-    assert.equal(slashingEvent.kind, 30527);
+    assert.equal(slashingEvent.kind, 39501);
     assert.ok(slashingEvent.tags.find(t => t[0] === 'guardian_votes' && t[1] === '3'));
   } finally {
     unhush();
@@ -818,10 +818,10 @@ test('duplicate guardian vote is detectable', () => {
 });
 
 // ==========================================
-// Test 16: operator bond publishes kind 30540
+// Test 16: operator bond publishes kind 30511
 // ==========================================
 
-test('operator bond publishes kind 30540 with guardian_threshold and expiration', async () => {
+test('operator bond publishes kind 30511 with guardian_threshold and expiration', async () => {
   hush();
   try {
     disputeEvents.configure({
@@ -840,7 +840,7 @@ test('operator bond publishes kind 30540 with guardian_threshold and expiration'
       expiration
     });
 
-    assert.equal(event.kind, 30540);
+    assert.equal(event.kind, 30511);
     assert.ok(event.tags.find(t => t[0] === 'amount' && t[1] === '1000000'));
     assert.ok(event.tags.find(t => t[0] === 'currency' && t[1] === 'SAT'));
     assert.ok(event.tags.find(t => t[0] === 'guardian_threshold' && t[1] === '3'));
@@ -848,17 +848,17 @@ test('operator bond publishes kind 30540 with guardian_threshold and expiration'
     assert.ok(event.tags.find(t => t[0] === 'fee_percent' && t[1] === '0.5'));
     assert.ok(event.tags.find(t => t[0] === 'service_area' && t[1] === 'gb:london'));
     // d tag should be operator pubkey
-    assert.ok(event.tags.find(t => t[0] === 'd' && t[1] === operatorPubKey));
+    assert.ok(event.tags.find(t => t[0] === 'd' && t[1] === `${operatorPubKey}_bond`));
   } finally {
     unhush();
   }
 });
 
 // ==========================================
-// Test 17: account suspension publishes kind 30550
+// Test 17: account suspension publishes kind 39502
 // ==========================================
 
-test('account suspension publishes kind 30550 with d tag pattern and reason', async () => {
+test('account suspension publishes kind 39502 with d tag pattern and reason', async () => {
   hush();
   try {
     disputeEvents.configure({
@@ -872,7 +872,7 @@ test('account suspension publishes kind 30550 with d tag pattern and reason', as
       duration: 604800
     });
 
-    assert.equal(event.kind, 30550);
+    assert.equal(event.kind, 39502);
     assert.ok(event.tags.find(t => t[0] === 'd' && t[1] === `${driverPubKey}_suspension`));
     assert.ok(event.tags.find(t => t[0] === 'p' && t[1] === driverPubKey));
     assert.ok(event.tags.find(t => t[0] === 'reason' && t[1] === 'repeated no-shows'));
@@ -883,10 +883,10 @@ test('account suspension publishes kind 30550 with d tag pattern and reason', as
 });
 
 // ==========================================
-// Test 18: suspicious activity publishes kind 30549
+// Test 18: suspicious activity publishes kind 30546
 // ==========================================
 
-test('suspicious activity publishes kind 30549 with p tag and activity_type', async () => {
+test('suspicious activity publishes kind 30546 with p tag and activity_type', async () => {
   hush();
   try {
     disputeEvents.configure({
@@ -903,7 +903,7 @@ test('suspicious activity publishes kind 30549 with p tag and activity_type', as
       evidence: 'ip_correlation'
     });
 
-    assert.equal(event.kind, 30549);
+    assert.equal(event.kind, 30546);
     assert.ok(event.tags.find(t => t[0] === 'p' && t[1] === riderPubKey));
     assert.ok(event.tags.find(t => t[0] === 'activity_type' && t[1] === 'sybil_attack'));
     assert.ok(event.tags.find(t => t[0] === 'domain' && t[1] === 'ridesharing'));
@@ -945,7 +945,7 @@ test('dispute lifecycle works across all three domains', async () => {
 
       // Build a dispute event with domain tag
       const disputeEvent = {
-        kind: 30522,
+        kind: 7543,
         created_at: Math.floor(Date.now() / 1000),
         tags: [
           ['d', `dispute_${task.id}`],
@@ -968,10 +968,10 @@ test('dispute lifecycle works across all three domains', async () => {
       assert.equal(domainTag[1], domainId, `Domain tag matches ${domainId}`);
 
       // Verify the domain profile has dispute event kinds
-      assert.equal(profile.eventKinds.dispute, 30522);
-      assert.equal(profile.eventKinds.resolution, 30524);
-      assert.equal(profile.eventKinds.arbiterAssignment, 30523);
-      assert.equal(profile.eventKinds.theftReport, 30525);
+      assert.equal(profile.eventKinds.disputeClaim, 7543);
+      assert.equal(profile.eventKinds.disputeResolution, 30545);
+      assert.equal(profile.eventKinds.disputeResolution, 30545);
+      assert.equal(profile.eventKinds.abuseReport, 30546);
     }
   } finally {
     unhush();

@@ -10,7 +10,7 @@ import { formatDistance, formatDuration } from '../../services/pricing';
 
 export function CompletionPage() {
   const navigate = useNavigate();
-  const { activeTask, reset } = useTask();
+  const { activeTask, completedTask, clearCompletedTask, reset } = useTask();
   const { identity } = useIdentity();
   const { profile } = useDomain();
   const [rating, setRating] = useState(0);
@@ -22,7 +22,10 @@ export function CompletionPage() {
   const completedLabel = profile?.labels?.completedLabel || 'Complete';
   const requesterLabel = profile?.roles.requester || 'requester';
 
-  if (!activeTask) {
+  // Survive a refresh: fall back to the stored terminal task until Done
+  const task = activeTask ?? completedTask;
+
+  if (!task) {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="card text-center max-w-md">
@@ -38,11 +41,12 @@ export function CompletionPage() {
   const handleSubmitRating = async () => {
     if (!identity || rating === 0) return;
     try {
-      await submitRating(activeTask.id, {
+      await submitRating(task.id, {
         rating,
         comment: comment || undefined,
-        raterPubkey: identity.pubKeyHex,
         raterRole: 'provider',
+        targetPubkey: task.requesterPubkey,
+        domainId: profile?.id || '',
       });
       setSubmitted(true);
     } catch (err) {
@@ -51,11 +55,13 @@ export function CompletionPage() {
   };
 
   const handleDone = () => {
+    clearCompletedTask();
     reset();
     navigate('/provide');
   };
 
-  const earned = activeTask.streamingPayment?.totalPaidSats || activeTask.fareEstimateSats;
+  // Settlement amount is the honest figure when present; fall back to fare
+  const earned = task.settlement?.amountSats ?? task.fareEstimateSats;
 
   return (
     <div className="h-full overflow-y-auto p-6">
@@ -66,11 +72,11 @@ export function CompletionPage() {
           <p className="meta-label mb-1">Earned</p>
           <DualPrice sats={earned} size="lg" />
 
-          {(activeTask.distanceKm || activeTask.durationMin) && (
+          {(task.distanceKm || task.durationMin) && (
             <p className="text-donkey-muted text-sm mt-2">
-              {activeTask.distanceKm ? formatDistance(activeTask.distanceKm) : ''}
-              {activeTask.distanceKm && activeTask.durationMin ? ' \u00b7 ' : ''}
-              {activeTask.durationMin ? formatDuration(activeTask.durationMin) : ''}
+              {task.distanceKm ? formatDistance(task.distanceKm) : ''}
+              {task.distanceKm && task.durationMin ? ' · ' : ''}
+              {task.durationMin ? formatDuration(task.durationMin) : ''}
             </p>
           )}
         </div>

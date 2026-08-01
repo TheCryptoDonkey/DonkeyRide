@@ -6,14 +6,18 @@ interface StakePanelProps {
   stake: StakeInfo | undefined;
   label: string;
   onLock?: () => Promise<void>;
+  /** Shown for non-instant rails: user pays the invoice then confirms */
+  onConfirmPaid?: () => Promise<void>;
 }
 
-export function StakePanel({ stake, label, onLock }: StakePanelProps) {
+export function StakePanel({ stake, label, onLock, onConfirmPaid }: StakePanelProps) {
   const [locking, setLocking] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleLock = async () => {
-    if (!onLock) return;
+    if (!onLock || locking) return;
     setLocking(true);
     setError(null);
     try {
@@ -25,7 +29,33 @@ export function StakePanel({ stake, label, onLock }: StakePanelProps) {
     }
   };
 
+  const handleConfirmPaid = async () => {
+    if (!onConfirmPaid || confirming) return;
+    setConfirming(true);
+    setError(null);
+    try {
+      await onConfirmPaid();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to confirm payment');
+    } finally {
+      setConfirming(false);
+    }
+  };
+
+  const copyInvoice = async () => {
+    if (!stake?.invoice) return;
+    try {
+      await navigator.clipboard.writeText(stake.invoice);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Invoice is visible below — manual copy still possible
+    }
+  };
+
   if (!stake) return null;
+
+  const awaitingPayment = stake.status === 'pending' && !!stake.invoice;
 
   return (
     <div className="card">
@@ -36,13 +66,13 @@ export function StakePanel({ stake, label, onLock }: StakePanelProps) {
           stake.status === 'forfeited' ? 'text-donkey-red' :
           'text-donkey-orange'
         }`}>
-          {stake.status}
+          {awaitingPayment ? 'awaiting payment' : stake.status}
         </span>
       </div>
 
       <DualPrice sats={stake.amountSats} size="md" />
 
-      {stake.status === 'pending' && onLock && (
+      {stake.status === 'pending' && !stake.invoice && onLock && (
         <button
           className="btn-primary w-full mt-3 text-sm"
           onClick={handleLock}
@@ -52,9 +82,31 @@ export function StakePanel({ stake, label, onLock }: StakePanelProps) {
         </button>
       )}
 
-      {stake.invoice && stake.status === 'pending' && (
-        <div className="mt-2 p-2 bg-donkey-bg rounded text-xs font-mono break-all text-donkey-muted">
-          {stake.invoice}
+      {awaitingPayment && (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-donkey-muted">
+            Pay this invoice to lock your stake, then confirm below.
+          </p>
+          <div className="p-2 bg-donkey-bg rounded text-xs font-mono break-all text-donkey-muted">
+            {stake.invoice}
+          </div>
+          <div className="flex gap-2">
+            <button
+              className="btn-secondary flex-1 text-sm"
+              onClick={copyInvoice}
+            >
+              {copied ? 'Copied ✓' : 'Copy invoice'}
+            </button>
+            {onConfirmPaid && (
+              <button
+                className="btn-primary flex-1 text-sm"
+                onClick={handleConfirmPaid}
+                disabled={confirming}
+              >
+                {confirming ? 'Checking...' : "I've paid"}
+              </button>
+            )}
+          </div>
         </div>
       )}
 

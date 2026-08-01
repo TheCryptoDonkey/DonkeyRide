@@ -1,13 +1,14 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapView } from '../../components/map/MapView';
 import { LocationMarker } from '../../components/map/LocationMarker';
 import { DualPrice } from '../../components/common/DualPrice';
+import { showToast } from '../../components/common/Toast';
 import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { useLocation } from '../../hooks/useLocation';
 import { useDomain } from '../../context/DomainContext';
-import { acceptTask } from '../../services/api';
+import { acceptTask, ApiError } from '../../services/api';
 import { formatDistance, formatDuration } from '../../services/pricing';
 
 export function IncomingTaskPage() {
@@ -16,6 +17,7 @@ export function IncomingTaskPage() {
   const { identity } = useIdentity();
   const { location } = useLocation();
   const { profile } = useDomain();
+  const [accepting, setAccepting] = useState(false);
 
   const originLabel = profile?.labels?.originLabel || 'Pickup';
   const destinationLabel = profile?.labels?.destinationLabel || 'Dropoff';
@@ -29,7 +31,8 @@ export function IncomingTaskPage() {
   if (!activeTask) return null;
 
   const handleAccept = async () => {
-    if (!identity) return;
+    if (!identity || accepting) return;
+    setAccepting(true);
     try {
       const updated = await acceptTask(activeTask.id, {
         providerPubkey: identity.pubKeyHex,
@@ -39,7 +42,19 @@ export function IncomingTaskPage() {
       setActiveTask(updated);
       navigate('/provide/active');
     } catch (err) {
-      console.error('Accept failed:', err);
+      // Losing a simultaneous-accept race is normal — say so honestly
+      const status = err instanceof ApiError ? err.status : undefined;
+      const taken = status === 400 || status === 404 || status === 409;
+      showToast(
+        taken
+          ? 'This job has been taken'
+          : err instanceof Error ? err.message : 'Failed to accept the job',
+        { type: 'error' },
+      );
+      setActiveTask(null);
+      navigate('/provide');
+    } finally {
+      setAccepting(false);
     }
   };
 
@@ -104,11 +119,11 @@ export function IncomingTaskPage() {
         </div>
 
         <div className="flex gap-3">
-          <button className="btn-secondary flex-1" onClick={handleDecline}>
+          <button className="btn-secondary flex-1" onClick={handleDecline} disabled={accepting}>
             Decline
           </button>
-          <button className="btn-primary flex-1" onClick={handleAccept}>
-            Accept
+          <button className="btn-primary flex-1" onClick={handleAccept} disabled={accepting}>
+            {accepting ? 'Accepting...' : 'Accept'}
           </button>
         </div>
       </div>

@@ -4,7 +4,7 @@
  * Uses the public OSRM demo server for real road routing
  */
 
-const fetch = require('node-fetch');
+const { fetchWithTimeout: fetch } = require('./utils/fetch-timeout');
 
 // Use local OSRM server for GDPR compliance
 // Local server running on port 5001 with central London map data

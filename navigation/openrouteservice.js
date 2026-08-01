@@ -4,7 +4,7 @@
 // ==========================================
 
 const { NavigationProvider, Route, Instruction } = require('./base');
-const fetch = require('node-fetch');
+const { fetchWithTimeout: fetch } = require('../src/utils/fetch-timeout');
 
 /**
  * OpenRouteService Provider

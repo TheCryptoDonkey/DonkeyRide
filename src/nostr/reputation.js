@@ -1,4 +1,5 @@
 const { SimplePool, getEventHash, verifySignature, nip19 } = require('nostr-tools');
+const { KINDS } = require('./kinds');
 
 const DEFAULT_RELAYS = (process.env.REPUTATION_RELAYS || process.env.NOSTR_RELAYS || '').split(',').map(r => r.trim()).filter(Boolean);
 const FALLBACK_RELAYS = ['wss://relay.damus.io', 'wss://relay.nostr.band'];
@@ -78,12 +79,28 @@ function mergeEvents(primary = [], secondary = []) {
   return Array.from(merged.values()).sort((a, b) => (b?.created_at || 0) - (a?.created_at || 0));
 }
 
+const RELAY_TIMEOUT_MS = parseInt(process.env.RELAY_TIMEOUT_MS || '5000', 10);
+
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      const timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+      if (timer.unref) {
+        timer.unref();
+      }
+    })
+  ]);
+}
+
 async function safeList(relays, filters) {
   if (!relays.length) {
     return [];
   }
   try {
-    return await pool.list(relays, filters);
+    // A relay that accepts the connection and never sends EOSE would
+    // otherwise hang the request forever.
+    return await withTimeout(pool.list(relays, filters), RELAY_TIMEOUT_MS, 'Relay list');
   } catch (error) {
     console.warn('Reputation relay list failed, using local cache only:', error.message);
     return [];
@@ -173,7 +190,7 @@ async function dispatchToRelays(event) {
       // SimplePool.publish returns an array of publish promises
       const publishResults = pool.publish([trimmed], event);
       const tasks = Array.isArray(publishResults) ? publishResults : [publishResults];
-      await Promise.all(tasks.map(p => Promise.resolve(p)));
+      await withTimeout(Promise.all(tasks.map(p => Promise.resolve(p))), RELAY_TIMEOUT_MS, `Publish to ${trimmed}`);
       return { relay: trimmed, ok: true };
     })().catch((error) => ({
       relay: trimmed,
@@ -200,6 +217,37 @@ async function publishEvent(event) {
   return statuses;
 }
 
+/**
+ * Keep only events whose signature verifies. Relay responses are untrusted
+ * input — an aggregate built from unverified events is sybil-forgeable.
+ */
+function filterVerified(events) {
+  return events.filter(evt => {
+    try {
+      return evt?.id === getEventHash(evt) && verifySignature(evt);
+    } catch (error) {
+      return false;
+    }
+  });
+}
+
+/**
+ * One rating per (rater, task) pair — latest wins. Prevents a single
+ * counterparty inflating or trashing a profile by re-publishing.
+ */
+function dedupeRatings(events) {
+  const byKey = new Map();
+  events.forEach(evt => {
+    const taskTag = evt.tags.find(t => t[0] === 'ride' || t[0] === 'task_id');
+    const key = `${evt.pubkey}:${taskTag?.[1] || evt.id}`;
+    const existing = byKey.get(key);
+    if (!existing || (evt.created_at || 0) > (existing.created_at || 0)) {
+      byKey.set(key, evt);
+    }
+  });
+  return Array.from(byKey.values());
+}
+
 function buildProfileResponse(hexKey, ratings, panicEvents) {
   let npub = null;
   try {
@@ -207,25 +255,29 @@ function buildProfileResponse(hexKey, ratings, panicEvents) {
   } catch (error) {
     npub = hexKey;
   }
+  const verifiedRatings = dedupeRatings(filterVerified(ratings));
+  const verifiedPanic = filterVerified(panicEvents);
   const summary = {
     npub,
     pubkey: hexKey,
     averageRating: 0,
     ratingsCount: 0,
+    distinctRaters: 0,
     lastRatingAt: null,
-    panicCount: panicEvents.length,
-    latestPanicAt: panicEvents.reduce((latest, evt) => Math.max(latest, evt.created_at || 0), 0) || null
+    panicCount: verifiedPanic.length,
+    latestPanicAt: verifiedPanic.reduce((latest, evt) => Math.max(latest, evt.created_at || 0), 0) || null
   };
 
-  if (ratings.length > 0) {
-    const sum = ratings.reduce((total, evt) => {
+  if (verifiedRatings.length > 0) {
+    const sum = verifiedRatings.reduce((total, evt) => {
       const ratingTag = evt.tags.find(t => t[0] === 'rating');
       const value = Number(ratingTag?.[1] || 0);
       return total + value;
     }, 0);
-    summary.averageRating = Number((sum / ratings.length).toFixed(2));
-    summary.ratingsCount = ratings.length;
-    summary.lastRatingAt = ratings.reduce((latest, evt) => Math.max(latest, evt.created_at || 0), 0) || null;
+    summary.averageRating = Number((sum / verifiedRatings.length).toFixed(2));
+    summary.ratingsCount = verifiedRatings.length;
+    summary.distinctRaters = new Set(verifiedRatings.map(evt => evt.pubkey)).size;
+    summary.lastRatingAt = verifiedRatings.reduce((latest, evt) => Math.max(latest, evt.created_at || 0), 0) || null;
   }
 
   return summary;
@@ -234,7 +286,7 @@ function buildProfileResponse(hexKey, ratings, panicEvents) {
 async function fetchRatingEventsFor(npub, sinceSeconds) {
   const relays = getRelays();
   const filters = [{
-    kinds: [30530],
+    kinds: [KINDS.TASK_RATING],
     '#p': [npub],
     since: sinceSeconds || undefined,
     limit: parseInt(process.env.REPUTATION_RATING_LIMIT || '200', 10)
@@ -247,7 +299,7 @@ async function fetchRatingEventsFor(npub, sinceSeconds) {
 async function fetchPanicEventsFor(npub, sinceSeconds) {
   const relays = getRelays();
   const filters = [{
-    kinds: [30560],
+    kinds: [KINDS.EMERGENCY_SIGNAL],
     authors: [npub],
     since: sinceSeconds || undefined,
     limit: parseInt(process.env.REPUTATION_PANIC_LIMIT || '100', 10)
@@ -397,7 +449,7 @@ function enforceRideParticipation(eventPubkey, ride, role) {
 
 function parseRatingEvent(event, ride) {
   ensureEventIntegrity(event);
-  if (event.kind !== 30530) {
+  if (event.kind !== KINDS.TASK_RATING) {
     throw new Error('Invalid rating event kind');
   }
   const now = Math.floor(Date.now() / 1000);
@@ -419,6 +471,11 @@ function parseRatingEvent(event, ride) {
   const targetTag = event.tags.find(t => t[0] === 'p');
   if (!targetTag) {
     throw new Error('Rating event target missing');
+  }
+  // p tags MUST be hex per NIP-01 — an npub here would pass validation but
+  // make the event unqueryable via #p filters, silently breaking portability.
+  if (!/^[0-9a-f]{64}$/i.test(targetTag[1] || '')) {
+    throw new Error('Rating event p tag must be a hex pubkey');
   }
   const tagHex = resolveHexPubkey(targetTag[1]);
   if (!tagHex || tagHex !== targetHex) {
@@ -446,7 +503,7 @@ async function publishRating(event, ride) {
 
 function parsePanicEvent(event, ride) {
   ensureEventIntegrity(event);
-  if (event.kind !== 30560) {
+  if (event.kind !== KINDS.EMERGENCY_SIGNAL) {
     throw new Error('Invalid panic event kind');
   }
   const now = Math.floor(Date.now() / 1000);

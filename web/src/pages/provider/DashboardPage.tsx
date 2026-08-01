@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapView } from '../../components/map/MapView';
 import { LocationMarker } from '../../components/map/LocationMarker';
@@ -6,29 +6,31 @@ import { useLocation } from '../../hooks/useLocation';
 import { useIdentity } from '../../context/IdentityContext';
 import { useTask } from '../../context/TaskContext';
 import { useDomain } from '../../context/DomainContext';
-import { getTaskStats, getOperatorInfo, normaliseTask } from '../../services/api';
-import { WS_PROTOCOL, getWsBaseUrl } from '../../services/websocket';
+import { getTaskStats, getOperatorInfo } from '../../services/api';
+import { dispatchService, type DispatchState } from '../../services/dispatch';
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { location } = useLocation();
+  const { location, error: geoError, loading: geoLoading } = useLocation();
   const { identity } = useIdentity();
-  const { setActiveTask } = useTask();
+  const { activeTask } = useTask();
   const { profile } = useDomain();
-  const [online, setOnline] = useState(false);
   const [stats, setStats] = useState<{ total: number; active: number; completed: number } | null>(null);
   const [operatorFee, setOperatorFee] = useState<string>('0.5%');
-  const [wsConnected, setWsConnected] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Use a ref to track "should be online" — avoids stale closure in onclose
-  const onlineRef = useRef(false);
-  // Latest GPS fix without re-creating the WebSocket on every movement
-  const locationRef = useRef(location);
+  const [dispatchState, setDispatchState] = useState<DispatchState>(dispatchService.getState());
 
+  const online = dispatchState.online;
+  const wsConnected = dispatchState.connected;
+  const geoReady = !geoLoading && !geoError;
+
+  // An in-flight job (including one rehydrated after a restart) resumes here
   useEffect(() => {
-    locationRef.current = location;
-  }, [location]);
+    if (activeTask && identity && profile
+        && activeTask.providerPubkey === identity.pubKeyHex
+        && !profile.states.terminal.includes(activeTask.status)) {
+      navigate('/provide/active');
+    }
+  }, [activeTask, identity, profile, navigate]);
 
   // Fetch operator info
   useEffect(() => {
@@ -44,110 +46,39 @@ export function DashboardPage() {
       .catch(() => {});
   }, []);
 
-  // Clean up WebSocket on unmount
+  // The dispatch connection lives in a module singleton — going online
+  // survives route changes; this page only mirrors its state.
+  useEffect(() => dispatchService.onStatus(setDispatchState), []);
+
   useEffect(() => {
-    return () => {
-      onlineRef.current = false;
-      if (reconnectRef.current) clearTimeout(reconnectRef.current);
-      wsRef.current?.close();
-    };
-  }, []);
+    if (identity) {
+      dispatchService.setIdentity({ pubKeyHex: identity.pubKeyHex, npub: identity.npub });
+    }
+  }, [identity]);
 
-  const connectWs = useCallback(() => {
-    // Close any existing connection
-    if (reconnectRef.current) clearTimeout(reconnectRef.current);
-    wsRef.current?.close();
-
-    const wsUrl = getWsBaseUrl();
-    console.log('[DashboardWS] Connecting to', wsUrl);
-    const ws = new WebSocket(wsUrl);
-
-    ws.onopen = () => {
-      console.log('[DashboardWS] Connected — registering as provider');
-      setWsConnected(true);
-      // Register as a provider — server uses this to tag us for task broadcasts
-      // and geo-filter dispatch by our reported position
-      const loc = locationRef.current;
-      ws.send(JSON.stringify({
-        type: WS_PROTOCOL.registerProvider,
-        npub: identity?.npub || '',
-        pubkey: identity?.pubKeyHex || '',
-        location: loc ? { lat: loc.lat, lon: loc.lng } : undefined,
-      }));
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        console.log('[DashboardWS] Message received:', msg.type, msg);
-        // Server broadcasts task requests to all registered providers
-        if (msg.type === WS_PROTOCOL.taskBroadcast && msg.ride) {
-          const task = normaliseTask(msg.ride);
-          console.log('[DashboardWS] Incoming task — navigating to /provide/incoming', task);
-          setActiveTask(task);
-          navigate('/provide/incoming');
-        }
-      } catch (err) {
-        console.warn('[DashboardWS] Failed to parse message:', err);
-      }
-    };
-
-    ws.onerror = (err) => {
-      console.error('[DashboardWS] WebSocket error:', err);
-    };
-
-    ws.onclose = (event) => {
-      console.log('[DashboardWS] Disconnected (code:', event.code, 'reason:', event.reason, ')');
-      setWsConnected(false);
-      // Auto-reconnect if still meant to be online (use ref, not state)
-      if (onlineRef.current) {
-        console.log('[DashboardWS] Reconnecting in 4s...');
-        reconnectRef.current = setTimeout(() => {
-          if (onlineRef.current) connectWs();
-        }, 4000);
-      }
-    };
-
-    wsRef.current = ws;
-  }, [identity, navigate, setActiveTask]);
-
-  // Presence heartbeat — keeps geo-dispatch fresh while online
   useEffect(() => {
-    if (!online || !wsConnected) return;
+    if (profile) dispatchService.setDomain(profile.id);
+  }, [profile]);
 
-    const sendPresence = () => {
-      const loc = locationRef.current;
-      const ws = wsRef.current;
-      if (!loc || !ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({
-        type: 'driver_location',
-        npub: identity?.npub || '',
-        pubkey: identity?.pubKeyHex || '',
-        location: { lat: loc.lat, lon: loc.lng },
-      }));
-    };
+  // Never feed the dispatch a fallback position — GPS fix or nothing
+  useEffect(() => {
+    dispatchService.updateLocation(geoReady ? location : null);
+  }, [geoReady, location]);
 
-    sendPresence();
-    const timer = setInterval(sendPresence, 30_000);
-    return () => clearInterval(timer);
-  }, [online, wsConnected, identity]);
+  // Resume the shift after a reload if the driver was online
+  useEffect(() => {
+    if (dispatchService.wasOnline() && !dispatchService.isOnline() && identity && geoReady) {
+      dispatchService.goOnline();
+    }
+  }, [identity, geoReady]);
 
   const toggleOnline = useCallback(() => {
-    if (onlineRef.current) {
-      // Go offline
-      onlineRef.current = false;
-      if (reconnectRef.current) clearTimeout(reconnectRef.current);
-      wsRef.current?.close();
-      wsRef.current = null;
-      setOnline(false);
-      setWsConnected(false);
-    } else {
-      // Go online
-      onlineRef.current = true;
-      setOnline(true);
-      connectWs();
+    if (dispatchService.isOnline()) {
+      dispatchService.goOffline();
+    } else if (!geoError) {
+      dispatchService.goOnline();
     }
-  }, [connectWs]);
+  }, [geoError]);
 
   const providerLabel = profile?.roles.provider || 'Provider';
   const taskNoun = profile?.labels?.taskNoun || 'task';
@@ -214,10 +145,21 @@ export function DashboardPage() {
           </div>
         )}
 
+        {/* GPS unavailable — geo-dispatch cannot work, so block going online */}
+        {geoError && !online && (
+          <div className="bg-donkey-orange/20 border border-donkey-orange rounded-lg p-3">
+            <p className="text-donkey-orange text-sm font-semibold">
+              Location unavailable. You will not receive {taskNoun} requests until
+              location is enabled.
+            </p>
+          </div>
+        )}
+
         {/* Go online button */}
         <button
           className={online ? 'btn-danger w-full' : 'btn-primary w-full'}
           onClick={toggleOnline}
+          disabled={!online && !!geoError}
         >
           {online ? 'Go Offline' : 'Go Online'}
         </button>

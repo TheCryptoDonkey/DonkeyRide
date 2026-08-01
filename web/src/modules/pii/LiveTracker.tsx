@@ -11,41 +11,11 @@ interface LiveTrackerProps {
 }
 
 /**
- * Headless component that sends location updates at a fixed interval.
- * Extracted from provider ActiveTaskPage so it can be stripped from
- * privacy-maximised deployments.
- */
-export function LiveTracker({
-  taskId, providerPubkey, lat, lng, enabled, intervalMs = 3000,
-}: LiveTrackerProps) {
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    if (!enabled || !taskId || !providerPubkey) return;
-
-    timerRef.current = setInterval(async () => {
-      try {
-        await updateLocation(taskId, {
-          lat,
-          lng,
-          providerPubkey,
-        });
-      } catch {
-        // Ignore — location updates are best-effort
-      }
-    }, intervalMs);
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [taskId, providerPubkey, lat, lng, enabled, intervalMs]);
-
-  return null;
-}
-
-/**
- * Hook form of LiveTracker for use outside JSX.
- * Returns nothing — purely a side-effect hook.
+ * Hook that sends location updates at a fixed interval.
+ *
+ * The latest coordinates are held in a ref so a fresh GPS fix never resets
+ * the interval — the effect only restarts when the task or enablement
+ * changes. Posts immediately on start, then every intervalMs.
  */
 export function useLiveTracking(params: {
   taskId: string | null;
@@ -55,25 +25,49 @@ export function useLiveTracking(params: {
   enabled: boolean;
   intervalMs?: number;
 }) {
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const coordsRef = useRef({ lat: params.lat, lng: params.lng });
+  coordsRef.current = { lat: params.lat, lng: params.lng };
+
+  const pubkeyRef = useRef(params.providerPubkey);
+  pubkeyRef.current = params.providerPubkey;
+
+  const { taskId, enabled, intervalMs = 3000 } = params;
 
   useEffect(() => {
-    if (!params.enabled || !params.taskId || !params.providerPubkey) return;
+    if (!enabled || !taskId) return;
 
-    timerRef.current = setInterval(async () => {
+    let stopped = false;
+
+    const post = async () => {
+      const providerPubkey = pubkeyRef.current;
+      if (stopped || !providerPubkey) return;
       try {
-        await updateLocation(params.taskId!, {
-          lat: params.lat,
-          lng: params.lng,
-          providerPubkey: params.providerPubkey!,
+        await updateLocation(taskId, {
+          lat: coordsRef.current.lat,
+          lng: coordsRef.current.lng,
+          providerPubkey,
         });
       } catch {
-        // Ignore
+        // Ignore — location updates are best-effort
       }
-    }, params.intervalMs || 3000);
+    };
+
+    void post(); // immediately on start
+    const timer = setInterval(post, intervalMs);
 
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      stopped = true;
+      clearInterval(timer);
     };
-  }, [params.taskId, params.providerPubkey, params.lat, params.lng, params.enabled, params.intervalMs]);
+  }, [taskId, enabled, intervalMs]);
+}
+
+/**
+ * Headless component form of useLiveTracking.
+ * Extracted from provider ActiveTaskPage so it can be stripped from
+ * privacy-maximised deployments.
+ */
+export function LiveTracker(props: LiveTrackerProps) {
+  useLiveTracking(props);
+  return null;
 }

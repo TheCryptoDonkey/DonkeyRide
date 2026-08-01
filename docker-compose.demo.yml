@@ -1,10 +1,14 @@
 # ==========================================
 # Minimal public demo stack
 # ==========================================
-# Operator + PostgreSQL + Redis, ports bound to loopback only.
+# Operator + PostgreSQL + Redis + Nostr relay, ports bound to loopback only.
 # Front with a TLS reverse proxy (Caddy/nginx):
-#   HTTPS  →  127.0.0.1:3999  (API + web app)
-#   /ws    →  127.0.0.1:3998  (WebSocket)
+#   HTTPS   →  127.0.0.1:3999  (API + web app)
+#   /ws     →  127.0.0.1:3998  (WebSocket)
+#   /relay  →  127.0.0.1:3997  (Nostr relay, strfry)
+#
+# Set OPERATOR_PRIVKEY (hex) in a .env file next to this compose file so the
+# operator keeps a stable Nostr identity across restarts.
 #
 #   docker compose -f docker-compose.demo.yml up -d --build
 
@@ -19,6 +23,14 @@ services:
       ENABLE_NIP98_AUTH: "true"
       ENABLE_RATE_LIMITING: "true"
       DISPATCH_RADIUS_KM: "15"
+      NODE_ENV: ${NODE_ENV:-production}
+      ALLOW_DEMO_PAYMENTS: ${ALLOW_DEMO_PAYMENTS:-true}
+      OPERATOR_PRIVKEY: ${OPERATOR_PRIVKEY:-}
+      OPERATOR_PUBKEY: ${OPERATOR_PUBKEY:-}
+      NOSTR_RELAY: ws://nostr-relay:7777
+      NOSTR_RELAYS: ${NOSTR_RELAYS:-}
+      PUBLIC_RELAY_URLS: ${PUBLIC_RELAY_URLS:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
       DATABASE_URL: postgresql://donkey:donkey@postgres:5432/donkeyride
       REDIS_URL: redis://redis:6379
       PORT: 3000
@@ -31,6 +43,17 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      nostr-relay:
+        condition: service_started
+
+  nostr-relay:
+    image: ghcr.io/hoytech/strfry:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3997:7777"
+    volumes:
+      - ./docker/strfry/strfry.conf:/etc/strfry.conf:ro
+      - demo-strfry-db:/app/strfry-db
 
   postgres:
     image: postgres:16-alpine
@@ -53,3 +76,4 @@ services:
 
 volumes:
   demo-pgdata:
+  demo-strfry-db:

@@ -1,7 +1,8 @@
 import { Polyline } from 'react-leaflet';
 
 interface RoutePolylineProps {
-  geometry: string;
+  /** Encoded polyline string, or decoded [lat, lng] positions */
+  geometry: string | [number, number][];
   colour?: string;
   opacity?: number;
 }
@@ -54,7 +55,23 @@ function getThemeRouteColour(): string {
 
 export function RoutePolyline({ geometry, colour, opacity = 0.8 }: RoutePolylineProps) {
   const resolvedColour = colour || getThemeRouteColour();
-  const positions = decodePolyline(geometry);
+
+  let positions: [number, number][];
+  if (typeof geometry === 'string') {
+    try {
+      positions = decodePolyline(geometry);
+    } catch {
+      return null;
+    }
+  } else if (Array.isArray(geometry)) {
+    positions = geometry.filter(
+      (pt): pt is [number, number] =>
+        Array.isArray(pt) && pt.length >= 2
+        && Number.isFinite(pt[0]) && Number.isFinite(pt[1]),
+    );
+  } else {
+    return null;
+  }
 
   if (positions.length === 0) return null;
 

@@ -15,6 +15,7 @@ const { PaymentProviderFactory, ResilientStakeManager } = require('./payment-pro
 const reputation = require('./src/nostr/reputation');
 const stakeEvents = require('./src/nostr/stake-events');
 const disputeEvents = require('./src/nostr/dispute-events');
+const operatorAnnounce = require('./src/nostr/operator-announce');
 const { validateNIP98Auth } = require('./middleware/nip98-auth');
 const { getPublicKey: nostrGetPublicKey, nip19 } = require('nostr-tools');
 const {
@@ -35,9 +36,62 @@ const { getRoute } = require('./src/osrm-routing');
 const { createTaskStore } = require('./src/storage/task-store');
 
 const app = express();
-app.use(cors());
-app.use(express.json({ limit: '10mb' })); // photo/signature proofs arrive as base64 data URLs
+
+// Behind Caddy/nginx the client IP arrives via X-Forwarded-For; without
+// trust proxy every user shares the proxy's IP in one rate-limit bucket.
+app.set('trust proxy', 1);
+
+// CORS: same-origin web apps need nothing; the native (Capacitor) driver
+// app and local dev do. Explicit allowlist via ALLOWED_ORIGINS, with the
+// Capacitor origins included by default. Never a bare wildcard: the API
+// serves per-user PII behind NIP-98 auth.
+const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'capacitor://localhost,http://localhost,https://localhost,http://localhost:5173,http://localhost:3000')
+    .split(',').map(o => o.trim()).filter(Boolean);
+app.use(cors({
+    origin: (origin, callback) => {
+        // Non-browser clients and same-origin requests send no Origin header
+        if (!origin || allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        return callback(null, false);
+    }
+}));
+
+// Minimal security headers (no external dependency)
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    next();
+});
+
+// Body limit is small by default; only the proof route accepts photos.
+// rawBody is captured for NIP-98 payload-tag verification.
+const captureRawBody = (req, res, buf) => { req.rawBody = buf; };
+const proofBodyParser = express.json({ limit: '2mb', verify: captureRawBody });
+const defaultBodyParser = express.json({ limit: '100kb', verify: captureRawBody });
+app.use((req, res, next) => {
+    const parser = /\/proof$/.test(req.path) ? proofBodyParser : defaultBodyParser;
+    parser(req, res, next);
+});
 app.use(express.static('public')); // Serve demo.html and other static files (legacy)
+
+// Rate limiting: honour ENABLE_RATE_LIMITING (default on). Mutating API
+// traffic shares the authenticated limiter; hot read routes carry their own
+// public limiter at the route definition.
+const rateLimitingEnabled = (process.env.ENABLE_RATE_LIMITING || 'true').toLowerCase() !== 'false';
+if (rateLimitingEnabled) {
+    app.use((req, res, next) => {
+        const guarded = req.path.startsWith('/api/') || req.path.startsWith('/rides');
+        const mutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
+        if (!guarded || !mutating) {
+            return next();
+        }
+        return authenticatedRateLimiter(req, res, next);
+    });
+} else {
+    console.warn('\u26A0\uFE0F  Rate limiting DISABLED via ENABLE_RATE_LIMITING=false');
+}
 
 // Domain-agnostic route aliases: /api/tasks/* → /api/rides/*, /api/providers/* → /api/drivers/*
 app.use((req, res, next) => {
@@ -133,6 +187,54 @@ function authoriseRideActor(req, ride, allowed = ['requester', 'provider']) {
     };
 }
 
+/**
+ * Coordinate/number validation shared across routes. `!lat` style checks
+ * rejected legitimate zero coordinates and admitted strings like "abc".
+ */
+function isValidLat(value) {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= -90 && n <= 90;
+}
+
+function isValidLon(value) {
+    const n = Number(value);
+    return Number.isFinite(n) && n >= -180 && n <= 180;
+}
+
+function isPositiveInt(value, max = Number.MAX_SAFE_INTEGER) {
+    const n = Number(value);
+    return Number.isInteger(n) && n > 0 && n <= max;
+}
+
+function clampText(value, maxLen) {
+    if (typeof value !== 'string') {
+        return '';
+    }
+    return value.length > maxLen ? value.slice(0, maxLen) : value;
+}
+
+/**
+ * Flow-A session authorisation: sessions store bare hex pubkeys rather than
+ * identity objects. Returns null when permitted, else a 403 payload.
+ */
+function authoriseSessionActor(req, ...allowedHexKeys) {
+    if (!nip98Enabled || !req.user) {
+        return null;
+    }
+    const signer = (req.user.pubkey || '').toLowerCase();
+    const permitted = allowedHexKeys
+        .filter(Boolean)
+        .some((hex) => hex.toLowerCase() === signer);
+    if (permitted) {
+        return null;
+    }
+    return {
+        status: 403,
+        error: 'Forbidden',
+        details: 'Signer does not hold the required role on this ride session'
+    };
+}
+
 // Serve React frontend build if available (web/dist/)
 const path = require('path');
 const reactBuildPath = path.join(__dirname, 'web', 'dist');
@@ -142,13 +244,61 @@ app.use(express.static(reactBuildPath));
 // RELAY OPERATOR CONFIGURATION
 // ==========================================
 
+/**
+ * Parse a numeric env var. Unlike `parseFloat(x) || dflt`, a configured
+ * value of 0 is respected and garbage fails loudly.
+ */
+function envNumber(name, dflt) {
+    const raw = process.env[name];
+    if (raw == null || raw === '') {
+        return dflt;
+    }
+    const value = parseFloat(raw);
+    if (!Number.isFinite(value)) {
+        console.error(`\u274C ${name}="${raw}" is not a number`);
+        process.exit(1);
+    }
+    return value;
+}
+
+/**
+ * Resolve the operator's private key. Accepts hex via OPERATOR_PRIVKEY or
+ * bech32 nsec via OPERATOR_NSEC / OPERATOR_PRIVKEY. Exits on a malformed
+ * key \u2014 a silently absent key disables the entire public audit trail.
+ */
+function resolveOperatorPrivkey() {
+    const raw = process.env.OPERATOR_PRIVKEY || process.env.OPERATOR_NSEC || null;
+    if (!raw) {
+        return null;
+    }
+    const trimmed = raw.trim();
+    if (/^[0-9a-fA-F]{64}$/.test(trimmed)) {
+        return trimmed.toLowerCase();
+    }
+    if (trimmed.startsWith('nsec1')) {
+        try {
+            const decoded = nip19.decode(trimmed);
+            const data = decoded.data;
+            const hex = typeof data === 'string' ? data : Buffer.from(data).toString('hex');
+            if (/^[0-9a-f]{64}$/.test(hex)) {
+                return hex;
+            }
+        } catch (error) {
+            console.error(`\u274C OPERATOR_PRIVKEY/OPERATOR_NSEC is not a valid nsec: ${error.message}`);
+            process.exit(1);
+        }
+    }
+    console.error('\u274C OPERATOR_PRIVKEY/OPERATOR_NSEC must be 64 hex chars or an nsec1 string');
+    process.exit(1);
+}
+
 const config = {
     // Operator settings
     operatorName: process.env.OPERATOR_NAME || 'DonkeyRide Operator',
     operatorPubkey: process.env.OPERATOR_PUBKEY,
-    operatorPrivkey: process.env.OPERATOR_PRIVKEY,
+    operatorPrivkey: resolveOperatorPrivkey(),
     operatorLightningAddress: process.env.OPERATOR_LIGHTNING,
-    operatorFeePercent: parseFloat(process.env.OPERATOR_FEE_PERCENT) || 0.005, // Market-driven fee (default 0.5%)
+    operatorFeePercent: envNumber('OPERATOR_FEE_PERCENT', 0.005), // Market-driven fee (default 0.5%)
 
     // Server settings
     port: process.env.PORT || 3000,
@@ -157,26 +307,47 @@ const config = {
     // Nostr relay to publish events
     nostrRelay: process.env.NOSTR_RELAY || 'wss://relay.damus.io',
 
+    // Relay URLs advertised to clients (public URLs, not Docker-internal ones)
+    publicRelays: (process.env.PUBLIC_RELAY_URLS || '')
+        .split(',').map(r => r.trim()).filter(Boolean),
+
     // Operator policies
-    maxStakeAmount: 10000, // Max stake in sats
-    minStakeAmount: 50,    // Min stake in sats
-    requireKYC: false,     // For larger amounts
+    maxStakeAmount: envNumber('MAX_STAKE_AMOUNT', 10000), // Max stake in sats
+    minStakeAmount: envNumber('MIN_STAKE_AMOUNT', 50),    // Min stake in sats
+    requireKYC: (process.env.REQUIRE_KYC || '').toLowerCase() === 'true',
 };
+
+const packageVersion = require('./package.json').version;
 
 // ==========================================
 // DOMAIN PROFILE
 // ==========================================
 
-const domainProfile = loadProfile(process.env.DOMAIN);
+let domainProfile;
+try {
+    domainProfile = loadProfile(process.env.DOMAIN);
+} catch (error) {
+    console.error(`\u274C Failed to load domain profile "${process.env.DOMAIN}": ${error.message}`);
+    process.exit(1);
+}
 console.log(`\uD83C\uDF10 Domain profile loaded: ${domainProfile.name} (${domainProfile.id})`);
 
-if (config.operatorPrivkey && !config.operatorPubkey) {
+if (config.operatorPrivkey) {
     try {
-        config.operatorPubkey = nostrGetPublicKey(config.operatorPrivkey);
-        console.log('🔑 Derived operator pubkey from OPERATOR_PRIVKEY');
+        const derived = nostrGetPublicKey(config.operatorPrivkey);
+        if (config.operatorPubkey && !config.operatorPubkey.startsWith('npub')
+            && config.operatorPubkey.toLowerCase() !== derived.toLowerCase()) {
+            console.error('\u274C OPERATOR_PUBKEY does not match the key derived from the private key');
+            process.exit(1);
+        }
+        config.operatorPubkey = derived;
+        console.log('\uD83D\uDD11 Operator Nostr identity loaded');
     } catch (error) {
-        console.warn('⚠️  Failed to derive operator pubkey from private key:', error.message);
+        console.error('\u274C Failed to derive operator pubkey from private key:', error.message);
+        process.exit(1);
     }
+} else {
+    console.warn('\u26A0\uFE0F  No operator key configured (OPERATOR_PRIVKEY or OPERATOR_NSEC) \u2014 operator-signed Nostr events are DISABLED');
 }
 
 // ==========================================
@@ -188,20 +359,24 @@ let paymentProvider;
 let stakeManager;
 let httpServer = null;
 
-async function initializePaymentProvider() {
-    try {
-        paymentProvider = await PaymentProviderFactory.fromEnv();
-        console.log(`✅ Payment provider initialized: ${paymentProvider.providerName}`);
+/**
+ * Unify on the stake manager's primary provider and refuse to run a mock
+ * rail in production. Two divergent provider instances previously meant
+ * settlements were recorded on an object holding no stakes.
+ */
+function adoptPaymentProvider() {
+    paymentProvider = stakeManager.currentProvider;
 
-        // Display capabilities
-        const caps = paymentProvider.getCapabilities();
-        console.log(`   Trust model: ${caps.trustModel}`);
-        console.log(`   Features: ${Object.keys(caps.features).filter(f => caps.features[f]).join(', ')}`);
-    } catch (error) {
-        console.error('❌ Failed to initialize payment provider:', error.message);
-        console.error('   Make sure to configure at least one provider in .env');
+    if (process.env.NODE_ENV === 'production'
+        && paymentProvider.getTrustModel() === 'demo'
+        && (process.env.ALLOW_DEMO_PAYMENTS || '').toLowerCase() !== 'true') {
+        console.error('\u274C Refusing to run the demo payment provider with NODE_ENV=production.');
+        console.error('   Set PAYMENT_PROVIDER to a real rail (cash, lnd) or ALLOW_DEMO_PAYMENTS=true for a public demo.');
         process.exit(1);
     }
+
+    const caps = paymentProvider.getCapabilities();
+    console.log(`\u2705 Payment provider: ${paymentProvider.providerName} (trust model: ${caps.trustModel})`);
 }
 
 /**
@@ -290,8 +465,6 @@ async function initializeRedis() {
 }
 
 const activeRides = new Map();
-const stakeBalances = new Map();
-const rideStreamingTimers = new Map();
 const disputes = new Map();
 const suspensions = new Map();
 const theftReports = new Map();
@@ -303,9 +476,6 @@ const guardianState = {
     proposals: new Map(),
     watchdogClaims: new Map()
 };
-
-const STREAM_INTERVAL_MS = 1000;
-const STREAM_STEPS = 15;
 
 // Multi-domain task manager — routes operations to the correct domain's TaskManager.
 // Supports frontend domain switching: tasks created under locksmith use locksmith states, etc.
@@ -407,16 +577,26 @@ const rideManager = {
         }
     },
 
-    // All in-memory tasks where the pubkey is a party (either role)
+    // All in-memory tasks where the pubkey is a party (either role).
+    // Tasks created via npub-only identities are matched through the
+    // derived npub as well.
     getTasksByParticipant(pubkey) {
         const key = (pubkey || '').toLowerCase();
+        let npubKey = null;
+        try {
+            npubKey = /^[0-9a-f]{64}$/.test(key) ? nip19.npubEncode(key).toLowerCase() : null;
+        } catch (error) {
+            npubKey = null;
+        }
+        const matchesIdentity = (identity) => Boolean(identity && (
+            identity.pubkey?.toLowerCase() === key
+            || (npubKey && identity.npub?.toLowerCase() === npubKey)
+        ));
         const matches = [];
         for (const mgr of _domainManagers.values()) {
             for (const task of mgr.tasks.values()) {
-                const provider = task.provider || task.driver;
-                const requester = task.requester || task.rider;
-                if (provider?.pubkey?.toLowerCase() === key
-                    || requester?.pubkey?.toLowerCase() === key) {
+                if (matchesIdentity(task.provider || task.driver)
+                    || matchesIdentity(task.requester || task.rider)) {
                     matches.push(task);
                 }
             }
@@ -468,13 +648,40 @@ const relayConfig = (process.env.REPUTATION_RELAYS || `${process.env.NOSTR_RELAY
     .map(r => r.trim())
     .filter(Boolean);
 reputation.setRelays(relayConfig);
+
+/**
+ * Outbox-aware publisher: an operator-signed event that reaches no relay is
+ * persisted and retried, never silently dropped. The public audit trail is
+ * only worth something if it actually gets published.
+ */
+async function publishWithOutbox(event, expectedPubkey) {
+    try {
+        const result = await reputation.publishGeneric(event, expectedPubkey);
+        const anyOk = (result.relayStatuses || []).some((status) => status.ok);
+        if (!anyOk && taskStore) {
+            await taskStore.saveOutboxEvent(event).catch(() => {});
+        }
+        return result;
+    } catch (error) {
+        if (taskStore) {
+            await taskStore.saveOutboxEvent(event).catch(() => {});
+        }
+        throw error;
+    }
+}
+
 stakeEvents.configure({
     operatorPrivkey: config.operatorPrivkey,
-    publishGeneric: (event) => reputation.publishGeneric(event, config.operatorPubkey || event.pubkey)
+    domain: domainProfile.id,
+    publishGeneric: (event) => publishWithOutbox(event, config.operatorPubkey || event.pubkey)
 });
 disputeEvents.configure({
     operatorPrivkey: config.operatorPrivkey,
-    publishGeneric: (event) => reputation.publishGeneric(event, config.operatorPubkey || event.pubkey)
+    publishGeneric: (event) => publishWithOutbox(event, config.operatorPubkey || event.pubkey)
+});
+operatorAnnounce.configure({
+    operatorPrivkey: config.operatorPrivkey,
+    publishGeneric: (event) => publishWithOutbox(event, config.operatorPubkey || event.pubkey)
 });
 
 // ==========================================
@@ -482,16 +689,113 @@ disputeEvents.configure({
 // ==========================================
 
 const wsDisabled = (process.env.DISABLE_WS || '').toLowerCase() === 'true';
-const wss = wsDisabled ? null : new WebSocket.Server({ port: config.wsPort });
+const wss = wsDisabled ? null : new WebSocket.Server({ port: config.wsPort, maxPayload: 64 * 1024 });
 
 if (wsDisabled) {
     console.log('⚠️  WebSocket broadcasting disabled via DISABLE_WS');
 }
 
+/**
+ * Validate a WebSocket auth frame: a signed NIP-98-style event (kind 27235,
+ * method GET) sent as the first message. Signature, kind, freshness and
+ * single-use are enforced; the `u` tag must be present (host-agnostic, same
+ * rationale as the HTTP middleware's path-only default behind proxies).
+ */
+const wsSeenAuthEvents = new Map(); // event id -> expiry epoch ms
+
+function validateWsAuthEvent(event) {
+    try {
+        reputation.ensureEventIntegrity(event);
+    } catch (error) {
+        return { ok: false, reason: error.message };
+    }
+    if (event.kind !== 27235) {
+        return { ok: false, reason: 'Auth event must be kind 27235' };
+    }
+    const now = Math.floor(Date.now() / 1000);
+    if (Math.abs(now - event.created_at) > 60) {
+        return { ok: false, reason: 'Auth event timestamp out of range' };
+    }
+    const method = (event.tags.find(t => t[0] === 'method')?.[1] || '').toUpperCase();
+    if (method !== 'GET') {
+        return { ok: false, reason: 'Auth event method must be GET' };
+    }
+    if (!event.tags.find(t => t[0] === 'u')?.[1]) {
+        return { ok: false, reason: 'Auth event missing u tag' };
+    }
+    if (wsSeenAuthEvents.has(event.id)) {
+        return { ok: false, reason: 'Auth event already used' };
+    }
+    wsSeenAuthEvents.set(event.id, Date.now() + 120000);
+    return { ok: true, pubkey: event.pubkey.toLowerCase() };
+}
+
+const wsAuthSweep = setInterval(() => {
+    const now = Date.now();
+    for (const [id, expiry] of wsSeenAuthEvents) {
+        if (expiry < now) {
+            wsSeenAuthEvents.delete(id);
+        }
+    }
+}, 60000);
+wsAuthSweep.unref();
+
+function validLatLon(lat, lon) {
+    return Number.isFinite(lat) && lat >= -90 && lat <= 90
+        && Number.isFinite(lon) && lon >= -180 && lon <= 180;
+}
+
+/** Is this pubkey a participant on the ride (task record or Flow-A session)? */
+function wsMayAccessRide(pubkey, rideId) {
+    if (!pubkey || !rideId) {
+        return false;
+    }
+    const ride = rideManager.getRide(rideId);
+    if (ride) {
+        const hexes = [
+            ride.requester?.pubkey, ride.provider?.pubkey,
+            ride.rider?.pubkey, ride.driver?.pubkey
+        ].filter(Boolean).map(x => x.toLowerCase());
+        if (hexes.includes(pubkey)) {
+            return true;
+        }
+        try {
+            const npub = nip19.npubEncode(pubkey).toLowerCase();
+            const npubs = [
+                ride.requester?.npub, ride.provider?.npub,
+                ride.rider?.npub, ride.driver?.npub
+            ].filter(Boolean).map(x => x.toLowerCase());
+            if (npubs.includes(npub)) {
+                return true;
+            }
+        } catch (error) {
+            // fall through
+        }
+    }
+    const session = activeRides.get(rideId);
+    if (session) {
+        const ids = [session.riderId, session.driverId].filter(Boolean).map(x => x.toLowerCase());
+        if (ids.includes(pubkey)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 if (wss) {
     wss.on('connection', (ws) => {
-        console.log('New client connected');
         ws.isAlive = true;
+        ws.authedPubkey = null;
+
+        // When auth is enforced, unauthenticated sockets get one action:
+        // send a valid auth frame. Everything else is rejected.
+        const requireAuth = () => {
+            if (!nip98Enabled || ws.authedPubkey) {
+                return true;
+            }
+            ws.send(JSON.stringify({ type: 'error', error: 'auth_required' }));
+            return false;
+        };
 
         ws.on('pong', () => {
             ws.isAlive = true;
@@ -501,34 +805,70 @@ if (wss) {
             try {
                 const data = JSON.parse(message);
 
-                switch(data.type) {
-                    case 'subscribe_ride':
+                switch (data.type) {
+                    case 'auth': {
+                        const result = validateWsAuthEvent(data.event || {});
+                        if (!result.ok) {
+                            ws.send(JSON.stringify({ type: 'error', error: 'auth_failed', details: result.reason }));
+                            break;
+                        }
+                        ws.authedPubkey = result.pubkey;
+                        ws.send(JSON.stringify({ type: 'auth_ok', pubkey: result.pubkey }));
+                        break;
+                    }
+
+                    case 'subscribe_ride': {
+                        if (!requireAuth()) break;
+                        if (nip98Enabled && !wsMayAccessRide(ws.authedPubkey, data.rideId)) {
+                            ws.send(JSON.stringify({ type: 'error', error: 'forbidden', details: 'Not a participant on this ride' }));
+                            break;
+                        }
                         ws.rideId = data.rideId;
                         ws.clientType = 'rider';
-                        console.log(`Rider subscribed to ride ${data.rideId}`);
                         break;
+                    }
 
-                case 'register_driver':
-                    ws.driverNpub = data.npub;
-                    ws.driverPubkey = (data.pubkey || '').toLowerCase() || null;
-                    ws.clientType = 'driver';
-                    updateDriverPresence({
-                        npub: data.npub,
-                        pubkey: data.pubkey,
-                        location: data.location
-                    });
-                    console.log(`Driver ${data.npub} registered for ride requests${data.location ? ` at ${data.location.lat},${data.location.lon}` : ''}`);
-                    sendPendingRideRequests(ws);
-                    break;
+                    case 'register_driver': {
+                        if (!requireAuth()) break;
+                        // With auth on, identity comes from the verified key —
+                        // a client cannot register presence as someone else.
+                        const pubkey = nip98Enabled ? ws.authedPubkey : ((data.pubkey || '').toLowerCase() || null);
+                        let npub = null;
+                        try {
+                            npub = pubkey ? nip19.npubEncode(pubkey) : (data.npub || null);
+                        } catch (error) {
+                            npub = data.npub || null;
+                        }
+                        if (nip98Enabled && data.pubkey && (data.pubkey || '').toLowerCase() !== ws.authedPubkey) {
+                            ws.send(JSON.stringify({ type: 'error', error: 'forbidden', details: 'pubkey does not match authenticated key' }));
+                            break;
+                        }
+                        const location = data.location && validLatLon(data.location.lat, data.location.lon)
+                            ? { lat: data.location.lat, lon: data.location.lon }
+                            : null;
+                        ws.driverNpub = npub;
+                        ws.driverPubkey = pubkey;
+                        ws.clientType = 'driver';
+                        updateDriverPresence({ npub, pubkey, location });
+                        sendPendingRideRequests(ws);
+                        break;
+                    }
 
-                case 'driver_location':
-                    // Presence heartbeat while online (not tied to an active ride)
-                    updateDriverPresence({
-                        npub: data.npub || ws.driverNpub,
-                        pubkey: data.pubkey || ws.driverPubkey,
-                        location: data.location || (Number.isFinite(data.lat) ? { lat: data.lat, lon: data.lon } : null)
-                    });
-                    break;
+                    case 'driver_location': {
+                        if (!requireAuth()) break;
+                        const pubkey = nip98Enabled ? ws.authedPubkey : ((data.pubkey || ws.driverPubkey || '').toLowerCase() || null);
+                        const rawLocation = data.location
+                            || (Number.isFinite(data.lat) ? { lat: data.lat, lon: data.lon } : null);
+                        const location = rawLocation && validLatLon(rawLocation.lat, rawLocation.lon)
+                            ? { lat: rawLocation.lat, lon: rawLocation.lon }
+                            : null;
+                        updateDriverPresence({
+                            npub: nip98Enabled ? ws.driverNpub : (data.npub || ws.driverNpub),
+                            pubkey,
+                            location
+                        });
+                        break;
+                    }
 
                     case 'get_status':
                         ws.send(JSON.stringify({
@@ -540,13 +880,11 @@ if (wss) {
                         break;
                 }
             } catch (error) {
-                console.error('WebSocket message error:', error);
+                console.error('WebSocket message error:', error.message);
             }
         });
 
-        ws.on('close', () => {
-            console.log('Client disconnected');
-        });
+        ws.on('close', () => {});
     });
 }
 
@@ -560,6 +898,9 @@ const interval = wss ? setInterval(() => {
         ws.ping();
     });
 }, 30000) : null;
+if (interval && interval.unref) {
+    interval.unref();
+}
 
 if (wss) {
     wss.on('close', () => {
@@ -593,6 +934,18 @@ const strictDispatch = (process.env.STRICT_DISPATCH || '').toLowerCase() === 'tr
 
 // key: npub or pubkey (lowercase) → { npub, pubkey, location: {lat, lon}, lastSeen }
 const driverPresence = new Map();
+
+// Evict entries that stopped heart-beating — without this the map grows
+// forever and (pre-auth) was attacker-inflatable.
+const presenceSweep = setInterval(() => {
+    const cutoff = Date.now() - (DRIVER_PRESENCE_TTL_MS * 5);
+    for (const [key, entry] of driverPresence) {
+        if ((entry.lastSeen || 0) < cutoff) {
+            driverPresence.delete(key);
+        }
+    }
+}, 60000);
+presenceSweep.unref();
 
 function updateDriverPresence({ npub, pubkey, location }) {
     const key = (npub || pubkey || '').toLowerCase();
@@ -716,117 +1069,6 @@ function sendPendingRideRequests(ws) {
     });
 }
 
-function updateRideStreamingState(rideId, patch = {}) {
-    const safePatch = { ...patch };
-    if (!Object.prototype.hasOwnProperty.call(safePatch, 'updatedAt')) {
-        safePatch.updatedAt = Date.now();
-    }
-
-    const session = activeRides.get(rideId);
-    if (session) {
-        session.streaming = {
-            ...(session.streaming || {}),
-            ...safePatch
-        };
-    }
-
-    const rideRecord = rideManager.getRide(rideId);
-    if (rideRecord) {
-        rideRecord.streaming = {
-            ...(rideRecord.streaming || {}),
-            ...safePatch
-        };
-    }
-}
-
-function startStreamingForRide(rideId) {
-    if (rideStreamingTimers.has(rideId)) {
-        return;
-    }
-
-    const ride = rideManager.getRide(rideId);
-    if (!ride || !ride.fare || ride.fare <= 0) {
-        return;
-    }
-
-    const fareSats = ride.fare;
-    const step = Math.max(1, Math.floor(fareSats / STREAM_STEPS));
-
-    const state = {
-        totalPaid: 0,
-        fareSats,
-        step,
-        interval: null
-    };
-
-    const startedAt = Date.now();
-    updateRideStreamingState(rideId, {
-        totalPaid: 0,
-        fare: fareSats,
-        startedAt
-    });
-
-    state.interval = setInterval(() => {
-        const remaining = Math.max(0, state.fareSats - state.totalPaid);
-        const amount = Math.min(state.step, remaining);
-
-        if (amount <= 0) {
-            stopStreamingForRide(rideId);
-            return;
-        }
-
-        state.totalPaid += amount;
-
-        updateRideStreamingState(rideId, {
-            totalPaid: state.totalPaid,
-            fare: state.fareSats,
-            lastAmount: amount
-        });
-
-        broadcastToRide(rideId, {
-            type: 'stream_payment',
-            ride_id: rideId,
-            amount_sats: amount,
-            total_paid_sats: state.totalPaid,
-            fare_sats: state.fareSats,
-            remaining_sats: Math.max(0, state.fareSats - state.totalPaid),
-            timestamp: Date.now()
-        });
-
-        stakeEvents.publishStreamPayment({
-            rideId,
-            amount,
-            totalPaid: state.totalPaid,
-            fare: state.fareSats,
-            currency: ride.currency || 'SAT',
-            trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
-        }).catch((err) => {
-            console.warn(`Failed to publish stream payment for ${rideId}:`, err.message);
-        });
-
-        if (state.totalPaid >= state.fareSats) {
-            stopStreamingForRide(rideId);
-        }
-    }, STREAM_INTERVAL_MS);
-
-    rideStreamingTimers.set(rideId, state);
-}
-
-function stopStreamingForRide(rideId) {
-    const state = rideStreamingTimers.get(rideId);
-    if (!state) {
-        return;
-    }
-
-    clearInterval(state.interval);
-    rideStreamingTimers.delete(rideId);
-    updateRideStreamingState(rideId, {
-        totalPaid: state.totalPaid,
-        fare: state.fareSats,
-        stoppedAt: Date.now()
-    });
-}
-
 function finalizeRideSession(rideId, finalStatus) {
     const session = activeRides.get(rideId);
     if (session) {
@@ -836,7 +1078,6 @@ function finalizeRideSession(rideId, finalStatus) {
         session.finalizedAt = Date.now();
     }
 
-    stopStreamingForRide(rideId);
     activeRides.delete(rideId);
 
     const rideRecord = rideManager.getRide(rideId);
@@ -863,8 +1104,16 @@ app.get('/info', publicRateLimiter, (req, res) => {
         minStake: config.minStakeAmount,
         activeRides: activeRides.size,
         uptime: process.uptime(),
-        version: '1.0.0',
+        version: packageVersion,
         nostrRelay: config.nostrRelay,
+        // Relay URLs reachable by CLIENTS (the internal NOSTR_RELAY hostname
+        // is meaningless outside the Docker network)
+        public_relays: config.publicRelays,
+        payment: {
+            provider: paymentProvider.providerName,
+            trust_model: caps.trustModel,
+            capabilities: caps.features
+        },
         domain: {
             id: domainProfile.id,
             name: domainProfile.name,
@@ -900,6 +1149,16 @@ app.post('/rides/create', validateNIP98Auth, rideCreationLimiter, async (req, re
             fiatCurrency = 'GBP';
         }
 
+        if (typeof rideId !== 'string' || !/^[A-Za-z0-9_-]{4,64}$/.test(rideId)) {
+            return res.status(400).json({ error: 'rideId must be 4-64 chars of [A-Za-z0-9_-]' });
+        }
+        if (activeRides.has(rideId) || rideManager.getRide(rideId)) {
+            return res.status(409).json({ error: 'Ride id already exists' });
+        }
+        if (fareSats > 100000000) {
+            return res.status(400).json({ error: 'Fare exceeds maximum' });
+        }
+
         const authenticatedPubkey = req.user.pubkey;
         if (riderId && riderId.toLowerCase() !== authenticatedPubkey.toLowerCase()) {
             return res.status(403).json({
@@ -907,15 +1166,18 @@ app.post('/rides/create', validateNIP98Auth, rideCreationLimiter, async (req, re
                 details: 'Authenticated pubkey must match riderId'
             });
         }
-        
-        // Calculate stakes
-        const riderStake = Math.max(config.minStakeAmount, Math.floor(fareSats * 0.1));
+
+        // Calculate stakes (bounded by operator policy)
+        const riderStake = Math.min(
+            config.maxStakeAmount,
+            Math.max(config.minStakeAmount, Math.floor(fareSats * 0.1))
+        );
         const operatorFee = Math.floor(fareSats * config.operatorFeePercent);
-        
-        // Create Lightning invoice for rider to pay stake
-        const invoice = await createLightningInvoice(riderStake, `Stake for ride ${rideId}`);
-        
-        // Store ride session
+
+        // Store ride session. No invoice is issued here: the real invoice
+        // (when the rail needs one) comes from the payment provider at the
+        // /rider-stake step. The previous decorative `lnbc...` string was
+        // unpayable and has been removed.
         activeRides.set(rideId, {
             riderId: authenticatedPubkey,
             fareAmount: fareSats,
@@ -923,17 +1185,16 @@ app.post('/rides/create', validateNIP98Auth, rideCreationLimiter, async (req, re
             operatorFee,
             status: 'waiting_rider_stake',
             createdAt: Date.now(),
-            invoice,
             currency: fiatCurrency
         });
-        
+
         res.json({
             success: true,
             rideId,
-            invoice: invoice.payment_request,
             stakeAmount: riderStake,
             operatorFee,
             currency: fiatCurrency,
+            next: `/rides/${rideId}/rider-stake`,
             expiresAt: Date.now() + 600000 // 10 minutes
         });
         
@@ -950,7 +1211,25 @@ app.post('/rides/:rideId/rider-stake', async (req, res) => {
         
         const ride = activeRides.get(rideId);
         const rideRecord = rideManager.getRide(rideId);
-        if (!ride) throw new Error('Ride not found');
+        if (!ride) return res.status(404).json({ error: 'Ride not found' });
+
+        const authErr = authoriseSessionActor(req, ride.riderId);
+        if (authErr) return res.status(authErr.status).json(authErr);
+
+        // Re-locking would orphan an existing (possibly already paid) hodl
+        // invoice, destroying its preimage. Return the existing state instead.
+        if (ride.riderStakeLocked) {
+            return res.status(409).json({ error: 'Rider stake already locked' });
+        }
+        if (ride.riderStakeInvoice) {
+            return res.json({
+                success: true,
+                status: 'awaiting_payment',
+                invoice: ride.riderStakeInvoice,
+                stakeAmount: ride.riderStake,
+                confirm: `/rides/${rideId}/rider-stake/confirm`
+            });
+        }
 
         // Create the stake lock with the payment provider
         const stakeLock = await stakeManager.lockStake(
@@ -1025,28 +1304,45 @@ app.post('/rides/:rideId/driver-accept', async (req, res) => {
         const { driverId, driverLightning, driverPubkey } = req.body;
         
         const ride = activeRides.get(rideId);
-        if (!ride) throw new Error('Ride not found');
-        if (ride.status !== 'waiting_driver') throw new Error('Ride not available');
-        
-        // Calculate driver stake (15% of fare)
-        const driverStake = Math.max(config.minStakeAmount, Math.floor(ride.fareAmount * 0.15));
-        
-        // Create invoice for driver
-        const invoice = await createLightningInvoice(driverStake, `Driver stake for ${rideId}`);
-        
-        const driverHex = (driverPubkey || driverId || '').toLowerCase();
+        if (!ride) return res.status(404).json({ error: 'Ride not found' });
+        if (ride.status !== 'waiting_driver') return res.status(409).json({ error: 'Ride not available' });
+
+        // With auth on, the driver identity is the authenticated signer —
+        // the body cannot assign the job (and its payout address) to someone else.
+        let driverHex = (driverPubkey || driverId || '').toLowerCase();
+        if (nip98Enabled && req.user) {
+            const signer = (req.user.pubkey || '').toLowerCase();
+            if (driverHex && driverHex !== signer) {
+                return res.status(403).json({
+                    error: 'Forbidden',
+                    details: 'Authenticated pubkey must match the accepting driver'
+                });
+            }
+            driverHex = signer;
+        }
+        if (!driverHex) {
+            return res.status(400).json({ error: 'driverPubkey required' });
+        }
+
+        // Calculate driver stake (15% of fare, bounded by operator policy)
+        const driverStake = Math.min(
+            config.maxStakeAmount,
+            Math.max(config.minStakeAmount, Math.floor(ride.fareAmount * 0.15))
+        );
+
         ride.driverId = driverHex;
         ride.driverNpub = driverId;
         ride.driverPubkey = driverHex;
         ride.driverLightning = driverLightning;
         ride.driverStake = driverStake;
         ride.status = 'waiting_driver_stake';
-        ride.driverInvoice = invoice.payment_request;
-        
+
+        // The real invoice (if the rail needs one) is issued by the payment
+        // provider at the /driver-stake step.
         res.json({
             success: true,
-            invoice: invoice.payment_request,
-            stakeAmount: driverStake
+            stakeAmount: driverStake,
+            next: `/rides/${rideId}/driver-stake`
         });
         
     } catch (error) {
@@ -1061,7 +1357,23 @@ app.post('/rides/:rideId/driver-stake', async (req, res) => {
         const { paymentProof } = req.body;
         
         const ride = activeRides.get(rideId);
-        if (!ride) throw new Error('Ride not found');
+        if (!ride) return res.status(404).json({ error: 'Ride not found' });
+
+        const authErr = authoriseSessionActor(req, ride.driverId);
+        if (authErr) return res.status(authErr.status).json(authErr);
+
+        if (ride.driverStakeLocked) {
+            return res.status(409).json({ error: 'Driver stake already locked' });
+        }
+        if (ride.driverStakeInvoice) {
+            return res.json({
+                success: true,
+                status: 'awaiting_payment',
+                invoice: ride.driverStakeInvoice,
+                stakeAmount: ride.driverStake,
+                confirm: `/rides/${rideId}/driver-stake/confirm`
+            });
+        }
 
         // Lock driver stake
         const stakeLock = await stakeManager.lockStake(
@@ -1135,7 +1447,10 @@ async function confirmStakePayment(req, res, role) {
     try {
         const { rideId } = req.params;
         const ride = activeRides.get(rideId);
-        if (!ride) throw new Error('Ride not found');
+        if (!ride) return res.status(404).json({ error: 'Ride not found' });
+
+        const authErr = authoriseSessionActor(req, role === 'rider' ? ride.riderId : ride.driverId);
+        if (authErr) return res.status(authErr.status).json(authErr);
 
         const provider = stakeManager.currentProvider;
         if (typeof provider?.confirmStakePaid !== 'function') {
@@ -1204,9 +1519,12 @@ app.post('/rides/:rideId/complete', async (req, res) => {
         const { completionProof } = req.body;
         
         const ride = activeRides.get(rideId);
-        if (!ride) throw new Error('Ride not found');
-        if (ride.status !== 'active') throw new Error('Ride not active');
-        
+        if (!ride) return res.status(404).json({ error: 'Ride not found' });
+        if (ride.status !== 'active') return res.status(409).json({ error: 'Ride not active' });
+
+        const authErr = authoriseSessionActor(req, ride.riderId, ride.driverId);
+        if (authErr) return res.status(authErr.status).json(authErr);
+
         // Release both stakes — a failed release is an operator incident,
         // not something to paper over with a success response
         const riderRelease = await stakeManager.releaseStake(`${rideId}_rider`);
@@ -1244,9 +1562,6 @@ app.post('/rides/:rideId/complete', async (req, res) => {
             console.warn(`Failed to publish driver stake release for ${rideId}:`, err.message);
         });
         
-        // Pay operator fee (from fare, not stakes)
-        const operatorPayment = await payOperatorFee(ride.operatorFee);
-
         const completionTimestamp = Date.now();
         // Fare settlement itself is out-of-band on this flow (stakes are the
         // enforced part) — record it honestly rather than faking a hash.
@@ -1293,7 +1608,9 @@ app.post('/rides/:rideId/complete', async (req, res) => {
             success: true,
             riderStakeReleased: true,
             driverStakeReleased: true,
-            operatorFeePaid: ride.operatorFee,
+            // The fee is accrued against the fare; automatic payout is not
+            // implemented, so this endpoint no longer claims it was paid.
+            operatorFee: { amount: ride.operatorFee, status: 'accrued' },
             releases: [riderRelease.event, driverRelease.event].filter(Boolean)
         });
         
@@ -1306,12 +1623,19 @@ app.post('/rides/:rideId/complete', async (req, res) => {
 app.post('/rides/:rideId/cancel', async (req, res) => {
     try {
         const { rideId } = req.params;
-        const { cancelledBy, reason } = req.body;
-        
-        const ride = activeRides.get(rideId);
-        if (!ride) throw new Error('Ride not found');
+        const { reason } = req.body;
 
-        stopStreamingForRide(rideId);
+        const ride = activeRides.get(rideId);
+        if (!ride) return res.status(404).json({ error: 'Ride not found' });
+
+        const authErr = authoriseSessionActor(req, ride.riderId, ride.driverId);
+        if (authErr) return res.status(authErr.status).json(authErr);
+
+        // Who cancelled is derived from the authenticated signer, never the
+        // body — otherwise anyone could pin the penalty on the other party.
+        const cancelledBy = (nip98Enabled && req.user)
+            ? (req.user.pubkey || '').toLowerCase()
+            : (req.body.cancelledBy || 'unknown');
 
         let penalty = { penalty: 0, refund: 0 };
         let penaltyResult = null;
@@ -1442,9 +1766,20 @@ app.post('/rides/:rideId/cancel', async (req, res) => {
 });
 
 // Get ride status
-app.get('/rides/:rideId', (req, res) => {
+app.get('/rides/:rideId', optionalNip98, (req, res) => {
     const { rideId } = req.params;
     const session = activeRides.get(rideId);
+
+    if (session) {
+        const authErr = authoriseSessionActor(req, session.riderId, session.driverId);
+        if (authErr) return res.status(authErr.status).json(authErr);
+    } else {
+        const record = rideManager.getRide(rideId);
+        if (record) {
+            const authErr = authoriseRideActor(req, record);
+            if (authErr) return res.status(authErr.status).json(authErr);
+        }
+    }
 
     if (session) {
         const response = {
@@ -1489,15 +1824,240 @@ app.get('/rides/:rideId', (req, res) => {
     res.json(response);
 });
 
-// Health check
-app.get('/health', (req, res) => {
-    res.json({
-        status: 'healthy',
+// Liveness: process is up. Used by container restart policies.
+app.get('/health/live', (req, res) => {
+    res.json({ status: 'alive', uptime: process.uptime() });
+});
+
+// Readiness: checks the hard dependencies with a 2s budget each. A dead
+// database or payment provider returns 503 so load balancers stop routing.
+app.get('/health', async (req, res) => {
+    const timeout = (ms) => new Promise((resolve, reject) => {
+        const t = setTimeout(() => reject(new Error('timeout')), ms);
+        if (t.unref) t.unref();
+    });
+
+    const checks = {};
+
+    if (redis) {
+        try {
+            await Promise.race([redis.ping(), timeout(2000)]);
+            checks.redis = 'ok';
+        } catch (error) {
+            checks.redis = 'down';
+        }
+    } else {
+        checks.redis = 'disabled';
+    }
+
+    if (taskStore) {
+        try {
+            const ok = typeof taskStore.healthCheck === 'function'
+                ? await Promise.race([taskStore.healthCheck(), timeout(2000)])
+                : true;
+            checks.database = ok ? `ok (${taskStore.backend})` : 'down';
+        } catch (error) {
+            checks.database = 'down';
+        }
+    } else {
+        checks.database = 'memory-only';
+    }
+
+    try {
+        const ok = await Promise.race([paymentProvider.healthCheck(), timeout(2000)]);
+        checks.paymentProvider = ok ? `ok (${paymentProvider.providerName})` : 'down';
+    } catch (error) {
+        checks.paymentProvider = 'down';
+    }
+
+    const degraded = Object.values(checks).includes('down');
+    res.status(degraded ? 503 : 200).json({
+        status: degraded ? 'degraded' : 'healthy',
+        checks,
         uptime: process.uptime(),
         activeRides: rideManager.getActiveRides().length,
-        memoryUsage: process.memoryUsage(),
-        redisConnected: !!redis
+        memoryUsage: process.memoryUsage()
     });
+});
+
+// ==========================================
+// TASK-FLOW STAKES
+// Stake endpoints for tasks created via /api/rides/request (the React
+// apps). Same per-stake provider interface as the legacy /rides flow;
+// stakeIds stay `${rideId}_rider` / `${rideId}_driver` across both flows.
+// ==========================================
+
+async function handleTaskStake(req, res, side) {
+    try {
+        const { rideId } = req.params;
+        const ride = rideManager.getRide(rideId);
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        const authErr = authoriseRideActor(req, ride, [side]);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+
+        const stakeType = side === 'requester' ? 'rider' : 'driver';
+        ride.stakes = ride.stakes || {};
+        const existing = ride.stakes[side];
+        if (existing?.locked) {
+            return res.status(409).json({ error: `${side} stake already locked` });
+        }
+        if (existing?.invoice) {
+            return res.json({
+                success: true,
+                status: 'awaiting_payment',
+                invoice: existing.invoice,
+                stakeAmount: existing.amount,
+                confirm: `/api/tasks/${rideId}/${side}-stake/confirm`
+            });
+        }
+
+        const identity = side === 'requester'
+            ? (ride.requester || ride.rider)
+            : (ride.provider || ride.driver);
+        if (!identity) {
+            return res.status(400).json({ error: `No ${side} on this ride yet` });
+        }
+
+        const fare = Number(ride.fare) || 0;
+        const pct = side === 'requester' ? 0.1 : 0.15;
+        const amount = Math.min(
+            config.maxStakeAmount,
+            Math.max(config.minStakeAmount, Math.floor(fare * pct))
+        );
+
+        const lock = await stakeManager.lockStake(rideId, identity.pubkey || identity.npub, amount, stakeType);
+        if (!lock || !lock.success) {
+            return res.status(502).json({
+                error: 'Stake lock failed',
+                details: lock?.error || 'Payment provider rejected the stake lock'
+            });
+        }
+
+        const instantLock = stakeManager.currentProvider?.getCapabilities?.().features?.instantLock !== false;
+        if (!instantLock) {
+            ride.stakes[side] = { amount, invoice: lock.invoice, proof: lock.holdId || lock.lockId, locked: false };
+            rideManager.persistRide(rideId);
+            return res.json({
+                success: true,
+                status: 'awaiting_payment',
+                invoice: lock.invoice,
+                stakeAmount: amount,
+                confirm: `/api/tasks/${rideId}/${side}-stake/confirm`
+            });
+        }
+
+        ride.stakes[side] = { amount, proof: lock.holdId || lock.lockId, locked: true, lockedAt: Date.now() };
+        rideManager.persistRide(rideId);
+
+        broadcastToRide(rideId, { type: 'stake_locked', ride_id: rideId, side, amount });
+        stakeEvents.publishStakeLock({
+            rideId,
+            role: stakeType,
+            amount,
+            participant: identity.pubkey || null,
+            providerEvent: lock.event,
+            escrowId: lock.holdId,
+            currency: 'SAT',
+            trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
+        }).catch((err) => console.warn(`Failed to publish ${side} stake lock for ${rideId}:`, err.message));
+
+        res.json({ success: true, status: 'stake_locked', stakeAmount: amount, proof: lock.event });
+    } catch (error) {
+        console.error(`Error locking ${side} stake:`, error.message);
+        res.status(500).json({ error: 'Failed to lock stake' });
+    }
+}
+
+async function confirmTaskStake(req, res, side) {
+    try {
+        const { rideId } = req.params;
+        const ride = rideManager.getRide(rideId);
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+        const authErr = authoriseRideActor(req, ride, [side]);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+        const stakeType = side === 'requester' ? 'rider' : 'driver';
+        const stake = ride.stakes?.[side];
+        if (!stake) {
+            return res.status(400).json({ error: `No ${side} stake to confirm` });
+        }
+        if (stake.locked) {
+            return res.json({ success: true, paid: true, status: 'stake_locked' });
+        }
+
+        const result = await stakeManager.confirmStakePaid(`${rideId}_${stakeType}`);
+        if (!result.paid) {
+            return res.status(402).json({
+                success: false,
+                paid: false,
+                status: result.status,
+                details: 'Stake invoice not yet paid/held'
+            });
+        }
+
+        stake.locked = true;
+        stake.lockedAt = Date.now();
+        rideManager.persistRide(rideId);
+        broadcastToRide(rideId, { type: 'stake_locked', ride_id: rideId, side, amount: stake.amount });
+
+        const identity = side === 'requester'
+            ? (ride.requester || ride.rider)
+            : (ride.provider || ride.driver);
+        stakeEvents.publishStakeLock({
+            rideId,
+            role: stakeType,
+            amount: stake.amount,
+            participant: identity?.pubkey || null,
+            escrowId: stake.proof,
+            currency: 'SAT',
+            trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
+        }).catch((err) => console.warn(`Failed to publish ${side} stake lock for ${rideId}:`, err.message));
+
+        res.json({ success: true, paid: true, status: 'stake_locked' });
+    } catch (error) {
+        console.error(`Error confirming ${side} stake:`, error.message);
+        res.status(500).json({ error: 'Failed to confirm stake' });
+    }
+}
+
+app.post('/api/rides/:rideId/requester-stake', stakeLimiter, (req, res) => handleTaskStake(req, res, 'requester'));
+app.post('/api/rides/:rideId/provider-stake', stakeLimiter, (req, res) => handleTaskStake(req, res, 'provider'));
+app.post('/api/rides/:rideId/requester-stake/confirm', (req, res) => confirmTaskStake(req, res, 'requester'));
+app.post('/api/rides/:rideId/provider-stake/confirm', (req, res) => confirmTaskStake(req, res, 'provider'));
+
+// ==========================================
+// PARTICIPANT ACTIVE-TASK RECOVERY
+// A phone OS killing the PWA mid-ride is routine; without this endpoint a
+// restarted client could never find its in-flight task again.
+// ==========================================
+
+app.get('/api/participants/:pubkey/active', optionalNip98, (req, res) => {
+    try {
+        const pubkey = (req.params.pubkey || '').toLowerCase();
+        if (!/^[0-9a-f]{64}$/.test(pubkey)) {
+            return res.status(400).json({ error: 'pubkey must be 64 hex chars' });
+        }
+        if (nip98Enabled && req.user && (req.user.pubkey || '').toLowerCase() !== pubkey) {
+            return res.status(403).json({ error: 'Forbidden', details: 'You can only query your own active task' });
+        }
+
+        const candidates = rideManager.getTasksByParticipant(pubkey)
+            .filter((task) => !rideManager.isTerminal(task.status))
+            .sort((a, b) => (b.timestamps?.requested || 0) - (a.timestamps?.requested || 0));
+
+        res.json({ task: candidates[0] || null });
+    } catch (error) {
+        console.error('Error finding active task:', error.message);
+        res.status(500).json({ error: 'Failed to find active task' });
+    }
 });
 
 // ==========================================
@@ -1510,17 +2070,21 @@ app.get('/api/drivers/available', publicRateLimiter, async (req, res) => {
     try {
         const byKey = new Map();
 
-        // Live presence from real connected drivers
+        // Live presence from real connected drivers. Positions are rounded
+        // to ~100m and identities are withheld: this endpoint answers "are
+        // there drivers nearby?", not "where exactly is this person?".
+        const coarse = (loc) => loc && Number.isFinite(loc.lat) && Number.isFinite(loc.lon)
+            ? { lat: Math.round(loc.lat * 1000) / 1000, lon: Math.round(loc.lon * 1000) / 1000 }
+            : null;
+
         const now = Date.now();
         for (const [key, entry] of driverPresence) {
             if ((now - entry.lastSeen) > DRIVER_PRESENCE_TTL_MS) {
                 continue;
             }
             byKey.set(key, {
-                npub: entry.npub,
-                pubkey: entry.pubkey,
                 name: 'Driver',
-                location: entry.location,
+                location: coarse(entry.location),
                 available: true,
                 rating: 5.0,
                 totalRides: 0,
@@ -1529,9 +2093,14 @@ app.get('/api/drivers/available', publicRateLimiter, async (req, res) => {
             });
         }
 
-        // Redis-backed entries (demo bot fleets, external feeders)
+        // Redis-backed entries (demo bot fleets, external feeders).
+        // SCAN, not KEYS — KEYS blocks the Redis event loop.
         if (redis) {
-            const keys = await redis.keys('driver:online:*');
+            const keys = [];
+            for await (const key of redis.scanIterator({ MATCH: 'driver:online:*', COUNT: 100 })) {
+                keys.push(key);
+                if (keys.length >= 500) break;
+            }
             const driversData = await Promise.all(
                 keys.map(async (key) => {
                     const data = await redis.get(key);
@@ -1542,9 +2111,11 @@ app.get('/api/drivers/available', publicRateLimiter, async (req, res) => {
                 const key = (driver.npub || '').toLowerCase();
                 if (key && !byKey.has(key)) {
                     byKey.set(key, {
-                        npub: driver.npub,
                         name: driver.name || 'Driver',
-                        location: driver.location,
+                        location: coarse(driver.location ? {
+                            lat: driver.location.lat,
+                            lon: driver.location.lon ?? driver.location.lng
+                        } : null),
                         available: driver.available !== false,
                         rating: driver.rating || 5.0,
                         totalRides: driver.totalRides || 0,
@@ -1861,22 +2432,39 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             }
 
             // Validate — dropoff is optional for single-location domains (e.g. locksmith)
-            if (!pickup_lat || !pickup_lon) {
+            if (!isValidLat(pickup_lat) || !isValidLon(pickup_lon)) {
                 return res.status(400).json({
-                    error: 'Missing required parameters',
+                    error: 'pickup_lat/pickup_lon must be valid coordinates',
                     required: ['pickup_lat', 'pickup_lon']
                 });
             }
 
-            if (requestProfile.features.requiresDestination && (!dropoff_lat || !dropoff_lon)) {
-                return res.status(400).json({
-                    error: 'Missing required parameters',
-                    required: ['dropoff_lat', 'dropoff_lon']
-                });
+            const dropoffProvided = dropoff_lat != null || dropoff_lon != null;
+            if (requestProfile.features.requiresDestination || dropoffProvided) {
+                if (requestProfile.features.requiresDestination && !dropoffProvided) {
+                    return res.status(400).json({
+                        error: 'Missing required parameters',
+                        required: ['dropoff_lat', 'dropoff_lon']
+                    });
+                }
+                if (dropoffProvided && (!isValidLat(dropoff_lat) || !isValidLon(dropoff_lon))) {
+                    return res.status(400).json({
+                        error: 'dropoff_lat/dropoff_lon must be valid coordinates'
+                    });
+                }
             }
 
-            // Use default rider if not provided (for MVP)
-            const riderNpub = rider_npub || 'npub_test_rider';
+            if (fare_sats != null && !isPositiveInt(fare_sats, 100000000)) {
+                return res.status(400).json({ error: 'fare_sats must be a positive integer' });
+            }
+
+            // A real identity is required — a placeholder identity would
+            // permanently lock the requester out of their own ride (403 on
+            // cancel/rate/panic) once auth is on.
+            const riderNpub = rider_npub;
+            if (!riderNpub && !req.body.rider_pubkey) {
+                return res.status(400).json({ error: 'rider_npub or rider_pubkey is required' });
+            }
             const rideOptions = ride_id ? { rideId: ride_id } : {};
             const sessionForRide = ride_id ? activeRides.get(ride_id) : null;
             const riderPubkeyHex = (sessionForRide?.riderId || req.body.rider_pubkey || '').toLowerCase() || null;
@@ -1996,13 +2584,26 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
 app.post('/api/rides/:rideId/accept', async (req, res) => {
     try {
         const { rideId } = req.params;
-        const { driver_npub, driver_name, driver_location, driver_rating, driver_pubkey } = req.body;
+        const { driver_npub, driver_name, driver_rating, driver_pubkey } = req.body;
 
         if (nip98Enabled && req.user && !actorMatchesIdentity(req.user, { pubkey: driver_pubkey, npub: driver_npub })) {
             return res.status(403).json({
                 error: 'Forbidden',
                 details: 'Signer does not match the accepting driver identity'
             });
+        }
+
+        // Normalise and validate the location BEFORE any state mutation —
+        // a throw after acceptRide left the ride stuck with a driver
+        // assigned and the client seeing a failure. Accept lng or lon.
+        let driver_location = null;
+        const rawLoc = req.body.driver_location;
+        if (rawLoc) {
+            const lon = rawLoc.lon != null ? rawLoc.lon : rawLoc.lng;
+            if (!isValidLat(rawLoc.lat) || !isValidLon(lon)) {
+                return res.status(400).json({ error: 'driver_location must contain valid lat and lon/lng' });
+            }
+            driver_location = { lat: Number(rawLoc.lat), lon: Number(lon) };
         }
 
         const ride = rideManager.acceptRide(rideId, driver_npub, {
@@ -2028,24 +2629,32 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
         // Start en route
         rideManager.startEnRoute(rideId);
 
-        // Calculate driver-to-pickup route using OSRM
+        // Calculate driver-to-pickup route using OSRM. Missing location or
+        // a routing failure must never fail the accept — the assignment
+        // already happened.
         let driverRoute = null;
-        const driverToPickupRoute = await getRoute(
-            driver_location.lat,
-            driver_location.lon,
-            ride.pickup.lat,
-            ride.pickup.lon
-        );
+        let driverToPickupRoute = null;
+        if (driver_location) {
+            try {
+                driverToPickupRoute = await getRoute(
+                    driver_location.lat,
+                    driver_location.lon,
+                    ride.pickup.lat,
+                    ride.pickup.lon
+                );
+            } catch (routeError) {
+                console.warn(`Route calculation failed for ${rideId}:`, routeError.message);
+            }
+        }
 
         if (driverToPickupRoute) {
             driverRoute = driverToPickupRoute.coordinates;
-            console.log(`🚗 Driver route calculated: ${driverToPickupRoute.distanceKm}km to pickup, ${driverRoute.length} points`);
         }
 
         // Calculate ETA
         const eta = driverToPickupRoute
             ? driverToPickupRoute.duration  // Use OSRM duration in seconds
-            : rideManager.calculateETA(driver_location, ride.pickup);
+            : (driver_location ? rideManager.calculateETA(driver_location, ride.pickup) : null);
 
         // Notify rider with driver route (emit both legacy and generic event types)
         const matchPayload = {
@@ -2078,7 +2687,12 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
 app.post('/api/rides/:rideId/location', async (req, res) => {
     try {
         const { rideId } = req.params;
-        const { lat, lon } = req.body;
+        const lat = req.body.lat;
+        const lon = req.body.lon != null ? req.body.lon : req.body.lng;
+
+        if (!isValidLat(lat) || !isValidLon(lon)) {
+            return res.status(400).json({ error: 'lat and lon/lng must be valid coordinates' });
+        }
 
         const ride = rideManager.getRide(rideId);
 
@@ -2189,7 +2803,6 @@ app.post('/api/rides/:rideId/start', async (req, res) => {
         const ride = rideManager.startTrip(rideId);
         const rideProfile = rideManager.getProfileForRide(rideId);
         if (!rideProfile || rideProfile.features?.streaming !== false) {
-            startStreamingForRide(rideId);
         }
 
         // Notify rider
@@ -2229,12 +2842,62 @@ app.post('/api/rides/:rideId/cancel', async (req, res) => {
             return res.status(authErr.status).json(authErr);
         }
 
+        // With auth on, who cancelled is the signer — the body cannot pin
+        // the cancellation (and any stake penalty) on the other party.
+        const actualCancelledBy = (nip98Enabled && req.user)
+            ? (req.user.pubkey || '').toLowerCase()
+            : (cancelledBy || 'unknown');
+
+        // Task-flow stakes: the cancelling party's stake is forfeited, the
+        // other party's is released. LND hodl stakes are all-or-nothing.
+        if (ride.stakes) {
+            const requesterHex = (ride.requester?.pubkey || ride.rider?.pubkey || '').toLowerCase();
+            const cancellerSide = actualCancelledBy === requesterHex ? 'requester' : 'provider';
+            for (const [side, stake] of Object.entries(ride.stakes)) {
+                if (!stake?.locked || stake.released || stake.forfeited) {
+                    continue;
+                }
+                const stakeType = side === 'requester' ? 'rider' : 'driver';
+                try {
+                    if (side === cancellerSide) {
+                        const forfeit = await stakeManager.forfeitStake(
+                            `${rideId}_${stakeType}`, actualCancelledBy, `${stakeType}_cancelled`
+                        );
+                        stake.forfeited = true;
+                        stakeEvents.publishStakePenalty({
+                            rideId,
+                            role: stakeType,
+                            reason: `${stakeType}_cancelled`,
+                            penalty: forfeit?.penalty || 0,
+                            refund: forfeit?.refund || 0,
+                            providerEvent: forfeit?.event,
+                            currency: 'SAT',
+                            trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
+                        }).catch((err) => console.warn(`Failed to publish ${side} stake penalty for ${rideId}:`, err.message));
+                    } else {
+                        const release = await stakeManager.releaseStake(`${rideId}_${stakeType}`);
+                        stake.released = true;
+                        stakeEvents.publishStakeRelease({
+                            rideId,
+                            role: stakeType,
+                            amount: stake.amount,
+                            providerEvent: release?.event,
+                            reason: 'cancelled',
+                            currency: 'SAT',
+                            trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
+                        }).catch((err) => console.warn(`Failed to publish ${side} stake release for ${rideId}:`, err.message));
+                    }
+                } catch (stakeError) {
+                    console.error(`Stake handling failed during cancel of ${rideId} (${side}):`, stakeError.message);
+                }
+            }
+        }
+
         const cancelled = rideManager.cancelRide(
             rideId,
-            cancelledBy || req.user?.pubkey || 'unknown',
+            actualCancelledBy,
             reason || 'No reason given'
         );
-        stopStreamingForRide(rideId);
         finalizeRideSession(rideId, 'cancelled');
 
         const cancelPayload = {
@@ -2277,7 +2940,18 @@ app.post('/api/rides/:rideId/transition', async (req, res) => {
             return res.status(authErr.status).json(authErr);
         }
 
-        rideManager.transitionTo(rideId, targetState, metadata || {});
+        // Metadata is caller-supplied: cap its size and depth rather than
+        // spreading arbitrary payloads into the task record and history.
+        let safeMetadata = {};
+        if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
+            const serialised = JSON.stringify(metadata);
+            if (serialised.length > 4096) {
+                return res.status(400).json({ error: 'metadata too large (4KB max)' });
+            }
+            safeMetadata = metadata;
+        }
+
+        rideManager.transitionTo(rideId, targetState, safeMetadata);
 
         const updatedRide = rideManager.getRide(rideId);
 
@@ -2325,8 +2999,6 @@ app.post('/api/rides/:rideId/panic', async (req, res) => {
 
         const publishResult = await reputation.publishPanic(event, ride);
 
-        updateRideStreamingState(rideId, { panicTriggeredAt: Date.now() });
-        stopStreamingForRide(rideId);
 
         try {
             ride.safety = ride.safety || { panicEvents: [], checkIns: [] };
@@ -2389,11 +3061,14 @@ app.post('/api/rides/:rideId/check-in', (req, res) => {
 
         const timestamp = Date.now();
         ride.safety = ride.safety || { panicEvents: [], checkIns: [] };
+        if (ride.safety.checkIns.length >= 100) {
+            return res.status(400).json({ error: 'Check-in limit reached for this task' });
+        }
         ride.safety.checkIns.push({
-            status: status || 'ok',
-            source: source || 'manual',
-            note: note || null,
-            by: by || null,
+            status: clampText(status, 32) || 'ok',
+            source: clampText(source, 32) || 'manual',
+            note: note ? clampText(note, 500) : null,
+            by: by ? clampText(by, 128) : null,
             timestamp
         });
         rideManager.persistRide(rideId);
@@ -2600,6 +3275,19 @@ app.post('/api/rides/:rideId/proof', async (req, res) => {
         }
 
         ride.proofs = ride.proofs || [];
+        if (ride.proofs.length >= 10) {
+            return res.status(400).json({ error: 'Proof limit reached for this task (10)' });
+        }
+
+        const dataUrl = req.body?.dataUrl;
+        if (dataUrl != null) {
+            if (typeof dataUrl !== 'string' || !/^data:image\/(png|jpe?g|webp);base64,/.test(dataUrl)) {
+                return res.status(400).json({ error: 'dataUrl must be a base64 image data URL (png/jpeg/webp)' });
+            }
+            if (dataUrl.length > 2 * 1024 * 1024) {
+                return res.status(413).json({ error: 'Proof image too large (2MB max)' });
+            }
+        }
 
         // Handle JSON-based signature proofs
         if (req.body && req.body.type === 'signature') {
@@ -2644,6 +3332,9 @@ app.post('/api/rides/:rideId/quote', async (req, res) => {
         }
         if (!description || typeof description !== 'string') {
             return res.status(400).json({ error: 'Description is required' });
+        }
+        if (description.length > 2000) {
+            return res.status(400).json({ error: 'Description too long (2000 chars max)' });
         }
 
         const ride = rideManager.getRide(rideId);
@@ -2770,11 +3461,10 @@ app.post('/api/rides/:rideId/dispute', async (req, res) => {
         }
 
         // Validate event integrity
-        reputation.setRelays(reputation.getRelays()); // ensure relays initialised
         reputation.ensureEventIntegrity(event);
 
-        if (event.kind !== 30522) {
-            return res.status(400).json({ error: 'Event kind must be 30522' });
+        if (event.kind !== 7543) {
+            return res.status(400).json({ error: 'Event kind must be 7543 (TROTT-05b dispute claim)' });
         }
 
         // Validate complainant is a participant
@@ -2951,6 +3641,12 @@ app.post('/api/disputes/:disputeId/assign', async (req, res) => {
         const { disputeId } = req.params;
         const { arbiterPubkey, arbiterType, deadline } = req.body || {};
 
+        // Only the operator installs arbiters — otherwise anyone could
+        // appoint themselves and forfeit the accused's stake.
+        if (nip98Enabled && (req.user?.pubkey || '').toLowerCase() !== (config.operatorPubkey || '').toLowerCase()) {
+            return res.status(403).json({ error: 'Forbidden', details: 'Only the operator can assign arbiters' });
+        }
+
         const dispute = disputes.get(disputeId);
         if (!dispute) {
             return res.status(404).json({ error: 'Dispute not found' });
@@ -3025,12 +3721,30 @@ app.post('/api/disputes/:disputeId/resolve', async (req, res) => {
             return res.status(404).json({ error: 'Dispute not found' });
         }
 
-        if (!['filed', 'assigned'].includes(dispute.status)) {
-            return res.status(400).json({ error: 'Dispute cannot be resolved in its current state' });
+        // Resolution requires an assigned arbiter, and only that arbiter
+        // (or the operator) may resolve.
+        if (dispute.status !== 'assigned') {
+            return res.status(400).json({ error: 'Dispute must have an assigned arbiter before resolution' });
+        }
+        if (nip98Enabled) {
+            const signer = (req.user?.pubkey || '').toLowerCase();
+            const allowed = [dispute.arbiter?.pubkey, config.operatorPubkey]
+                .filter(Boolean).map(x => x.toLowerCase());
+            if (!allowed.includes(signer)) {
+                return res.status(403).json({ error: 'Forbidden', details: 'Only the assigned arbiter or operator can resolve this dispute' });
+            }
         }
 
         if (!outcome || !disputeEvents.VALID_OUTCOMES.includes(outcome)) {
             return res.status(400).json({ error: `Invalid outcome. Must be one of: ${disputeEvents.VALID_OUTCOMES.join(', ')}` });
+        }
+
+        const plannedAccusedStake = accusedStake || (outcome === 'dismissed' ? 'released' : 'forfeited');
+        if (plannedAccusedStake === 'partial_forfeit'
+            && stakeManager?.currentProvider?.getCapabilities?.().features?.partialForfeit === false) {
+            return res.status(400).json({
+                error: 'partial_forfeit is not supported by the active payment rail (all-or-nothing stakes)'
+            });
         }
 
         const arbiterPubkey = dispute.arbiter?.pubkey || config.operatorPubkey || 'unknown';
@@ -3090,7 +3804,8 @@ app.post('/api/disputes/:disputeId/resolve', async (req, res) => {
                         try {
                             const penaltyResult = await stakeManager.forfeitStake(
                                 `${rideId}_${accusedRole}`,
-                                forfeitAmount || undefined
+                                dispute.accused?.pubkey || dispute.accusedPubkey || 'accused',
+                                `dispute_${outcome}`
                             );
                             await stakeEvents.publishStakePenalty({
                                 rideId,
@@ -3176,8 +3891,8 @@ app.post('/api/disputes/:disputeId/appeal', async (req, res) => {
 
         reputation.ensureEventIntegrity(event);
 
-        if (event.kind !== 30551) {
-            return res.status(400).json({ error: 'Event kind must be 30551' });
+        if (event.kind !== 39503) {
+            return res.status(400).json({ error: 'Event kind must be 39503 (appeal request)' });
         }
 
         // Validate appellant is a dispute participant
@@ -3230,6 +3945,9 @@ app.post('/api/disputes/:disputeId/appeal', async (req, res) => {
 
 // B1. Suspicious activity report
 app.post('/api/abuse/report', async (req, res) => {
+    if (nip98Enabled && (req.user?.pubkey || '').toLowerCase() !== (config.operatorPubkey || '').toLowerCase()) {
+        return res.status(403).json({ error: 'Forbidden', details: 'Operator only' });
+    }
     try {
         const { suspectPubkey, activityType, description, confidence, evidence } = req.body || {};
 
@@ -3259,6 +3977,9 @@ app.post('/api/abuse/report', async (req, res) => {
 
 // B2. Suspend account
 app.post('/api/abuse/suspend', async (req, res) => {
+    if (nip98Enabled && (req.user?.pubkey || '').toLowerCase() !== (config.operatorPubkey || '').toLowerCase()) {
+        return res.status(403).json({ error: 'Forbidden', details: 'Operator only' });
+    }
     try {
         const { pubkey, reason, duration, relatedEventId } = req.body || {};
 
@@ -3329,6 +4050,9 @@ app.get('/api/abuse/suspensions/:pubkey', (req, res) => {
 
 // C1. Declare operator bond
 app.post('/api/operator/bond', async (req, res) => {
+    if (nip98Enabled && (req.user?.pubkey || '').toLowerCase() !== (config.operatorPubkey || '').toLowerCase()) {
+        return res.status(403).json({ error: 'Forbidden', details: 'Operator only' });
+    }
     try {
         const { amount, currency, trustModel, guardianThreshold, feePercent, serviceArea, expiration } = req.body || {};
 
@@ -3379,8 +4103,8 @@ app.post('/api/guardian/theft-report', async (req, res) => {
 
         reputation.ensureEventIntegrity(event);
 
-        if (event.kind !== 30525) {
-            return res.status(400).json({ error: 'Event kind must be 30525' });
+        if (event.kind !== 30546) {
+            return res.status(400).json({ error: 'Event kind must be 30546 (TROTT-05c abuse report)' });
         }
 
         // Validate required tags
@@ -3433,8 +4157,8 @@ app.post('/api/guardian/watchdog-claim', async (req, res) => {
 
         reputation.ensureEventIntegrity(event);
 
-        if (event.kind !== 30526) {
-            return res.status(400).json({ error: 'Event kind must be 30526' });
+        if (event.kind !== 39500) {
+            return res.status(400).json({ error: 'Event kind must be 39500 (watchdog claim)' });
         }
 
         // Find referenced theft report via e tag
@@ -3509,8 +4233,8 @@ app.post('/api/guardian/slashing-proposal', async (req, res) => {
 
         reputation.ensureEventIntegrity(event);
 
-        if (event.kind !== 30553) {
-            return res.status(400).json({ error: 'Event kind must be 30553' });
+        if (event.kind !== 39504) {
+            return res.status(400).json({ error: 'Event kind must be 39504 (slashing proposal)' });
         }
 
         // Validate proposer is a guardian
@@ -3592,8 +4316,8 @@ app.post('/api/guardian/vote', async (req, res) => {
 
         reputation.ensureEventIntegrity(event);
 
-        if (event.kind !== 30554) {
-            return res.status(400).json({ error: 'Event kind must be 30554' });
+        if (event.kind !== 39505) {
+            return res.status(400).json({ error: 'Event kind must be 39505 (guardian vote)' });
         }
 
         // Validate voter is a guardian
@@ -3693,11 +4417,32 @@ app.post('/api/guardian/vote', async (req, res) => {
 });
 
 // D1. Get dispute details
-app.get('/api/disputes/:disputeId', (req, res) => {
+function authoriseDisputeReader(req, dispute) {
+    if (!nip98Enabled || !req.user) {
+        return null;
+    }
+    const signer = (req.user.pubkey || '').toLowerCase();
+    const allowed = [
+        dispute.complainant?.pubkey,
+        dispute.accused?.pubkey,
+        dispute.arbiter?.pubkey,
+        config.operatorPubkey
+    ].filter(Boolean).map(x => x.toLowerCase());
+    if (allowed.includes(signer)) {
+        return null;
+    }
+    return { status: 403, error: 'Forbidden', details: 'Not a party to this dispute' };
+}
+
+app.get('/api/disputes/:disputeId', optionalNip98, (req, res) => {
     try {
         const dispute = disputes.get(req.params.disputeId);
         if (!dispute) {
             return res.status(404).json({ error: 'Dispute not found' });
+        }
+        const authErr = authoriseDisputeReader(req, dispute);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
         }
         res.json({ success: true, dispute });
     } catch (error) {
@@ -3707,10 +4452,12 @@ app.get('/api/disputes/:disputeId', (req, res) => {
 });
 
 // D2. List disputes for a ride
-app.get('/api/rides/:rideId/disputes', (req, res) => {
+app.get('/api/rides/:rideId/disputes', optionalNip98, (req, res) => {
     try {
         const { rideId } = req.params;
-        const rideDisputes = Array.from(disputes.values()).filter(d => d.taskId === rideId);
+        const rideDisputes = Array.from(disputes.values())
+            .filter(d => d.taskId === rideId)
+            .filter(d => !authoriseDisputeReader(req, d));
         res.json({ success: true, disputes: rideDisputes });
     } catch (error) {
         console.error('Error listing disputes:', error);
@@ -3831,8 +4578,36 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
             };
         }
 
+        // Release any task-flow stakes before marking complete — a failed
+        // release is an operator incident, not something to swallow.
+        if (ride.stakes) {
+            for (const [side, stake] of Object.entries(ride.stakes)) {
+                if (!stake?.locked || stake.released) {
+                    continue;
+                }
+                const stakeType = side === 'requester' ? 'rider' : 'driver';
+                const release = await stakeManager.releaseStake(`${rideId}_${stakeType}`);
+                if (!release?.success) {
+                    return res.status(502).json({
+                        error: `Stake release failed for ${side} — ride left active`,
+                        details: release?.error || 'Payment provider rejected the release'
+                    });
+                }
+                stake.released = true;
+                stake.releasedAt = Date.now();
+                stakeEvents.publishStakeRelease({
+                    rideId,
+                    role: stakeType,
+                    amount: stake.amount,
+                    providerEvent: release.event,
+                    reason: 'completed',
+                    currency: 'SAT',
+                    trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
+                }).catch((err) => console.warn(`Failed to publish ${side} stake release for ${rideId}:`, err.message));
+            }
+        }
+
         const completedRide = rideManager.completeTrip(rideId, payment);
-        stopStreamingForRide(rideId);
 
         finalizeRideSession(rideId, 'completed');
 
@@ -3861,26 +4636,21 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
 
 // Ride statistics — MUST be registered before /api/rides/:rideId or the
 // literal path 'stats' is captured as a ride id and 404s
-app.get('/api/rides/stats', (req, res) => {
+app.get('/api/rides/stats', publicRateLimiter, (req, res) => {
     try {
         const stats = rideManager.getStats();
-        const activeRides = rideManager.getActiveRides();
+        const activeCount = rideManager.getActiveRides().length;
 
+        // Counts only. The previous response enumerated every active ride id
+        // and both parties' npubs to anyone who asked \u2014 an index for
+        // scraping live PII from the per-ride endpoints.
         res.json({
             success: true,
-            // Flat summary consumed by the driver dashboard
             total: stats.total || 0,
-            active: activeRides.length,
+            active: activeCount,
             completed: stats.completed || 0,
             cancelled: stats.cancelled || 0,
-            stats,
-            active_rides: activeRides.length,
-            rides: activeRides.map(r => ({
-                id: r.id,
-                status: r.status,
-                rider: r.rider.npub,
-                driver: r.driver?.npub || null
-            }))
+            active_rides: activeCount
         });
 
     } catch (error) {
@@ -3893,7 +4663,7 @@ app.get('/api/rides/stats', (req, res) => {
 });
 
 // Get ride status
-app.get('/api/rides/:rideId', (req, res) => {
+app.get('/api/rides/:rideId', optionalNip98, (req, res) => {
     try {
         const { rideId } = req.params;
 
@@ -3901,6 +4671,13 @@ app.get('/api/rides/:rideId', (req, res) => {
 
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        // Full task objects hold PII (coordinates, proofs, panic events) \u2014
+        // participants only.
+        const authErr = authoriseRideActor(req, ride);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
         }
 
         res.json({
@@ -4007,24 +4784,47 @@ app.get('/api/domains/:id', publicRateLimiter, (req, res) => {
 // This enables client-side routing (react-router)
 const fs = require('fs');
 const reactIndexPath = path.join(__dirname, 'web', 'dist', 'index.html');
+// Shell presence is checked once at boot, not per request.
+const driverShellPath = path.join(reactBuildPath, 'driver.html');
+const hasDriverShell = fs.existsSync(driverShellPath);
+const hasRiderShell = fs.existsSync(reactIndexPath);
+
 app.get('*', (req, res, next) => {
     // Skip API routes, health checks, and legacy HTML files
     if (req.path.startsWith('/api/') || req.path.startsWith('/rides/') || req.path.startsWith('/tasks/') ||
-        req.path === '/info' || req.path === '/health' ||
+        req.path === '/info' || req.path === '/health' || req.path === '/health/live' ||
         req.path.endsWith('.html') || req.path.endsWith('.js') ||
         req.path.endsWith('.css') || req.path.endsWith('.map')) {
         return next();
     }
     // Rider and driver are separate apps sharing one origin: driver paths
     // get the driver shell, everything else gets the rider shell.
-    const driverShellPath = path.join(reactBuildPath, 'driver.html');
-    if ((req.path.startsWith('/provide') || req.path.startsWith('/drive')) && fs.existsSync(driverShellPath)) {
+    if ((req.path.startsWith('/provide') || req.path.startsWith('/drive')) && hasDriverShell) {
         return res.sendFile(driverShellPath);
     }
-    if (fs.existsSync(reactIndexPath)) {
+    if (hasRiderShell) {
         return res.sendFile(reactIndexPath);
     }
     next();
+});
+
+// Terminal error handler. Without one, malformed JSON and handler throws
+// fell through to Express's default HTML page \u2014 a stack trace with
+// absolute filesystem paths in any non-production NODE_ENV.
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+    if (err?.type === 'entity.parse.failed' || err instanceof SyntaxError) {
+        return res.status(400).json({ error: 'Malformed JSON body' });
+    }
+    if (err?.type === 'entity.too.large') {
+        return res.status(413).json({ error: 'Request body too large' });
+    }
+    console.error(`Unhandled error on ${req.method} ${req.path}:`, err);
+    const isProd = process.env.NODE_ENV === 'production';
+    res.status(err?.status || 500).json({
+        error: 'Internal server error',
+        ...(isProd ? {} : { details: err?.message })
+    });
 });
 
 // ==========================================
@@ -4058,38 +4858,77 @@ function toRadians(degrees) {
     return degrees * (Math.PI / 180);
 }
 
-async function createLightningInvoice(amount, memo) {
-    // This would integrate with your Lightning node or Strike API
-    // For now, returning mock invoice
-    return {
-        payment_request: `lnbc${amount}...`,
-        payment_hash: Buffer.from(Math.random().toString()).toString('hex'),
-        expires_at: Date.now() + 600000
-    };
-}
-
-async function payOperatorFee(amount) {
-    // Pay operator fee via Lightning
-    console.log(`Paying operator fee: ${amount} sats to ${config.operatorLightningAddress}`);
-    // Implementation would send actual Lightning payment
-    return { success: true, amount };
-}
-
 // ==========================================
 // SERVER STARTUP
 // ==========================================
 
 async function startServer(options = {}) {
     const listen = options.listen !== false;
-    // Initialize payment provider first
-    await initializePaymentProvider();
+
+    // Task persistence first \u2014 providers restore persisted stakes from it
+    await initializeTaskStore();
+
     await initializeStakeManager();
+    adoptPaymentProvider();
+
+    if (taskStore) {
+        for (const provider of stakeManager.providers) {
+            if (typeof provider.setStakeStore === 'function') {
+                await provider.setStakeStore(taskStore);
+            }
+        }
+    }
 
     // Initialize Redis for driver tracking
     await initializeRedis();
 
-    // Initialize task persistence and rehydrate active tasks
-    await initializeTaskStore();
+    // Operator discoverability: announcement now, heartbeat every 5 min,
+    // and a retry loop for events that failed to reach any relay.
+    if (operatorAnnounce.canPublish()) {
+        const caps = paymentProvider.getCapabilities();
+        operatorAnnounce.publishAnnouncement({
+            name: config.operatorName,
+            domains: listProfiles(),
+            feePercent: config.operatorFeePercent * 100,
+            paymentProviders: [paymentProvider.providerName],
+            trustModels: [caps.trustModel],
+            supportedCurrencies: ['SAT', 'GBP', 'USD', 'EUR'],
+            serviceUrl: process.env.PUBLIC_BASE_URL || null,
+            publicRelays: config.publicRelays
+        }).catch((err) => console.warn('Operator announcement failed:', err.message));
+
+        const heartbeatTimer = setInterval(() => {
+            operatorAnnounce.publishHeartbeat({
+                activeTasks: rideManager.getActiveRides().length,
+                domains: listProfiles(),
+                uptimeSeconds: process.uptime()
+            }).catch((err) => console.warn('Heartbeat publish failed:', err.message));
+        }, 5 * 60 * 1000);
+        heartbeatTimer.unref();
+    }
+
+    if (taskStore) {
+        const outboxTimer = setInterval(async () => {
+            try {
+                const events = await taskStore.loadOutboxEvents(50);
+                for (const event of events) {
+                    try {
+                        const result = await reputation.publishGeneric(event, event.pubkey);
+                        if ((result.relayStatuses || []).some((status) => status.ok)) {
+                            await taskStore.deleteOutboxEvent(event.id);
+                        } else {
+                            await taskStore.saveOutboxEvent(event); // attempts++
+                        }
+                    } catch (error) {
+                        await taskStore.saveOutboxEvent(event).catch(() => {});
+                    }
+                }
+            } catch (error) {
+                // Store unavailable — retry next tick
+            }
+        }, 60000);
+        outboxTimer.unref();
+    }
 
     // Pre-fetch BTC prices
     try {
@@ -4140,6 +4979,9 @@ async function startServer(options = {}) {
     ========================================
         `);
         });
+        // Bound slow clients and hung handlers at the socket layer
+        httpServer.requestTimeout = 30000;
+        httpServer.headersTimeout = 10000;
     } else {
         console.log('🧪 Server initialized without HTTP listener (listen=false)');
     }
@@ -4164,32 +5006,55 @@ module.exports = {
     getHttpServer: () => httpServer
 };
 
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-    console.log('Shutting down gracefully...');
+// Graceful shutdown.
+// Held stakes are deliberately NOT auto-released here: stake state is
+// persisted and rehydrated on restart, and refunding everyone on every
+// deploy would void in-flight penalties.
+let isShuttingDown = false;
 
-    // Release all active stakes before shutdown
-    activeRides.forEach(async (ride, rideId) => {
-        if (ride.status === 'active') {
-            await stakeManager.releaseStake(`${rideId}_rider`);
-            await stakeManager.releaseStake(`${rideId}_driver`);
-        }
-        stopStreamingForRide(rideId);
-    });
-
-    // Close connections
-    if (wss && typeof wss.close === 'function') {
-        wss.close();
+async function shutdown(signal) {
+    if (isShuttingDown) {
+        return;
     }
-    if (redis) {
-        await redis.disconnect();
+    isShuttingDown = true;
+    console.log(`${signal} received \u2014 shutting down gracefully...`);
+
+    const forceExit = setTimeout(() => {
+        console.error('Forced exit after 15s shutdown timeout');
+        process.exit(1);
+    }, 15000);
+    forceExit.unref();
+
+    try {
+        if (httpServer) {
+            await new Promise((resolve) => httpServer.close(resolve));
+        }
+        if (wss && typeof wss.close === 'function') {
+            for (const client of wss.clients || []) {
+                try { client.close(1001, 'Server shutting down'); } catch (error) { /* already closed */ }
+            }
+            await new Promise((resolve) => wss.close(resolve));
+        }
+
+        // Drain pending task persistence before closing the store
+        for (const manager of _domainManagers.values()) {
+            if (typeof manager.flushPersistence === 'function') {
+                await manager.flushPersistence();
+            }
+        }
+        if (taskStore) {
+            await taskStore.close();
+        }
+        if (redis) {
+            await redis.quit();
+        }
+        reputation.shutdown();
+    } catch (error) {
+        console.warn('Shutdown cleanup error:', error.message);
     }
 
     process.exit(0);
-});
+}
 
-process.on('SIGINT', async () => {
-    console.log('Received SIGINT');
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    process.emit('SIGTERM');
-});
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));

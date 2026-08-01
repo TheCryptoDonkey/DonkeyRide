@@ -19,16 +19,24 @@ export interface Task {
   fareEstimateFiat?: FiatAmount;
   distanceKm?: number;
   durationMin?: number;
-  routeGeometry?: string;
+  /** Encoded polyline string, or decoded [lat, lng] positions */
+  routeGeometry?: string | [number, number][];
   requesterStake?: StakeInfo;
   providerStake?: StakeInfo;
   streamingPayment?: StreamingPaymentInfo;
+  settlement?: SettlementInfo;
   createdAt: string;
   startedAt?: string;
   completedAt?: string;
   rating?: number;
   tip?: number;
   quote?: TaskQuote;
+}
+
+export interface SettlementInfo {
+  amountSats?: number;
+  method?: string;
+  status?: string;
 }
 
 export interface TaskQuote {
@@ -96,25 +104,30 @@ export interface BtcPrices {
   updatedAt: string;
 }
 
+/** Payment section of the operator info response */
+export interface OperatorPaymentInfo {
+  provider: string;
+  trustModel?: string;
+  trust_model?: string;
+  capabilities?: Record<string, boolean>;
+}
+
 /** Operator info response */
 export interface OperatorInfo {
   name: string;
   pubkey: string;
   fee: string;
   domain: string;
-  domainProfile: {
+  domainProfile?: {
     id: string;
     name: string;
     roles: { requester: string; provider: string };
     features: Record<string, boolean>;
   };
-  relay: string;
-  payment: {
-    provider: string;
-    trustModel: string;
-    capabilities: Record<string, boolean>;
-  };
-  version: string;
+  relay?: string;
+  public_relays?: string[];
+  payment?: OperatorPaymentInfo;
+  version?: string;
 }
 
 /** Reputation data */
@@ -130,16 +143,22 @@ export interface Reputation {
   }>;
 }
 
-/** WebSocket message types */
+/**
+ * Normalised WebSocket messages — a single discriminated union.
+ * Raw server frames (ride-centric names, top-level fields) are mapped
+ * into these shapes by normaliseWsMessage() in services/websocket.ts.
+ */
 export type WsMessage =
-  | { type: 'location_update'; data: { lat: number; lng: number; heading?: number; speed?: number } }
-  | { type: 'status_change'; data: { status: string; timestamp: string } }
-  | { type: 'payment_stream'; data: { amountSats: number; totalPaidSats: number; paymentHash: string } }
-  | { type: 'safety_check'; data: { checkId: string; deadline: string } }
-  | { type: 'panic_alert'; data: { triggeredBy: string; location: LatLng; timestamp: string } }
-  | { type: 'ride_matched'; data: { rideId: string; driverPubkey: string; driverLocation: LatLng } }
-  | { type: 'task_matched'; data: { id: string; status: string } }
-  | { type: 'driver_assigned'; data: Task }
-  | { type: 'provider_assigned'; data: Task }
-  | { type: 'ride_cancelled'; data: { rideId: string; cancelledBy: string; reason?: string } }
-  | { type: 'task_cancelled'; data: { taskId: string; cancelledBy: string; reason?: string } };
+  | { type: 'status_change'; taskId: string; status: string; previousStatus?: string }
+  | { type: 'task_matched'; taskId?: string; providerPubkey?: string; providerLocation?: LatLng | null }
+  | { type: 'provider_arrived'; taskId?: string }
+  | { type: 'task_started'; taskId?: string }
+  | { type: 'task_completed'; taskId?: string }
+  | { type: 'location_update'; taskId?: string; location: LatLng; heading?: number; speed?: number }
+  | { type: 'panic_alert'; taskId?: string; triggeredBy?: string; location?: LatLng | null }
+  | { type: 'rating_submitted'; taskId?: string; rating?: number }
+  | { type: 'tip_sent'; taskId?: string; amountSats?: number }
+  | { type: 'task_cancelled'; taskId?: string; cancelledBy?: string; reason?: string }
+  | { type: 'task_broadcast'; task: Record<string, unknown>; distanceKm?: number }
+  | { type: 'auth_ok'; pubkey: string }
+  | { type: 'error'; error: string };

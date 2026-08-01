@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { useIdentity } from '../../context/IdentityContext';
-import { encodeNsec, importIdentity } from '../../services/nostr';
+import {
+  encodeNsec, importIdentity,
+  getIdentityRecoveryNotice, clearIdentityRecoveryNotice,
+} from '../../services/nostr';
 
 interface ProfilePageProps {
   role: 'requester' | 'provider';
@@ -15,13 +18,22 @@ export function ProfilePage({ role }: ProfilePageProps) {
   const { identity } = useIdentity();
   const [nsec, setNsec] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [manualCopy, setManualCopy] = useState<{ label: string; value: string } | null>(null);
   const [importValue, setImportValue] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
+  const [recoveryNotice, setRecoveryNotice] = useState<string | null>(getIdentityRecoveryNotice());
 
   const copy = async (label: string, value: string) => {
-    await navigator.clipboard.writeText(value);
-    setCopied(label);
-    setTimeout(() => setCopied(null), 2000);
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(value);
+      setManualCopy(null);
+      setCopied(label);
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      // No clipboard access (older WebViews, http origins) — manual copy
+      setManualCopy({ label, value });
+    }
   };
 
   const revealNsec = async () => {
@@ -39,15 +51,60 @@ export function ProfilePage({ role }: ProfilePageProps) {
     }
   };
 
+  const dismissRecovery = () => {
+    clearIdentityRecoveryNotice();
+    setRecoveryNotice(null);
+  };
+
   return (
     <div className="h-full overflow-y-auto p-6 space-y-6 max-w-lg mx-auto w-full">
       <div>
         <h1 className="text-xl font-black tracking-tight">Your identity</h1>
         <p className="text-sm text-donkey-muted mt-1">
           Your Nostr key is your reputation. It belongs to you, not to any
-          operator — back it up and it travels with you.
+          operator. Back it up and it travels with you.
         </p>
       </div>
+
+      {/* Identity recovery notice — stored key was unreadable and replaced */}
+      {recoveryNotice && (
+        <div className="bg-donkey-orange/20 border border-donkey-orange rounded-lg p-4 space-y-2">
+          <p className="text-donkey-orange text-sm font-semibold">
+            Stored identity could not be read; a new one was created.
+            Restore from backup below if you have one.
+          </p>
+          <p className="text-xs text-donkey-muted">
+            The unreadable value was preserved in this browser's storage for
+            manual recovery.
+          </p>
+          <button className="btn-secondary w-full" onClick={dismissRecovery}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Manual copy fallback when the clipboard is unavailable */}
+      {manualCopy && (
+        <div className="card space-y-2">
+          <p className="text-xs uppercase tracking-wider text-donkey-muted">
+            Copy {manualCopy.label} manually
+          </p>
+          <p className="text-sm text-donkey-muted">
+            Clipboard access is unavailable. Select the text below and copy it.
+          </p>
+          <textarea
+            readOnly
+            rows={3}
+            className="w-full bg-donkey-bg border border-donkey-border rounded p-3 font-mono text-xs"
+            value={manualCopy.value}
+            onFocus={(e) => e.currentTarget.select()}
+            autoFocus
+          />
+          <button className="btn-secondary w-full" onClick={() => setManualCopy(null)}>
+            Close
+          </button>
+        </div>
+      )}
 
       {/* Public identity */}
       <div className="card space-y-2">

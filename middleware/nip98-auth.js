@@ -4,6 +4,25 @@
 // ==========================================
 
 const { verifySignature, getEventHash } = require('nostr-tools');
+const crypto = require('crypto');
+
+// Replay protection: every accepted auth event id is single-use within the
+// freshness window. A captured Authorization header therefore cannot be
+// replayed at all (with any body) — the strongest compatible mitigation.
+const seenAuthEvents = new Map(); // event id -> expiry epoch ms
+const REPLAY_WINDOW_MS = 130000;  // freshness window (±60s) plus slack
+
+const replaySweep = setInterval(() => {
+    const now = Date.now();
+    for (const [id, expiry] of seenAuthEvents) {
+        if (expiry < now) {
+            seenAuthEvents.delete(id);
+        }
+    }
+}, 60000);
+if (replaySweep.unref) {
+    replaySweep.unref();
+}
 
 /**
  * NIP-98 Authentication Middleware
@@ -38,6 +57,13 @@ const { verifySignature, getEventHash } = require('nostr-tools');
  */
 function validateNIP98Auth(req, res, next) {
     try {
+        // Idempotent: some routes carry validateNIP98Auth explicitly AND sit
+        // behind the global auth gate. Re-validating would consume the
+        // single-use auth event a second time and wrongly 401 as a replay.
+        if (req.user) {
+            return next();
+        }
+
         // Get Authorization header
         const authHeader = req.headers['authorization'];
 
@@ -93,6 +119,32 @@ function validateNIP98Auth(req, res, next) {
                 error: 'Invalid event ID',
                 details: 'Event ID does not match computed hash'
             });
+        }
+
+        // Replay protection: each auth event is single-use on MUTATING
+        // requests. (GETs are excluded: two identical reads signed within
+        // the same second legitimately produce the same event id.)
+        if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) {
+            if (seenAuthEvents.has(event.id)) {
+                return res.status(401).json({
+                    error: 'Authentication failed',
+                    details: 'Auth event already used (replay rejected)'
+                });
+            }
+            seenAuthEvents.set(event.id, Date.now() + REPLAY_WINDOW_MS);
+        }
+
+        // Body binding: when the client includes a NIP-98 payload tag, it
+        // must match the SHA-256 of the raw request body.
+        const payloadTag = event.tags.find(t => t[0] === 'payload');
+        if (payloadTag && req.rawBody?.length) {
+            const bodyHash = crypto.createHash('sha256').update(req.rawBody).digest('hex');
+            if ((payloadTag[1] || '').toLowerCase() !== bodyHash) {
+                return res.status(401).json({
+                    error: 'Authentication failed',
+                    details: 'payload tag does not match request body hash'
+                });
+            }
         }
 
         // Attach authenticated user to request
@@ -277,7 +329,10 @@ function generateAuthEvent(url, method, privateKey) {
         created_at: Math.floor(Date.now() / 1000),
         tags: [
             ['u', url],
-            ['method', method]
+            ['method', method],
+            // created_at has 1s granularity; the nonce keeps two rapid
+            // mutations from colliding with the single-use replay guard
+            ['nonce', require('crypto').randomBytes(8).toString('hex')]
         ],
         content: '',
         pubkey

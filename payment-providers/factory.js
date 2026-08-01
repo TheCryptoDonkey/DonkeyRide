@@ -22,6 +22,9 @@ class PaymentProviderFactory {
      * @returns {PaymentProvider} Configured provider instance
      */
     static create(type, config = {}) {
+        if (typeof type !== 'string' || !type.trim()) {
+            throw new Error(`Payment provider type must be a non-empty string, got: ${JSON.stringify(type)}`);
+        }
         switch (type.toLowerCase()) {
             case 'demo':
             case 'mock':
@@ -131,10 +134,11 @@ class PaymentProviderFactory {
             }
         };
 
-        // Get fallback chain from env (or empty for standalone rails)
+        // Fallbacks must be explicit. An implicit chain silently downgraded
+        // real custody to whatever happened to pass a health check.
         const fallbacks = process.env.PAYMENT_FALLBACKS
-            ? process.env.PAYMENT_FALLBACKS.split(',').map(s => s.trim())
-            : (['demo', 'cash'].includes(type) ? [] : ['lnd', 'btcpay', 'alby']);
+            ? process.env.PAYMENT_FALLBACKS.split(',').map(s => s.trim()).filter(Boolean)
+            : [];
 
         return this.createWithFallbacks(type, fallbacks, configs);
     }
@@ -193,17 +197,35 @@ class ResilientStakeManager {
         this.factory = factory;
         this.providers = [];
         this.currentProvider = null;
+        this.stakeRouting = new Map();
     }
 
     /**
-     * Initialize all providers
+     * Initialize all providers.
+     *
+     * Fallbacks must share the primary's trust model: falling back from a
+     * trustless rail to a mock (or custodial) rail would silently change
+     * what "your stake is locked" means mid-flight.
      */
     async initialize() {
+        let primaryTrustModel = null;
+
         for (const type of this.providerTypes) {
             try {
                 const provider = this.factory.create(type, this.configs[type] || {});
-                const healthy = await provider.healthCheck();
 
+                if (primaryTrustModel === null) {
+                    primaryTrustModel = provider.getTrustModel();
+                } else if (provider.getTrustModel() !== primaryTrustModel) {
+                    console.warn(
+                        `⚠️  Fallback provider ${type} rejected: trust model '${provider.getTrustModel()}' ` +
+                        `differs from primary '${primaryTrustModel}'. Falling back across trust models ` +
+                        `silently changes custody guarantees.`
+                    );
+                    continue;
+                }
+
+                const healthy = await provider.healthCheck();
                 if (healthy) {
                     this.providers.push(provider);
                 }
@@ -221,38 +243,75 @@ class ResilientStakeManager {
     }
 
     /**
-     * Execute operation with automatic retry across providers
+     * Lock may fail over between (same-trust-model) providers. A result of
+     * {success:false} counts as a failure and moves to the next provider.
      */
-    async executeWithRetry(operation, ...args) {
+    async lockStake(rideId, userId, amount, type) {
+        let lastError = null;
         for (const provider of this.providers) {
             try {
-                const result = await provider[operation](...args);
-                this.currentProvider = provider; // Remember successful provider
+                const result = await provider.lockStake(rideId, userId, amount, type);
+                if (result && result.success === false) {
+                    lastError = new Error(result.error || 'lockStake returned success:false');
+                    console.warn(`Provider ${provider.providerName} lockStake failed: ${lastError.message}`);
+                    continue;
+                }
+                this.currentProvider = provider;
+                this.stakeRouting.set(`${rideId}_${type}`, provider);
                 return result;
             } catch (error) {
+                lastError = error;
                 console.warn(`Provider ${provider.providerName} failed: ${error.message}`);
-                continue;
             }
         }
-
-        throw new Error(`All providers failed to execute: ${operation}`);
+        throw new Error(`All providers failed to execute: lockStake${lastError ? ` (${lastError.message})` : ''}`);
     }
 
-    // Proxy methods that use retry logic
-    async lockStake(...args) {
-        return this.executeWithRetry('lockStake', ...args);
+    /**
+     * Route a per-stake operation to the provider holding that stake.
+     * After a restart the routing map is empty — fall back to the first
+     * provider that recognises the stakeId.
+     */
+    async _stakeProvider(stakeId) {
+        const routed = this.stakeRouting.get(stakeId);
+        if (routed) {
+            return routed;
+        }
+        for (const provider of this.providers) {
+            try {
+                const status = await provider.getStakeStatus(stakeId);
+                if (status) {
+                    this.stakeRouting.set(stakeId, provider);
+                    return provider;
+                }
+            } catch (error) {
+                // Provider cannot answer — try the next one
+            }
+        }
+        return this.currentProvider;
     }
 
-    async releaseStake(...args) {
-        return this.executeWithRetry('releaseStake', ...args);
+    async releaseStake(stakeId, ...rest) {
+        const provider = await this._stakeProvider(stakeId);
+        return provider.releaseStake(stakeId, ...rest);
     }
 
-    async forfeitStake(...args) {
-        return this.executeWithRetry('forfeitStake', ...args);
+    async forfeitStake(stakeId, ...rest) {
+        const provider = await this._stakeProvider(stakeId);
+        return provider.forfeitStake(stakeId, ...rest);
     }
 
-    async getStakeStatus(...args) {
-        return this.executeWithRetry('getStakeStatus', ...args);
+    async getStakeStatus(stakeId, ...rest) {
+        const provider = await this._stakeProvider(stakeId);
+        return provider.getStakeStatus(stakeId, ...rest);
+    }
+
+    async confirmStakePaid(stakeId, ...rest) {
+        const provider = await this._stakeProvider(stakeId);
+        if (typeof provider.confirmStakePaid !== 'function') {
+            return { paid: false, status: 'unsupported' };
+        }
+        return provider.confirmStakePaid(stakeId, ...rest);
     }
 
     /**

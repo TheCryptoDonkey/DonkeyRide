@@ -161,55 +161,10 @@ const stakeLimiter = new RateLimiter({
 /**
  * Progressive rate limiting based on behavior
  */
-class AdaptiveRateLimiter {
-    constructor() {
-        this.violations = new Map(); // key -> violation count
-        this.baseWindowMs = 60000;
-        this.baseMax = 10;
-    }
-
-    middleware() {
-        return (req, res, next) => {
-            const key = req.user?.pubkey || req.ip;
-            const violations = this.violations.get(key) || 0;
-
-            // Progressive penalties
-            const penalty = Math.min(violations, 5); // Max 5x penalty
-            const maxRequests = Math.max(1, this.baseMax - (penalty * 2));
-            const windowMs = this.baseWindowMs * (1 + penalty);
-
-            const limiter = new RateLimiter({
-                windowMs,
-                max: maxRequests,
-                message: `Rate limit reduced due to violations (${violations})`
-            });
-
-            // Intercept 429 response to track violations
-            const originalJson = res.json.bind(res);
-            res.json = (data) => {
-                if (res.statusCode === 429) {
-                    this.violations.set(key, violations + 1);
-                    // Violations decay over time
-                    setTimeout(() => {
-                        const current = this.violations.get(key) || 0;
-                        if (current > 0) {
-                            this.violations.set(key, current - 1);
-                        }
-                    }, 300000); // Decay after 5 minutes
-                }
-                return originalJson(data);
-            };
-
-            limiter.middleware()(req, res, next);
-        };
-    }
-}
-
 module.exports = {
     RateLimiter,
     publicRateLimiter: publicRateLimiter.middleware(),
     authenticatedRateLimiter: authenticatedRateLimiter.middleware(),
     rideCreationLimiter: rideCreationLimiter.middleware(),
     stakeLimiter: stakeLimiter.middleware(),
-    AdaptiveRateLimiter
 };

@@ -11,6 +11,8 @@ DonkeyRide's three-layer architecture is designed for GDPR compliance. This docu
 
 **Key principle**: Data minimisation by design. Public Nostr events contain only pseudonymous identifiers and geohash-level locations. PII is either encrypted between parties (NIP-17) or held by the operator under standard GDPR controller obligations.
 
+> **Implementation status (honest)**: in the current reference implementation, **no PII is published to Nostr at all** — addresses, exact coordinates and proofs stay in the operator's database and over authenticated HTTPS/WSS. The NIP-17/NIP-44 rows below describe the protocol design for P2P deployments; the gift-wrap code paths are **not yet implemented** in this server. Rely on the "no PII on relays" property, not on relay-side encryption, when assessing this implementation.
+
 ---
 
 ## Three-Layer Compliance Architecture

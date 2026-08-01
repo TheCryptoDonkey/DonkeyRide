@@ -1,12 +1,24 @@
 import type {
   Task, TaskQuote, TripEstimate, AvailableProvider, BtcPrices,
-  OperatorInfo, Reputation, LatLng,
+  OperatorInfo, Reputation, LatLng, SettlementInfo,
 } from '../types/api';
 import type { DomainProfile } from '../types/domain';
-import { createNip98Auth } from './nostr';
+import { createNip98Auth, signNostrEvent } from './nostr';
+import { publishToRelays } from './relays';
 
 // Same-origin by default; native (Capacitor) builds bake in the operator URL
 const BASE = import.meta.env.VITE_API_BASE || '';
+
+/** Error thrown for non-2xx responses — carries the HTTP status code */
+export class ApiError extends Error {
+  status?: number;
+
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
 
 /** Module-level auth private key — set via setAuthPrivKey() */
 let _authPrivKey: string | null = null;
@@ -14,6 +26,11 @@ let _authPrivKey: string | null = null;
 /** Set the private key used for NIP-98 auth headers */
 export function setAuthPrivKey(key: string | null) {
   _authPrivKey = key;
+}
+
+/** Read the private key used for NIP-98 auth (WebSocket auth handshake reuses it) */
+export function getAuthPrivKey(): string | null {
+  return _authPrivKey;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -40,7 +57,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(body.error || `${res.status} ${res.statusText}`);
+    throw new ApiError(body.error || `${res.status} ${res.statusText}`, res.status);
   }
   return res.json();
 }
@@ -49,8 +66,41 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 /** Convert a backend location {lat, lon} to frontend {lat, lng} */
 function normLoc(loc: { lat: number; lon?: number; lng?: number } | null | undefined): LatLng | null {
-  if (!loc) return null;
-  return { lat: loc.lat, lng: loc.lng ?? loc.lon ?? 0 };
+  if (!loc || typeof loc.lat !== 'number') return null;
+  const lng = loc.lng ?? loc.lon;
+  if (typeof lng !== 'number') return null;
+  return { lat: loc.lat, lng };
+}
+
+/**
+ * Normalise a route field: encoded polyline strings pass through,
+ * coordinate arrays ([lon, lat] pairs from the routing engine) are
+ * converted to [lat, lng] positions Leaflet can render directly.
+ */
+export function normaliseRoute(route: unknown): string | [number, number][] | undefined {
+  if (typeof route === 'string') return route || undefined;
+  if (Array.isArray(route)) {
+    const positions: [number, number][] = [];
+    for (const pt of route) {
+      if (Array.isArray(pt) && pt.length >= 2
+          && typeof pt[0] === 'number' && typeof pt[1] === 'number') {
+        positions.push([pt[1], pt[0]]); // [lon, lat] → [lat, lng]
+      }
+    }
+    return positions;
+  }
+  return undefined;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function normaliseSettlement(raw: any): SettlementInfo | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const amount = raw.amount_sats ?? raw.amountSats ?? raw.amount;
+  return {
+    amountSats: typeof amount === 'number' ? amount : undefined,
+    method: raw.method ?? undefined,
+    status: raw.status ?? undefined,
+  };
 }
 
 /**
@@ -62,6 +112,10 @@ export function normaliseTask(raw: any): Task {
   // The backend may wrap in { success, ride } or { success, ride_id, ... }
   const r = raw.ride || raw;
 
+  // Broadcasts carry distance as a bare km number
+  const distanceKm = r.distance_km ?? r.distanceKm
+    ?? (typeof r.distance === 'number' ? r.distance : r.distance?.km);
+
   return {
     id: r.id || r.ride_id || '',
     status: r.status || '',
@@ -71,13 +125,14 @@ export function normaliseTask(raw: any): Task {
     pickup: normLoc(r.pickup) || { lat: 0, lng: 0 },
     dropoff: normLoc(r.dropoff),
     fareEstimateSats: r.fare ?? r.fareEstimateSats ?? r.estimated_fare ?? 0,
-    distanceKm: r.distance_km ?? r.distanceKm,
+    distanceKm,
     durationMin: r.duration_minutes ?? r.durationMin,
-    routeGeometry: r.route || r.routeGeometry,
+    routeGeometry: normaliseRoute(r.route ?? r.routeGeometry),
     streamingPayment: r.streaming ? {
       totalPaidSats: r.streaming.totalPaid ?? 0,
       intervalSeconds: 3,
     } : r.streamingPayment,
+    settlement: normaliseSettlement(r.settlement),
     createdAt: r.timestamps?.requested
       ? new Date(r.timestamps.requested).toISOString()
       : r.createdAt || new Date().toISOString(),
@@ -97,11 +152,46 @@ export function normaliseTask(raw: any): Task {
   };
 }
 
+/**
+ * Normalise the available-providers response: backend sends {lat, lon},
+ * the frontend (and Leaflet) need {lat, lng}. Entries without a usable
+ * location are dropped so they can never reach a map marker.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function normaliseProviders(raw: any): AvailableProvider[] {
+  const list = Array.isArray(raw) ? raw : raw?.drivers || raw?.providers || [];
+  const providers: AvailableProvider[] = [];
+  for (const d of list) {
+    const location = normLoc(d?.location);
+    if (!location) continue;
+    providers.push({ ...d, location });
+  }
+  return providers;
+}
+
 // ── General ─────────────────────────────────────────
 
 /** GET /info — operator metadata */
-export function getOperatorInfo(): Promise<OperatorInfo> {
-  return request('/info');
+export async function getOperatorInfo(): Promise<OperatorInfo> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw: any = await request('/info');
+  if (raw?.payment && raw.payment.trustModel === undefined && raw.payment.trust_model !== undefined) {
+    raw.payment.trustModel = raw.payment.trust_model;
+  }
+  return raw as OperatorInfo;
+}
+
+let _operatorInfoPromise: Promise<OperatorInfo> | null = null;
+
+/** Cached GET /info — one fetch shared by relays, stakes and payment copy */
+export function getOperatorInfoCached(): Promise<OperatorInfo> {
+  if (!_operatorInfoPromise) {
+    _operatorInfoPromise = getOperatorInfo().catch((err) => {
+      _operatorInfoPromise = null;
+      throw err;
+    });
+  }
+  return _operatorInfoPromise;
 }
 
 /** GET /health */
@@ -186,7 +276,11 @@ export async function acceptTask(taskId: string, params: {
     body: JSON.stringify({
       driver_pubkey: params.providerPubkey,
       driver_npub: params.providerNpub,
-      driver_location: params.providerLocation,
+      // Server reads .lon, not .lng
+      driver_location: {
+        lat: params.providerLocation.lat,
+        lon: params.providerLocation.lng,
+      },
     }),
   });
   return normaliseTask(raw);
@@ -271,21 +365,47 @@ export function cancelTask(taskId: string, params: {
   });
 }
 
-/** POST /api/tasks/:id/rate — submit rating */
-export function submitRating(taskId: string, params: {
+/**
+ * POST /api/tasks/:id/rate — submit rating.
+ * Builds a user-signed kind 30520 rating event (TROTT-03), posts it to the
+ * operator and best-effort publishes it directly to public relays so the
+ * reputation exists independently of the operator.
+ */
+export async function submitRating(taskId: string, params: {
   rating: number;
   comment?: string;
-  raterPubkey: string;
   raterRole: 'requester' | 'provider';
+  targetPubkey?: string;
+  domainId: string;
 }): Promise<{ success: boolean }> {
-  return request(`/api/tasks/${taskId}/rate`, {
+  if (!_authPrivKey) {
+    throw new Error('No identity available to sign the rating');
+  }
+
+  const tags: string[][] = [
+    ['ride', taskId],
+    ['rating', String(params.rating)],
+    ['role', params.raterRole === 'requester' ? 'rider' : 'driver'],
+  ];
+  if (params.targetPubkey) tags.push(['p', params.targetPubkey]);
+  tags.push(['domain', params.domainId]);
+
+  const event = await signNostrEvent({
+    kind: 30520,
+    created_at: Math.floor(Date.now() / 1000),
+    tags,
+    content: params.comment || '',
+  }, _authPrivKey);
+
+  const res = await request<{ success: boolean }>(`/api/tasks/${taskId}/rate`, {
     method: 'POST',
-    body: JSON.stringify({
-      ...params,
-      // Backend expects rider/driver for now
-      raterRole: params.raterRole === 'requester' ? 'rider' : 'driver',
-    }),
+    body: JSON.stringify({ event }),
   });
+
+  // Best-effort decentralised publish — never blocks the UI
+  void publishToRelays(event);
+
+  return res;
 }
 
 /** POST /api/tasks/:id/tip — send tip */
@@ -302,15 +422,42 @@ export function sendTip(taskId: string, params: {
   });
 }
 
-/** POST /api/tasks/:id/panic — trigger panic alert */
-export function triggerPanic(taskId: string, params: {
-  triggeredBy: string;
-  location: LatLng;
+/**
+ * POST /api/tasks/:id/panic — trigger panic alert.
+ * Builds a user-signed kind 30540 event, posts it to the operator and
+ * best-effort publishes it directly to public relays.
+ */
+export async function triggerPanic(taskId: string, params: {
+  role: 'requester' | 'provider';
+  location?: LatLng | null;
 }): Promise<{ success: boolean }> {
-  return request(`/api/tasks/${taskId}/panic`, {
+  if (!_authPrivKey) {
+    throw new Error('No identity available to sign the alert');
+  }
+
+  const tags: string[][] = [
+    ['ride', taskId],
+    ['role', params.role === 'requester' ? 'rider' : 'driver'],
+  ];
+  if (params.location) {
+    tags.push(['location', JSON.stringify({ lat: params.location.lat, lng: params.location.lng })]);
+  }
+
+  const event = await signNostrEvent({
+    kind: 30540,
+    created_at: Math.floor(Date.now() / 1000),
+    tags,
+    content: 'panic',
+  }, _authPrivKey);
+
+  const res = await request<{ success: boolean }>(`/api/tasks/${taskId}/panic`, {
     method: 'POST',
-    body: JSON.stringify(params),
+    body: JSON.stringify({ event }),
   });
+
+  void publishToRelays(event);
+
+  return res;
 }
 
 /** POST /api/tasks/:id/check-in — respond to safety check */
@@ -330,6 +477,18 @@ export async function getTask(taskId: string): Promise<Task> {
   return normaliseTask(raw);
 }
 
+/**
+ * GET /api/participants/:pubkey/active — the participant's latest
+ * non-terminal task (as requester or provider), or null.
+ * Used to recover an active task after an app/tab restart.
+ */
+export async function getActiveParticipantTask(pubkey: string): Promise<Task | null> {
+  const raw = await request<{ task: Record<string, unknown> | null }>(
+    `/api/participants/${pubkey}/active`,
+  );
+  return raw.task ? normaliseTask(raw.task) : null;
+}
+
 /** GET /api/tasks/stats */
 export function getTaskStats(): Promise<{
   total: number;
@@ -342,23 +501,66 @@ export function getTaskStats(): Promise<{
 
 // ── Stakes ──────────────────────────────────────────
 
-/** POST /rides/:id/rider-stake — post requester stake */
+/** Stake endpoint response — instant rails lock immediately, others await payment */
+export interface StakeResponse {
+  success?: boolean;
+  status?: string;
+  invoice?: string;
+  confirm?: string;
+  amountSats?: number;
+  amount_sats?: number;
+  paymentHash?: string;
+}
+
+/** POST /api/tasks/:id/requester-stake — post requester stake */
 export function postRequesterStake(taskId: string, params: {
   requesterPubkey: string;
-}): Promise<{ invoice: string; amountSats: number; paymentHash: string }> {
-  return request(`/rides/${taskId}/rider-stake`, {
+}): Promise<StakeResponse> {
+  return request(`/api/tasks/${taskId}/requester-stake`, {
     method: 'POST',
-    body: JSON.stringify({ riderPubkey: params.requesterPubkey }),
+    body: JSON.stringify({
+      requesterPubkey: params.requesterPubkey,
+      riderPubkey: params.requesterPubkey,
+    }),
   });
 }
 
-/** POST /rides/:id/driver-stake — post provider stake */
+/** POST /api/tasks/:id/provider-stake — post provider stake */
 export function postProviderStake(taskId: string, params: {
   providerPubkey: string;
-}): Promise<{ invoice: string; amountSats: number; paymentHash: string }> {
-  return request(`/rides/${taskId}/driver-stake`, {
+}): Promise<StakeResponse> {
+  return request(`/api/tasks/${taskId}/provider-stake`, {
     method: 'POST',
-    body: JSON.stringify({ driverPubkey: params.providerPubkey }),
+    body: JSON.stringify({
+      providerPubkey: params.providerPubkey,
+      driverPubkey: params.providerPubkey,
+    }),
+  });
+}
+
+/** POST /api/tasks/:id/requester-stake/confirm — confirm a non-instant stake payment */
+export function confirmRequesterStake(taskId: string, params: {
+  requesterPubkey: string;
+}): Promise<StakeResponse> {
+  return request(`/api/tasks/${taskId}/requester-stake/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({
+      requesterPubkey: params.requesterPubkey,
+      riderPubkey: params.requesterPubkey,
+    }),
+  });
+}
+
+/** POST /api/tasks/:id/provider-stake/confirm — confirm a non-instant stake payment */
+export function confirmProviderStake(taskId: string, params: {
+  providerPubkey: string;
+}): Promise<StakeResponse> {
+  return request(`/api/tasks/${taskId}/provider-stake/confirm`, {
+    method: 'POST',
+    body: JSON.stringify({
+      providerPubkey: params.providerPubkey,
+      driverPubkey: params.providerPubkey,
+    }),
   });
 }
 
@@ -417,15 +619,16 @@ export function getRoutePreview(params: {
   });
 }
 
-/** GET /api/prices/btc — current BTC prices */
-export function getBtcPrices(): Promise<BtcPrices> {
-  return request('/api/prices/btc');
+/** GET /api/prices/btc — current BTC prices (server wraps them in {prices}) */
+export async function getBtcPrices(): Promise<BtcPrices> {
+  const raw = await request<{ prices?: BtcPrices } & Partial<BtcPrices>>('/api/prices/btc');
+  return (raw.prices ?? raw) as BtcPrices;
 }
 
 // ── Providers ───────────────────────────────────────
 
 /** GET /api/providers/available */
-export function getAvailableProviders(params?: {
+export async function getAvailableProviders(params?: {
   lat?: number;
   lng?: number;
   radiusKm?: number;
@@ -435,7 +638,8 @@ export function getAvailableProviders(params?: {
   if (params?.lng) qs.set('lng', String(params.lng));
   if (params?.radiusKm) qs.set('radius', String(params.radiusKm));
   const suffix = qs.toString() ? `?${qs}` : '';
-  return request(`/api/providers/available${suffix}`);
+  const raw = await request<Record<string, unknown>>(`/api/providers/available${suffix}`);
+  return { drivers: normaliseProviders(raw) };
 }
 
 // ── Reputation ──────────────────────────────────────

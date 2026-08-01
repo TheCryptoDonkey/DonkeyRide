@@ -15,6 +15,9 @@ process.env.DISABLE_REDIS = 'true';
 process.env.DISABLE_WS = 'true';
 process.env.PAYMENT_PROVIDER = 'demo';
 process.env.ENABLE_NIP98_AUTH = 'true';
+// Rate limiting is exercised in its own tests; disable here so the rapid
+// request lifecycle does not trip the shared authenticated limiter.
+process.env.ENABLE_RATE_LIMITING = 'false';
 process.env.DISPATCH_RADIUS_KM = '15';
 
 const { test, before, after } = require('node:test');
@@ -230,16 +233,32 @@ test('driver presence feeds /api/drivers/available with radius filtering', async
 
   const near = await get(`/api/drivers/available?lat=${PICKUP.lat}&lon=${PICKUP.lon}`);
   assert.equal(near.status, 200);
+  // Identities are withheld now (privacy); match on the coarse location near
+  // the pickup instead of the driver's npub.
   assert.ok(
-    near.body.drivers.some((d) => d.npub === driverNpub || d.pubkey === driverPub),
-    `expected driver in nearby list: ${JSON.stringify(near.body)}`
+    near.body.drivers.some((d) =>
+      d.location &&
+      Math.abs(d.location.lat - PICKUP.lat) < 0.01 &&
+      Math.abs(d.location.lon - PICKUP.lon) < 0.01
+    ),
+    `expected a driver near the pickup: ${JSON.stringify(near.body)}`
+  );
+  // The endpoint must not leak driver identities
+  assert.ok(
+    near.body.drivers.every((d) => d.npub === undefined && d.pubkey === undefined),
+    'driver identities must not be exposed'
   );
 
-  // London is ~260 km from Manchester — outside any sane dispatch radius
+  // London is ~260 km from Manchester — outside any sane dispatch radius,
+  // so the Manchester driver's coarse location must not appear.
   const far = await get('/api/drivers/available?lat=51.5074&lon=-0.1278');
   assert.equal(far.status, 200);
   assert.ok(
-    !far.body.drivers.some((d) => d.npub === driverNpub || d.pubkey === driverPub),
+    !far.body.drivers.some((d) =>
+      d.location &&
+      Math.abs(d.location.lat - PICKUP.lat) < 0.01 &&
+      Math.abs(d.location.lon - PICKUP.lon) < 0.01
+    ),
     `driver should not appear 260km away: ${JSON.stringify(far.body)}`
   );
 });
@@ -280,6 +299,34 @@ test('/api/rides/stats resolves as the stats route, not a ride id', async () => 
   assert.equal(typeof res.body.total, 'number');
   assert.equal(typeof res.body.active, 'number');
   assert.equal(typeof res.body.completed, 'number');
+  // Must NOT enumerate active rides or their participants (PII scraping index)
+  assert.equal(res.body.rides, undefined, 'stats must not enumerate rides');
+});
+
+test('a replayed NIP-98 auth event is rejected on a mutating request', async () => {
+  const url = `${baseUrl}/api/rides/request`;
+  const ev = generateAuthEvent(url, 'POST', riderPriv);
+  const header = createAuthHeader(ev);
+  const body = JSON.stringify({
+    pickup_lat: PICKUP.lat, pickup_lon: PICKUP.lon,
+    dropoff_lat: DROPOFF.lat, dropoff_lon: DROPOFF.lon,
+    rider_pubkey: riderPub, fare_sats: 5000, currency: 'GBP'
+  });
+  const opts = { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: header }, body };
+  const first = await fetch(url, opts);
+  assert.notEqual(first.status, 401, 'first use of a fresh auth event must authenticate');
+  const second = await fetch(url, opts);
+  assert.equal(second.status, 401, 'replayed auth event must be rejected');
+});
+
+test('malformed JSON body returns a clean 400', async () => {
+  const url = `${baseUrl}/api/rides/request`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: createAuthHeader(generateAuthEvent(url, 'POST', riderPriv)) },
+    body: '{ not json'
+  });
+  assert.equal(res.status, 400);
 });
 
 // ── Persistence & rehydration ───────────────────────

@@ -88,11 +88,13 @@ Each profile defines: state machine (states + valid transitions), role names (re
 
 Providers: `cash` (record-only, no custody — fare settles face-to-face, inDrive model), `lnd` (hodl invoices, regtest-proven semantics: release = cancel/refund, forfeit = settle/claim penalty; `confirmStakePaid()` gates enforcement on the payment actually being held), `demo` (mock for testing). Experimental (never verified against their real APIs, legacy both-stakes key convention): `btcpay`, `alby`, `cln`. Planned, not yet implemented: `nwc` (NIP-47 hold invoices), `stripe` (pure fiat), Cashu, M-Pesa — the factory throws a clear error if these are selected.
 
-Stake interface is **per-stake**: `releaseStake`/`forfeitStake`/`getStakeStatus` take a stakeId of `${rideId}_${role}`. Non-instant rails (`instantLock: false`) return `awaiting_payment` from the stake endpoints and require `/rides/:id/{rider,driver}-stake/confirm`, which calls the provider's `confirmStakePaid()`.
+Stake interface is **per-stake**: `releaseStake`/`forfeitStake`/`getStakeStatus` take a stakeId of `${rideId}_${role}`. Non-instant rails (`instantLock: false`) return `awaiting_payment` from the stake endpoints and require a confirm call (`/rides/:id/{rider,driver}-stake/confirm` on the legacy flow, `/api/tasks/:id/{requester,provider}-stake/confirm` on the task flow), which calls the provider's `confirmStakePaid()`.
+
+**Stake persistence**: LND stake state (including hodl preimages) is persisted to the `stakes` table and restored via `setStakeStore()` on boot — a restart must never strand held HTLCs. **Provider unification**: `paymentProvider` IS the stake manager's primary provider (one instance, one state). Fallback providers must share the primary's trust model; per-stake operations route to the provider that created the stake.
 
 Every payment event includes explicit `amount`, `currency`, and `trust_model` tags. Amounts are in the smallest unit of the specified currency (pence for GBP, cents for USD, satoshis for SAT).
 
-Selected via `PAYMENT_PROVIDER` env var, with optional `PAYMENT_FALLBACKS` for resilience. **Domain-independent** — works identically across all use cases.
+Selected via `PAYMENT_PROVIDER` env var, with optional `PAYMENT_FALLBACKS` for resilience. The demo provider refuses to boot with `NODE_ENV=production` unless `ALLOW_DEMO_PAYMENTS=true`. **Domain-independent** — works identically across all use cases.
 
 ### Pricing
 
@@ -106,13 +108,17 @@ Selected via `PAYMENT_PROVIDER` env var, with optional `PAYMENT_FALLBACKS` for r
 
 ### Nostr Integration
 
-- **`src/nostr/reputation.js`** — Reputation queries (TROTT-03, kind 30520 ratings) via `SimplePool`. 30-second cache. Rating tags are arbitrary — the domain profile defines which criteria to use. **Domain-independent.**
-- **`src/nostr/stake-events.js`** — Publishes stake lock/release/penalty events. Uses generic task/ride tags. **Domain-independent.**
+- **`src/nostr/kinds.js`** — **Single source of truth for event kinds**, aligned with the TROTT spec v0.9 table. Never hardcode a kind number; import from here. Governance experiments (watchdog/slashing/suspension/appeals/votes) live in an explicit experimental block (39500+) so they can never collide with spec-assigned kinds.
+- **`src/nostr/reputation.js`** — Reputation queries (TROTT-03, kind 30520 ratings; kind 30540 emergency signals) via `SimplePool`. 30-second cache. Aggregates verify signatures and dedupe one rating per (rater, task); `p` tags must be hex. Relay reads/writes carry a 5s timeout. **Domain-independent.**
+- **`src/nostr/stake-events.js`** — Publishes TROTT-04 payment events: 30532 Escrow Lock, 30533 Settlement (`outcome`: released/forfeited/partial_forfeit), 30535 Payment Receipt. **Domain-independent.**
+- **`src/nostr/operator-announce.js`** — Operator discoverability: kind 30511 service announcement at startup, kind 30554 heartbeat every 5 minutes. Advertises `PUBLIC_RELAY_URLS` and `PUBLIC_BASE_URL`.
+- **Outbox**: operator-signed events that reach no relay are persisted (`nostr_outbox` table) and retried every 60s — never silently dropped.
 
 ### Middleware
 
-- **`middleware/nip98-auth.js`** — NIP-98 HTTP auth. Validates signed `Authorization: Nostr <base64>` headers (kind 27235). Toggle with `ENABLE_NIP98_AUTH`. **Domain-independent.**
-- **`middleware/rate-limit.js`** — Rate limiting with separate tiers. Toggle with `ENABLE_RATE_LIMITING`. **Domain-independent.**
+- **`middleware/nip98-auth.js`** — NIP-98 HTTP auth. Validates signed `Authorization: Nostr <base64>` headers (kind 27235). Single-use auth events on mutating requests (replay rejected); optional `payload` tag is verified against the body hash. Toggle with `ENABLE_NIP98_AUTH`. **Domain-independent.**
+- **`middleware/rate-limit.js`** — Rate limiting. When `ENABLE_RATE_LIMITING` is not `false`, all mutating `/api|/rides` routes share the authenticated limiter; hot read routes carry `publicRateLimiter`. `trust proxy` is set for correct per-IP buckets behind Caddy/nginx. **Domain-independent.**
+- **WebSocket auth** — when `ENABLE_NIP98_AUTH=true`, sockets must send `{type:'auth', event:<kind 27235, method GET>}` first; `subscribe_ride` is participant-only; `register_driver`/`driver_location` use the verified pubkey (spoofing rejected).
 
 ### Frontend
 
@@ -138,7 +144,7 @@ WEBSOCKET (ephemeral)         →  Real-time tracking + Live updates
 
 ### TROTT Protocol Specifications
 
-The protocol is defined as **8 TROTT specifications** plus **9 domain profiles**, using 39 event kinds. Specifications live in the [trott repository](https://github.com/TheCryptoDonkey/trott). See the [QUICK-REFERENCE](https://github.com/TheCryptoDonkey/trott/blob/main/specs/QUICK-REFERENCE.md) for the complete event kind table.
+The protocol is defined by the TROTT specifications and domain profiles in the [trott repository](https://github.com/TheCryptoDonkey/trott). See the [QUICK-REFERENCE](https://github.com/TheCryptoDonkey/trott/blob/main/specs/QUICK-REFERENCE.md) for the complete event kind table; this implementation's kinds are pinned in `src/nostr/kinds.js` and must track that table.
 
 The protocol supports both **P2P** (no operator) and **operator-coordinated** models. A minimal implementation needs only TROTT-01 + TROTT-02 (14 event kinds).
 

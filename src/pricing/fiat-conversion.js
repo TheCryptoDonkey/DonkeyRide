@@ -5,7 +5,7 @@
  * Fetches real-time BTC prices from multiple sources
  */
 
-const fetch = require('node-fetch');
+const { fetchWithTimeout: fetch } = require('../utils/fetch-timeout');
 
 // Price cache (update every 5 minutes)
 let priceCache = {

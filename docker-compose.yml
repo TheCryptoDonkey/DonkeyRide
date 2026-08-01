@@ -82,7 +82,7 @@ services:
       - "3001:3001"  # WebSocket (real-time updates)
     environment:
       # Node
-      NODE_ENV: ${NODE_ENV:-development}
+      NODE_ENV: ${NODE_ENV:-production}
       PORT: 3000
       WS_PORT: 3001
 
@@ -93,7 +93,7 @@ services:
       OPERATOR_FEE_PERCENT: ${OPERATOR_FEE_PERCENT:-0.005}
 
       # Payment Provider
-      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-strike}
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-cash}
       STRIKE_API_KEY: ${STRIKE_API_KEY}
 
       # Infrastructure (use Docker service names)

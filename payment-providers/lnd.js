@@ -32,11 +32,47 @@ class LNDProvider extends PaymentProvider {
         this.macaroonPath = config.macaroon || process.env.LND_MACAROON_PATH;
         this.network = config.network || 'mainnet';
 
-        // Map: rideId -> {preimage, hash, invoice, ...}
+        // Map: stakeId -> {preimage, hash, invoice, ...}
         this.stakes = new Map();
+
+        // Optional persistent store — without it a restart destroys the
+        // preimages and every held HTLC becomes unsettleable.
+        this.stakeStore = null;
 
         // Lazy load gRPC connection
         this.lnd = null;
+    }
+
+    /**
+     * Attach a persistent stake store ({saveStake, loadStakes}) and reload
+     * any stakes persisted by a previous process.
+     */
+    async setStakeStore(store) {
+        this.stakeStore = store;
+        if (!store?.loadStakes) return;
+        try {
+            const rows = await store.loadStakes();
+            let restored = 0;
+            for (const row of rows) {
+                if (row?.provider === 'lnd' && row.stakeId && !this.stakes.has(row.stakeId)) {
+                    this.stakes.set(row.stakeId, row.data);
+                    restored += 1;
+                }
+            }
+            if (restored > 0) {
+                console.log(`✅ LND: restored ${restored} persisted stake(s)`);
+            }
+        } catch (error) {
+            console.warn('LND: failed to restore persisted stakes:', error.message);
+        }
+    }
+
+    _persistStake(stakeId) {
+        if (!this.stakeStore?.saveStake) return;
+        const data = this.stakes.get(stakeId);
+        if (!data) return;
+        this.stakeStore.saveStake({ stakeId, provider: 'lnd', data })
+            .catch((error) => console.warn(`LND: failed to persist stake ${stakeId}:`, error.message));
     }
 
     /**
@@ -105,6 +141,7 @@ class LNDProvider extends PaymentProvider {
                 createdAt: Date.now(),
                 expiresAt: Date.now() + 3600000
             });
+            this._persistStake(stakeId);
 
             // Create Nostr proof event
             const event = this.createStakeEvent('locked', {
@@ -164,8 +201,10 @@ class LNDProvider extends PaymentProvider {
         if (invoice.is_held) {
             stake.status = 'locked';
             stake.heldAt = Date.now();
+            this._persistStake(stakeId);
         } else if (invoice.is_canceled) {
             stake.status = 'cancelled';
+            this._persistStake(stakeId);
         }
 
         return { paid: !!invoice.is_held, status: stake.status };
@@ -202,6 +241,7 @@ class LNDProvider extends PaymentProvider {
 
             stake.status = 'released';
             stake.releasedAt = Date.now();
+            this._persistStake(stakeId);
 
             const event = this.createStakeEvent('released', {
                 rideId: stake.rideId,
@@ -276,6 +316,7 @@ class LNDProvider extends PaymentProvider {
             stake.status = 'forfeited';
             stake.forfeitedAt = Date.now();
             stake.penalty = penalty;
+            this._persistStake(stakeId);
 
             const event = this.createStakeEvent('forfeited', {
                 rideId: stake.rideId,

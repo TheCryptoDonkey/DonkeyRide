@@ -1,16 +1,22 @@
 import {
-  createContext, useContext, useState, useCallback, useEffect,
+  createContext, useContext, useState, useCallback, useEffect, useRef,
   type ReactNode,
 } from 'react';
 import type { Task, TripEstimate, LatLng } from '../types/api';
-import { getTask } from '../services/api';
+import { getTask, getActiveParticipantTask } from '../services/api';
 import { useDomain } from './DomainContext';
+import { useIdentity } from './IdentityContext';
 
 const STORAGE_KEYS = {
   activeTask: 'donkeyride.activeTask',
   origin: 'donkeyride.origin',
   destination: 'donkeyride.destination',
 } as const;
+
+/** Active task id survives app/tab restarts — keyed per role */
+const activeTaskIdKey = (role: string) => `donkeyride.activeTaskId.${role}`;
+/** Last terminal task kept until the user taps Done — keyed per role */
+const completedTaskKey = (role: string) => `donkeyride.completedTask.${role}`;
 
 function loadJson<T>(key: string): T | null {
   try {
@@ -29,10 +35,23 @@ function saveJson(key: string, value: unknown) {
   }
 }
 
+function loadLocalJson<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 interface TaskState {
   /** Currently active task */
   activeTask: Task | null;
   setActiveTask: (task: Task | null) => void;
+
+  /** Last task that reached a terminal state (kept until acknowledged) */
+  completedTask: Task | null;
+  clearCompletedTask: () => void;
 
   /** Current trip estimate (before requesting) */
   estimate: TripEstimate | null;
@@ -57,6 +76,8 @@ interface TaskState {
 const TaskContext = createContext<TaskState>({
   activeTask: null,
   setActiveTask: () => {},
+  completedTask: null,
+  clearCompletedTask: () => {},
   estimate: null,
   setEstimate: () => {},
   origin: null,
@@ -70,15 +91,43 @@ const TaskContext = createContext<TaskState>({
 
 export function TaskProvider({ children }: { children: ReactNode }) {
   const { profile } = useDomain();
+  const { identity, role } = useIdentity();
   const [activeTask, setActiveTaskState] = useState<Task | null>(() => loadJson(STORAGE_KEYS.activeTask));
+  const [completedTask, setCompletedTask] = useState<Task | null>(() => loadLocalJson(completedTaskKey(role)));
   const [estimate, setEstimate] = useState<TripEstimate | null>(null);
   const [origin, setOriginState] = useState<LatLng | null>(() => loadJson(STORAGE_KEYS.origin));
   const [destination, setDestinationState] = useState<LatLng | null>(() => loadJson(STORAGE_KEYS.destination));
   const [providerLocation, setProviderLocation] = useState<LatLng | null>(null);
 
+  const terminalStatesRef = useRef<string[]>([]);
+  terminalStatesRef.current = profile?.states.terminal || [];
+  const roleRef = useRef(role);
+  roleRef.current = role;
+
   const setActiveTask = useCallback((task: Task | null) => {
     setActiveTaskState(task);
     saveJson(STORAGE_KEYS.activeTask, task);
+
+    const currentRole = roleRef.current;
+    if (task) {
+      if (terminalStatesRef.current.includes(task.status)) {
+        // Terminal — keep a copy until the user acknowledges it (Done)
+        setCompletedTask(task);
+        try {
+          localStorage.setItem(completedTaskKey(currentRole), JSON.stringify(task));
+        } catch { /* storage full — non-fatal */ }
+        localStorage.removeItem(activeTaskIdKey(currentRole));
+      } else {
+        localStorage.setItem(activeTaskIdKey(currentRole), task.id);
+      }
+    } else {
+      localStorage.removeItem(activeTaskIdKey(currentRole));
+    }
+  }, []);
+
+  const clearCompletedTask = useCallback(() => {
+    setCompletedTask(null);
+    localStorage.removeItem(completedTaskKey(roleRef.current));
   }, []);
 
   const setOrigin = useCallback((loc: LatLng | null) => {
@@ -100,34 +149,62 @@ export function TaskProvider({ children }: { children: ReactNode }) {
     sessionStorage.removeItem(STORAGE_KEYS.activeTask);
     sessionStorage.removeItem(STORAGE_KEYS.origin);
     sessionStorage.removeItem(STORAGE_KEYS.destination);
+    localStorage.removeItem(activeTaskIdKey(roleRef.current));
   }, []);
 
-  // On mount, re-fetch stored task to get fresh state
+  // On boot, re-fetch the stored task; if the session is fresh (app/tab
+  // restart) ask the operator for this participant's active task instead.
   useEffect(() => {
-    const stored = loadJson<Task>(STORAGE_KEYS.activeTask);
-    if (!stored?.id) return;
+    if (!profile || !identity) return;
+    const terminalStates = profile.states.terminal || [];
 
-    getTask(stored.id)
-      .then((fresh) => {
-        // Clear if task has reached a terminal state using the domain profile
-        const terminalStates = profile?.states.terminal || [];
-        const isTerminal = terminalStates.includes(fresh.status);
-        if (isTerminal) {
-          reset();
+    const adopt = (fresh: Task) => {
+      if (terminalStates.includes(fresh.status)) {
+        setActiveTask(fresh); // stores the terminal copy
+        reset();
+      } else {
+        setActiveTask(fresh);
+      }
+    };
+
+    const stored = loadJson<Task>(STORAGE_KEYS.activeTask);
+    if (stored?.id) {
+      getTask(stored.id)
+        .then(adopt)
+        .catch(() => reset()); // Task not found — clear
+      return;
+    }
+
+    // No session task — rehydrate from the operator
+    getActiveParticipantTask(identity.pubKeyHex)
+      .then((task) => {
+        if (task && !terminalStates.includes(task.status)) {
+          setActiveTask(task);
         } else {
-          setActiveTask(fresh);
+          localStorage.removeItem(activeTaskIdKey(roleRef.current));
         }
       })
       .catch(() => {
-        // Task not found — clear
-        reset();
+        // Endpoint unavailable — fall back to the persisted task id
+        const storedId = localStorage.getItem(activeTaskIdKey(roleRef.current));
+        if (!storedId) return;
+        getTask(storedId)
+          .then((fresh) => {
+            if (!terminalStates.includes(fresh.status)) {
+              setActiveTask(fresh);
+            } else {
+              localStorage.removeItem(activeTaskIdKey(roleRef.current));
+            }
+          })
+          .catch(() => localStorage.removeItem(activeTaskIdKey(roleRef.current)));
       });
-  }, [profile]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [profile, identity?.pubKeyHex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <TaskContext.Provider
       value={{
         activeTask, setActiveTask,
+        completedTask, clearCompletedTask,
         estimate, setEstimate,
         origin, setOrigin,
         destination, setDestination,

@@ -12,6 +12,7 @@ process.env.DISABLE_REDIS = 'true';
 process.env.DISABLE_WS = 'true';
 process.env.PAYMENT_PROVIDER = 'demo';
 process.env.ENABLE_NIP98_AUTH = 'true';
+process.env.ENABLE_RATE_LIMITING = 'false';
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -87,8 +88,11 @@ test('full stake lifecycle: create → rider-stake → driver-accept → driver-
   const steps = await driveToActive(rideId);
 
   assert.equal(steps.created.body.stakeAmount, EXPECTED_RIDER_STAKE);
-  assert.ok(steps.created.body.invoice, 'create returns a stake invoice');
-  assert.equal(steps.riderStaked.body.proof.kind, 30502, 'stake lock proof is a kind 30502 event');
+  // create no longer returns a decorative invoice; the real invoice (if the
+  // rail needs one) is issued at the rider-stake step.
+  assert.ok(!steps.created.body.invoice, 'create must not return a decorative invoice');
+  assert.equal(steps.created.body.next, `/rides/${rideId}/rider-stake`);
+  assert.equal(steps.riderStaked.body.proof.kind, 30532, 'stake lock proof is a kind 30532 event');
 
   const completed = await post(`/rides/${rideId}/complete`, {}, driverPriv);
   assert.equal(completed.status, 200, JSON.stringify(completed.body));
@@ -96,7 +100,7 @@ test('full stake lifecycle: create → rider-stake → driver-accept → driver-
   assert.equal(completed.body.driverStakeReleased, true);
   assert.equal(completed.body.releases.length, 2, 'both release proofs present');
   for (const release of completed.body.releases) {
-    assert.equal(release.kind, 30520, 'release proof is a kind 30520 event');
+    assert.equal(release.kind, 30533, 'release proof is a kind 30533 event');
   }
 });
 
@@ -131,5 +135,7 @@ test('completing a ride twice fails cleanly', async () => {
   assert.equal(first.status, 200);
 
   const second = await post(`/rides/${rideId}/complete`, {}, driverPriv);
-  assert.equal(second.status, 500, 'second completion must not silently succeed');
+  // The session is finalised and removed on first completion, so a repeat
+  // is a clean 404 rather than a double-settlement.
+  assert.equal(second.status, 404, 'second completion must not silently succeed');
 });

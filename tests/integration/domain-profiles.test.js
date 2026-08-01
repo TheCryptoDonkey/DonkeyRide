@@ -101,7 +101,9 @@ test('validateProfile applies defaults for optional fields', () => {
   assert.equal(profile.stakingModel.providerStakePercent, 0.15);
   assert.equal(profile.encryptionRequired, false);
   assert.equal(profile.features.navigation, true);
-  assert.equal(profile.eventKinds.request, 30500);
+  assert.equal(profile.eventKinds.taskAnnouncement, 37500);
+  assert.equal(profile.eventKinds.rating, 30520);
+  assert.equal(profile.eventKinds.stakeLock, 30532);
 });
 
 test('validateProfile applies default labels when none provided', () => {

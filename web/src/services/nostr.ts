@@ -1,4 +1,4 @@
-import type { NostrIdentity } from '../types/nostr';
+import type { NostrIdentity, NostrEvent } from '../types/nostr';
 
 const REQUESTER_KEY = 'donkeyride.requesterPrivKey';
 const PROVIDER_KEY = 'donkeyride.providerPrivKey';
@@ -6,6 +6,9 @@ const PROVIDER_KEY = 'donkeyride.providerPrivKey';
 // Legacy keys for backward compatibility
 const LEGACY_RIDER_KEY = 'donkeyride.riderPrivKey';
 const LEGACY_DRIVER_KEY = 'donkeyride.driverPrivKey';
+
+/** Flag set when a stored identity could not be read and a new one was created */
+const RECOVERY_FLAG_KEY = 'donkeyride.identityRecovered';
 
 /** Generate a random 32-byte hex key */
 function generateRandomHex(): string {
@@ -26,9 +29,26 @@ export function bytesToHex(bytes: Uint8Array): string {
 }
 
 /**
+ * If a stored identity was unreadable and replaced, returns the ISO timestamp
+ * of when that happened. The Header and ProfilePage surface this to the user.
+ */
+export function getIdentityRecoveryNotice(): string | null {
+  return localStorage.getItem(RECOVERY_FLAG_KEY);
+}
+
+/** Clear the identity-recovery notice (user has acknowledged it) */
+export function clearIdentityRecoveryNotice(): void {
+  localStorage.removeItem(RECOVERY_FLAG_KEY);
+}
+
+/**
  * Load or create a Nostr identity from localStorage.
  * Uses nostr-tools dynamically to avoid bundling issues.
  * Falls back to legacy storage keys for backward compatibility.
+ *
+ * A corrupt stored key is never silently discarded: it is preserved under
+ * `<storageKey>.corrupt-<timestamp>` and a recovery flag is set so the UI
+ * can tell the user to restore from backup.
  */
 export async function loadOrCreateIdentity(
   storageKey: string,
@@ -57,7 +77,12 @@ export async function loadOrCreateIdentity(
     const npub = nip19.npubEncode(pubKeyHex);
     return { privKeyHex, pubKeyHex, npub };
   } catch {
-    // Key was corrupted — regenerate
+    // Key was corrupted — preserve it for manual recovery, flag it, then
+    // create a fresh identity so the app can still function.
+    const timestamp = Date.now();
+    localStorage.setItem(`${storageKey}.corrupt-${timestamp}`, privKeyHex);
+    localStorage.setItem(RECOVERY_FLAG_KEY, new Date(timestamp).toISOString());
+
     privKeyHex = generateRandomHex();
     localStorage.setItem(storageKey, privKeyHex);
     const pubKeyHex = getPublicKey(hexToBytes(privKeyHex));
@@ -76,6 +101,42 @@ export function loadProviderIdentity(): Promise<NostrIdentity> {
   return loadOrCreateIdentity(PROVIDER_KEY, LEGACY_DRIVER_KEY);
 }
 
+/** Sign an arbitrary event template with the given private key */
+export async function signNostrEvent(
+  template: { kind: number; created_at: number; tags: string[][]; content: string },
+  privKeyHex: string,
+): Promise<NostrEvent> {
+  const { finalizeEvent } = await import('nostr-tools');
+  return finalizeEvent(template, hexToBytes(privKeyHex));
+}
+
+/**
+ * Create a signed NIP-98 auth event (kind 27235) for the given URL/method.
+ * Used for HTTP Authorization headers and the WebSocket auth handshake.
+ */
+export function createNip98Event(
+  url: string,
+  method: string,
+  privKeyHex: string,
+): Promise<NostrEvent> {
+  // created_at has 1s granularity; the nonce keeps two rapid mutating
+  // requests from producing the same event id, which the operator's
+  // single-use replay guard would otherwise reject as a replay.
+  const nonce =
+    (globalThis.crypto?.randomUUID?.() ??
+      `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  return signNostrEvent({
+    kind: 27235,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [
+      ['u', url],
+      ['method', method.toUpperCase()],
+      ['nonce', nonce],
+    ],
+    content: '',
+  }, privKeyHex);
+}
+
 /**
  * Create a NIP-98 auth header event.
  * Returns base64-encoded signed event for the Authorization header.
@@ -85,20 +146,7 @@ export async function createNip98Auth(
   method: string,
   privKeyHex: string,
 ): Promise<string> {
-  const { finalizeEvent } = await import('nostr-tools');
-  const privBytes = hexToBytes(privKeyHex);
-
-  const eventTemplate = {
-    kind: 27235,
-    created_at: Math.floor(Date.now() / 1000),
-    tags: [
-      ['u', url],
-      ['method', method.toUpperCase()],
-    ],
-    content: '',
-  };
-
-  const signedEvent = finalizeEvent(eventTemplate, privBytes);
+  const signedEvent = await createNip98Event(url, method, privKeyHex);
   return btoa(JSON.stringify(signedEvent));
 }
 

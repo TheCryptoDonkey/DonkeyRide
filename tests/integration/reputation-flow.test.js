@@ -48,7 +48,7 @@ function encodeAuthHeader(event) {
 
 function buildRatingEvent(rideId, targetHex, ratingValue) {
   const event = {
-    kind: 30530,
+    kind: 30520,
     created_at: Math.floor(Date.now() / 1000),
     tags: [
       ['ride', rideId],
@@ -73,7 +73,7 @@ function buildPanicEvent(rideId, targetHex) {
     tags.push(['p', targetHex.toLowerCase()]);
   }
   const event = {
-    kind: 30560,
+    kind: 30540,
     created_at: Math.floor(Date.now() / 1000),
     tags,
     content: 'integration-test'
@@ -270,7 +270,7 @@ test('locksmith-domain ratings work with role=customer', async () => {
 
     // Build a rating event with role='customer' (locksmith domain requester role)
     const ratingEvent = {
-      kind: 30530,
+      kind: 30520,
       created_at: Math.floor(Date.now() / 1000),
       tags: [
         ['ride', completedTask.id],
@@ -296,7 +296,7 @@ test('locksmith-domain ratings work with role=customer', async () => {
     // Also verify a locksmith (provider) can rate back with role='locksmith'
     reputation.clearCacheFor(riderPubKey);
     const providerRatingEvent = {
-      kind: 30530,
+      kind: 30520,
       created_at: Math.floor(Date.now() / 1000),
       tags: [
         ['ride', completedTask.id],
@@ -358,7 +358,7 @@ test('locksmith-domain panic events work with role=customer', async () => {
 
     // Build a panic event with role='customer'
     const panicEvent = {
-      kind: 30560,
+      kind: 30540,
       created_at: Math.floor(Date.now() / 1000),
       tags: [
         ['ride', activeTask.id],

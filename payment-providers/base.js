@@ -105,7 +105,7 @@ class PaymentProvider {
      * Create Nostr event for stake proof
      * @param {string} action - 'locked'|'released'|'forfeited'
      * @param {Object} details - Stake details
-     * @returns {Object} Nostr event (kind 30502 or 30520)
+     * @returns {Object} Nostr event (kind 30532 lock / 30533 settlement)
      */
     createStakeEvent(action, details) {
         const baseEvent = {
@@ -120,7 +120,7 @@ class PaymentProvider {
 
         if (action === 'locked') {
             return {
-                kind: 30502,
+                kind: 30532,
                 ...baseEvent,
                 tags: [
                     ...baseEvent.tags,
@@ -137,7 +137,7 @@ class PaymentProvider {
             };
         } else if (action === 'released') {
             return {
-                kind: 30520,
+                kind: 30533,
                 ...baseEvent,
                 tags: [
                     ...baseEvent.tags,
@@ -149,7 +149,7 @@ class PaymentProvider {
             };
         } else if (action === 'forfeited') {
             return {
-                kind: 30521,
+                kind: 30533,
                 ...baseEvent,
                 tags: [
                     ...baseEvent.tags,
@@ -201,7 +201,7 @@ class PaymentProvider {
  * @property {number} amount - Amount locked in sats
  * @property {number} lockedAt - Timestamp of lock
  * @property {Object} proof - Cryptographic proof
- * @property {Object} event - Nostr event (kind 30502)
+ * @property {Object} event - Nostr event (kind 30532)
  */
 
 /**
@@ -211,7 +211,7 @@ class PaymentProvider {
  * @property {number} amount - Amount released in sats
  * @property {number} releasedAt - Timestamp of release
  * @property {Object} proof - Release proof
- * @property {Object} event - Nostr event (kind 30520)
+ * @property {Object} event - Nostr event (kind 30533)
  */
 
 /**
@@ -220,7 +220,7 @@ class PaymentProvider {
  * @property {number} penalty - Penalty amount (to other party)
  * @property {number} refund - Refund amount (to cancelling party)
  * @property {string} reason - Cancellation reason
- * @property {Object} event - Nostr event (kind 30521)
+ * @property {Object} event - Nostr event (kind 30533)
  */
 
 /**

@@ -16,14 +16,16 @@ export function DualPrice({ sats, size = 'md', className }: DualPriceProps) {
     lg: 'text-xl',
   };
 
+  const fiat = satsToFiat(sats, prices);
+
   return (
     <span className={`inline-flex items-baseline gap-2 ${className || ''}`}>
       <span className={`text-sats ${sizeClasses[size]}`}>
         {formatSats(sats)} sats
       </span>
-      {prices && (
+      {fiat && (
         <span className="text-fiat">
-          ({satsToFiat(sats, prices)})
+          ({fiat})
         </span>
       )}
     </span>
