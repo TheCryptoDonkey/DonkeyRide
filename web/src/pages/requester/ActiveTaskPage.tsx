@@ -8,6 +8,7 @@ import { DualPrice } from '../../components/common/DualPrice';
 import { PanicButton } from '../../components/safety/PanicButton';
 import { Loading } from '../../components/common/Loading';
 import { TaskStakePanel } from '../../components/payment/TaskStakePanel';
+import { PayDriver } from '../../components/payment/PayDriver';
 import { showToast } from '../../components/common/Toast';
 import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
@@ -97,6 +98,13 @@ export function ActiveTaskPage() {
       case 'provider_arrived':
       case 'task_started':
       case 'task_completed':
+        void refreshTask();
+        break;
+      case 'settlement_declared':
+        void refreshTask();
+        break;
+      case 'settlement_confirmed':
+        showToast('Payment confirmed');
         void refreshTask();
         break;
       case 'task_cancelled':
@@ -246,6 +254,11 @@ export function ActiveTaskPage() {
 
         {/* Stake — only on rails that support custody (never cash) */}
         <TaskStakePanel task={activeTask} role="requester" />
+
+        {/* Pay the driver directly — once the job is under way */}
+        {activeTask.status === activeValue && (
+          <PayDriver task={activeTask} settlement={activeTask.settlement} />
+        )}
 
         {/* Quote review — requester sees when provider has submitted a quote */}
         {profile?.features.quoteNegotiation && activeTask.quote &&

@@ -4,6 +4,7 @@ import {
   encodeNsec, importIdentity,
   getIdentityRecoveryNotice, clearIdentityRecoveryNotice,
 } from '../../services/nostr';
+import { PaymentMethodsEditor } from '../../components/payment/PaymentMethodsEditor';
 
 interface ProfilePageProps {
   role: 'requester' | 'provider';
@@ -163,6 +164,9 @@ export function ProfilePage({ role }: ProfilePageProps) {
           Replace identity on this device
         </button>
       </div>
+
+      {/* Provider only: accepted payment methods (non-custodial, direct) */}
+      {role === 'provider' && <PaymentMethodsEditor />}
     </div>
   );
 }

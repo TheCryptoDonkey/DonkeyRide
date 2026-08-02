@@ -115,6 +115,17 @@ export function normaliseWsMessage(raw: any): WsMessage | null {
         reason: raw.reason,
       };
 
+    case 'settlement_declared':
+      return {
+        type: 'settlement_declared',
+        taskId,
+        rail: raw.rail,
+        verified: raw.verified === true || raw.verified === 'true',
+      };
+
+    case 'settlement_confirmed':
+      return { type: 'settlement_confirmed', taskId, rail: raw.rail };
+
     case WS_PROTOCOL.taskBroadcast:
     case 'task_request':
       return {

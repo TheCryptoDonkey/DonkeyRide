@@ -7,6 +7,8 @@ import { StatusBadge } from '../../components/common/StatusBadge';
 import { DualPrice } from '../../components/common/DualPrice';
 import { PanicButton } from '../../components/safety/PanicButton';
 import { TaskStakePanel } from '../../components/payment/TaskStakePanel';
+import { PaymentMethodsEditor } from '../../components/payment/PaymentMethodsEditor';
+import { ConfirmReceipt } from '../../components/payment/ConfirmReceipt';
 import { showToast } from '../../components/common/Toast';
 import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
@@ -50,6 +52,7 @@ export function ActiveTaskPage() {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [declaredRail, setDeclaredRail] = useState<string | null>(null);
 
   const originLabel = profile?.labels?.originLabel || 'Pickup';
   const destinationLabel = profile?.labels?.destinationLabel || 'Dropoff';
@@ -99,6 +102,14 @@ export function ActiveTaskPage() {
         break;
       case 'tip_sent':
         showToast('Tip received');
+        break;
+      case 'settlement_declared':
+        setDeclaredRail(msg.rail || null);
+        showToast('Rider says they have paid');
+        void refreshTask();
+        break;
+      case 'settlement_confirmed':
+        void refreshTask();
         break;
       case 'task_cancelled':
         showToast(`${taskNoun} cancelled`, { type: 'error' });
@@ -280,6 +291,18 @@ export function ActiveTaskPage() {
 
         {/* Stake — only on rails that support custody (never cash) */}
         <TaskStakePanel task={activeTask} role="provider" />
+
+        {/* Non-custodial settlement: confirm the rider's direct payment */}
+        <ConfirmReceipt
+          task={activeTask}
+          settlement={activeTask.settlement}
+          declaredRail={declaredRail}
+        />
+
+        {/* Accepted payment methods for this job (rider pays the driver direct) */}
+        {!isTerminal && (
+          <PaymentMethodsEditor rideId={activeTask.id} />
+        )}
 
         {/* Quote negotiation — provider submits quote after arrival */}
         {profile?.features.quoteNegotiation &&

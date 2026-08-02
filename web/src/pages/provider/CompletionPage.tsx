@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DualPrice } from '../../components/common/DualPrice';
 import { StarRating } from '../../components/rating/StarRating';
+import { ConfirmReceipt } from '../../components/payment/ConfirmReceipt';
 import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { useDomain } from '../../context/DomainContext';
@@ -80,6 +81,9 @@ export function CompletionPage() {
             </p>
           )}
         </div>
+
+        {/* Non-custodial settlement: confirm the rider's direct payment */}
+        <ConfirmReceipt task={task} settlement={task.settlement} />
 
         {/* Rating */}
         {!submitted ? (

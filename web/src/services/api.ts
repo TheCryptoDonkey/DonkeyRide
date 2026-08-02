@@ -1,6 +1,8 @@
 import type {
   Task, TaskQuote, TripEstimate, AvailableProvider, BtcPrices,
   OperatorInfo, Reputation, LatLng, SettlementInfo,
+  SettlementRail, PaymentMethod, PaymentOptions, PayInstruction,
+  SettlementProof, SettlementRecord,
 } from '../types/api';
 import type { DomainProfile } from '../types/domain';
 import { createNip98Auth, signNostrEvent } from './nostr';
@@ -98,8 +100,11 @@ function normaliseSettlement(raw: any): SettlementInfo | undefined {
   const amount = raw.amount_sats ?? raw.amountSats ?? raw.amount;
   return {
     amountSats: typeof amount === 'number' ? amount : undefined,
-    method: raw.method ?? undefined,
+    method: raw.method ?? raw.rail ?? undefined,
+    rail: raw.rail ?? raw.method ?? undefined,
     status: raw.status ?? undefined,
+    verified: raw.verified === true,
+    confirmedByProvider: raw.confirmedByProvider === true,
   };
 }
 
@@ -132,7 +137,7 @@ export function normaliseTask(raw: any): Task {
       totalPaidSats: r.streaming.totalPaid ?? 0,
       intervalSeconds: 3,
     } : r.streamingPayment,
-    settlement: normaliseSettlement(r.settlement),
+    settlement: normaliseSettlement(r.settlementRecord ?? r.settlement),
     createdAt: r.timestamps?.requested
       ? new Date(r.timestamps.requested).toISOString()
       : r.createdAt || new Date().toISOString(),
@@ -561,6 +566,74 @@ export function confirmProviderStake(taskId: string, params: {
       providerPubkey: params.providerPubkey,
       driverPubkey: params.providerPubkey,
     }),
+  });
+}
+
+// ── Non-custodial settlement ────────────────────────
+// The operator holds NO funds. The rider pays the driver DIRECTLY over the
+// driver's chosen rail; the operator only advertises accepted rails, resolves
+// a payable artefact, and records/verifies proof. custody is always 'none'.
+
+/** GET /api/settlement/rails — the catalogue of rails a driver can offer */
+export async function getSettlementRails(): Promise<SettlementRail[]> {
+  const raw = await request<{ rails: SettlementRail[] }>('/api/settlement/rails');
+  return raw.rails || [];
+}
+
+/**
+ * POST /api/rides/:id/payment-methods (driver, signed) — declare the rails the
+ * driver accepts for this ride, each with its handle (omit handle for cash).
+ */
+export function setPaymentMethods(rideId: string, params: {
+  methods: PaymentMethod[];
+}): Promise<{ success: boolean; methods: Array<{ rail: string }> }> {
+  return request(`/api/rides/${rideId}/payment-methods`, {
+    method: 'POST',
+    body: JSON.stringify({ methods: params.methods }),
+  });
+}
+
+/** GET /api/rides/:id/payment-options (participant, signed) — the driver's rails */
+export function getPaymentOptions(rideId: string): Promise<PaymentOptions> {
+  return request(`/api/rides/${rideId}/payment-options`);
+}
+
+/**
+ * POST /api/rides/:id/pay-instruction (rider, signed) — resolve a payable
+ * artefact for a rail (e.g. the driver's Lightning Address to a bolt11 the
+ * rider's own wallet pays).
+ */
+export function getPayInstruction(rideId: string, params: {
+  rail: string;
+}): Promise<PayInstruction> {
+  return request(`/api/rides/${rideId}/pay-instruction`, {
+    method: 'POST',
+    body: JSON.stringify({ rail: params.rail }),
+  });
+}
+
+/**
+ * POST /api/rides/:id/settle (rider, signed) — submit proof of a direct
+ * payment: {preimage} for lightning/tando, {confirmationCode} for mpesa, {}
+ * for cash.
+ */
+export function settleRide(rideId: string, params: {
+  rail: string;
+  proof: SettlementProof;
+}): Promise<{ success: boolean; settlement: SettlementRecord }> {
+  return request(`/api/rides/${rideId}/settle`, {
+    method: 'POST',
+    body: JSON.stringify({ rail: params.rail, proof: params.proof }),
+  });
+}
+
+/** POST /api/rides/:id/confirm-received (driver, signed) — confirm funds arrived */
+export function confirmReceived(rideId: string): Promise<{
+  success: boolean; settlement: SettlementRecord;
+}> {
+  return request(`/api/rides/${rideId}/confirm-received`, {
+    method: 'POST',
+    body: JSON.stringify({}),
   });
 }
 

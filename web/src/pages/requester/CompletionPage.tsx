@@ -3,13 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { DualPrice } from '../../components/common/DualPrice';
 import { StarRating } from '../../components/rating/StarRating';
 import { TipSelector } from '../../components/payment/TipSelector';
+import { PayDriver } from '../../components/payment/PayDriver';
 import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { useDomain } from '../../context/DomainContext';
-import { submitRating, sendTip, getOperatorInfoCached } from '../../services/api';
+import { submitRating, sendTip, getOperatorInfoCached, getTask } from '../../services/api';
 import { GuaranteeBanner } from '../../components/task/GuaranteeBanner';
 import { formatDistance, formatDuration } from '../../services/pricing';
-import type { OperatorPaymentInfo } from '../../types/api';
+import type { OperatorPaymentInfo, SettlementInfo } from '../../types/api';
 
 export function CompletionPage() {
   const navigate = useNavigate();
@@ -23,6 +24,7 @@ export function CompletionPage() {
   const [error, setError] = useState<string | null>(null);
   const [tipError, setTipError] = useState<string | null>(null);
   const [payment, setPayment] = useState<OperatorPaymentInfo | null>(null);
+  const [liveSettlement, setLiveSettlement] = useState<SettlementInfo | null>(null);
 
   const taskNoun = profile?.labels?.taskNoun || 'task';
   const completedLabel = profile?.labels?.completedLabel || 'Complete';
@@ -36,6 +38,22 @@ export function CompletionPage() {
 
   // Survive a refresh: fall back to the stored terminal task until Done
   const task = activeTask ?? completedTask;
+  const settlement = liveSettlement ?? task?.settlement ?? null;
+  const settlementConfirmed = settlement?.status === 'confirmed' || settlement?.confirmedByProvider === true;
+
+  // Poll for the driver's receipt confirmation while payment is unconfirmed.
+  useEffect(() => {
+    if (!task || settlementConfirmed) return;
+    const timer = setInterval(async () => {
+      try {
+        const fresh = await getTask(task.id);
+        if (fresh.settlement) setLiveSettlement(fresh.settlement);
+      } catch {
+        // Ignore — next tick retries
+      }
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [task?.id, settlementConfirmed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDone = () => {
     clearCompletedTask();
@@ -141,6 +159,9 @@ export function CompletionPage() {
             taskNoun={taskNoun}
           />
         )}
+
+        {/* Pay the driver directly (non-custodial) */}
+        <PayDriver task={task} settlement={settlement} />
 
         {/* Rating */}
         {!submitted ? (

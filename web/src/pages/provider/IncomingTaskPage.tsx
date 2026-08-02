@@ -8,7 +8,8 @@ import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { useLocation } from '../../hooks/useLocation';
 import { useDomain } from '../../context/DomainContext';
-import { acceptTask, ApiError } from '../../services/api';
+import { acceptTask, setPaymentMethods, ApiError } from '../../services/api';
+import { getSavedPaymentMethods } from '../../utils/payment-methods';
 import { formatDistance, formatDuration } from '../../services/pricing';
 
 export function IncomingTaskPage() {
@@ -40,6 +41,14 @@ export function IncomingTaskPage() {
         providerLocation: location,
       });
       setActiveTask(updated);
+
+      // Best-effort: advertise the driver's saved payment methods on this ride
+      // so the rider can pay directly. Never blocks accepting the job.
+      const savedMethods = getSavedPaymentMethods();
+      if (savedMethods.length > 0) {
+        void setPaymentMethods(updated.id, { methods: savedMethods }).catch(() => {});
+      }
+
       navigate('/provide/active');
     } catch (err) {
       // Losing a simultaneous-accept race is normal — say so honestly

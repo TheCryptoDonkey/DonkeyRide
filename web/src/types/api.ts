@@ -36,7 +36,86 @@ export interface Task {
 export interface SettlementInfo {
   amountSats?: number;
   method?: string;
+  /** Non-custodial rail id (lnaddress|tando|mpesa|cash) */
+  rail?: string;
   status?: string;
+  /** True when the operator cryptographically verified the payment (e.g. preimage) */
+  verified?: boolean;
+  /** True once the driver has confirmed they received the funds */
+  confirmedByProvider?: boolean;
+}
+
+// ── Non-custodial settlement (rider pays the driver directly) ──
+
+/** A rail from the driver's picker catalogue (GET /api/settlement/rails) */
+export interface SettlementRail {
+  id: string;
+  label: string;
+  handleLabel: string | null;
+  handleHint: string | null;
+  settles: string;
+  custody: string;
+}
+
+/** An accepted payment method: a rail plus the driver's handle for it */
+export interface PaymentMethod {
+  rail: string;
+  /** Omitted/null for cash */
+  handle?: string | null;
+}
+
+/** GET /api/rides/:id/payment-options — what the rider can pay on */
+export interface PaymentOptions {
+  fare: number | null;
+  currency: string;
+  custody: 'none';
+  settlement: 'peer-to-peer';
+  methods: PaymentMethod[];
+}
+
+/**
+ * POST /api/rides/:id/pay-instruction — a payable artefact for a chosen rail.
+ * Fields present depend on the rail: lightning/tando carry an invoice, mpesa a
+ * number, cash just an amount. Never implies operator custody (custody:'none').
+ */
+export interface PayInstruction {
+  rail: string;
+  label?: string;
+  custody?: string;
+  operator_transmitted?: number;
+  verifyMethod: 'preimage' | 'confirmation_code' | 'manual';
+  instructions: string;
+  currency?: string;
+  // Lightning / Tando
+  invoice?: string;
+  paymentHash?: string | null;
+  payLink?: string;
+  lnAddress?: string;
+  amountSats?: number;
+  verifyUrl?: string | null;
+  // M-Pesa
+  mpesaNumber?: string;
+  amount?: number;
+  // Cash
+}
+
+/** Proof supplied to POST /api/rides/:id/settle, per rail */
+export interface SettlementProof {
+  preimage?: string;
+  confirmationCode?: string;
+}
+
+/** The settlement record returned by /settle and /confirm-received */
+export interface SettlementRecord {
+  rail: string;
+  custody: string;
+  settlement?: string;
+  verified?: boolean;
+  status?: string;
+  detail?: string | null;
+  confirmationCode?: string | null;
+  confirmedByProvider?: boolean;
+  declaredBy?: string;
 }
 
 export interface TaskQuote {
@@ -160,5 +239,7 @@ export type WsMessage =
   | { type: 'tip_sent'; taskId?: string; amountSats?: number }
   | { type: 'task_cancelled'; taskId?: string; cancelledBy?: string; reason?: string }
   | { type: 'task_broadcast'; task: Record<string, unknown>; distanceKm?: number }
+  | { type: 'settlement_declared'; taskId?: string; rail?: string; verified?: boolean }
+  | { type: 'settlement_confirmed'; taskId?: string; rail?: string }
   | { type: 'auth_ok'; pubkey: string }
   | { type: 'error'; error: string };
