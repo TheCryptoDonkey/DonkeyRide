@@ -18,12 +18,15 @@
  *      an encrypted kind 23195 response e-tagged to the request.
  *   4 is the whole protocol. Everything else is your node + your policy.
  *
- * Lightning backend:
- *   - real: LND via ln-service — set LND_SOCKET, LND_MACAROON (hex or path),
+ * Lightning backend (pick one, else demo):
+ *   - phoenixd (ACINQ): set PHOENIXD_URL (e.g. http://127.0.0.1:9740) and
+ *     PHOENIXD_PASSWORD (the http-password from ~/.phoenix/phoenix.conf).
+ *     Self-custodial; /payinvoice returns the preimage directly.
+ *   - LND via ln-service: set LND_SOCKET, LND_MACAROON (hex or path),
  *     LND_CERT (base64 or path).
- *   - demo (default when no LND is configured): make_invoice/get_balance work
+ *   - demo (default when nothing is configured): make_invoice/get_balance work
  *     against an in-memory stub; pay_invoice returns a RANDOM preimage that will
- *     NOT match the invoice hash — good for testing the transport, useless for
+ *     NOT match the invoice hash. Good for testing the transport, useless for
  *     real settlement (the operator's preimage check correctly rejects it).
  *
  * Modes:
@@ -31,7 +34,8 @@
  *   node scripts/nwc-wallet.js              # go live: print the connection string and serve
  *
  * Env: NWC_RELAY (default wss://relay.getalby.com/v1), WALLET_SECRET (hex, else
- * generated), NWC_CLIENT_SECRET (hex, else generated), BUDGET_SATS (default 10000).
+ * generated), NWC_CLIENT_SECRET (hex, else generated), BUDGET_SATS (default 10000),
+ * plus the backend vars above (PHOENIXD_URL/PHOENIXD_PASSWORD or LND_*).
  *
  * Requires Node >= 21 (global WebSocket; ws is polyfilled otherwise) and the web
  * workspace's nostr-tools v2 (same NIP-44 as the client).
@@ -45,14 +49,23 @@ if (!globalThis.WebSocket) {
   try { globalThis.WebSocket = require('ws'); } catch { /* Node >= 21 has it natively */ }
 }
 
-// Use the SAME nostr-tools the client uses, so the NIP-44 crypto matches exactly.
-let tools;
-try {
-  tools = require(path.join(__dirname, '..', 'web', 'node_modules', 'nostr-tools'));
-} catch (e) {
-  console.error('This tool needs the web workspace installed (nostr-tools v2). Run: (cd web && npm install)');
+// Use nostr-tools v2 (the client's crypto). The root package is v1, so prefer the
+// web workspace copy, then any v2 resolvable by name (npm i nostr-tools@^2 ws).
+function requireNostrToolsV2() {
+  const candidates = [
+    () => require(path.join(__dirname, '..', 'web', 'node_modules', 'nostr-tools')),
+    () => require('nostr-tools'),
+  ];
+  for (const load of candidates) {
+    try {
+      const t = load();
+      if (t && typeof t.finalizeEvent === 'function' && t.nip44 && typeof t.nip44.getConversationKey === 'function') return t;
+    } catch { /* try next */ }
+  }
+  console.error('Needs nostr-tools v2. Install it: (cd web && npm install)  OR  npm install nostr-tools@^2 ws');
   process.exit(2);
 }
+const tools = requireNostrToolsV2();
 const { generateSecretKey, getPublicKey, finalizeEvent, nip44, nip19, SimplePool } = tools;
 
 const KIND_INFO = 13194;
@@ -74,65 +87,140 @@ const clientPk = getPublicKey(clientSk);
 // One conversation key per (wallet, client) pair — NIP-44 is symmetric.
 const convKey = nip44.getConversationKey(walletSk, clientPk);
 
-// ── Lightning backend ────────────────────────────────────────
-function loadLnd() {
-  const socket = process.env.LND_SOCKET;
-  if (!socket) return null; // demo mode
+// ── Lightning backend (pluggable) ────────────────────────────
+// A backend implements payInvoice/makeInvoice/balanceMsat/info. Wire amounts are
+// MSATS (NIP-47); nodes speak sats, so we convert at the boundary.
+
+/** Amount of a bolt11 in sats, parsed offline (for the budget check). */
+function invoiceSats(invoice, fallbackMsat = 0) {
+  try {
+    const { parsePaymentRequest } = require('ln-service');
+    return parsePaymentRequest({ request: invoice }).tokens;
+  } catch {
+    return Math.ceil((fallbackMsat || 0) / 1000);
+  }
+}
+
+/** phoenixd (ACINQ) over its HTTP API. Basic auth, empty user + http-password. */
+function phoenixdBackend(url, password) {
+  const base = url.replace(/\/$/, '');
+  const auth = 'Basic ' + Buffer.from(':' + password).toString('base64');
+  async function call(path, method, form) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60000);
+    try {
+      const res = await fetch(base + path, {
+        method,
+        headers: { Authorization: auth, ...(form ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}) },
+        body: form ? new URLSearchParams(form).toString() : undefined,
+        signal: ctrl.signal,
+      });
+      const text = await res.text();
+      let body; try { body = JSON.parse(text); } catch { body = text; }
+      if (!res.ok) throw { code: 'PAYMENT_FAILED', message: (body && body.message) || String(body).slice(0, 200) || `phoenixd ${res.status}` };
+      return body;
+    } finally { clearTimeout(timer); }
+  }
+  return {
+    name: 'phoenixd',
+    async payInvoice(invoice) {
+      const r = await call('/payinvoice', 'POST', { invoice });
+      if (!r.paymentPreimage) throw { code: 'PAYMENT_FAILED', message: 'phoenixd returned no preimage' };
+      return { preimage: r.paymentPreimage, fees_paid: (r.routingFeeSat || 0) * 1000 };
+    },
+    async makeInvoice(amountSat, description) {
+      const r = await call('/createinvoice', 'POST', { amountSat: String(amountSat), description: description || '' });
+      return { invoice: r.serialized, payment_hash: r.paymentHash };
+    },
+    async balanceMsat() {
+      const r = await call('/getbalance', 'GET');
+      return (r.balanceSat || 0) * 1000;
+    },
+    async info() {
+      const r = await call('/getinfo', 'GET');
+      return { pubkey: r.nodeId, network: r.chain, block_height: r.blockHeight, methods: METHODS };
+    },
+  };
+}
+
+/** LND via ln-service. */
+function lndBackend() {
   const lnService = require('ln-service');
   const readMaybe = (v, enc) => (v && fs.existsSync(v) ? fs.readFileSync(v).toString(enc) : v);
-  const cert = readMaybe(process.env.LND_CERT, 'base64');
-  const macaroon = readMaybe(process.env.LND_MACAROON, 'hex');
-  const { lnd } = lnService.authenticatedLndGrpc({ socket, cert, macaroon });
-  return { lnService, lnd };
+  const { lnd } = lnService.authenticatedLndGrpc({
+    socket: process.env.LND_SOCKET,
+    cert: readMaybe(process.env.LND_CERT, 'base64'),
+    macaroon: readMaybe(process.env.LND_MACAROON, 'hex'),
+  });
+  return {
+    name: 'lnd',
+    async payInvoice(invoice) {
+      const r = await lnService.payViaPaymentRequest({ lnd, request: invoice });
+      return { preimage: r.secret, fees_paid: (r.fee || 0) * 1000 };
+    },
+    async makeInvoice(amountSat, description) {
+      const inv = await lnService.createInvoice({ lnd, tokens: amountSat, description: description || '' });
+      return { invoice: inv.request, payment_hash: inv.id };
+    },
+    async balanceMsat() {
+      const b = await lnService.getChannelBalance({ lnd });
+      return (b.channel_balance || 0) * 1000;
+    },
+    async info() {
+      const i = await lnService.getWalletInfo({ lnd });
+      return { pubkey: i.public_key, alias: i.alias, block_height: i.current_block_height, methods: METHODS };
+    },
+  };
 }
-const LND = loadLnd();
+
+function loadBackend() {
+  if (process.env.PHOENIXD_URL) {
+    if (!process.env.PHOENIXD_PASSWORD) { console.error('PHOENIXD_URL is set but PHOENIXD_PASSWORD is missing.'); process.exit(2); }
+    return phoenixdBackend(process.env.PHOENIXD_URL, process.env.PHOENIXD_PASSWORD);
+  }
+  if (process.env.LND_SOCKET) return lndBackend();
+  return null; // demo
+}
+const backend = loadBackend();
 let spentSats = 0;
 
-/** Run a NIP-47 method against the Lightning backend. Returns the result object
- *  or throws {code,message}. Amounts on the wire are MSATS (NIP-47). */
+/** Run a NIP-47 method against the backend. Returns the result or throws
+ *  {code,message}. Amounts on the wire are MSATS (NIP-47). */
 async function runMethod(method, params) {
-  // Budget applies to spends regardless of backend.
   if (method === 'pay_invoice') {
     const invoice = params?.invoice;
     if (!invoice) throw { code: 'OTHER', message: 'invoice required' };
-    let tokens = 0;
-    try {
-      const parsed = LND ? LND.lnService.parsePaymentRequest({ request: invoice }) : tools.nip19 && null;
-      tokens = parsed ? parsed.tokens : Math.ceil((params?.amount || 0) / 1000);
-    } catch { tokens = Math.ceil((params?.amount || 0) / 1000); }
+    const tokens = invoiceSats(invoice, params?.amount);
     if (spentSats + tokens > BUDGET_SATS) {
       throw { code: 'QUOTA_EXCEEDED', message: `over budget (${spentSats}+${tokens} > ${BUDGET_SATS} sats)` };
     }
-    if (!LND) {
+    if (!backend) {
       // DEMO: cannot really pay, so return a random preimage (will not verify).
       spentSats += tokens;
       return { preimage: crypto.randomBytes(32).toString('hex') };
     }
-    const res = await LND.lnService.payViaPaymentRequest({ lnd: LND.lnd, request: invoice });
-    spentSats += (res.tokens || tokens);
-    return { preimage: res.secret, fees_paid: (res.fee_mtokens ? Number(res.fee_mtokens) : (res.fee || 0) * 1000) };
+    const r = await backend.payInvoice(invoice, params?.amount);
+    spentSats += tokens;
+    return r;
   }
 
   if (method === 'make_invoice') {
-    const tokens = Math.max(1, Math.ceil((params?.amount || 0) / 1000));
-    if (!LND) {
+    const amountSat = Math.max(1, Math.ceil((params?.amount || 0) / 1000));
+    if (!backend) {
       const id = crypto.randomBytes(32).toString('hex');
-      return { invoice: `lnbc-demo-${tokens}-${id.slice(0, 8)}`, payment_hash: id };
+      return { invoice: `lnbc-demo-${amountSat}-${id.slice(0, 8)}`, payment_hash: id };
     }
-    const inv = await LND.lnService.createInvoice({ lnd: LND.lnd, tokens, description: params?.description || '' });
-    return { invoice: inv.request, payment_hash: inv.id };
+    return backend.makeInvoice(amountSat, params?.description);
   }
 
   if (method === 'get_balance') {
-    if (!LND) return { balance: 5000 * 1000 };
-    const bal = await LND.lnService.getChannelBalance({ lnd: LND.lnd });
-    return { balance: (bal.channel_balance || 0) * 1000 };
+    if (!backend) return { balance: 5000 * 1000 };
+    return { balance: await backend.balanceMsat() };
   }
 
   if (method === 'get_info') {
-    if (!LND) return { alias: 'donkeyride-demo-wallet', network: 'regtest', methods: METHODS };
-    const info = await LND.lnService.getWalletInfo({ lnd: LND.lnd });
-    return { alias: info.alias, pubkey: info.public_key, network: (info.chains || []).length ? 'bitcoin' : 'unknown', block_height: info.current_block_height, methods: METHODS };
+    if (!backend) return { alias: 'donkeyride-demo-wallet', network: 'regtest', methods: METHODS };
+    return backend.info();
   }
 
   throw { code: 'NOT_IMPLEMENTED', message: `unsupported method: ${method}` };
@@ -211,7 +299,7 @@ async function selftest() {
 // ── live: publish info, serve requests ───────────────────────
 async function serve() {
   console.log('DonkeyRide NWC wallet service');
-  console.log(`  backend: ${LND ? 'LND (real Lightning)' : 'DEMO (no real payments)'}`);
+  console.log(`  backend: ${backend ? `${backend.name} (real Lightning)` : 'DEMO (no real payments)'}`);
   console.log(`  relay:   ${RELAY}`);
   console.log(`  wallet:  ${walletPk.slice(0, 16)}…   budget: ${BUDGET_SATS} sats\n`);
   console.log('Paste this connection string into a NWC client (e.g. DonkeyRide "Connect wallet"):\n');

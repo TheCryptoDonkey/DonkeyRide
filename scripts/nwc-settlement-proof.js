@@ -29,15 +29,23 @@ if (!globalThis.WebSocket) {
   try { globalThis.WebSocket = require('ws'); } catch { /* Node >= 21 has it natively */ }
 }
 
-// Use the web workspace's nostr-tools v2 (NIP-44 + the finalizeEvent API), the
-// same crypto as the client. A bare require would resolve the root v1 copy.
-let tools;
-try {
-  tools = require(path.join(__dirname, '..', 'web', 'node_modules', 'nostr-tools'));
-} catch (e) {
-  console.error('This tool needs the web workspace installed (nostr-tools v2). Run: (cd web && npm install)');
+// Use nostr-tools v2 (NIP-44 + the finalizeEvent API), the same crypto as the
+// client. The root package is v1, so prefer the web copy, then any resolvable v2.
+function requireNostrToolsV2() {
+  const candidates = [
+    () => require(path.join(__dirname, '..', 'web', 'node_modules', 'nostr-tools')),
+    () => require('nostr-tools'),
+  ];
+  for (const load of candidates) {
+    try {
+      const t = load();
+      if (t && typeof t.finalizeEvent === 'function' && t.nip44 && typeof t.nip44.getConversationKey === 'function') return t;
+    } catch { /* try next */ }
+  }
+  console.error('Needs nostr-tools v2. Install it: (cd web && npm install)  OR  npm install nostr-tools@^2 ws');
   process.exit(2);
 }
+const tools = requireNostrToolsV2();
 const {
   generateSecretKey, getPublicKey, finalizeEvent, nip19, nip44, SimplePool,
 } = tools;
