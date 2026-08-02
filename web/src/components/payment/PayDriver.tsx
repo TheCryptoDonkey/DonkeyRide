@@ -23,6 +23,7 @@ const RAIL_LABELS: Record<string, string> = {
   lightning: 'Lightning',
   tando: 'Tando (Lightning to M-Pesa)',
   mpesa: 'M-Pesa',
+  cashu: 'Cashu (ecash)',
   cash: 'Cash',
 };
 
@@ -345,6 +346,42 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
                 disabled={busy === 'settle' || !confirmationCode.trim()}
               >
                 {busy === 'settle' ? 'Recording…' : 'Submit confirmation code'}
+              </button>
+            </div>
+          )}
+
+          {/* Cashu — the token goes to the driver over E2E chat, never here */}
+          {instruction && selectedRail === 'cashu' && (
+            <div className="space-y-3">
+              <div className="meta-card text-center">
+                <p className="meta-label">Send ecash in the chat</p>
+                <p className="text-lg font-black text-donkey-text mt-1">
+                  {amountSats.toLocaleString()} sats
+                </p>
+              </div>
+              <ol className="text-xs text-donkey-muted list-decimal list-inside space-y-1">
+                <li>Create a Cashu token for {amountSats.toLocaleString()} sats in your own wallet.</li>
+                <li>Paste it to your {providerLabel} in the chat above — it's end-to-end encrypted.</li>
+                <li>They redeem it in their wallet and confirm.</li>
+              </ol>
+              {instruction.paymentRequest && (
+                <div className="meta-card">
+                  <p className="meta-label">Their payment request</p>
+                  <p className="text-xs font-mono text-donkey-text mt-1 break-all">
+                    {instruction.paymentRequest}
+                  </p>
+                </div>
+              )}
+              <p className="text-[11px] text-donkey-muted">
+                The token is the money — only ever send it in the chat, never
+                to the operator.
+              </p>
+              <button
+                className="btn-primary w-full text-sm"
+                onClick={() => doSettle('cashu', {})}
+                disabled={busy === 'settle'}
+              >
+                {busy === 'settle' ? 'Recording…' : "I've sent the token in chat"}
               </button>
             </div>
           )}

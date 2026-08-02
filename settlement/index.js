@@ -9,13 +9,15 @@
 const CashRail = require('./cash');
 const LnAddressRail = require('./lnaddress');
 const MpesaRail = require('./mpesa');
+const CashuRail = require('./cashu');
 
 const RAILS = {
   cash: CashRail,
   lnaddress: LnAddressRail,   // Lightning wallet-to-wallet (LN Address / LNURL)
   lightning: LnAddressRail,   // alias
   tando: LnAddressRail,       // Tando = a Lightning Address that settles to M-Pesa
-  mpesa: MpesaRail
+  mpesa: MpesaRail,
+  cashu: CashuRail            // ecash token, rider->driver over E2E chat
 };
 
 // Public presentation for the driver's "accepted methods" picker.
@@ -23,6 +25,7 @@ const RAIL_CATALOGUE = [
   { id: 'lnaddress', label: 'Lightning', handleLabel: 'Lightning Address', handleHint: 'you@wallet.com', settles: 'Lightning', custody: 'none' },
   { id: 'tando', label: 'Tando (Lightning to M-Pesa)', handleLabel: 'M-Pesa number', handleHint: '2547XXXXXXXX', settles: 'M-Pesa (paid over Lightning)', custody: 'none' },
   { id: 'mpesa', label: 'M-Pesa', handleLabel: 'M-Pesa number', handleHint: '2547XXXXXXXX', settles: 'M-Pesa', custody: 'none' },
+  { id: 'cashu', label: 'Cashu (ecash)', handleLabel: 'Payment request (optional)', handleHint: 'creq... or leave blank', settles: 'Ecash over encrypted chat', custody: 'none' },
   { id: 'cash', label: 'Cash', handleLabel: null, handleHint: null, settles: 'In person', custody: 'none' }
 ];
 
@@ -69,6 +72,11 @@ function normaliseHandle(railId, handle) {
 function validateHandle(railId, handle) {
   const key = (railId || '').toLowerCase();
   if (key === 'cash') return true;
+  if (key === 'cashu') {
+    // The payment request is optional — blank means "any Cashu token"
+    const raw = typeof handle === 'string' ? handle.trim() : '';
+    return raw === '' || CashuRail.isPaymentRequest(raw);
+  }
   if (key === 'mpesa') return MpesaRail.isMpesaNumber(handle);
   if (key === 'tando') {
     return MpesaRail.isMpesaNumber(handle) || LnAddressRail.isLightningAddress(handle);
@@ -82,7 +90,9 @@ function validateHandle(railId, handle) {
  * PII to be shared per-ride only (a phone number).
  */
 function isPublicSafe(railId) {
-  return ['lnaddress', 'lightning', 'tando', 'cash'].includes((railId || '').toLowerCase());
+  // A Cashu payment request is a payment endpoint like a Lightning
+  // Address — safe to publish (the driver's phone number is not)
+  return ['lnaddress', 'lightning', 'tando', 'cash', 'cashu'].includes((railId || '').toLowerCase());
 }
 
 module.exports = { getRail, isKnownRail, listRails, validateHandle, normaliseHandle, isPublicSafe, RAIL_CATALOGUE };

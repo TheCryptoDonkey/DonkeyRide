@@ -206,6 +206,10 @@ reports `custody() === 'none'`.
   that settles to M-Pesa) — proven live against bitcoin.co.ke.
 - `settlement/mpesa.js` — record-only direct Send Money (driver's number, rider
   enters the confirmation code). No paybill/STK/B2C (those are custodial).
+- `settlement/cashu.js` — record-only ecash: the rider sends the Cashu token to
+  the driver over the E2E chat (the token IS the money, so it must never pass
+  through the operator — `verify` refuses a pasted token outright). Driver may
+  advertise an optional NUT-18 payment request (`creq...`, public-safe).
 - `settlement/cash.js`, `settlement/index.js` (registry: getRail/validateHandle/
   normaliseHandle/isPublicSafe/listRails). Tando normalises a bare Kenyan number
   to a bitcoin.co.ke Lightning Address.

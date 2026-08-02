@@ -109,3 +109,34 @@ test('Tando is presented as an M-Pesa number the driver enters directly', () => 
   assert.equal(tando.handleLabel, 'M-Pesa number');
   assert.match(tando.handleHint, /2547/);
 });
+
+test('Cashu is record-only: the handle is optional, a creq validates, junk does not', () => {
+  assert.equal(settlement.validateHandle('cashu', ''), true, 'blank = any Cashu token');
+  assert.equal(settlement.validateHandle('cashu', 'creqAeyJtIjoiaHR0cHMifQ=='), true);
+  assert.equal(settlement.validateHandle('cashu', 'not-a-payment-request'), false);
+  assert.equal(settlement.isPublicSafe('cashu'), true, 'a payment request is a payment endpoint');
+});
+
+test('Cashu instructions route the token through the chat, never the operator', async () => {
+  const rail = settlement.getRail('cashu');
+  const inst = await rail.getPayInstructions({ handle: '', amountSats: 8000 });
+  assert.equal(inst.custody, 'none');
+  assert.equal(inst.operator_transmitted, 0);
+  assert.equal(inst.currency, 'SAT');
+  assert.match(inst.instructions, /chat/i);
+  assert.equal(inst.paymentRequest, undefined);
+
+  const withReq = await rail.getPayInstructions({ handle: 'creqAeyJtIjoiaHR0cHMifQ==', amountSats: 8000 });
+  assert.equal(withReq.paymentRequest, 'creqAeyJtIjoiaHR0cHMifQ==');
+});
+
+test('Cashu REFUSES a token pasted to the operator (custody hazard)', async () => {
+  const rail = settlement.getRail('cashu');
+  const pasted = await rail.verify({ proof: { token: 'EXAMPLE_VALUE' } });
+  assert.equal(pasted.failed, true, 'a pasted token must be refused, not recorded');
+  assert.match(pasted.detail, /never send the Cashu token to the operator/);
+
+  const declared = await rail.verify({ proof: {} });
+  assert.equal(declared.verified, false);
+  assert.equal(declared.failed ?? false, false, 'no proof = declared, awaiting driver confirmation');
+});

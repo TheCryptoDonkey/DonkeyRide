@@ -112,7 +112,7 @@ export interface PayInstruction {
   label?: string;
   custody?: string;
   operator_transmitted?: number;
-  verifyMethod: 'preimage' | 'confirmation_code' | 'manual';
+  verifyMethod: 'preimage' | 'confirmation_code' | 'manual' | 'declared';
   instructions: string;
   currency?: string;
   // Lightning / Tando
@@ -125,7 +125,8 @@ export interface PayInstruction {
   // M-Pesa
   mpesaNumber?: string;
   amount?: number;
-  // Cash
+  // Cashu — optional NUT-18 payment request the driver advertised
+  paymentRequest?: string;
 }
 
 /** Proof supplied to POST /api/rides/:id/settle, per rail */
