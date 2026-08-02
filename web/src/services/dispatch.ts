@@ -7,6 +7,8 @@ import { enableJobPush, disableJobPush } from './push';
 import { subscribeFederatedTasks } from './federation';
 import { startShiftTracking, stopShiftTracking } from './native-location';
 import { loadWorkingAreas, combinedCells } from '../utils/working-areas';
+import { loadDestinationMode, jobMovesToward } from '../utils/destination-mode';
+import type { DestinationMode } from '../utils/destination-mode';
 
 const ONLINE_KEY = 'donkeyride.provider.online';
 const RECONNECT_DELAY_MS = 4000;
@@ -50,6 +52,13 @@ class DispatchService {
   private openPollTimer: ReturnType<typeof setInterval> | null = null;
   /** Working-area geohash cells sent with registration ([] = radius dispatch) */
   private areas: string[] = combinedCells(loadWorkingAreas());
+  /**
+   * Destination mode: when set, only jobs that move the driver toward it
+   * are shown. Client-side only — the destination never leaves the device.
+   * Jobs are still STORED unfiltered, so switching it off (or changing
+   * destination) instantly restores everything already received.
+   */
+  private destination: DestinationMode | null = loadDestinationMode();
   /** Relay subscription for jobs coordinated by OTHER operators */
   private federation: { close: () => void } | null = null;
   /** Native background-location watcher (Capacitor wrap only) */
@@ -109,7 +118,22 @@ class DispatchService {
   getAvailableTasks(): Task[] {
     return Array.from(this.availableTasks.values())
       .sort((a, b) => a.receivedAt - b.receivedAt)
-      .map((entry) => entry.task);
+      .map((entry) => entry.task)
+      .filter((task) => this.matchesDestination(task));
+  }
+
+  private matchesDestination(task: Task): boolean {
+    return !this.destination || jobMovesToward(task, this.destination);
+  }
+
+  /** Set (or clear) destination mode; the visible list updates at once */
+  setDestinationMode(destination: DestinationMode | null): void {
+    this.destination = destination;
+    this.emitAvailable();
+  }
+
+  getDestinationMode(): DestinationMode | null {
+    return this.destination;
   }
 
   /** Subscribe to the available-jobs list — returns unsubscribe */
@@ -302,7 +326,11 @@ class DispatchService {
           receivedAt: this.availableTasks.get(withDistance.id)?.receivedAt ?? Date.now(),
         });
         this.emitAvailable();
-        this.taskHandlers.forEach((handler) => handler(task, msg.distanceKm));
+        // Destination mode: a job heading the wrong way stays out of the
+        // incoming full-screen too (it is stored, in case the mode clears)
+        if (this.matchesDestination(withDistance)) {
+          this.taskHandlers.forEach((handler) => handler(task, msg.distanceKm));
+        }
       }
     };
 

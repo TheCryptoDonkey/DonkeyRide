@@ -11,6 +11,10 @@ import { getTaskStats, getOperatorInfo } from '../../services/api';
 import { dispatchService, type DispatchState } from '../../services/dispatch';
 import { formatDistance } from '../../services/pricing';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
+import { AddressSearch } from '../../components/AddressSearch';
+import {
+  saveDestinationMode, clearDestinationMode, type DestinationMode,
+} from '../../utils/destination-mode';
 import { Capacitor } from '@capacitor/core';
 import type { Task } from '../../types/api';
 
@@ -26,6 +30,16 @@ export function DashboardPage() {
   const [operatorFee, setOperatorFee] = useState<string>('0.5%');
   const [dispatchState, setDispatchState] = useState<DispatchState>(dispatchService.getState());
   const [availableJobs, setAvailableJobs] = useState<Task[]>(dispatchService.getAvailableTasks());
+  const [destMode, setDestMode] = useState<DestinationMode | null>(dispatchService.getDestinationMode());
+  const [pickingDest, setPickingDest] = useState(false);
+
+  const applyDestination = (mode: DestinationMode | null) => {
+    if (mode) saveDestinationMode(mode);
+    else clearDestinationMode();
+    dispatchService.setDestinationMode(mode);
+    setDestMode(mode);
+    setPickingDest(false);
+  };
 
   const online = dispatchState.online;
   const wsConnected = dispatchState.connected;
@@ -238,6 +252,51 @@ export function DashboardPage() {
           >
             Working Areas
           </button>
+        </div>
+
+        {/* Destination mode — only jobs that move you toward it.
+            Client-side: the destination never leaves this device. */}
+        <div className="meta-card">
+          {destMode ? (
+            <div className="flex items-center gap-2">
+              <div className="flex-1 min-w-0">
+                <p className="meta-label">Heading to</p>
+                <p className="text-sm font-bold text-donkey-text truncate">{destMode.label}</p>
+                <p className="text-xs text-donkey-muted">
+                  Only {taskNoun} requests on your way are shown
+                </p>
+              </div>
+              <button
+                className="btn-secondary text-xs px-3"
+                onClick={() => applyDestination(null)}
+              >
+                Clear
+              </button>
+            </div>
+          ) : pickingDest ? (
+            <div>
+              <p className="meta-label mb-2">Where are you heading?</p>
+              <AddressSearch
+                placeholder="Search for your destination..."
+                biasLocation={location}
+                autoFocus
+                onSelect={(loc, label) => applyDestination({ ...loc, label })}
+              />
+              <button
+                className="text-donkey-muted text-xs mt-2"
+                onClick={() => setPickingDest(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              className="text-donkey-blue text-sm font-semibold"
+              onClick={() => setPickingDest(true)}
+            >
+              Heading somewhere? Only see {taskNoun}s on your way →
+            </button>
+          )}
         </div>
 
         {online && wsConnected && (
