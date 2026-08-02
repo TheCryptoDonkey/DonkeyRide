@@ -14,7 +14,9 @@ class CashRail extends SettlementRail {
   }
 
   async getPayInstructions({ amountSats, amount, currency }) {
-    const displayAmount = amount != null ? amount : amountSats;
+    // Show the fiat figure (rounded for human display) when we have one, else
+    // fall back to the sats amount.
+    const displayAmount = amount != null ? Math.round(amount * 100) / 100 : amountSats;
     return {
       rail: this.id,
       label: this.label,

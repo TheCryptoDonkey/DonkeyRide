@@ -1,8 +1,11 @@
 /**
  * Fiat Conversion Utilities
  *
- * Converts between sats and fiat currencies (USD, EUR, GBP)
+ * Converts between sats and fiat currencies (USD, EUR, GBP, KES)
  * Fetches real-time BTC prices from multiple sources
+ *
+ * KES is first-class: the M-Pesa and Tando settlement rails are Kenyan, so a
+ * Kenyan operator prices rides in shillings and riders pay the exact figure.
  */
 
 const { fetchWithTimeout: fetch } = require('../utils/fetch-timeout');
@@ -12,6 +15,7 @@ let priceCache = {
   USD: null,
   EUR: null,
   GBP: null,
+  KES: null,
   lastUpdate: null
 };
 
@@ -22,37 +26,43 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 // =====================================================
 
 async function fetchBitcoinPrices() {
+  // 1. BTC in the CoinGecko-supported majors (no auth). Keep working even if
+  //    the request fails, by reusing the cache or a hardcoded fallback.
+  let base;
   try {
-    // Use CoinGecko API (no auth required)
     const response = await fetch(
       'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,eur,gbp'
     );
-
     const data = await response.json();
-
-    priceCache = {
-      USD: data.bitcoin.usd,
-      EUR: data.bitcoin.eur,
-      GBP: data.bitcoin.gbp,
-      lastUpdate: Date.now()
-    };
-
-    return priceCache;
+    base = { USD: data.bitcoin.usd, EUR: data.bitcoin.eur, GBP: data.bitcoin.gbp };
   } catch (error) {
     console.error('Failed to fetch Bitcoin prices:', error.message);
-
-    // Fallback to hardcoded prices if API fails
-    if (!priceCache.USD) {
-      priceCache = {
-        USD: 45000, // Fallback price
-        EUR: 42000,
-        GBP: 36000,
-        lastUpdate: Date.now()
-      };
-    }
-
-    return priceCache;
+    base = priceCache.USD
+      ? { USD: priceCache.USD, EUR: priceCache.EUR, GBP: priceCache.GBP }
+      : { USD: 45000, EUR: 42000, GBP: 36000 };
   }
+
+  // 2. KES is NOT a CoinGecko vs_currency, so derive BTC/KES = BTC/USD × USD/KES
+  //    using a free FX rate. The M-Pesa and Tando rails depend on this, so it
+  //    has its own fallback and never blocks the majors above.
+  let usdToKes = 129; // sane 2026 fallback if the FX call fails
+  try {
+    const fx = await fetch('https://open.er-api.com/v6/latest/USD');
+    const fxData = await fx.json();
+    if (fxData && fxData.rates && Number.isFinite(fxData.rates.KES)) {
+      usdToKes = fxData.rates.KES;
+    }
+  } catch (error) {
+    console.error('Failed to fetch USD/KES FX rate, using fallback:', error.message);
+  }
+
+  priceCache = {
+    ...base,
+    KES: Math.round(base.USD * usdToKes),
+    lastUpdate: Date.now()
+  };
+
+  return priceCache;
 }
 
 // =====================================================
@@ -110,13 +120,14 @@ function formatCurrency(amount, currency = 'USD') {
   const symbols = {
     USD: '$',
     EUR: '€',
-    GBP: '£'
+    GBP: '£',
+    KES: 'KSh '
   };
 
-  const symbol = symbols[currency] || currency;
+  const symbol = symbols[currency] || `${currency} `;
 
-  // Format with 2 decimal places
-  const formatted = amount.toFixed(2);
+  // KES is transacted in whole shillings; others keep 2 decimals.
+  const formatted = currency === 'KES' ? Math.round(amount).toLocaleString() : amount.toFixed(2);
 
   return `${symbol}${formatted}`;
 }

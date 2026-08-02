@@ -21,7 +21,7 @@ const RAILS = {
 // Public presentation for the driver's "accepted methods" picker.
 const RAIL_CATALOGUE = [
   { id: 'lnaddress', label: 'Lightning', handleLabel: 'Lightning Address', handleHint: 'you@wallet.com', settles: 'Lightning', custody: 'none' },
-  { id: 'tando', label: 'Tando (Lightning to M-Pesa)', handleLabel: 'Tando Lightning Address', handleHint: 'you@tando.me', settles: 'M-Pesa (via Lightning)', custody: 'none' },
+  { id: 'tando', label: 'Tando (Lightning to M-Pesa)', handleLabel: 'M-Pesa number', handleHint: '2547XXXXXXXX', settles: 'M-Pesa (paid over Lightning)', custody: 'none' },
   { id: 'mpesa', label: 'M-Pesa', handleLabel: 'M-Pesa number', handleHint: '2547XXXXXXXX', settles: 'M-Pesa', custody: 'none' },
   { id: 'cash', label: 'Cash', handleLabel: null, handleHint: null, settles: 'In person', custody: 'none' }
 ];

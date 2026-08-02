@@ -7,6 +7,7 @@ import type {
 import type { DomainProfile } from '../types/domain';
 import { createNip98Auth, signNostrEvent } from './nostr';
 import { publishToRelays } from './relays';
+import { getCurrencySymbol } from './pricing';
 
 // Same-origin by default; native (Capacitor) builds bake in the operator URL
 const BASE = import.meta.env.VITE_API_BASE || '';
@@ -670,7 +671,7 @@ export async function getTripEstimate(params: {
     fiatEstimate: raw.fare ? {
       amount: raw.fare.fiat,
       currency: raw.fare.currency || raw.currency || 'GBP',
-      symbol: raw.fare.currency === 'USD' ? '$' : raw.fare.currency === 'EUR' ? '€' : '£',
+      symbol: getCurrencySymbol(raw.fare.currency || raw.currency || 'GBP'),
     } : raw.fiatEstimate,
     routeGeometry: raw.routeGeometry,
   };

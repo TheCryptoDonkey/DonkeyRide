@@ -48,9 +48,11 @@ test('Lightning rail verifies a correct preimage and rejects a wrong one', async
 
   const wrong = await rail.verify({ instruction: { paymentHash }, proof: { preimage: crypto.randomBytes(32).toString('hex') } });
   assert.equal(wrong.verified, false);
+  assert.equal(wrong.failed, true, 'a supplied preimage that contradicts the invoice is a failed proof');
 
   const none = await rail.verify({ instruction: { paymentHash }, proof: {} });
   assert.equal(none.verified, false);
+  assert.notEqual(none.failed, true, 'no preimage yet is "declared, awaiting", not a failed proof');
 });
 
 test('M-Pesa records a confirmation code as attestation, not cryptographic proof', async () => {
@@ -67,4 +69,43 @@ test('M-Pesa pay instructions never route through the operator', async () => {
   assert.equal(inst.custody, 'none');
   assert.equal(inst.operator_transmitted, 0);
   assert.equal(inst.mpesaNumber, '254712345678');
+});
+
+test('M-Pesa shows the fiat amount (not the sats count) and rounds it sensibly', async () => {
+  const rail = settlement.getRail('mpesa');
+  // KES is transacted in whole shillings
+  const kes = await rail.getPayInstructions({ handle: '254712345678', amountSats: 999999, amount: 532.7, currency: 'KES' });
+  assert.equal(kes.amount, 533, 'KES rounds to whole shillings');
+  assert.equal(kes.currency, 'KES');
+  assert.match(kes.instructions, /533 KES/);
+  // Other currencies keep two decimals
+  const gbp = await rail.getPayInstructions({ handle: '254712345678', amountSats: 999999, amount: 15.319, currency: 'GBP' });
+  assert.equal(gbp.amount, 15.32, 'non-KES keeps two decimals');
+  assert.equal(gbp.currency, 'GBP');
+});
+
+test('M-Pesa distinguishes a malformed code (failed) from no code yet (declared)', async () => {
+  const rail = settlement.getRail('mpesa');
+  const bad = await rail.verify({ proof: { confirmationCode: 'xyz' } });
+  assert.equal(bad.verified, false);
+  assert.equal(bad.failed, true, 'a code was typed but is malformed = failed proof');
+
+  const empty = await rail.verify({ proof: {} });
+  assert.equal(empty.verified, false);
+  assert.notEqual(empty.failed, true, 'no code yet = awaiting, not failed');
+});
+
+test('Cash shows the fiat amount rounded for human display', async () => {
+  const rail = settlement.getRail('cash');
+  const inst = await rail.getPayInstructions({ amountSats: 999999, amount: 15.319, currency: 'GBP' });
+  assert.equal(inst.amount, 15.32);
+  assert.equal(inst.currency, 'GBP');
+  assert.equal(inst.custody, 'none');
+});
+
+test('Tando is presented as an M-Pesa number the driver enters directly', () => {
+  const tando = settlement.listRails().find((r) => r.id === 'tando');
+  assert.ok(tando, 'tando rail is catalogued');
+  assert.equal(tando.handleLabel, 'M-Pesa number');
+  assert.match(tando.handleHint, /2547/);
 });

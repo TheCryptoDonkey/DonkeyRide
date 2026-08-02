@@ -100,6 +100,12 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
     setError(null);
     try {
       const res = await settleRide(task.id, { rail, proof });
+      // A supplied proof that did not check out (e.g. a mistyped preimage) comes
+      // back as 'unverified' — surface it rather than claiming success.
+      if (res.settlement?.status === 'unverified') {
+        setError(res.settlement.detail || 'That payment proof did not check out. Please try again.');
+        return;
+      }
       setDeclaredRail(res.settlement?.rail || rail);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to record the payment');

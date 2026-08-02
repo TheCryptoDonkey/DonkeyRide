@@ -34,7 +34,8 @@ const {
 const {
     getBitcoinPrice,
     estimateTripCost,
-    fetchBitcoinPrices
+    fetchBitcoinPrices,
+    satsToFiat
 } = require('./src/pricing/fiat-conversion');
 const { RideManager, RideStatus } = require('./src/ride-manager');
 const { TaskManager } = require('./src/task-manager');
@@ -328,6 +329,20 @@ const config = {
     minStakeAmount: envNumber('MIN_STAKE_AMOUNT', 50),    // Min stake in sats
     requireKYC: (process.env.REQUIRE_KYC || '').toLowerCase() === 'true',
 };
+
+// Fiat currencies the operator can price rides in. KES is included so a Kenyan
+// operator can price in shillings and the M-Pesa/Tando rails show the exact
+// amount. DEFAULT_FIAT_CURRENCY sets the fallback when a request omits one.
+const SUPPORTED_FIAT = ['USD', 'EUR', 'GBP', 'KES'];
+const DEFAULT_FIAT = (() => {
+    const c = (process.env.DEFAULT_FIAT_CURRENCY || 'GBP').toUpperCase();
+    return SUPPORTED_FIAT.includes(c) ? c : 'GBP';
+})();
+/** Normalise a requested currency to a supported one, else the operator default. */
+function resolveFiatCurrency(requested) {
+    const c = typeof requested === 'string' ? requested.toUpperCase() : '';
+    return SUPPORTED_FIAT.includes(c) ? c : DEFAULT_FIAT;
+}
 
 const packageVersion = require('./package.json').version;
 
@@ -1342,10 +1357,7 @@ app.post('/rides/create', validateNIP98Auth, rideCreationLimiter, async (req, re
             return res.status(400).json({ error: 'Invalid fare amount' });
         }
 
-        let fiatCurrency = typeof currency === 'string' ? currency.toUpperCase() : 'GBP';
-        if (!['USD', 'EUR', 'GBP'].includes(fiatCurrency)) {
-            fiatCurrency = 'GBP';
-        }
+        const fiatCurrency = resolveFiatCurrency(currency);
 
         if (typeof rideId !== 'string' || !/^[A-Za-z0-9_-]{4,64}$/.test(rideId)) {
             return res.status(400).json({ error: 'rideId must be 4-64 chars of [A-Za-z0-9_-]' });
@@ -2333,11 +2345,26 @@ app.post('/api/rides/:rideId/pay-instruction', async (req, res) => {
         }
         const railImpl = settlement.getRail(method.rail);
         const fareSats = Number(ride.fare) || 0;
+        // Lightning rails (incl. Tando) are paid in sats — the invoice IS the
+        // amount. Fiat rails (M-Pesa, cash) need the human fiat figure, derived
+        // from the sats fare via the live BTC price so it survives rehydration
+        // (ride.fare is the only amount the Nostr snapshot preserves).
+        const isLightningRail = ['lnaddress', 'lightning', 'tando'].includes(method.rail);
+        let fiatAmount;
+        let fiatCurrency = ride.currency || 'GBP';
+        if (!isLightningRail) {
+            try {
+                const fiat = await satsToFiat(fareSats, fiatCurrency);
+                fiatAmount = fiat.amount;
+            } catch (e) {
+                fiatAmount = undefined; // price unavailable — rail falls back gracefully
+            }
+        }
         const instruction = await railImpl.getPayInstructions({
             handle: method.handle,
             amountSats: fareSats,
-            amount: ride.fareFiat ?? undefined,
-            currency: ride.currency || 'SAT',
+            amount: fiatAmount,
+            currency: isLightningRail ? 'SAT' : fiatCurrency,
             memo: `DonkeyRide ${rideId}`
         });
         // Remember the instruction so /settle can verify against it.
@@ -2371,13 +2398,20 @@ app.post('/api/rides/:rideId/settle', async (req, res) => {
             instruction: ride.pendingInstruction || {},
             proof: proof || {}
         });
+        // verified: proof checked out (e.g. preimage matches the invoice).
+        // unverified: a proof was supplied but did NOT check out (rail sets
+        //             result.failed) — surfaced, never silently accepted.
+        // declared: rider asserts they paid; awaits the driver's confirm-received
+        //           (cash, M-Pesa, or a Lightning payment with no preimage yet).
+        // In every case the driver's confirmation is the backstop for payout.
+        const settleStatus = result.verified ? 'verified' : (result.failed ? 'unverified' : 'declared');
         ride.settlementRecord = {
             rail: railId,
             custody: 'none',
             operator_transmitted: 0,
             settlement: 'peer-to-peer',
             verified: !!result.verified,
-            status: result.verified ? 'verified' : (result.recorded ? 'declared' : 'declared'),
+            status: settleStatus,
             detail: result.detail || null,
             confirmationCode: result.confirmationCode || null,
             declaredBy: 'requester',
@@ -2665,8 +2699,7 @@ app.get('/api/drivers/:pubkey/earnings', optionalNip98, async (req, res) => {
 app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
     try {
         const { pickup_lat, pickup_lon, dropoff_lat, dropoff_lon, currency } = req.body;
-        const currencyRaw = typeof currency === 'string' ? currency.toUpperCase() : 'GBP';
-        const fiatCurrency = ['USD', 'EUR', 'GBP'].includes(currencyRaw) ? currencyRaw : 'GBP';
+        const fiatCurrency = resolveFiatCurrency(currency);
 
         // Validate inputs
         if (!pickup_lat || !pickup_lon || !dropoff_lat || !dropoff_lon) {
@@ -2716,13 +2749,14 @@ app.get('/api/prices/btc', publicRateLimiter, async (req, res) => {
         const prices = {
             USD: await getBitcoinPrice('USD'),
             EUR: await getBitcoinPrice('EUR'),
-            GBP: await getBitcoinPrice('GBP')
+            GBP: await getBitcoinPrice('GBP'),
+            KES: await getBitcoinPrice('KES')
         };
 
         res.json({
             prices,
             lastUpdate: Date.now(),
-            source: 'CoinGecko'
+            source: 'CoinGecko + open.er-api.com (KES)'
         });
 
     } catch (error) {
@@ -2818,10 +2852,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 ? (() => { try { return loadProfile(domain); } catch { return domainProfile; } })()
                 : domainProfile;
 
-            let fiatCurrency = typeof currency === 'string' ? currency.toUpperCase() : 'GBP';
-            if (!['USD', 'EUR', 'GBP'].includes(fiatCurrency)) {
-                fiatCurrency = 'GBP';
-            }
+            const fiatCurrency = resolveFiatCurrency(currency);
 
             // Validate — dropoff is optional for single-location domains (e.g. locksmith)
             if (!isValidLat(pickup_lat) || !isValidLon(pickup_lon)) {

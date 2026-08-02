@@ -38,9 +38,12 @@ export interface SettlementInfo {
   method?: string;
   /** Non-custodial rail id (lnaddress|tando|mpesa|cash) */
   rail?: string;
+  /** verified | declared | unverified | confirmed */
   status?: string;
   /** True when the operator cryptographically verified the payment (e.g. preimage) */
   verified?: boolean;
+  /** Human-readable note, e.g. why a supplied proof was not accepted */
+  detail?: string;
   /** True once the driver has confirmed they received the funds */
   confirmedByProvider?: boolean;
 }
@@ -180,6 +183,8 @@ export interface BtcPrices {
   USD: number;
   GBP: number;
   EUR: number;
+  /** BTC/KES — for the M-Pesa and Tando rails */
+  KES?: number;
   updatedAt: string;
 }
 

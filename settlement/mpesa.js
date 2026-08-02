@@ -36,7 +36,16 @@ class MpesaRail extends SettlementRail {
     if (!MpesaRail.isMpesaNumber(handle)) {
       throw new Error('A valid M-Pesa number is required');
     }
-    const displayAmount = amount != null ? amount : amountSats;
+    // M-Pesa moves fiat, so show the fiat figure the rider types into their own
+    // M-Pesa menu. KES is transacted in whole shillings; other currencies keep
+    // two decimals. Fall back to the sats figure only if no fiat was supplied.
+    const cur = currency || 'KES';
+    let displayAmount;
+    if (amount != null) {
+      displayAmount = cur === 'KES' ? Math.round(amount) : Math.round(amount * 100) / 100;
+    } else {
+      displayAmount = amountSats;
+    }
     return {
       rail: this.id,
       label: this.label,
@@ -44,10 +53,10 @@ class MpesaRail extends SettlementRail {
       operator_transmitted: 0,
       mpesaNumber: handle,
       amount: displayAmount,
-      currency: currency || 'KES',
+      currency: cur,
       verifyMethod: 'confirmation_code',
       // Steps the rider follows in their own M-Pesa menu / app
-      instructions: `Send ${displayAmount} ${currency || 'KES'} to ${handle} via M-Pesa "Send Money", then enter the confirmation code below.`
+      instructions: `Send ${displayAmount} ${cur} to ${handle} via M-Pesa "Send Money", then enter the confirmation code below.`
     };
   }
 
@@ -55,11 +64,14 @@ class MpesaRail extends SettlementRail {
     // Default: record the rider-supplied M-Pesa confirmation code. Genuine
     // auto-verification requires a licensed Daraja integration (Mode-B); here
     // we record the code as attestation and let the driver confirm receipt.
+    const supplied = typeof proof?.confirmationCode === 'string' && proof.confirmationCode.trim() !== '';
     const code = (proof?.confirmationCode || '').trim().toUpperCase();
     if (/^[A-Z0-9]{8,12}$/.test(code)) {
       return { verified: false, recorded: true, confirmationCode: code, detail: 'confirmation code recorded; awaiting driver confirmation' };
     }
-    return { verified: false, detail: 'no valid M-Pesa confirmation code supplied' };
+    // A code was typed but is malformed = a failed proof; no code at all = simply
+    // awaiting one (declared), which the driver still confirms on receipt.
+    return { verified: false, failed: supplied, detail: supplied ? 'M-Pesa confirmation code is malformed' : 'no M-Pesa confirmation code supplied yet' };
   }
 }
 

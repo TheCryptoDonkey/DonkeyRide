@@ -112,7 +112,8 @@ class LnAddressRail extends SettlementRail {
         if (computed === hash) {
           return { verified: true, detail: 'preimage matches invoice payment hash' };
         }
-        return { verified: false, detail: 'preimage does not match invoice' };
+        // A preimage was supplied and definitively contradicts the invoice.
+        return { verified: false, failed: true, detail: 'preimage does not match invoice' };
       }
       // No hash to check against, but a well-formed preimage was supplied.
       return { verified: false, recorded: true, detail: 'preimage recorded (no invoice hash to verify against)' };

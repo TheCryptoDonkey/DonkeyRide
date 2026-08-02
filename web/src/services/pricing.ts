@@ -4,7 +4,10 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
   GBP: '£',
   USD: '$',
   EUR: '€',
+  KES: 'KSh ',
 };
+
+const SUPPORTED_CURRENCIES = ['USD', 'EUR', 'GBP', 'KES'];
 
 const PREF_KEY_CURRENCY = 'donkeyride.pref.currency';
 const PREF_KEY_UNIT = 'donkeyride.pref.unit';
@@ -12,7 +15,7 @@ const PREF_KEY_UNIT = 'donkeyride.pref.unit';
 /** Get the user's preferred fiat currency */
 export function getPreferredCurrency(): string {
   const stored = localStorage.getItem(PREF_KEY_CURRENCY);
-  if (stored && ['USD', 'EUR', 'GBP'].includes(stored.toUpperCase())) {
+  if (stored && SUPPORTED_CURRENCIES.includes(stored.toUpperCase())) {
     return stored.toUpperCase();
   }
   return 'GBP';
@@ -47,10 +50,14 @@ export function satsToFiat(
 ): string {
   if (!prices) return '';
   const curr = currency || getPreferredCurrency();
-  const btcPrice = prices[curr as keyof Pick<BtcPrices, 'USD' | 'GBP' | 'EUR'>];
+  const btcPrice = prices[curr as keyof Pick<BtcPrices, 'USD' | 'GBP' | 'EUR' | 'KES'>];
   if (!btcPrice) return '';
   const fiatValue = (sats / 100_000_000) * btcPrice;
-  return `${getCurrencySymbol(curr)}${fiatValue.toFixed(2)}`;
+  // KES is quoted in whole shillings; other currencies keep two decimals.
+  const shown = curr === 'KES'
+    ? Math.round(fiatValue).toLocaleString()
+    : fiatValue.toFixed(2);
+  return `${getCurrencySymbol(curr)}${shown}`;
 }
 
 /** Format satoshis with comma separators */
