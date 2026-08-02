@@ -23,6 +23,8 @@ import {
   getOperatorInfoCached,
 } from '../../services/api';
 import { QuotePanel } from '../../components/task/QuotePanel';
+import { TripSharePanel } from '../../components/safety/TripSharePanel';
+import { sendAllClear, sendGuardianAlert } from '../../services/trip-share';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import type { WsMessage, Task, OperatorPaymentInfo } from '../../types/api';
 
@@ -66,10 +68,15 @@ export function ActiveTaskPage() {
       reset();
       navigate('/request');
     } else {
+      // Guardians this trip was shared with get their all-clear —
+      // fire-and-forget so navigation never waits on relays
+      if (identity) {
+        void sendAllClear(identity.privKeyHex, task.id, taskNoun).catch(() => {});
+      }
       // Completion page distinguishes completed from no_show
       navigate('/request/complete');
     }
-  }, [cancelledValue, providerRoleLabel, taskNoun, reset, navigate]);
+  }, [cancelledValue, providerRoleLabel, taskNoun, reset, navigate, identity]);
 
   // Re-fetch the task (used when a WS event signals a state change)
   const refreshTask = useCallback(async () => {
@@ -143,6 +150,8 @@ export function ActiveTaskPage() {
 
   const handlePanic = async () => {
     if (!identity) throw new Error('No identity');
+    // Guardians hear about it too — direct, encrypted, operator-blind
+    void sendGuardianAlert(identity.privKeyHex, activeTask, currentLocation).catch(() => {});
     await triggerPanic(activeTask.id, {
       role: 'requester',
       location: currentLocation,
@@ -281,6 +290,15 @@ export function ActiveTaskPage() {
             selfPubkey={identity.pubKeyHex}
             counterpartyPubkey={activeTask.providerPubkey}
             counterpartyLabel={providerRoleLabel}
+          />
+        )}
+
+        {/* Tell someone you trust — E2E encrypted, operator-blind */}
+        {identity && !terminalStates.includes(activeTask.status) && (
+          <TripSharePanel
+            task={activeTask}
+            privKeyHex={identity.privKeyHex}
+            taskNoun={taskNoun}
           />
         )}
 
