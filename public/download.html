@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DonkeyRide Driver — Android app</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; padding: 2rem 1.25rem; background: #0a0a0a; color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      display: flex; justify-content: center;
+    }
+    main { max-width: 30rem; width: 100%; }
+    h1 { font-size: 1.6rem; letter-spacing: -0.02em; }
+    p, li { color: #999; line-height: 1.55; }
+    a.button {
+      display: block; text-align: center; text-decoration: none;
+      background: linear-gradient(135deg, #b24cf3, #ff6ec7); color: #fff;
+      font-weight: 700; padding: 0.9rem 1rem; border-radius: 0.75rem; margin: 1.5rem 0;
+    }
+    code {
+      display: block; background: #16213e; border: 1px solid #333; border-radius: 0.5rem;
+      padding: 0.75rem; font-size: 0.7rem; word-break: break-all; color: #e0e0e0;
+    }
+    .note { font-size: 0.85rem; }
+    ol { padding-left: 1.25rem; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>🫏 DonkeyRide Driver for Android</h1>
+  <p>
+    Drive with no sign-up, no commission and no company in the middle.
+    Riders pay you directly — cash, M-Pesa or Lightning.
+  </p>
+
+  <a class="button" href="/downloads/donkeyride-driver-1.0.apk">Download the app (5&nbsp;MB)</a>
+
+  <h2 style="font-size:1.1rem">Installing</h2>
+  <ol>
+    <li>Open this page on your Android phone and tap Download.</li>
+    <li>When asked, allow your browser to install unknown apps — the app
+        comes straight from this operator, not an app store.</li>
+    <li>Open DonkeyRide Driver, add a payment method, and go online.</li>
+  </ol>
+
+  <h2 style="font-size:1.1rem">Verify your download</h2>
+  <p class="note">
+    The app is signed with the DonkeyRide certificate. Check the file's
+    SHA-256 before installing if you want proof it was not tampered with:
+  </p>
+  <code id="apk-hash">See /downloads/donkeyride-driver-1.0.apk.sha256</code>
+  <p class="note">
+    Certificate: <strong>CN=DonkeyRide, O=forgesworn</strong><br>
+    Certificate SHA-256:
+  </p>
+  <code>61ca13847eddb053bc25907780a066a672947b7700f96137a6470989930e4dfc</code>
+
+  <p class="note">
+    Prefer the browser? The driver app also runs as a web app at
+    <a href="/provide" style="color:#4fc3f7">/provide</a> — the Android
+    build adds background location so jobs keep arriving with the screen
+    off.
+  </p>
+</main>
+</body>
+</html>

@@ -10,7 +10,10 @@ import { useDomain } from '../../context/DomainContext';
 import { getTaskStats, getOperatorInfo } from '../../services/api';
 import { dispatchService, type DispatchState } from '../../services/dispatch';
 import { formatDistance } from '../../services/pricing';
+import { Capacitor } from '@capacitor/core';
 import type { Task } from '../../types/api';
+
+const isNative = Capacitor.isNativePlatform();
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -232,6 +235,17 @@ export function DashboardPage() {
         {online && !wsConnected && (
           <p className="text-donkey-orange text-sm text-center">
             Connecting to dispatcher...
+          </p>
+        )}
+
+        {/* Web only: the Android build keeps the shift alive screen-off */}
+        {!isNative && (
+          <p className="text-xs text-donkey-muted text-center">
+            Driving on Android?{' '}
+            <a href="/download.html" className="text-donkey-blue font-semibold">
+              Get the app
+            </a>{' '}
+            — jobs keep arriving with the screen off.
           </p>
         )}
       </div>
