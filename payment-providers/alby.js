@@ -227,6 +227,11 @@ class AlbyProvider extends PaymentProvider {
     getTrustModel() {
         return 'custodial';
     }
+
+    // Funds flow through the operator's Alby account — custodial.
+    getCustodyModel() {
+        return 'custodial';
+    }
 }
 
 module.exports = AlbyProvider;

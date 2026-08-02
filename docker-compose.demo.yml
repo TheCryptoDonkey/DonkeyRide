@@ -1,16 +1,26 @@
 # ==========================================
-# Minimal public demo stack
+# Minimal public demo/production stack
 # ==========================================
-# Operator + PostgreSQL + Redis + Nostr relay, ports bound to loopback only.
-# Front with a TLS reverse proxy (Caddy/nginx):
-#   HTTPS   →  127.0.0.1:3999  (API + web app)
-#   /ws     →  127.0.0.1:3998  (WebSocket)
-#   /relay  →  127.0.0.1:3997  (Nostr relay, strfry)
+# Just the operator + a Nostr relay. NO database and NO Redis: the operator
+# is a thin, non-custodial coordinator. Durable state lives on Nostr (the
+# operator publishes PII-free state snapshots and rehydrates from them on
+# restart); coordination state is in-memory and ephemeral by design.
 #
-# Set OPERATOR_PRIVKEY (hex) in a .env file next to this compose file so the
-# operator keeps a stable Nostr identity across restarts.
+# Front with a TLS reverse proxy (Caddy/nginx):
+#   HTTPS   ->  127.0.0.1:3999  (API + web app)
+#   /ws     ->  127.0.0.1:3998  (WebSocket)
+#   /relay  ->  127.0.0.1:3997  (Nostr relay, strfry)
+#
+# Put OPERATOR_PRIVKEY (or OPERATOR_NSEC) in a .env file next to this compose
+# file so the operator keeps a stable Nostr identity across restarts — without
+# it the operator cannot sign snapshots and loses its Nostr durability.
 #
 #   docker compose -f docker-compose.demo.yml up -d --build
+#
+# Operators who WANT a database (e.g. a licensed Mode-B operator retaining PII
+# under GDPR controller obligations) can add a Postgres service and set
+# DATABASE_URL; the operator uses it automatically. It is not part of the
+# default, non-custodial deployment.
 
 services:
   operator:
@@ -19,30 +29,28 @@ services:
     environment:
       OPERATOR_NAME: "DonkeyRide Public Demo"
       DOMAIN: ridesharing
-      PAYMENT_PROVIDER: demo
+      # Non-custodial by default: the operator never touches funds.
+      PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-cash}
       ENABLE_NIP98_AUTH: "true"
       ENABLE_RATE_LIMITING: "true"
       DISPATCH_RADIUS_KM: "15"
       NODE_ENV: ${NODE_ENV:-production}
-      ALLOW_DEMO_PAYMENTS: ${ALLOW_DEMO_PAYMENTS:-true}
+      # Only needed if PAYMENT_PROVIDER is demo (mock rail) on a public demo.
+      ALLOW_DEMO_PAYMENTS: ${ALLOW_DEMO_PAYMENTS:-false}
       OPERATOR_PRIVKEY: ${OPERATOR_PRIVKEY:-}
       OPERATOR_PUBKEY: ${OPERATOR_PUBKEY:-}
       NOSTR_RELAY: ws://nostr-relay:7777
       NOSTR_RELAYS: ${NOSTR_RELAYS:-}
       PUBLIC_RELAY_URLS: ${PUBLIC_RELAY_URLS:-}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
-      DATABASE_URL: postgresql://donkey:donkey@postgres:5432/donkeyride
-      REDIS_URL: redis://redis:6379
+      # No DATABASE_URL and no REDIS_URL: in-memory + Nostr only.
+      DISABLE_REDIS: "true"
       PORT: 3000
       WS_PORT: 3001
     ports:
       - "127.0.0.1:3999:3000"
       - "127.0.0.1:3998:3001"
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_started
       nostr-relay:
         condition: service_started
 
@@ -55,25 +63,5 @@ services:
       - ./docker/strfry/strfry.conf:/etc/strfry.conf:ro
       - demo-strfry-db:/app/strfry-db
 
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: donkey
-      POSTGRES_PASSWORD: donkey
-      POSTGRES_DB: donkeyride
-    volumes:
-      - demo-pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U donkey -d donkeyride"]
-      interval: 3s
-      timeout: 3s
-      retries: 10
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-
 volumes:
-  demo-pgdata:
   demo-strfry-db:

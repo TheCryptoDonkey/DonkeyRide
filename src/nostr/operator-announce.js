@@ -110,6 +110,50 @@ async function publishAnnouncement({
 }
 
 /**
+ * TROTT-01 Kind 30078 State Snapshot — the custodian's current view of a
+ * task. Addressable (one per d-tag = task id), so the relay keeps only the
+ * latest. This is the operator's durability layer: no database required.
+ *
+ * The snapshot is deliberately PII-free — pubkeys, status, fare and
+ * GEOHASH-level location only. Exact coordinates and addresses never leave
+ * the operator's memory.
+ *
+ * @param {Object} snapshot - { taskId, status, domain, participants:[{pubkey,role}],
+ *   geohashPickup, geohashDropoff, content:<object>, expirationSeconds }
+ */
+async function publishTaskSnapshot(snapshot) {
+  if (!snapshot?.taskId) {
+    return null;
+  }
+  const tags = [
+    ['d', snapshot.taskId],
+    ['status', snapshot.status || 'unknown'],
+    ['domain', snapshot.domain || 'unknown']
+  ];
+  for (const p of snapshot.participants || []) {
+    if (p?.pubkey) {
+      tags.push(['p', p.pubkey.toLowerCase(), '', p.role || '']);
+    }
+  }
+  if (snapshot.geohashPickup) {
+    tags.push(['g', snapshot.geohashPickup]);
+  }
+  if (snapshot.geohashDropoff) {
+    tags.push(['g', snapshot.geohashDropoff]);
+  }
+  if (snapshot.expirationSeconds) {
+    tags.push(['expiration', String(snapshot.expirationSeconds)]);
+  }
+  let content = '';
+  try {
+    content = JSON.stringify(snapshot.content || {});
+  } catch (error) {
+    content = '';
+  }
+  return publishEvent(30078, tags, content);
+}
+
+/**
  * Kind 30554 Operator Heartbeat — published every 5 minutes. A stale
  * heartbeat tells participants the operator may be offline or abandoned.
  */
@@ -124,9 +168,15 @@ async function publishHeartbeat({ activeTasks = 0, domains = [], uptimeSeconds =
   return publishEvent(KINDS.OPERATOR_HEARTBEAT, tags);
 }
 
+function getOperatorPubkey() {
+  return operatorPubkey;
+}
+
 module.exports = {
   configure,
   canPublish,
   publishAnnouncement,
-  publishHeartbeat
+  publishTaskSnapshot,
+  publishHeartbeat,
+  getOperatorPubkey
 };

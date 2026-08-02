@@ -25,6 +25,12 @@ class CashProvider extends PaymentProvider {
         return 'social';
     }
 
+    // Record-only: the fare settles face-to-face between the parties. The
+    // operator never receives or holds a penny. Not a money transmitter.
+    getCustodyModel() {
+        return 'none';
+    }
+
     async lockStake(rideId, userId, amount, type) {
         this.validateStakeParams(rideId, amount);
         const lockId = `${rideId}_${type}`;

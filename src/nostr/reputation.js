@@ -550,9 +550,19 @@ async function publishGeneric(event, expectedPubkey) {
   return { relayStatuses, cachedLocally };
 }
 
+/**
+ * Generic relay query with a timeout, for callers that need raw events
+ * (e.g. the operator rehydrating its own state snapshots at boot).
+ * Returns [] on failure — the caller decides how to degrade.
+ */
+async function queryEvents(filters) {
+  return safeList(getRelays(), filters);
+}
+
 module.exports = {
   setRelays,
   getRelays,
+  queryEvents,
   publishRating,
   publishPanic,
   getProfile,

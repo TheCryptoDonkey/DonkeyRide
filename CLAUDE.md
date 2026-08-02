@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DonkeyRide is the **reference implementation** of the [TROTT Protocol](https://github.com/TheCryptoDonkey/trott) (**T**rusted **R**eal-world **O**rchestration of **T**asks & **T**rades) — a suite of 8 specifications for trust-minimised physical service coordination built on Nostr (decentralised messaging) with **payment-agnostic** financial rails (Lightning, Cashu, Strike, Stripe, NIP-47, and more). This repo contains the **reference operator server** — a Node.js backend that coordinates tasks, manages stakes, and processes payments. It is not a ridesharing company; it's a working implementation that generalises across 10+ domains (ridesharing, locksmith dispatch, parcel delivery, court serving, security guard dispatch, emergency trades, cleaning, moving, and more).
+DonkeyRide is the **reference implementation** of the [TROTT Protocol](https://github.com/TheCryptoDonkey/trott) (**T**rusted **R**eal-world **O**rchestration of **T**asks & **T**rades) — a suite of 8 specifications for trust-minimised physical service coordination built on Nostr (decentralised messaging) with **payment-agnostic** financial rails (Lightning, Cashu, Strike, Stripe, NIP-47, and more). This repo contains the **reference operator server** — a Node.js backend that coordinates tasks and records commitments. It is deliberately **non-custodial**: it never receives, holds, or transmits funds (see "Non-custodial + database-free" below). It is not a ridesharing company; it's a working implementation that generalises across 10+ domains (ridesharing, locksmith dispatch, parcel delivery, court serving, security guard dispatch, emergency trades, cleaning, moving, and more).
 
 **Protocol specifications** (TROTT-01 through TROTT-08, domain profiles, implementor guides) live in the dedicated [trott repository](https://github.com/TheCryptoDonkey/trott). This repo focuses on implementation only.
 
@@ -137,10 +137,37 @@ Two frontends exist:
 ### Three-Layer Architecture
 
 ```
-NOSTR (public, permanent)     →  Discovery + Reputation + Operator Bonds
-OPERATOR (private, compliant) →  PII + Coordination + Payments + Compliance
+NOSTR (public, permanent)     →  Discovery + Reputation + Operator Bonds + State snapshots (durability)
+OPERATOR (thin, non-custodial)→  Coordination only (in-memory, ephemeral). NEVER touches funds.
 WEBSOCKET (ephemeral)         →  Real-time tracking + Live updates
 ```
+
+### Non-custodial + database-free (production default)
+
+The default production operator runs with **no database and no Redis** and is
+**non-custodial** — it is a coordination service, not a payment institution:
+
+- **No money.** Every provider declares `getCustodyModel()`; the boot gate
+  (`adoptPaymentProvider`) refuses any `custodial` rail unless
+  `OPERATOR_LICENSED_CUSTODIAN=true`. Default rail is `cash` (record-only,
+  custody `none`): fares settle peer-to-peer, the operator moves £0
+  (`operator_transmitted: 0` on every settlement). `/info.regulatory` states
+  the posture (`money_transmitter: false`, `settlement: peer-to-peer`).
+  `OPERATOR_FEE_PERCENT` defaults to 0 — the operator takes no cut of a fare it
+  never holds. Custodial Lightning rails (lnd/btcpay/alby/cln) exist for
+  licensed Mode-B operators only.
+- **No database.** `DATABASE_URL` is optional. Durability comes from Nostr: the
+  operator publishes a PII-free kind 30078 state snapshot (geohash-level
+  location only, never exact coordinates or addresses) on every task mutation
+  via `setSnapshotPublisher`, and rehydrates non-terminal tasks from its own
+  snapshots on boot (`rehydrateFromNostr`). Exact PII is in-memory and
+  ephemeral — lost on restart by design (a GDPR feature, not a bug). The
+  Nostr outbox falls back to an in-memory buffer when there is no DB.
+- **No Redis.** Driver presence is in-memory and ephemeral. Redis only ever fed
+  demo bot fleets and is off by default (`DISABLE_REDIS=true`).
+- Operators who legitimately need durable PII (a licensed Mode-B firm under
+  GDPR controller obligations) opt in by setting `DATABASE_URL`; the store is
+  then used automatically. It is never in OUR loop.
 
 ### TROTT Protocol Specifications
 
@@ -170,8 +197,10 @@ Copy `.env.example` for configuration. Key variables:
 - `OPERATOR_PUBKEY` / `OPERATOR_PRIVKEY` — Operator Nostr identity
 - `PAYMENT_PROVIDER` — Payment backend (cash|lnd|btcpay|alby|cln|demo)
 - `NAVIGATION_PROVIDER` — Routing backend (osrm|ors)
-- `DATABASE_URL` — PostgreSQL connection
-- `REDIS_URL` — Redis connection
+- `DATABASE_URL` — PostgreSQL connection (OPTIONAL; omit for the default non-custodial, DB-free operator)
+- `REDIS_URL` — Redis connection (OPTIONAL; presence is in-memory. `DISABLE_REDIS=true` to skip)
+- `OPERATOR_LICENSED_CUSTODIAN` — set true ONLY if you are a licensed payment institution running a custodial rail
+- `PUBLIC_RELAY_URLS` / `PUBLIC_BASE_URL` — advertised to clients for Nostr discovery
 - `NOSTR_RELAY` — Relay URL for event publishing
 - `ENABLE_NIP98_AUTH` / `ENABLE_RATE_LIMITING` — Security toggles
 

@@ -433,6 +433,11 @@ class LNDProvider extends PaymentProvider {
     getTrustModel() {
         return 'trustless';
     }
+
+    // Holds the hodl-invoice preimage and can settle (claim) the stake — custodial.
+    getCustodyModel() {
+        return 'custodial';
+    }
 }
 
 module.exports = LNDProvider;

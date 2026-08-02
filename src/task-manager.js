@@ -65,6 +65,7 @@ class TaskManager {
     this.requesterTasks = new Map();
     this.providerTasks = new Map();
     this.store = null;
+    this.snapshotPublisher = null;
     this._pendingPersists = new Set();
   }
 
@@ -79,7 +80,25 @@ class TaskManager {
     this.store = store;
   }
 
+  /**
+   * Attach a Nostr snapshot publisher. Called on every mutation so the
+   * operator's durable state lives on relays and survives a restart with
+   * no database. The publisher must be PII-safe and never throw.
+   *
+   * @param {Function} fn - (task) => void
+   */
+  setSnapshotPublisher(fn) {
+    this.snapshotPublisher = fn;
+  }
+
   _persist(task) {
+    if (task && typeof this.snapshotPublisher === 'function') {
+      try {
+        this.snapshotPublisher(task);
+      } catch (error) {
+        // never let snapshot publishing break a mutation
+      }
+    }
     if (!this.store || !task) {
       return;
     }

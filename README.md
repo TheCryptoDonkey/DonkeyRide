@@ -79,9 +79,9 @@ npm run docker:run     # Run Docker container with .env
 DonkeyRide uses a **three-layer federated architecture**:
 
 ```
-NOSTR (public, permanent)     →  Discovery + Reputation + PII Exchange + Coordination
-OPERATOR (private, compliant) →  Safety Monitoring + Background Checks + Insurance
-PAYMENT PROVIDERS             →  Stakes (hodl escrow) + Settlement
+NOSTR (public, permanent)     →  Discovery + Reputation + State snapshots (durability)
+OPERATOR (thin, non-custodial)→  Coordination only. No database, no custody of funds.
+SETTLEMENT                    →  Peer-to-peer (cash / wallet-to-wallet). Operator moves nothing.
 ```
 
 The operator is a **thin compliance layer** — handling only what the law mandates. Everything else runs on decentralised rails:

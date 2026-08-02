@@ -410,6 +410,11 @@ class BTCPayProvider extends PaymentProvider {
     getTrustModel() {
         return 'self-hosted';
     }
+
+    // Funds flow through the operator's BTCPay store — custodial.
+    getCustodyModel() {
+        return 'custodial';
+    }
 }
 
 module.exports = BTCPayProvider;

@@ -305,7 +305,10 @@ const config = {
     operatorPubkey: process.env.OPERATOR_PUBKEY,
     operatorPrivkey: resolveOperatorPrivkey(),
     operatorLightningAddress: process.env.OPERATOR_LIGHTNING,
-    operatorFeePercent: envNumber('OPERATOR_FEE_PERCENT', 0.005), // Market-driven fee (default 0.5%)
+    // Default 0: the non-custodial operator takes NO cut of the fare (it never
+    // holds the fare, so it cannot). A licensed custodial operator may set a
+    // fee, which is only ever deducted on a custodial rail it is licensed for.
+    operatorFeePercent: envNumber('OPERATOR_FEE_PERCENT', 0),
 
     // Server settings
     port: process.env.PORT || 3000,
@@ -374,16 +377,37 @@ let httpServer = null;
 function adoptPaymentProvider() {
     paymentProvider = stakeManager.currentProvider;
 
+    // COMPLIANCE GATE: the reference operator is a coordinator, not a payment
+    // institution. A custodial rail (one where the operator receives, holds or
+    // can claim funds) makes the operator a money transmitter / EMI \u2014 a
+    // licensed activity. Refuse to run one unless the operator explicitly
+    // asserts it holds the requisite licence.
+    const custody = typeof paymentProvider.getCustodyModel === 'function'
+        ? paymentProvider.getCustodyModel()
+        : 'custodial';
+    const licensed = (process.env.OPERATOR_LICENSED_CUSTODIAN || '').toLowerCase() === 'true';
+    if (custody !== 'none' && !licensed) {
+        console.error(`\u274C Payment provider '${paymentProvider.providerName}' is CUSTODIAL \u2014 the operator would receive and control funds, making it a money transmitter.`);
+        console.error('   The reference operator is non-custodial by design. Use PAYMENT_PROVIDER=cash (record-only, settles peer-to-peer).');
+        console.error('   Only set OPERATOR_LICENSED_CUSTODIAN=true if you are a licensed payment institution and accept that regulatory burden.');
+        process.exit(1);
+    }
+
     if (process.env.NODE_ENV === 'production'
         && paymentProvider.getTrustModel() === 'demo'
         && (process.env.ALLOW_DEMO_PAYMENTS || '').toLowerCase() !== 'true') {
         console.error('\u274C Refusing to run the demo payment provider with NODE_ENV=production.');
-        console.error('   Set PAYMENT_PROVIDER to a real rail (cash, lnd) or ALLOW_DEMO_PAYMENTS=true for a public demo.');
+        console.error('   Set PAYMENT_PROVIDER=cash for a real non-custodial rail, or ALLOW_DEMO_PAYMENTS=true for a public demo.');
         process.exit(1);
     }
 
     const caps = paymentProvider.getCapabilities();
-    console.log(`\u2705 Payment provider: ${paymentProvider.providerName} (trust model: ${caps.trustModel})`);
+    console.log(`\u2705 Payment provider: ${paymentProvider.providerName} (trust: ${caps.trustModel}, custody: ${custody})`);
+    if (custody === 'none') {
+        console.log('\uD83D\uDEE1\uFE0F  Non-custodial: the operator never receives, holds, or transmits funds.');
+    } else {
+        console.log('\u26A0\uFE0F  CUSTODIAL rail active under OPERATOR_LICENSED_CUSTODIAN \u2014 the operator is acting as a licensed payment institution.');
+    }
 }
 
 /**
@@ -499,12 +523,27 @@ function _getManagerForDomain(domainId) {
         if (taskStore) {
             manager.setStore(taskStore);
         }
+        manager.setSnapshotPublisher(publishTaskSnapshot);
         _domainManagers.set(domainId, manager);
     }
     return _domainManagers.get(domainId);
 }
 
 async function initializeTaskStore() {
+    // Always attach the Nostr snapshot publisher — it is the default
+    // durability layer, database or not.
+    for (const manager of _domainManagers.values()) {
+        manager.setSnapshotPublisher(publishTaskSnapshot);
+    }
+
+    // A database is entirely optional. The default deployment runs with none:
+    // durability comes from Nostr snapshots (rehydrated below). Only when
+    // DATABASE_URL is set (e.g. a licensed Mode-B operator retaining PII) does
+    // the operator use a store.
+    if (!process.env.DATABASE_URL) {
+        console.log('💾 No database configured — in-memory + Nostr snapshot durability');
+        return;
+    }
     try {
         const store = createTaskStore(process.env.DATABASE_URL);
         await store.init();
@@ -525,7 +564,7 @@ async function initializeTaskStore() {
         }
         console.log(`💾 Task store ready (${store.backend}) — rehydrated ${persisted.length} active task(s)`);
     } catch (error) {
-        console.warn('⚠️  Task store unavailable — running in-memory only:', error.message);
+        console.warn('⚠️  Task store unavailable — running in-memory + Nostr only:', error.message);
         taskStore = null;
     }
 }
@@ -658,21 +697,36 @@ reputation.setRelays(relayConfig);
 
 /**
  * Outbox-aware publisher: an operator-signed event that reaches no relay is
- * persisted and retried, never silently dropped. The public audit trail is
- * only worth something if it actually gets published.
+ * buffered and retried, never silently dropped. Uses the database outbox when
+ * a store is configured, otherwise an in-memory buffer (bounded) so the
+ * default DB-less operator still retries.
  */
+const memoryOutbox = new Map(); // event.id -> event
+const MEMORY_OUTBOX_MAX = 500;
+
+async function bufferOutbox(event) {
+    if (taskStore) {
+        await taskStore.saveOutboxEvent(event).catch(() => {});
+        return;
+    }
+    if (memoryOutbox.size >= MEMORY_OUTBOX_MAX) {
+        // drop oldest
+        const oldest = memoryOutbox.keys().next().value;
+        memoryOutbox.delete(oldest);
+    }
+    memoryOutbox.set(event.id, event);
+}
+
 async function publishWithOutbox(event, expectedPubkey) {
     try {
         const result = await reputation.publishGeneric(event, expectedPubkey);
         const anyOk = (result.relayStatuses || []).some((status) => status.ok);
-        if (!anyOk && taskStore) {
-            await taskStore.saveOutboxEvent(event).catch(() => {});
+        if (!anyOk) {
+            await bufferOutbox(event);
         }
         return result;
     } catch (error) {
-        if (taskStore) {
-            await taskStore.saveOutboxEvent(event).catch(() => {});
-        }
+        await bufferOutbox(event);
         throw error;
     }
 }
@@ -690,6 +744,129 @@ operatorAnnounce.configure({
     operatorPrivkey: config.operatorPrivkey,
     publishGeneric: (event) => publishWithOutbox(event, config.operatorPubkey || event.pubkey)
 });
+
+// ==========================================
+// NOSTR STATE SNAPSHOTS (durability without a database)
+// The operator publishes a PII-free kind 30078 snapshot on every task
+// mutation and rehydrates non-terminal tasks from these on boot. This
+// replaces operator-side database persistence for the default deployment.
+// Exact coordinates and addresses NEVER leave the operator's memory —
+// snapshots carry geohash-level location only.
+// ==========================================
+
+const { encodeGeohash, decodeGeohash } = require('./src/utils/geohash');
+const SNAPSHOT_GEOHASH_PRECISION = parseInt(process.env.SNAPSHOT_GEOHASH_PRECISION || '6', 10);
+const SNAPSHOT_TTL_SECONDS = parseInt(process.env.SNAPSHOT_TTL_SECONDS || String(24 * 3600), 10);
+
+function buildTaskSnapshot(task) {
+    const requester = task.requester || task.rider || null;
+    const provider = task.provider || task.driver || null;
+    const pickup = task.pickup || task.origin || null;
+    const dropoff = task.dropoff || task.destination || null;
+    const participants = [];
+    if (requester?.pubkey) participants.push({ pubkey: requester.pubkey, role: 'requester' });
+    if (provider?.pubkey) participants.push({ pubkey: provider.pubkey, role: 'provider' });
+
+    const geohashPickup = pickup && Number.isFinite(pickup.lat)
+        ? encodeGeohash(pickup.lat, pickup.lon ?? pickup.lng, SNAPSHOT_GEOHASH_PRECISION) : '';
+    const geohashDropoff = dropoff && Number.isFinite(dropoff.lat)
+        ? encodeGeohash(dropoff.lat, dropoff.lon ?? dropoff.lng, SNAPSHOT_GEOHASH_PRECISION) : '';
+
+    return {
+        taskId: task.id,
+        status: task.status,
+        domain: task.domain || domainProfile.id,
+        participants,
+        geohashPickup,
+        geohashDropoff,
+        expirationSeconds: Math.floor(Date.now() / 1000) + SNAPSHOT_TTL_SECONDS,
+        // Content is intentionally PII-free coordination state only.
+        content: {
+            status: task.status,
+            domain: task.domain || domainProfile.id,
+            requester: requester ? { pubkey: requester.pubkey, npub: requester.npub } : null,
+            provider: provider ? { pubkey: provider.pubkey, npub: provider.npub } : null,
+            fare: task.fare ?? null,
+            currency: task.currency || null,
+            geohashPickup,
+            geohashDropoff,
+            timestamps: task.timestamps || null
+        }
+    };
+}
+
+function publishTaskSnapshot(task) {
+    if (!operatorAnnounce.canPublish() || !task?.id) {
+        return;
+    }
+    operatorAnnounce.publishTaskSnapshot(buildTaskSnapshot(task))
+        .catch((err) => console.warn(`Failed to publish snapshot for ${task.id}:`, err.message));
+}
+
+/**
+ * Reconstruct an in-memory task from a PII-free Nostr snapshot. Location is
+ * restored to the geohash cell centre (approximate) — exact coordinates were
+ * never persisted. Enough to continue the lifecycle after an operator restart.
+ */
+function taskFromSnapshot(content) {
+    if (!content || !content.status) {
+        return null;
+    }
+    const pickup = content.geohashPickup ? decodeGeohash(content.geohashPickup) : null;
+    const dropoff = content.geohashDropoff ? decodeGeohash(content.geohashDropoff) : null;
+    return {
+        status: content.status,
+        domain: content.domain,
+        requester: content.requester || null,
+        provider: content.provider || null,
+        rider: content.requester || null,
+        driver: content.provider || null,
+        pickup: pickup ? { lat: pickup.lat, lon: pickup.lon, approximate: true } : null,
+        dropoff: dropoff ? { lat: dropoff.lat, lon: dropoff.lon, approximate: true } : null,
+        fare: content.fare ?? null,
+        currency: content.currency || null,
+        timestamps: content.timestamps || {},
+        history: [],
+        rehydratedFromNostr: true,
+        piiEphemeral: true
+    };
+}
+
+/**
+ * Rehydrate active tasks from the operator's own kind 30078 snapshots on
+ * relays. Used when there is no database in the loop.
+ */
+async function rehydrateFromNostr() {
+    const operatorPubkey = operatorAnnounce.getOperatorPubkey();
+    if (!operatorPubkey) {
+        return 0;
+    }
+    let restored = 0;
+    try {
+        const events = await reputation.queryEvents([{ kinds: [30078], authors: [operatorPubkey], limit: 500 }]);
+        for (const event of events) {
+            try {
+                const taskId = (event.tags.find((t) => t[0] === 'd') || [])[1];
+                if (!taskId) continue;
+                const content = JSON.parse(event.content || '{}');
+                const manager = _getManagerForDomain(content.domain || domainProfile.id);
+                if (manager.isTerminal(content.status)) continue;
+                if (manager.getRide(taskId)) continue; // already in memory
+                const task = taskFromSnapshot(content);
+                if (!task) continue;
+                task.id = taskId;
+                manager.hydrateTask(task);
+                _rideIndex.set(taskId, content.domain || domainProfile.id);
+                restored += 1;
+            } catch (error) {
+                // skip malformed snapshot
+            }
+        }
+    } catch (error) {
+        console.warn('Nostr rehydration failed:', error.message);
+    }
+    return restored;
+}
 
 // ==========================================
 // WEBSOCKET FOR REAL-TIME UPDATES
@@ -1119,7 +1296,17 @@ app.get('/info', publicRateLimiter, (req, res) => {
         payment: {
             provider: paymentProvider.providerName,
             trust_model: caps.trustModel,
+            custody: typeof paymentProvider.getCustodyModel === 'function' ? paymentProvider.getCustodyModel() : 'custodial',
             capabilities: caps.features
+        },
+        // Regulatory posture, machine-readable. The reference operator is an
+        // information-society coordination service, not a payment institution.
+        regulatory: {
+            role: 'coordinator',
+            money_transmitter: false,
+            custody: typeof paymentProvider.getCustodyModel === 'function' ? paymentProvider.getCustodyModel() : 'custodial',
+            settlement: 'peer-to-peer',
+            note: 'The operator coordinates tasks and records commitments. Fares settle directly between the parties; the operator never receives, holds, or transmits funds.'
         },
         domain: {
             id: domainProfile.id,
@@ -4545,9 +4732,12 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
         // carries an explicit method, amount, currency and trust_model, never
         // a fake payment hash dressed up as real settlement.
         const currency = ride.currency || 'GBP';
+        const custodyModel = typeof paymentProvider?.getCustodyModel === 'function'
+            ? paymentProvider.getCustodyModel() : 'custodial';
         let payment;
         if (paymentProvider && typeof paymentProvider.recordSettlement === 'function') {
-            // Record-only rails (cash): the fare changes hands face-to-face
+            // Record-only rails (cash): the fare changes hands face-to-face.
+            // The operator records that it happened; it moves no money itself.
             const record = await paymentProvider.recordSettlement(rideId, ride.fare, currency);
             payment = {
                 success: true,
@@ -4556,6 +4746,9 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
                 amount: ride.fare,
                 currency,
                 trust_model: paymentProvider.getTrustModel(),
+                custody: custodyModel,
+                operator_transmitted: 0,
+                settlement: 'peer-to-peer',
                 record,
                 timestamp: Date.now()
             };
@@ -4568,6 +4761,8 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
                 amount: ride.fare,
                 currency,
                 trust_model: 'demo',
+                custody: 'none',
+                operator_transmitted: 0,
                 timestamp: Date.now()
             };
         } else {
@@ -4581,6 +4776,9 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
                 amount: ride.fare,
                 currency,
                 trust_model: paymentProvider?.getTrustModel?.() || 'unknown',
+                custody: custodyModel,
+                operator_transmitted: 0,
+                settlement: 'peer-to-peer',
                 timestamp: Date.now()
             };
         }
@@ -4889,6 +5087,16 @@ async function startServer(options = {}) {
     // Initialize Redis for driver tracking
     await initializeRedis();
 
+    // Rehydrate active tasks from Nostr snapshots (the no-database durability
+    // path). Runs regardless of whether a store is configured; a DB restore,
+    // if any, already ran in initializeTaskStore and hydrateTask skips dupes.
+    if (operatorAnnounce.canPublish()) {
+        const restored = await rehydrateFromNostr();
+        if (restored > 0) {
+            console.log(`🌐 Rehydrated ${restored} active task(s) from Nostr snapshots`);
+        }
+    }
+
     // Operator discoverability: announcement now, heartbeat every 5 min,
     // and a retry loop for events that failed to reach any relay.
     if (operatorAnnounce.canPublish()) {
@@ -4914,9 +5122,11 @@ async function startServer(options = {}) {
         heartbeatTimer.unref();
     }
 
-    if (taskStore) {
-        const outboxTimer = setInterval(async () => {
-            try {
+    // Outbox retry loop — drains the database outbox when a store is present,
+    // otherwise the in-memory buffer. Runs either way.
+    const outboxTimer = setInterval(async () => {
+        try {
+            if (taskStore) {
                 const events = await taskStore.loadOutboxEvents(50);
                 for (const event of events) {
                     try {
@@ -4930,12 +5140,23 @@ async function startServer(options = {}) {
                         await taskStore.saveOutboxEvent(event).catch(() => {});
                     }
                 }
-            } catch (error) {
-                // Store unavailable — retry next tick
+            } else if (memoryOutbox.size > 0) {
+                for (const [id, event] of Array.from(memoryOutbox.entries()).slice(0, 50)) {
+                    try {
+                        const result = await reputation.publishGeneric(event, event.pubkey);
+                        if ((result.relayStatuses || []).some((status) => status.ok)) {
+                            memoryOutbox.delete(id);
+                        }
+                    } catch (error) {
+                        // keep for next tick
+                    }
+                }
             }
-        }, 60000);
-        outboxTimer.unref();
-    }
+        } catch (error) {
+            // retry next tick
+        }
+    }, 60000);
+    outboxTimer.unref();
 
     // Pre-fetch BTC prices
     try {

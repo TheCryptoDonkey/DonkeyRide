@@ -212,6 +212,11 @@ class DemoProvider extends PaymentProvider {
     getTrustModel() {
         return 'demo';
     }
+
+    // Mock rail — no real funds move, nothing is held.
+    getCustodyModel() {
+        return 'none';
+    }
 }
 
 module.exports = DemoProvider;

@@ -269,6 +269,11 @@ class CoreLightningProvider extends PaymentProvider {
     getTrustModel() {
         return 'trustless';
     }
+
+    // Holds the hodl-invoice preimage and can claim the stake — custodial.
+    getCustodyModel() {
+        return 'custodial';
+    }
 }
 
 module.exports = CoreLightningProvider;

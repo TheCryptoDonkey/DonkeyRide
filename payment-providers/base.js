@@ -102,6 +102,22 @@ class PaymentProvider {
     }
 
     /**
+     * Custody model — the regulatory question, distinct from trust model.
+     * 'none'      : the operator never receives, holds, or controls funds
+     *               (record-only / wallet-to-wallet). Not a money transmitter.
+     * 'custodial' : the operator receives/holds/can-claim funds (e.g. a hodl
+     *               invoice whose preimage it holds). This makes the operator
+     *               a custodian / money transmitter and is a LICENSED activity.
+     *
+     * Default is 'custodial' so any unrecognised or misconfigured provider is
+     * treated as regulated and gated, never accidentally run as a transmitter.
+     * @returns {'none'|'custodial'}
+     */
+    getCustodyModel() {
+        return 'custodial';
+    }
+
+    /**
      * Create Nostr event for stake proof
      * @param {string} action - 'locked'|'released'|'forfeited'
      * @param {Object} details - Stake details
