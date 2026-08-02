@@ -1180,7 +1180,7 @@ const strictDispatch = (process.env.STRICT_DISPATCH || '').toLowerCase() === 'tr
 // on the open list, so drivers can pre-book) but only enters live dispatch —
 // WS broadcast + web push — inside the lead window before the pickup time.
 const SCHEDULE_DISPATCH_LEAD_MS = parseInt(process.env.SCHEDULE_DISPATCH_LEAD_MS || String(15 * 60 * 1000), 10);
-const SCHEDULE_MAX_ADVANCE_MS = parseInt(process.env.SCHEDULE_MAX_ADVANCE_MS || String(7 * 24 * 3600 * 1000), 10);
+const SCHEDULE_MAX_ADVANCE_MS = parseInt(process.env.SCHEDULE_MAX_ADVANCE_MS || String(30 * 24 * 3600 * 1000), 10);
 const SCHEDULE_EXPIRE_GRACE_MS = parseInt(process.env.SCHEDULE_EXPIRE_GRACE_MS || String(60 * 60 * 1000), 10);
 const SCHEDULE_SWEEP_MS = parseInt(process.env.SCHEDULE_SWEEP_MS || '30000', 10);
 

@@ -25,6 +25,8 @@ process.env.DISPATCH_RADIUS_KM = '15';
 process.env.SCHEDULE_SWEEP_MS = '200';
 process.env.SCHEDULE_DISPATCH_LEAD_MS = '2000';
 process.env.SCHEDULE_EXPIRE_GRACE_MS = '1200';
+// Pin the horizon so the too-far-ahead test is independent of the default
+process.env.SCHEDULE_MAX_ADVANCE_MS = String(7 * 24 * 3600 * 1000);
 // Random high port so parallel test files never collide
 const WS_PORT = 43100 + Math.floor(Math.random() * 1000);
 process.env.WS_PORT = String(WS_PORT);

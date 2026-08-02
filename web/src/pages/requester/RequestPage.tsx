@@ -23,7 +23,7 @@ function toLocalInputValue(date: Date): string {
 }
 
 const MIN_SCHEDULE_AHEAD_MS = 20 * 60 * 1000;
-const MAX_SCHEDULE_AHEAD_MS = 7 * 24 * 3600 * 1000;
+const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 3600 * 1000;
 
 export function RequestPage() {
   const navigate = useNavigate();
@@ -221,7 +221,7 @@ export function RequestPage() {
           />
           {scheduleInvalid ? (
             <p className="text-donkey-orange text-xs mt-2">
-              Pick a time between 20 minutes and 7 days from now.
+              Pick a time between 20 minutes and 30 days from now.
             </p>
           ) : (
             <p className="text-donkey-muted text-xs mt-2">
