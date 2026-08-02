@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   buildTripShareText, buildAllClearText, buildAlertText, buildRideCheckAlertText,
   getTrustedContacts, addTrustedContact, removeTrustedContact,
-  getSharedGuardians,
+  getSharedGuardians, getAutoShareContacts, setAutoShare, isAutoShare,
 } from './trip-share';
 import type { Task } from '../types/api';
 
@@ -83,5 +83,19 @@ describe('trusted contacts storage', () => {
 
   it('shared guardians default to empty per task', () => {
     expect(getSharedGuardians('ride_never_shared')).toEqual([]);
+  });
+
+  it('auto-share flags toggle and clear with the contact', async () => {
+    const npub = 'npub180cvv07tjdrrgpa0j7j7tmnyl2yr6yr7l8j4s3evf6u64th6gkwsyjh6w6';
+    await addTrustedContact(npub);
+    expect(isAutoShare(npub)).toBe(false);
+    setAutoShare(npub, true);
+    expect(getAutoShareContacts()).toEqual([npub]);
+    setAutoShare(npub, false);
+    expect(isAutoShare(npub)).toBe(false);
+    // Removing a contact also removes their auto-share flag
+    setAutoShare(npub, true);
+    removeTrustedContact(npub);
+    expect(getAutoShareContacts()).toEqual([]);
   });
 });

@@ -22,6 +22,7 @@ const DM_KIND = 14;
 const SUBJECT_PREFIX = 'donkeyride-trip:';
 const CONTACTS_KEY = 'donkeyride.trusted-contacts';
 const SHARED_KEY_PREFIX = 'donkeyride.tripshare.';
+const AUTOSHARE_KEY = 'donkeyride.autoshare-contacts';
 
 function nostrTools() {
   return import('nostr-tools');
@@ -57,6 +58,30 @@ export async function addTrustedContact(npub: string): Promise<string> {
 export function removeTrustedContact(npub: string): void {
   const list = getTrustedContacts().filter((n) => n !== npub);
   localStorage.setItem(CONTACTS_KEY, JSON.stringify(list));
+  setAutoShare(npub, false);
+}
+
+// ── Auto-share (Uber's automated safety settings, device-local) ──
+
+export function getAutoShareContacts(): string[] {
+  try {
+    const raw = localStorage.getItem(AUTOSHARE_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list.filter((n) => typeof n === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+export function isAutoShare(npub: string): boolean {
+  return getAutoShareContacts().includes(npub);
+}
+
+/** Flag a guardian to be sent every trip automatically */
+export function setAutoShare(npub: string, on: boolean): void {
+  const list = getAutoShareContacts().filter((n) => n !== npub);
+  if (on) list.push(npub);
+  localStorage.setItem(AUTOSHARE_KEY, JSON.stringify(list));
 }
 
 // ── Who a trip was shared with (per task, device-local) ──
@@ -158,6 +183,25 @@ async function sendGuardianMessage(
   if (acks.every((count) => count === 0)) {
     throw new Error('No relay accepted the message — check your connection');
   }
+}
+
+/**
+ * Share this trip with every auto-share guardian not already sent it.
+ * Fired by the rider app once a provider is matched (the share names
+ * the driver). Returns how many guardians were newly shared with.
+ */
+export async function autoShareTrip(
+  privKeyHex: string,
+  task: Task,
+  taskNoun = 'ride',
+): Promise<number> {
+  const contacts = getTrustedContacts();
+  const already = getSharedGuardians(task.id);
+  const pending = getAutoShareContacts()
+    .filter((npub) => contacts.includes(npub) && !already.includes(npub));
+  const results = await Promise.allSettled(pending.map((npub) =>
+    shareTrip(privKeyHex, npub, task, taskNoun)));
+  return results.filter((r) => r.status === 'fulfilled').length;
 }
 
 /** Share a trip with a guardian; remembered so the all-clear follows. */

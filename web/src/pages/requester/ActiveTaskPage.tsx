@@ -27,6 +27,7 @@ import { TripSharePanel } from '../../components/safety/TripSharePanel';
 import { RideCheckPrompt } from '../../components/safety/RideCheckPrompt';
 import {
   sendAllClear, sendGuardianAlert, sendRideCheckAlert, getSharedGuardians,
+  autoShareTrip,
 } from '../../services/trip-share';
 import { createRideCheck, type RideCheckMonitor, type RideCheckReason } from '../../utils/ride-check';
 import { routePositions } from '../../utils/geo';
@@ -135,6 +136,24 @@ export function ActiveTaskPage() {
   }, [activeTask, setActiveTask, setProviderLocation, navigate, profile, terminalStates, routeTerminal, refreshTask, reset, taskNoun]);
 
   const { connected } = useWebSocket(activeTask?.id || null, handleWsMessage);
+
+  // Auto-share: guardians flagged "every trip" get the share as soon as a
+  // provider is matched (the share names the driver) — once per task
+  const autoSharedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!identity || !activeTask?.providerPubkey) return;
+    if (terminalStates.includes(activeTask.status)) return;
+    if (autoSharedRef.current === activeTask.id) return;
+    autoSharedRef.current = activeTask.id;
+    void autoShareTrip(identity.privKeyHex, activeTask, taskNoun)
+      .then((count) => {
+        if (count > 0) {
+          showToast(`Trip shared with ${count} trusted contact${count === 1 ? '' : 's'}`);
+        }
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTask?.id, activeTask?.providerPubkey, activeTask?.status, identity, taskNoun]);
 
   // Ride check — this phone watches the trip; nothing leaves the device
   // unless the rider (or their silence) chooses to alert their contacts

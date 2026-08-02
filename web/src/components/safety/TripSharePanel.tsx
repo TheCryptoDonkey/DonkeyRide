@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import {
   getTrustedContacts, addTrustedContact, removeTrustedContact,
-  getSharedGuardians, shareTrip,
+  getSharedGuardians, shareTrip, isAutoShare, setAutoShare,
 } from '../../services/trip-share';
 import type { Task } from '../../types/api';
 
@@ -23,6 +23,7 @@ export function TripSharePanel({ task, privKeyHex, taskNoun = 'ride' }: TripShar
   const [newNpub, setNewNpub] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [autoVersion, setAutoVersion] = useState(0); // re-render on toggle
 
   const handleAdd = async () => {
     setError(null);
@@ -52,7 +53,11 @@ export function TripSharePanel({ task, privKeyHex, taskNoun = 'ride' }: TripShar
     <div className="meta-card">
       <button
         className="w-full flex items-center justify-between text-left"
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => {
+          // Auto-share may have fired since mount — re-read on open
+          setShared(getSharedGuardians(task.id));
+          setOpen((o) => !o);
+        }}
       >
         <span className="meta-label">
           Share this {taskNoun}
@@ -73,11 +78,22 @@ export function TripSharePanel({ task, privKeyHex, taskNoun = 'ride' }: TripShar
 
           {contacts.map((npub) => {
             const isShared = shared.includes(npub);
+            const auto = isAutoShare(npub);
             return (
               <div key={npub} className="flex items-center gap-2">
                 <p className="flex-1 text-xs font-mono text-donkey-text truncate">
                   {npub.slice(0, 16)}…
                 </p>
+                <button
+                  className={`text-xs font-semibold ${auto ? 'text-donkey-green' : 'text-donkey-muted'}`}
+                  onClick={() => {
+                    setAutoShare(npub, !auto);
+                    setAutoVersion(autoVersion + 1);
+                  }}
+                  title="Send this contact every trip automatically"
+                >
+                  {auto ? 'Every trip ✓' : 'Every trip'}
+                </button>
                 {isShared ? (
                   <span className="text-donkey-green text-xs font-semibold">Shared ✓</span>
                 ) : (

@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { emergencyNumber } from '../../utils/emergency';
 
 interface PanicButtonProps {
   onPanic: () => Promise<void>;
@@ -57,11 +58,21 @@ export function PanicButton({ onPanic }: PanicButtonProps) {
     setProgress(0);
   }, []);
 
+  const emergency = emergencyNumber();
+
   if (sent) {
     return (
       <div className="bg-donkey-red/20 border border-donkey-red rounded-xl p-4 text-center">
         <p className="text-donkey-red font-bold text-lg">EMERGENCY ALERT SENT</p>
-        <p className="text-donkey-muted text-sm mt-1">Help is on the way</p>
+        <p className="text-donkey-muted text-sm mt-1">
+          Your trusted contacts and the operator have been alerted
+        </p>
+        <a
+          href={`tel:${emergency}`}
+          className="block mt-3 bg-donkey-red text-white font-black py-3 rounded-xl"
+        >
+          Call {emergency} — emergency services
+        </a>
       </div>
     );
   }
@@ -72,7 +83,7 @@ export function PanicButton({ onPanic }: PanicButtonProps) {
         <div className="bg-donkey-red border border-donkey-red rounded-xl p-4 text-center">
           <p className="text-white font-black text-lg">ALERT FAILED</p>
           <p className="text-white font-bold text-sm mt-1">
-            Call <a href="tel:999" className="underline">999</a> directly
+            Call <a href={`tel:${emergency}`} className="underline">{emergency}</a> directly
           </p>
         </div>
       )}
