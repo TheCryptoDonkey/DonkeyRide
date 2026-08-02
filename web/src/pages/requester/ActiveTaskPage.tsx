@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapView } from '../../components/map/MapView';
 import { LocationMarker } from '../../components/map/LocationMarker';
@@ -24,7 +24,12 @@ import {
 } from '../../services/api';
 import { QuotePanel } from '../../components/task/QuotePanel';
 import { TripSharePanel } from '../../components/safety/TripSharePanel';
-import { sendAllClear, sendGuardianAlert } from '../../services/trip-share';
+import { RideCheckPrompt } from '../../components/safety/RideCheckPrompt';
+import {
+  sendAllClear, sendGuardianAlert, sendRideCheckAlert, getSharedGuardians,
+} from '../../services/trip-share';
+import { createRideCheck, type RideCheckMonitor, type RideCheckReason } from '../../utils/ride-check';
+import { routePositions } from '../../utils/geo';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import type { WsMessage, Task, OperatorPaymentInfo } from '../../types/api';
 
@@ -33,7 +38,7 @@ export function ActiveTaskPage() {
   const { activeTask, setActiveTask, origin, destination, providerLocation, setProviderLocation, reset } = useTask();
   const { identity } = useIdentity();
   const { profile } = useDomain();
-  const { location: currentLocation } = useLocation(true);
+  const { location: currentLocation, error: locationError, loading: locationLoading } = useLocation(true);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -131,6 +136,28 @@ export function ActiveTaskPage() {
 
   const { connected } = useWebSocket(activeTask?.id || null, handleWsMessage);
 
+  // Ride check — this phone watches the trip; nothing leaves the device
+  // unless the rider (or their silence) chooses to alert their contacts
+  const [rideCheck, setRideCheck] = useState<RideCheckReason | null>(null);
+  const rideCheckRef = useRef<RideCheckMonitor | null>(null);
+
+  useEffect(() => {
+    rideCheckRef.current = null;
+    setRideCheck(null);
+  }, [activeTask?.id]);
+
+  useEffect(() => {
+    // Only while the trip is under way, and only on real GPS fixes —
+    // useLocation's London fallback would read as wildly off-route
+    if (!activeTask?.startedAt || activeTask.status !== activeValue) return;
+    if (locationError || locationLoading) return;
+    if (!rideCheckRef.current) {
+      rideCheckRef.current = createRideCheck(routePositions(activeTask.routeGeometry));
+    }
+    const reason = rideCheckRef.current.addSample({ ...currentLocation, t: Date.now() });
+    if (reason) setRideCheck(reason);
+  }, [currentLocation, locationError, locationLoading, activeTask?.status, activeTask?.startedAt, activeValue]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Poll for updates as fallback
   useEffect(() => {
     if (!activeTask) return;
@@ -156,6 +183,20 @@ export function ActiveTaskPage() {
       role: 'requester',
       location: currentLocation,
     });
+  };
+
+  const dismissRideCheck = () => {
+    rideCheckRef.current?.acknowledge(Date.now());
+    setRideCheck(null);
+  };
+
+  const alertRideCheck = () => {
+    if (identity && rideCheck) {
+      void sendRideCheckAlert(identity.privKeyHex, activeTask, rideCheck, currentLocation)
+        .catch(() => {});
+      showToast('Your contacts have been alerted');
+    }
+    dismissRideCheck();
   };
 
   const handleCancel = async () => {
@@ -230,6 +271,16 @@ export function ActiveTaskPage() {
           <StatusBadge status={activeTask.status} />
           <DualPrice sats={activeTask.fareEstimateSats} size="sm" />
         </div>
+
+        {/* Everything OK? — client-side ride check */}
+        {rideCheck && (
+          <RideCheckPrompt
+            reason={rideCheck}
+            guardianCount={getSharedGuardians(activeTask.id).length}
+            onDismiss={dismissRideCheck}
+            onAlert={alertRideCheck}
+          />
+        )}
 
         {/* Pre-booked pickup time */}
         {isUpcoming(activeTask.scheduledFor) && !activeTask.startedAt

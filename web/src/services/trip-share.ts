@@ -111,6 +111,23 @@ export function buildAlertText(task: Task, location?: { lat: number; lng: number
   ].join('\n').trim();
 }
 
+export function buildRideCheckAlertText(
+  task: Task,
+  reason: 'off_route' | 'stalled',
+  location?: { lat: number; lng: number } | null,
+): string {
+  const driver = task.providerNpub ? `${task.providerNpub.slice(0, 20)}…` : 'unknown';
+  const what = reason === 'off_route'
+    ? 'has left the expected route'
+    : 'has been stopped for a while';
+  const lastKnown = location ? ` Last known location: around ${area(location)}.` : '';
+  return [
+    `⚠️ Automatic safety check: my DonkeyRide trip ${what} and I haven't confirmed I'm OK.`,
+    `Driver: ${driver}.${lastKnown}`,
+    `Please check in with me — and if I don't answer, raise help.`,
+  ].join('\n');
+}
+
 // ── Sending (gift-wrapped, guardian + self copy) ────
 
 async function sendGuardianMessage(
@@ -164,6 +181,18 @@ export async function sendAllClear(
   await Promise.allSettled(guardians.map((npub) =>
     sendGuardianMessage(privKeyHex, npub, taskId, buildAllClearText(taskNoun))));
   localStorage.removeItem(SHARED_KEY_PREFIX + taskId);
+}
+
+/** Ride check went unanswered (or the rider chose to alert). */
+export async function sendRideCheckAlert(
+  privKeyHex: string,
+  task: Task,
+  reason: 'off_route' | 'stalled',
+  location?: { lat: number; lng: number } | null,
+): Promise<void> {
+  const guardians = getSharedGuardians(task.id);
+  await Promise.allSettled(guardians.map((npub) =>
+    sendGuardianMessage(privKeyHex, npub, task.id, buildRideCheckAlertText(task, reason, location))));
 }
 
 /** Forward a panic to every guardian this trip was shared with. */

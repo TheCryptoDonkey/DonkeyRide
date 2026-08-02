@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
-  buildTripShareText, buildAllClearText, buildAlertText,
+  buildTripShareText, buildAllClearText, buildAlertText, buildRideCheckAlertText,
   getTrustedContacts, addTrustedContact, removeTrustedContact,
   getSharedGuardians,
 } from './trip-share';
@@ -51,6 +51,17 @@ describe('trip share messages', () => {
     const text = buildAlertText(task, null);
     expect(text).toContain('🆘');
     expect(text).not.toContain('Last known location');
+  });
+
+  it('ride-check alert names the condition and the driver', () => {
+    const offRoute = buildRideCheckAlertText(task, 'off_route', { lat: 53.5, lng: -2.25 });
+    expect(offRoute).toContain('left the expected route');
+    expect(offRoute).toContain('npub1driverdriverdri…');
+    expect(offRoute).toContain('53.50, -2.25');
+
+    const stalled = buildRideCheckAlertText(task, 'stalled', null);
+    expect(stalled).toContain('stopped for a while');
+    expect(stalled).not.toContain('Last known location');
   });
 });
 
