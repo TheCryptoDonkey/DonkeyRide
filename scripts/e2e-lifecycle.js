@@ -154,6 +154,26 @@ async function main() {
         JSON.stringify(completed.body?.payment)
     );
 
+    // 6b. Non-custodial settlement: driver advertises rails, rider pays cash
+    // directly, driver confirms. The operator moves nothing.
+    const setMethods = await api(driverSk, 'POST', `/api/rides/${rideId}/payment-methods`, {
+        methods: [{ rail: 'lnaddress', handle: 'driver@walletofsatoshi.com' }, { rail: 'cash' }]
+    });
+    check(setMethods.status === 200, 'driver advertises accepted rails', JSON.stringify(setMethods.body));
+
+    const options = await api(riderSk, 'GET', `/api/rides/${rideId}/payment-options`);
+    check(options.status === 200 && Array.isArray(options.body?.methods), 'rider sees accepted rails', JSON.stringify(options.body));
+    check(options.body?.custody === 'none', 'settlement is non-custodial', JSON.stringify(options.body));
+
+    const cashInstruction = await api(riderSk, 'POST', `/api/rides/${rideId}/pay-instruction`, { rail: 'cash' });
+    check(cashInstruction.status === 200 && cashInstruction.body.operator_transmitted === 0, 'pay instruction shows operator transmits nothing', JSON.stringify(cashInstruction.body));
+
+    const settled = await api(riderSk, 'POST', `/api/rides/${rideId}/settle`, { rail: 'cash', proof: {} });
+    check(settled.status === 200 && settled.body.settlement?.custody === 'none', 'rider records a direct settlement', JSON.stringify(settled.body));
+
+    const confirmed = await api(driverSk, 'POST', `/api/rides/${rideId}/confirm-received`, {});
+    check(confirmed.status === 200 && confirmed.body.settlement?.status === 'confirmed', 'driver confirms receipt', JSON.stringify(confirmed.body));
+
     // 7. Rider rates the driver with a signed kind 30520 event (portable reputation)
     const ratingEvent = signedEvent(riderSk, 30520, [
         ['ride', rideId],
