@@ -26,6 +26,7 @@ import { SignatureCapture } from '../../components/task/SignatureCapture';
 import { QuotePanel } from '../../components/task/QuotePanel';
 import { ChatPanel } from '../../components/task/ChatPanel';
 import { PickupCode } from '../../components/task/PickupCode';
+import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import type { WsMessage } from '../../types/api';
 
 /** Map known state keys to existing API endpoints */
@@ -112,6 +113,9 @@ export function ActiveTaskPage() {
         break;
       case 'settlement_confirmed':
         void refreshTask();
+        break;
+      case 'scheduled_reminder':
+        showToast(`Upcoming ${taskNoun} — ${formatScheduledTime(msg.scheduledFor)}`);
         break;
       case 'task_cancelled':
         showToast(`${taskNoun} cancelled`, { type: 'error' });
@@ -278,6 +282,20 @@ export function ActiveTaskPage() {
           <StatusBadge status={status} />
           <DualPrice sats={activeTask.fareEstimateSats} size="sm" />
         </div>
+
+        {/* Pre-booked job — no need to head out yet */}
+        {!isTerminal && isUpcoming(activeTask.scheduledFor) && !activeTask.startedAt && (
+          <div className="meta-card border border-donkey-blue/40">
+            <p className="meta-label">Booked for</p>
+            <p className="text-sm font-bold text-donkey-text mt-1">
+              {formatScheduledTime(activeTask.scheduledFor)}
+            </p>
+            <p className="text-xs text-donkey-muted mt-1">
+              You've committed to this {taskNoun} — you'll get a reminder as the
+              time approaches.
+            </p>
+          </div>
+        )}
 
         {/* Task info row */}
         {(activeTask.distanceKm || activeTask.durationMin) && (

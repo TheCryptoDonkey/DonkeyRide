@@ -12,6 +12,15 @@ import { getTripEstimate, requestTask, getOperatorInfoCached, getApiBase } from 
 import { publishTaskAnnouncement } from '../../services/events';
 import { formatDistance, formatDuration } from '../../services/pricing';
 
+/** Format a Date for a datetime-local input (local time, minute precision) */
+function toLocalInputValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+const MIN_SCHEDULE_AHEAD_MS = 20 * 60 * 1000;
+const MAX_SCHEDULE_AHEAD_MS = 7 * 24 * 3600 * 1000;
+
 export function RequestPage() {
   const navigate = useNavigate();
   const { origin, destination, estimate, setEstimate, setActiveTask, activeTask } = useTask();
@@ -20,6 +29,18 @@ export function RequestPage() {
   const [loading, setLoading] = useState(false);
   const [estimating, setEstimating] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [when, setWhen] = useState<'now' | 'later'>('now');
+  const [whenValue, setWhenValue] = useState<string>('');
+
+  // Resolved pickup time (unix ms) when scheduling; null = leave now
+  const scheduledFor = when === 'later' && whenValue
+    ? new Date(whenValue).getTime()
+    : null;
+  const scheduleInvalid = when === 'later' && (
+    !scheduledFor
+    || scheduledFor < Date.now() + MIN_SCHEDULE_AHEAD_MS
+    || scheduledFor > Date.now() + MAX_SCHEDULE_AHEAD_MS
+  );
 
   const requiresDestination = profile?.features.requiresDestination !== false;
   const originLabel = profile?.labels?.originLabel || 'Pickup';
@@ -68,6 +89,7 @@ export function RequestPage() {
   const handleRequest = async () => {
     if (!origin || !identity) return;
     if (requiresDestination && !destination) return;
+    if (scheduleInvalid) return;
     setLoading(true);
     setError(null);
     try {
@@ -77,6 +99,7 @@ export function RequestPage() {
         requesterPubkey: identity.pubKeyHex,
         requesterNpub: identity.npub,
         domain: profile?.id,
+        scheduledFor,
       });
       setActiveTask(task);
       // Decentralised announcement — geohash-only, best-effort, relays only.
@@ -86,8 +109,9 @@ export function RequestPage() {
           .then((info) => publishTaskAnnouncement(task.id, origin, profile.id, identity.privKeyHex, {
             pubkey: info.pubkey || null,
             api: getApiBase(),
+            scheduledFor,
           }))
-          .catch(() => publishTaskAnnouncement(task.id, origin, profile.id, identity.privKeyHex));
+          .catch(() => publishTaskAnnouncement(task.id, origin, profile.id, identity.privKeyHex, { scheduledFor }));
       }
       navigate('/request/active');
     } catch (err) {
@@ -97,6 +121,64 @@ export function RequestPage() {
   };
 
   if (!origin) return null;
+
+  const providerLabel = profile?.roles.provider || 'Provider';
+
+  // "Leave now" vs pre-booked pickup — shared by both pricing layouts
+  const whenPicker = (
+    <div className="meta-card mb-4">
+      <p className="meta-label mb-2">When do you need it?</p>
+      <div className="flex gap-2">
+        <button
+          className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-colors ${
+            when === 'now'
+              ? 'border-donkey-blue text-donkey-blue bg-donkey-blue/10'
+              : 'border-donkey-border text-donkey-muted'
+          }`}
+          onClick={() => setWhen('now')}
+        >
+          Now
+        </button>
+        <button
+          className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-colors ${
+            when === 'later'
+              ? 'border-donkey-blue text-donkey-blue bg-donkey-blue/10'
+              : 'border-donkey-border text-donkey-muted'
+          }`}
+          onClick={() => {
+            setWhen('later');
+            if (!whenValue) {
+              setWhenValue(toLocalInputValue(new Date(Date.now() + 60 * 60 * 1000)));
+            }
+          }}
+        >
+          Later
+        </button>
+      </div>
+      {when === 'later' && (
+        <div className="mt-3">
+          <input
+            type="datetime-local"
+            className="w-full bg-donkey-bg border border-donkey-border rounded-lg px-3 py-2 text-donkey-text text-sm"
+            value={whenValue}
+            min={toLocalInputValue(new Date(Date.now() + MIN_SCHEDULE_AHEAD_MS))}
+            max={toLocalInputValue(new Date(Date.now() + MAX_SCHEDULE_AHEAD_MS))}
+            onChange={(e) => setWhenValue(e.target.value)}
+          />
+          {scheduleInvalid ? (
+            <p className="text-donkey-orange text-xs mt-2">
+              Pick a time between 20 minutes and 7 days from now.
+            </p>
+          ) : (
+            <p className="text-donkey-muted text-xs mt-2">
+              A {providerLabel.toLowerCase()} can commit early — you'll both get a
+              reminder as the time approaches.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
 
   const mapCentre = destination
     ? { lat: (origin.lat + destination.lat) / 2, lng: (origin.lng + destination.lng) / 2 }
@@ -158,6 +240,8 @@ export function RequestPage() {
               </div>
             </div>
 
+            {whenPicker}
+
             <div className="flex gap-3">
               <button
                 className="btn-secondary flex-1"
@@ -168,9 +252,13 @@ export function RequestPage() {
               <button
                 className="btn-primary flex-1"
                 onClick={handleRequest}
-                disabled={loading}
+                disabled={loading || scheduleInvalid}
               >
-                {loading ? 'Requesting...' : `${profile?.labels?.requestVerb || 'Request'} ${profile?.roles.provider || 'Provider'}`}
+                {loading
+                  ? 'Requesting...'
+                  : when === 'later'
+                    ? `Book ${providerLabel} for later`
+                    : `${profile?.labels?.requestVerb || 'Request'} ${providerLabel}`}
               </button>
             </div>
 
@@ -222,6 +310,8 @@ export function RequestPage() {
               )}
             </div>
 
+            {whenPicker}
+
             <div className="flex gap-3">
               <button
                 className="btn-secondary flex-1"
@@ -232,9 +322,13 @@ export function RequestPage() {
               <button
                 className="btn-primary flex-1"
                 onClick={handleRequest}
-                disabled={loading}
+                disabled={loading || scheduleInvalid}
               >
-                {loading ? 'Requesting...' : profile?.labels?.requestVerb || 'Request'}
+                {loading
+                  ? 'Requesting...'
+                  : when === 'later'
+                    ? 'Book for later'
+                    : profile?.labels?.requestVerb || 'Request'}
               </button>
             </div>
 

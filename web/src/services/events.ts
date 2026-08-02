@@ -50,17 +50,23 @@ export async function publishTaskAnnouncement(
   pickup: LatLng,
   domainId: string,
   privKeyHex: string,
-  operator?: { pubkey?: string | null; api?: string | null },
+  operator?: { pubkey?: string | null; api?: string | null; scheduledFor?: number | null },
 ): Promise<number> {
   try {
     const now = Math.floor(Date.now() / 1000);
+    // A pre-booked task stays discoverable until an hour past its pickup
+    // time; an immediate one expires in 15 minutes (NIP-40)
+    const scheduledSec = operator?.scheduledFor
+      ? Math.floor(operator.scheduledFor / 1000)
+      : null;
     const tags = [
       ['d', taskId],
       ['g', encodeGeohash(pickup.lat, pickup.lng, 5)],
       ['domain', domainId],
       ['t', 'trott-task'],
-      ['expiration', String(now + 900)],
+      ['expiration', String(scheduledSec ? scheduledSec + 3600 : now + 900)],
     ];
+    if (scheduledSec) tags.push(['scheduled_for', String(scheduledSec)]);
     if (operator?.pubkey) tags.push(['operator', operator.pubkey]);
     if (operator?.api) tags.push(['api', operator.api]);
     const event = await signNostrEvent({

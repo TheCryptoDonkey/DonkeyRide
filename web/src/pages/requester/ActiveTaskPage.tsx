@@ -23,6 +23,7 @@ import {
   getOperatorInfoCached,
 } from '../../services/api';
 import { QuotePanel } from '../../components/task/QuotePanel';
+import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import type { WsMessage, Task, OperatorPaymentInfo } from '../../types/api';
 
 export function ActiveTaskPage() {
@@ -109,6 +110,9 @@ export function ActiveTaskPage() {
       case 'settlement_confirmed':
         showToast('Payment confirmed');
         void refreshTask();
+        break;
+      case 'scheduled_reminder':
+        showToast(`Your ${taskNoun} is coming up — ${formatScheduledTime(msg.scheduledFor)}`);
         break;
       case 'task_cancelled':
         showToast(`${taskNoun} cancelled`, { type: 'error' });
@@ -217,6 +221,22 @@ export function ActiveTaskPage() {
           <StatusBadge status={activeTask.status} />
           <DualPrice sats={activeTask.fareEstimateSats} size="sm" />
         </div>
+
+        {/* Pre-booked pickup time */}
+        {isUpcoming(activeTask.scheduledFor) && !activeTask.startedAt
+          && !terminalStates.includes(activeTask.status) && (
+          <div className="meta-card border border-donkey-blue/40">
+            <p className="meta-label">Booked for</p>
+            <p className="text-sm font-bold text-donkey-text mt-1">
+              {formatScheduledTime(activeTask.scheduledFor)}
+            </p>
+            <p className="text-xs text-donkey-muted mt-1">
+              {activeTask.providerPubkey
+                ? `Your ${providerRoleLabel.toLowerCase()} has committed — you'll both get a reminder nearer the time.`
+                : `We'll alert nearby ${providerRoleLabel.toLowerCase()}s closer to the time — one may also commit early.`}
+            </p>
+          </div>
+        )}
 
         {/* Provider info */}
         {activeTask.providerNpub && (

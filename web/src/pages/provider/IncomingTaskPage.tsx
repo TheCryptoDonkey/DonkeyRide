@@ -12,6 +12,7 @@ import { useDomain } from '../../context/DomainContext';
 import { acceptTask, setPaymentMethods, ApiError } from '../../services/api';
 import { getSavedPaymentMethods } from '../../utils/payment-methods';
 import { formatDistance, formatDuration } from '../../services/pricing';
+import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import { dispatchService } from '../../services/dispatch';
 
 export function IncomingTaskPage() {
@@ -112,6 +113,13 @@ export function IncomingTaskPage() {
           <div className="text-center mb-3">
             <DualPrice sats={activeTask.fareEstimateSats} size="lg" />
           </div>
+
+          {isUpcoming(activeTask.scheduledFor) && (
+            <p className="text-sm text-donkey-blue font-bold text-center mb-3">
+              Booked for {formatScheduledTime(activeTask.scheduledFor)} —
+              accepting commits you to that time
+            </p>
+          )}
 
           {(activeTask.distanceKm || activeTask.durationMin) && (
             <div className="flex justify-center gap-4 text-sm text-donkey-muted mb-3">

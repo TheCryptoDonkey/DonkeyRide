@@ -139,6 +139,7 @@ export function normaliseTask(raw: any): Task {
     distanceKm,
     durationMin: r.duration_minutes ?? r.durationMin,
     routeGeometry: normaliseRoute(r.route ?? r.routeGeometry),
+    scheduledFor: r.scheduledFor ?? r.scheduled_for ?? null,
     settlement: normaliseSettlement(r.settlementRecord ?? r.settlement),
     createdAt: r.timestamps?.requested
       ? new Date(r.timestamps.requested).toISOString()
@@ -238,6 +239,8 @@ export async function requestTask(params: {
   pickupAddress?: string;
   dropoffAddress?: string;
   domain?: string;
+  /** Unix ms pickup time for a pre-booked task */
+  scheduledFor?: number | null;
 }): Promise<Task> {
   const body: Record<string, unknown> = {
     pickup_lat: params.pickup.lat,
@@ -248,6 +251,10 @@ export async function requestTask(params: {
 
   if (params.domain) {
     body.domain = params.domain;
+  }
+
+  if (params.scheduledFor) {
+    body.scheduled_for = params.scheduledFor;
   }
 
   if (params.dropoff) {

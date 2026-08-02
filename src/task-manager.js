@@ -223,6 +223,8 @@ class TaskManager {
       } : null,
       currency: options.currency || 'GBP',
       fare: estimatedFare,
+      // Unix ms pickup time for pre-booked tasks; null = as soon as possible
+      scheduledFor: options.scheduledFor || null,
       timestamps: {
         requested: Date.now(),
         matched: null,

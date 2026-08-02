@@ -23,6 +23,8 @@ export interface Task {
   routeGeometry?: string | [number, number][];
   requesterStake?: StakeInfo;
   providerStake?: StakeInfo;
+  /** Unix ms pickup time for a pre-booked task; null/absent = immediate */
+  scheduledFor?: number | null;
   settlement?: SettlementInfo;
   createdAt: string;
   startedAt?: string;
@@ -262,6 +264,7 @@ export type WsMessage =
   | { type: 'tip_sent'; taskId?: string; amountSats?: number }
   | { type: 'task_cancelled'; taskId?: string; cancelledBy?: string; reason?: string }
   | { type: 'task_broadcast'; task: Record<string, unknown>; distanceKm?: number }
+  | { type: 'scheduled_reminder'; taskId?: string; scheduledFor: number }
   | { type: 'settlement_declared'; taskId?: string; rail?: string; verified?: boolean }
   | { type: 'settlement_confirmed'; taskId?: string; rail?: string }
   | { type: 'auth_ok'; pubkey: string }

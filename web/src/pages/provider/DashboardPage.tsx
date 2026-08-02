@@ -10,6 +10,7 @@ import { useDomain } from '../../context/DomainContext';
 import { getTaskStats, getOperatorInfo } from '../../services/api';
 import { dispatchService, type DispatchState } from '../../services/dispatch';
 import { formatDistance } from '../../services/pricing';
+import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import { Capacitor } from '@capacitor/core';
 import type { Task } from '../../types/api';
 
@@ -178,9 +179,15 @@ export function DashboardPage() {
                     <DualPrice sats={job.fareEstimateSats} size="sm" />
                     <p className="text-xs text-donkey-muted mt-0.5">
                       {job.distanceKm != null && formatDistance(job.distanceKm)}
+                      {isUpcoming(job.scheduledFor) && (
+                        <span className="text-donkey-blue font-semibold">
+                          {job.distanceKm != null && ' · '}
+                          Booked {formatScheduledTime(job.scheduledFor)}
+                        </span>
+                      )}
                       {job.operatorBase && (
                         <span className="text-donkey-purple font-semibold">
-                          {job.distanceKm != null && ' · '}
+                          {(job.distanceKm != null || isUpcoming(job.scheduledFor)) && ' · '}
                           via Nostr · {new URL(job.operatorBase).host}
                         </span>
                       )}

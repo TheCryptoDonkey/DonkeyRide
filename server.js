@@ -834,6 +834,7 @@ function buildTaskSnapshot(task) {
             provider: provider ? { pubkey: provider.pubkey, npub: provider.npub } : null,
             fare: task.fare ?? null,
             currency: task.currency || null,
+            scheduledFor: task.scheduledFor || null,
             geohashPickup,
             geohashDropoff,
             timestamps: task.timestamps || null
@@ -871,6 +872,7 @@ function taskFromSnapshot(content) {
         dropoff: dropoff ? { lat: dropoff.lat, lon: dropoff.lon, approximate: true } : null,
         fare: content.fare ?? null,
         currency: content.currency || null,
+        scheduledFor: content.scheduledFor || null,
         timestamps: content.timestamps || {},
         history: [],
         rehydratedFromNostr: true,
@@ -1164,6 +1166,14 @@ const DRIVER_PRESENCE_TTL_MS = 2 * 60 * 1000; // location older than this is sta
 // STRICT_DISPATCH=true excludes drivers with no known location from dispatch
 const strictDispatch = (process.env.STRICT_DISPATCH || '').toLowerCase() === 'true';
 
+// Scheduled rides: a request carrying scheduled_for is stored (and browsable
+// on the open list, so drivers can pre-book) but only enters live dispatch —
+// WS broadcast + web push — inside the lead window before the pickup time.
+const SCHEDULE_DISPATCH_LEAD_MS = parseInt(process.env.SCHEDULE_DISPATCH_LEAD_MS || String(15 * 60 * 1000), 10);
+const SCHEDULE_MAX_ADVANCE_MS = parseInt(process.env.SCHEDULE_MAX_ADVANCE_MS || String(7 * 24 * 3600 * 1000), 10);
+const SCHEDULE_EXPIRE_GRACE_MS = parseInt(process.env.SCHEDULE_EXPIRE_GRACE_MS || String(60 * 60 * 1000), 10);
+const SCHEDULE_SWEEP_MS = parseInt(process.env.SCHEDULE_SWEEP_MS || '30000', 10);
+
 // Driver-declared working areas: geohash cells (precision 1-9), capped so a
 // hostile registration cannot balloon presence memory.
 const MAX_WORKING_AREAS = 64;
@@ -1406,10 +1416,15 @@ function sendPendingRideRequests(ws) {
         if (!driverInRange(ws.driverNpub || ws.driverPubkey, ride.pickup)) {
             return;
         }
+        // Pre-booked rides outside the lead window are browsable on the open
+        // list but not replayed as live jobs
+        if (ride.scheduledFor && ride.scheduledFor - Date.now() > SCHEDULE_DISPATCH_LEAD_MS) {
+            return;
+        }
         const session = activeRides.get(ride.id) || {};
-        const estimate = session.estimate || null;
-        const distanceKm = typeof session?.estimate?.distance?.km === 'number'
-            ? session.estimate.distance.km
+        const estimate = session.estimate || ride.estimate || null;
+        const distanceKm = typeof estimate?.distance?.km === 'number'
+            ? estimate.distance.km
             : null;
         const payload = {
             type: 'ride_request',
@@ -1421,7 +1436,8 @@ function sendPendingRideRequests(ws) {
                 fare: ride.fare,
                 distance: distanceKm,
                 estimatedFare: estimate,
-                currency: ride.currency || session.currency || 'GBP'
+                currency: ride.currency || session.currency || 'GBP',
+                scheduledFor: ride.scheduledFor || null
             }
         };
 
@@ -1432,6 +1448,109 @@ function sendPendingRideRequests(ws) {
         }
     });
 }
+
+/** Live-dispatch a pre-booked ride whose lead window has opened — same frame
+ *  and push semantics as an immediate request. */
+function dispatchScheduledRide(ride) {
+    const session = activeRides.get(ride.id) || {};
+    const estimate = session.estimate || ride.estimate || null;
+    const distanceKm = typeof estimate?.distance?.km === 'number'
+        ? estimate.distance.km
+        : null;
+    const driverCount = broadcastToDrivers({
+        type: 'ride_request',
+        ride: {
+            id: ride.id,
+            pickup: approximateLocation(ride.pickup),
+            dropoff: approximateLocation(ride.dropoff),
+            fare: ride.fare,
+            distance: distanceKm,
+            estimatedFare: estimate,
+            currency: ride.currency || session.currency || 'GBP',
+            scheduledFor: ride.scheduledFor || null,
+            rider: ride.rider ? {
+                npub: ride.rider.npub,
+                pubkey: ride.rider.pubkey
+            } : null
+        }
+    }, ride.pickup);
+    const pushed = pushRideRequestToOfflineDrivers(ride, estimate);
+    return { driverCount, pushed };
+}
+
+// Scheduled-ride lifecycle. Restart-safe: everything derives from
+// task.scheduledFor, which travels in the Nostr snapshot — a rehydrated
+// operator picks pre-booked rides straight back up (an already-dispatched
+// ride is re-announced after a restart, which is harmless).
+const scheduleSweep = setInterval(() => {
+    const now = Date.now();
+    for (const ride of rideManager.getActiveRides()) {
+        if (!ride.scheduledFor) {
+            continue;
+        }
+        const profile = rideManager.getProfileForRide(ride.id);
+        const requested = ride.status === profile.states.values.REQUESTED;
+        // Accept auto-transitions matched → en_route, so a pre-booked ride
+        // waits out its lead time in either state
+        const accepted = [
+            profile.states.values.MATCHED,
+            profile.states.values.PROVIDER_EN_ROUTE
+        ].includes(ride.status);
+
+        // Nobody accepted and the pickup time is long gone — close it out
+        if (requested && now > ride.scheduledFor + SCHEDULE_EXPIRE_GRACE_MS) {
+            try {
+                rideManager.cancelRide(ride.id, 'system', 'scheduled_expired');
+                finalizeRideSession(ride.id, 'cancelled');
+                const cancelPayload = {
+                    ride_id: ride.id,
+                    task_id: ride.id,
+                    reason: 'scheduled_expired',
+                    cancelled_by: 'system'
+                };
+                broadcastToRide(ride.id, { type: 'ride_cancelled', ...cancelPayload });
+                broadcastToRide(ride.id, { type: 'task_cancelled', ...cancelPayload });
+                console.log(`🗓️  Scheduled ride ${ride.id} expired unmatched`);
+            } catch (error) {
+                console.warn(`Failed to expire scheduled ride ${ride.id}:`, error.message);
+            }
+            continue;
+        }
+
+        // Lead window opened and still unmatched — enter live dispatch
+        if (requested && !ride.scheduleDispatched
+            && now >= ride.scheduledFor - SCHEDULE_DISPATCH_LEAD_MS) {
+            ride.scheduleDispatched = true;
+            const { driverCount, pushed } = dispatchScheduledRide(ride);
+            console.log(`🗓️  Scheduled ride ${ride.id} entered dispatch: ${driverCount} live, ${pushed} pushed`);
+        }
+
+        // Pre-booked and accepted — remind both parties as the time approaches
+        if (accepted && !ride.scheduleReminderSent
+            && now >= ride.scheduledFor - SCHEDULE_DISPATCH_LEAD_MS) {
+            ride.scheduleReminderSent = true;
+            broadcastToRide(ride.id, {
+                type: 'scheduled_reminder',
+                ride_id: ride.id,
+                task_id: ride.id,
+                scheduled_for: ride.scheduledFor
+            });
+            // The committed driver may have the app closed — web push reaches them
+            const driverKey = (ride.driver?.pubkey || ride.provider?.pubkey || '').toLowerCase();
+            if (driverKey && !connectedDriverPubkeys().has(driverKey)) {
+                const noun = profile?.labels?.taskNoun || 'job';
+                void pushService.sendTo(driverKey, {
+                    title: `Upcoming ${noun}`,
+                    body: `Your pre-booked ${noun} is at ${new Date(ride.scheduledFor).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`,
+                    tag: `ride-${ride.id}`,
+                    url: '/provide'
+                });
+            }
+            console.log(`🗓️  Reminder sent for scheduled ride ${ride.id}`);
+        }
+    }
+}, SCHEDULE_SWEEP_MS);
+scheduleSweep.unref();
 
 function finalizeRideSession(rideId, finalStatus) {
     const session = activeRides.get(rideId);
@@ -3072,8 +3191,27 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 ride_id,
                 fare_sats,
                 currency,
-                domain
+                domain,
+                scheduled_for
             } = req.body;
+
+            // Pre-booked pickup time (unix ms). Anything inside the dispatch
+            // lead window is treated as an immediate request.
+            let scheduledFor = null;
+            if (scheduled_for != null) {
+                scheduledFor = Number(scheduled_for);
+                if (!Number.isFinite(scheduledFor)) {
+                    return res.status(400).json({ error: 'scheduled_for must be a unix timestamp in milliseconds' });
+                }
+                if (scheduledFor < Date.now() - 2 * 60 * 1000) {
+                    return res.status(400).json({ error: 'scheduled_for is in the past' });
+                }
+                if (scheduledFor > Date.now() + SCHEDULE_MAX_ADVANCE_MS) {
+                    return res.status(400).json({
+                        error: `scheduled_for is too far ahead (maximum ${Math.round(SCHEDULE_MAX_ADVANCE_MS / 86400000)} days)`
+                    });
+                }
+            }
 
             // Use request-specified domain profile if provided, else the server's startup profile
             const requestProfile = domain && domain !== domainProfile.id
@@ -3121,6 +3259,9 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             const riderPubkeyHex = (sessionForRide?.riderId || req.body.rider_pubkey || '').toLowerCase() || null;
             rideOptions.currency = fiatCurrency;
             rideOptions.domain = requestProfile.id;
+            if (scheduledFor) {
+                rideOptions.scheduledFor = scheduledFor;
+            }
 
             // Try to get OSRM route for real road routing
             let distance, duration, routeCoordinates = null;
@@ -3183,33 +3324,48 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             }
 
             ride.currency = fiatCurrency;
+            // Kept in memory (never snapshotted) so deferred dispatch and the
+            // open list can show the fare estimate without a session
+            ride.estimate = estimate;
 
             // Broadcast to drivers within DISPATCH_RADIUS_KM of the pickup
             // Approximate location + no route pre-accept (progressive
-            // disclosure); the accepting driver gets exact coordinates
-            const driverCount = broadcastToDrivers({
-                type: 'ride_request',
-                ride: {
-                    id: ride.id,
-                    pickup: approximateLocation(ride.pickup),
-                    dropoff: approximateLocation(ride.dropoff),
-                    fare: ride.fare,
-                    distance: distance,
-                    estimatedFare: estimate,
-                    currency: fiatCurrency,
-                    rider: ride.rider ? {
-                        npub: ride.rider.npub,
-                        pubkey: ride.rider.pubkey
-                    } : null
+            // disclosure); the accepting driver gets exact coordinates.
+            // A pre-booked ride outside the lead window is NOT broadcast yet —
+            // the schedule sweep dispatches it when the window opens.
+            const deferDispatch = scheduledFor
+                && (scheduledFor - Date.now() > SCHEDULE_DISPATCH_LEAD_MS);
+
+            let driverCount = 0;
+            if (deferDispatch) {
+                console.log(`🗓️  Ride ${ride.id} scheduled for ${new Date(scheduledFor).toISOString()} — dispatch deferred`);
+            } else {
+                ride.scheduleDispatched = true;
+                driverCount = broadcastToDrivers({
+                    type: 'ride_request',
+                    ride: {
+                        id: ride.id,
+                        pickup: approximateLocation(ride.pickup),
+                        dropoff: approximateLocation(ride.dropoff),
+                        fare: ride.fare,
+                        distance: distance,
+                        estimatedFare: estimate,
+                        currency: fiatCurrency,
+                        scheduledFor: ride.scheduledFor || null,
+                        rider: ride.rider ? {
+                            npub: ride.rider.npub,
+                            pubkey: ride.rider.pubkey
+                        } : null
+                    }
+                }, ride.pickup);
+
+                console.log(`📢 Broadcast ride request ${ride.id} to ${driverCount} drivers`);
+
+                // Backgrounded driver apps get a Web Push instead of the WS frame
+                const pushed = pushRideRequestToOfflineDrivers(ride, estimate);
+                if (pushed > 0) {
+                    console.log(`🔔 Pushed ride request ${ride.id} to ${pushed} offline drivers`);
                 }
-            }, ride.pickup);
-
-            console.log(`📢 Broadcast ride request ${ride.id} to ${driverCount} drivers`);
-
-            // Backgrounded driver apps get a Web Push instead of the WS frame
-            const pushed = pushRideRequestToOfflineDrivers(ride, estimate);
-            if (pushed > 0) {
-                console.log(`🔔 Pushed ride request ${ride.id} to ${pushed} offline drivers`);
             }
 
             res.json({
@@ -3221,6 +3377,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 distance_km: distance,
                 duration_minutes: Math.round(duration),
                 drivers_notified: driverCount,
+                scheduled_for: scheduledFor,
                 route: routeCoordinates,
                 currency: fiatCurrency,
                 estimate
@@ -5335,9 +5492,9 @@ app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
             })
             .map((ride) => {
                 const session = activeRides.get(ride.id) || {};
-                const estimate = session.estimate || null;
-                const distanceKm = typeof session?.estimate?.distance?.km === 'number'
-                    ? session.estimate.distance.km
+                const estimate = session.estimate || ride.estimate || null;
+                const distanceKm = typeof estimate?.distance?.km === 'number'
+                    ? estimate.distance.km
                     : null;
                 return {
                     id: ride.id,
@@ -5348,6 +5505,9 @@ app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
                     distance: distanceKm,
                     estimatedFare: estimate,
                     currency: ride.currency || session.currency || 'GBP',
+                    // Pre-booked pickup time — drivers can browse and accept
+                    // ahead of the dispatch window
+                    scheduledFor: ride.scheduledFor || null,
                     requestedAt: ride.timestamps?.requested || null
                 };
             });

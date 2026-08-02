@@ -134,6 +134,13 @@ export function normaliseWsMessage(raw: any): WsMessage | null {
         distanceKm: typeof raw.distance === 'number' ? raw.distance : undefined,
       };
 
+    case 'scheduled_reminder':
+      return {
+        type: 'scheduled_reminder',
+        taskId,
+        scheduledFor: typeof raw.scheduled_for === 'number' ? raw.scheduled_for : 0,
+      };
+
     case 'auth_ok':
       return { type: 'auth_ok', pubkey: raw.pubkey || '' };
 
