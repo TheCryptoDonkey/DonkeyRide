@@ -251,6 +251,14 @@ export function ActiveTaskPage() {
           <MapView centre={location} zoom={15}>
             <LocationMarker position={location} label="You" colour="blue" />
             <LocationMarker position={activeTask.pickup} label={originLabel} colour="green" />
+            {(activeTask.stops || []).map((stop, i) => (
+              <LocationMarker
+                key={`${stop.lat},${stop.lng},${i}`}
+                position={stop}
+                label={`Stop ${i + 1}`}
+                colour="blue"
+              />
+            ))}
             {requiresDestination && activeTask.dropoff && (
               <LocationMarker position={activeTask.dropoff} label={destinationLabel} colour="red" />
             )}
@@ -306,6 +314,19 @@ export function ActiveTaskPage() {
             {activeTask.durationMin != null && (
               <span>~{Math.round(activeTask.durationMin)} min</span>
             )}
+          </div>
+        )}
+
+        {/* Stops to visit, in order */}
+        {(activeTask.stops || []).length > 0 && (
+          <div className="meta-card">
+            <p className="meta-label">Stops on the way</p>
+            {activeTask.stops!.map((stop, i) => (
+              <p key={`${stop.lat},${stop.lng},${i}`} className="text-sm text-donkey-text mt-1">
+                <span className="text-donkey-blue font-black">{i + 1}.</span>{' '}
+                {stop.address || `${stop.lat.toFixed(4)}, ${stop.lng.toFixed(4)}`}
+              </p>
+            ))}
           </div>
         )}
 

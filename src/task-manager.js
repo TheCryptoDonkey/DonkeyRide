@@ -221,6 +221,12 @@ class TaskManager {
         lat: destination.lat,
         lon: destination.lon
       } : null,
+      // Intermediate stops in visit order ({lat, lon, address?}). Exact
+      // coordinates are PII — in-memory like pickup/dropoff, snapshotted
+      // only at geohash precision.
+      stops: Array.isArray(options.stops) && options.stops.length > 0
+        ? options.stops.map((s) => ({ lat: s.lat, lon: s.lon, ...(s.address ? { address: s.address } : {}) }))
+        : null,
       currency: options.currency || 'GBP',
       fare: estimatedFare,
       // Unix ms pickup time for pre-booked tasks; null = as soon as possible

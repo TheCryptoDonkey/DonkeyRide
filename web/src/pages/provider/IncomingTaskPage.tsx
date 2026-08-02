@@ -121,13 +121,16 @@ export function IncomingTaskPage() {
             </p>
           )}
 
-          {(activeTask.distanceKm || activeTask.durationMin) && (
+          {(activeTask.distanceKm || activeTask.durationMin || (activeTask.stopCount ?? 0) > 0) && (
             <div className="flex justify-center gap-4 text-sm text-donkey-muted mb-3">
               {activeTask.distanceKm != null && (
                 <span>{formatDistance(activeTask.distanceKm)}</span>
               )}
               {activeTask.durationMin != null && (
                 <span>{formatDuration(activeTask.durationMin)}</span>
+              )}
+              {(activeTask.stopCount ?? 0) > 0 && (
+                <span>+{activeTask.stopCount} {activeTask.stopCount === 1 ? 'stop' : 'stops'}</span>
               )}
             </div>
           )}

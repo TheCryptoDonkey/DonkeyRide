@@ -135,6 +135,17 @@ export function normaliseTask(raw: any): Task {
     providerNpub: r.driver?.npub || r.provider?.npub || r.providerNpub,
     pickup: normLoc(r.pickup) || { lat: 0, lng: 0 },
     dropoff: normLoc(r.dropoff),
+    // Exact stops arrive only on the participant-gated detail; pre-accept
+    // payloads carry stopCount alone
+    stops: Array.isArray(r.stops)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ? r.stops.flatMap((s: any) => {
+          const loc = normLoc(s);
+          return loc ? [{ ...loc, ...(s.address ? { address: s.address } : {}) }] : [];
+        })
+      : undefined,
+    stopCount: typeof r.stopCount === 'number' ? r.stopCount
+      : Array.isArray(r.stops) ? r.stops.length : undefined,
     fareEstimateSats: r.fare ?? r.fareEstimateSats ?? r.estimated_fare ?? 0,
     distanceKm,
     durationMin: r.duration_minutes ?? r.durationMin,
@@ -241,6 +252,8 @@ export async function requestTask(params: {
   domain?: string;
   /** Unix ms pickup time for a pre-booked task */
   scheduledFor?: number | null;
+  /** Intermediate stops in visit order (≤3) */
+  stops?: { lat: number; lng: number; address?: string }[];
 }): Promise<Task> {
   const body: Record<string, unknown> = {
     pickup_lat: params.pickup.lat,
@@ -260,6 +273,14 @@ export async function requestTask(params: {
   if (params.dropoff) {
     body.dropoff_lat = params.dropoff.lat;
     body.dropoff_lon = params.dropoff.lng;
+  }
+
+  if (params.stops && params.stops.length > 0) {
+    body.stops = params.stops.map((s) => ({
+      lat: s.lat,
+      lon: s.lng,
+      ...(s.address ? { address: s.address } : {}),
+    }));
   }
 
   const raw = await request<Record<string, unknown>>('/api/tasks/request', {
@@ -677,6 +698,8 @@ export function confirmReceived(rideId: string): Promise<{
 export async function getTripEstimate(params: {
   pickup: LatLng;
   dropoff: LatLng;
+  /** Intermediate stops in visit order (≤3) — the estimate covers the detour */
+  stops?: { lat: number; lng: number }[];
 }): Promise<TripEstimate> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const raw: any = await request('/api/trips/estimate', {
@@ -686,6 +709,9 @@ export async function getTripEstimate(params: {
       pickup_lon: params.pickup.lng,
       dropoff_lat: params.dropoff.lat,
       dropoff_lon: params.dropoff.lng,
+      ...(params.stops && params.stops.length > 0
+        ? { stops: params.stops.map((s) => ({ lat: s.lat, lon: s.lng })) }
+        : {}),
     }),
   });
 

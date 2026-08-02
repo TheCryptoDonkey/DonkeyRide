@@ -4,6 +4,11 @@ export interface LatLng {
   lng: number;
 }
 
+/** An intermediate stop on a multi-stop trip */
+export interface TaskStop extends LatLng {
+  address?: string;
+}
+
 /** A ride/task as returned by the API */
 export interface Task {
   id: string;
@@ -13,6 +18,10 @@ export interface Task {
   providerNpub?: string;
   pickup: LatLng;
   dropoff?: LatLng | null;
+  /** Exact stops — participant-gated detail only */
+  stops?: TaskStop[];
+  /** Stop count — the only stop information pre-accept payloads carry */
+  stopCount?: number;
   pickupAddress?: string;
   dropoffAddress?: string;
   fareEstimateSats: number;

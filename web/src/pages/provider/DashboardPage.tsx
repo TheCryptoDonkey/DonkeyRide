@@ -179,15 +179,21 @@ export function DashboardPage() {
                     <DualPrice sats={job.fareEstimateSats} size="sm" />
                     <p className="text-xs text-donkey-muted mt-0.5">
                       {job.distanceKm != null && formatDistance(job.distanceKm)}
+                      {(job.stopCount ?? 0) > 0 && (
+                        <span>
+                          {job.distanceKm != null && ' · '}
+                          +{job.stopCount} {job.stopCount === 1 ? 'stop' : 'stops'}
+                        </span>
+                      )}
                       {isUpcoming(job.scheduledFor) && (
                         <span className="text-donkey-blue font-semibold">
-                          {job.distanceKm != null && ' · '}
+                          {(job.distanceKm != null || (job.stopCount ?? 0) > 0) && ' · '}
                           Booked {formatScheduledTime(job.scheduledFor)}
                         </span>
                       )}
                       {job.operatorBase && (
                         <span className="text-donkey-purple font-semibold">
-                          {(job.distanceKm != null || isUpcoming(job.scheduledFor)) && ' · '}
+                          {(job.distanceKm != null || (job.stopCount ?? 0) > 0 || isUpcoming(job.scheduledFor)) && ' · '}
                           via Nostr · {new URL(job.operatorBase).host}
                         </span>
                       )}

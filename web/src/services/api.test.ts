@@ -55,6 +55,27 @@ describe('normaliseTask', () => {
     expect(task.pickup).toEqual({ lat: 51.5, lng: -0.12 });
     expect(task.dropoff).toEqual({ lat: 51.52, lng: -0.1 });
   });
+
+  it('normalises exact stops and derives stopCount', () => {
+    const task = normaliseTask({
+      id: 'r', status: 'matched',
+      stops: [
+        { lat: 51.51, lon: -0.11, address: '1 Stop Street' },
+        { lat: 51.53, lon: -0.09 },
+      ],
+    });
+    expect(task.stops).toEqual([
+      { lat: 51.51, lng: -0.11, address: '1 Stop Street' },
+      { lat: 51.53, lng: -0.09 },
+    ]);
+    expect(task.stopCount).toBe(2);
+  });
+
+  it('carries a bare stopCount from pre-accept payloads without stops', () => {
+    const task = normaliseTask({ id: 'r', status: 'requested', stopCount: 2 });
+    expect(task.stopCount).toBe(2);
+    expect(task.stops).toBeUndefined();
+  });
 });
 
 describe('normaliseRoute', () => {

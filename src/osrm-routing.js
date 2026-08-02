@@ -11,9 +11,12 @@ const { fetchWithTimeout: fetch } = require('./utils/fetch-timeout');
 const OSRM_SERVER = process.env.OSRM_SERVER || 'http://localhost:5001';
 
 /**
- * Get route between two points using OSRM
+ * Get route between two points using OSRM.
+ * Optional intermediate stops are routed through in order.
+ *
+ * @param {Array<{lat: number, lon: number}>} [via] - intermediate stops
  */
-async function getRoute(fromLat, fromLon, toLat, toLon) {
+async function getRoute(fromLat, fromLon, toLat, toLon, via = []) {
   // Only use OSRM if local server is configured
   if (!OSRM_SERVER) {
     console.log('📏 Local OSRM not configured - using straight-line routing');
@@ -21,7 +24,12 @@ async function getRoute(fromLat, fromLon, toLat, toLon) {
   }
 
   try {
-    const url = `${OSRM_SERVER}/route/v1/driving/${fromLon},${fromLat};${toLon},${toLat}?overview=full&geometries=geojson&steps=false`;
+    const waypoints = [
+      `${fromLon},${fromLat}`,
+      ...via.map((stop) => `${stop.lon},${stop.lat}`),
+      `${toLon},${toLat}`
+    ].join(';');
+    const url = `${OSRM_SERVER}/route/v1/driving/${waypoints}?overview=full&geometries=geojson&steps=false`;
 
     const response = await fetch(url);
     const data = await response.json();

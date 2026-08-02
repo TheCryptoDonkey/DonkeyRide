@@ -233,6 +233,14 @@ export function ActiveTaskPage() {
         <div className="flex-1 relative">
           <MapView centre={centre} zoom={15}>
             <LocationMarker position={origin} label={originLabel} colour="green" />
+            {(activeTask.stops || []).map((stop, i) => (
+              <LocationMarker
+                key={`${stop.lat},${stop.lng},${i}`}
+                position={stop}
+                label={`Stop ${i + 1}`}
+                colour="blue"
+              />
+            ))}
             {requiresDestination && destination && (
               <LocationMarker position={destination} label={destinationLabel} colour="red" />
             )}

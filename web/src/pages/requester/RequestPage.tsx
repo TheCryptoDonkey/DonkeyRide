@@ -11,6 +11,10 @@ import { useDomain } from '../../context/DomainContext';
 import { getTripEstimate, requestTask, getOperatorInfoCached, getApiBase } from '../../services/api';
 import { publishTaskAnnouncement } from '../../services/events';
 import { formatDistance, formatDuration } from '../../services/pricing';
+import { AddressSearch } from '../../components/AddressSearch';
+import type { TaskStop } from '../../types/api';
+
+const MAX_STOPS = 2;
 
 /** Format a Date for a datetime-local input (local time, minute precision) */
 function toLocalInputValue(date: Date): string {
@@ -31,6 +35,9 @@ export function RequestPage() {
   const [error, setError] = useState<string | null>(null);
   const [when, setWhen] = useState<'now' | 'later'>('now');
   const [whenValue, setWhenValue] = useState<string>('');
+  // Intermediate stops in visit order (multi-stop trips)
+  const [stops, setStops] = useState<TaskStop[]>([]);
+  const [addingStop, setAddingStop] = useState(false);
 
   // Resolved pickup time (unix ms) when scheduling; null = leave now
   const scheduledFor = when === 'later' && whenValue
@@ -75,7 +82,7 @@ export function RequestPage() {
     }
     if (!destination) return;
     setEstimating(true);
-    getTripEstimate({ pickup: origin, dropoff: destination })
+    getTripEstimate({ pickup: origin, dropoff: destination, stops })
       .then((est) => {
         setEstimate(est);
         setEstimating(false);
@@ -84,7 +91,7 @@ export function RequestPage() {
         setError(err.message);
         setEstimating(false);
       });
-  }, [origin, destination, setEstimate, requiresDestination]);
+  }, [origin, destination, stops, setEstimate, requiresDestination]);
 
   const handleRequest = async () => {
     if (!origin || !identity) return;
@@ -100,6 +107,7 @@ export function RequestPage() {
         requesterNpub: identity.npub,
         domain: profile?.id,
         scheduledFor,
+        stops: stops.length > 0 ? stops : undefined,
       });
       setActiveTask(task);
       // Decentralised announcement — geohash-only, best-effort, relays only.
@@ -123,6 +131,52 @@ export function RequestPage() {
   if (!origin) return null;
 
   const providerLabel = profile?.roles.provider || 'Provider';
+
+  // Multi-stop: add up to MAX_STOPS calling points along the way
+  const stopsPicker = (
+    <div className="meta-card mb-4">
+      <p className="meta-label mb-2">Stops along the way</p>
+      {stops.map((stop, i) => (
+        <div key={`${stop.lat},${stop.lng},${i}`} className="flex items-center gap-2 mb-2">
+          <span className="text-donkey-blue text-xs font-black w-5">{i + 1}.</span>
+          <p className="flex-1 text-sm text-donkey-text truncate">
+            {stop.address || `${stop.lat.toFixed(4)}, ${stop.lng.toFixed(4)}`}
+          </p>
+          <button
+            className="text-donkey-muted text-xs"
+            onClick={() => setStops(stops.filter((_, j) => j !== i))}
+            aria-label={`Remove stop ${i + 1}`}
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+      {addingStop ? (
+        <AddressSearch
+          placeholder="Search for a stop..."
+          biasLocation={origin}
+          autoFocus
+          onSelect={(loc, label) => {
+            setStops([...stops, { ...loc, address: label }]);
+            setAddingStop(false);
+          }}
+        />
+      ) : stops.length < MAX_STOPS ? (
+        <button
+          className="text-donkey-blue text-sm font-semibold"
+          onClick={() => setAddingStop(true)}
+        >
+          + Add a stop
+        </button>
+      ) : null}
+      {stops.length > 0 && (
+        <p className="text-donkey-muted text-xs mt-2">
+          Your {providerLabel.toLowerCase()} visits each stop in order — the
+          fare covers the full route.
+        </p>
+      )}
+    </div>
+  );
 
   // "Leave now" vs pre-booked pickup — shared by both pricing layouts
   const whenPicker = (
@@ -191,6 +245,14 @@ export function RequestPage() {
         <div className="flex-1 relative">
           <MapView centre={mapCentre} zoom={13}>
             <LocationMarker position={origin} label={originLabel} colour="green" />
+            {stops.map((stop, i) => (
+              <LocationMarker
+                key={`${stop.lat},${stop.lng},${i}`}
+                position={stop}
+                label={`Stop ${i + 1}`}
+                colour="blue"
+              />
+            ))}
             {destination && <LocationMarker position={destination} label={destinationLabel} colour="red" />}
             {estimate?.routeGeometry && (
               <RoutePolyline geometry={estimate.routeGeometry} />
@@ -239,6 +301,8 @@ export function RequestPage() {
                 </div>
               </div>
             </div>
+
+            {stopsPicker}
 
             {whenPicker}
 

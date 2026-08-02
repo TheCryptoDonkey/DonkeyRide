@@ -817,6 +817,9 @@ function buildTaskSnapshot(task) {
         ? encodeGeohash(pickup.lat, pickup.lon ?? pickup.lng, SNAPSHOT_GEOHASH_PRECISION) : '';
     const geohashDropoff = dropoff && Number.isFinite(dropoff.lat)
         ? encodeGeohash(dropoff.lat, dropoff.lon ?? dropoff.lng, SNAPSHOT_GEOHASH_PRECISION) : '';
+    const geohashStops = (task.stops || [])
+        .filter((s) => Number.isFinite(s?.lat))
+        .map((s) => encodeGeohash(s.lat, s.lon ?? s.lng, SNAPSHOT_GEOHASH_PRECISION));
 
     return {
         taskId: task.id,
@@ -837,6 +840,7 @@ function buildTaskSnapshot(task) {
             scheduledFor: task.scheduledFor || null,
             geohashPickup,
             geohashDropoff,
+            geohashStops: geohashStops.length > 0 ? geohashStops : undefined,
             timestamps: task.timestamps || null
         }
     };
@@ -870,6 +874,12 @@ function taskFromSnapshot(content) {
         driver: content.provider || null,
         pickup: pickup ? { lat: pickup.lat, lon: pickup.lon, approximate: true } : null,
         dropoff: dropoff ? { lat: dropoff.lat, lon: dropoff.lon, approximate: true } : null,
+        stops: Array.isArray(content.geohashStops) && content.geohashStops.length > 0
+            ? content.geohashStops.map((gh) => {
+                const cell = decodeGeohash(gh);
+                return { lat: cell.lat, lon: cell.lon, approximate: true };
+            })
+            : null,
         fare: content.fare ?? null,
         currency: content.currency || null,
         scheduledFor: content.scheduledFor || null,
@@ -1433,6 +1443,7 @@ function sendPendingRideRequests(ws) {
                 // Approximate pre-accept — see approximateLocation
                 pickup: approximateLocation(ride.pickup),
                 dropoff: approximateLocation(ride.dropoff),
+                stopCount: ride.stops ? ride.stops.length : 0,
                 fare: ride.fare,
                 distance: distanceKm,
                 estimatedFare: estimate,
@@ -1463,6 +1474,7 @@ function dispatchScheduledRide(ride) {
             id: ride.id,
             pickup: approximateLocation(ride.pickup),
             dropoff: approximateLocation(ride.dropoff),
+            stopCount: ride.stops ? ride.stops.length : 0,
             fare: ride.fare,
             distance: distanceKm,
             estimatedFare: estimate,
@@ -3048,7 +3060,7 @@ app.get('/api/drivers/:pubkey/earnings', optionalNip98, async (req, res) => {
 // Estimate trip cost
 app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
     try {
-        const { pickup_lat, pickup_lon, dropoff_lat, dropoff_lon, currency } = req.body;
+        const { pickup_lat, pickup_lon, dropoff_lat, dropoff_lon, currency, stops } = req.body;
         const fiatCurrency = resolveFiatCurrency(currency);
 
         // Validate inputs
@@ -3059,13 +3071,23 @@ app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
             });
         }
 
-        // Calculate distance using Haversine formula
-        const distance = calculateDistance(
-            pickup_lat,
-            pickup_lon,
-            dropoff_lat,
-            dropoff_lon
-        );
+        // Sum straight-line legs through any intermediate stops so a
+        // multi-stop estimate covers the detour
+        const via = Array.isArray(stops)
+            ? stops
+                .map((s) => ({ lat: Number(s?.lat), lon: Number(s?.lon != null ? s.lon : s?.lng) }))
+                .filter((s) => isValidLat(s.lat) && isValidLon(s.lon))
+                .slice(0, 3)
+            : [];
+        const legs = [
+            { lat: pickup_lat, lon: pickup_lon },
+            ...via,
+            { lat: dropoff_lat, lon: dropoff_lon }
+        ];
+        let distance = 0;
+        for (let i = 0; i < legs.length - 1; i++) {
+            distance += calculateDistance(legs[i].lat, legs[i].lon, legs[i + 1].lat, legs[i + 1].lon);
+        }
 
         // Estimate duration based on average speed (30 km/h in city)
         const duration = (distance / 30) * 60; // minutes
@@ -3192,8 +3214,34 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 fare_sats,
                 currency,
                 domain,
-                scheduled_for
+                scheduled_for,
+                stops
             } = req.body;
+
+            // Intermediate stops (multi-stop trips) — visited in order
+            // between pickup and dropoff. Exact coordinates are PII: they
+            // stay in memory and only ever leave as a count pre-accept.
+            let rideStops = null;
+            if (stops != null) {
+                if (!Array.isArray(stops) || stops.length > 3) {
+                    return res.status(400).json({ error: 'stops must be an array of at most 3 intermediate stops' });
+                }
+                if (stops.length > 0) {
+                    rideStops = [];
+                    for (const stop of stops) {
+                        const stopLon = stop?.lon != null ? stop.lon : stop?.lng;
+                        if (!isValidLat(stop?.lat) || !isValidLon(stopLon)) {
+                            return res.status(400).json({ error: 'each stop must contain valid lat and lon/lng' });
+                        }
+                        rideStops.push({
+                            lat: Number(stop.lat),
+                            lon: Number(stopLon),
+                            ...(typeof stop.address === 'string' && stop.address.trim()
+                                ? { address: stop.address.trim().slice(0, 200) } : {})
+                        });
+                    }
+                }
+            }
 
             // Pre-booked pickup time (unix ms). Anything inside the dispatch
             // lead window is treated as an immediate request.
@@ -3262,13 +3310,19 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             if (scheduledFor) {
                 rideOptions.scheduledFor = scheduledFor;
             }
+            if (rideStops) {
+                rideOptions.stops = rideStops;
+            }
 
             // Try to get OSRM route for real road routing
             let distance, duration, routeCoordinates = null;
             const hasDropoff = dropoff_lat && dropoff_lon;
+            // Stops without a destination make no sense — quietly ignore them
+            // for single-location domains rather than reject
+            const routeVia = (hasDropoff && rideStops) ? rideStops : [];
 
             if (hasDropoff) {
-                const osrmRoute = await getRoute(pickup_lat, pickup_lon, dropoff_lat, dropoff_lon);
+                const osrmRoute = await getRoute(pickup_lat, pickup_lon, dropoff_lat, dropoff_lon, routeVia);
 
                 if (osrmRoute) {
                     // Use OSRM routing data
@@ -3278,8 +3332,16 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                     const distanceMiles = distance * 0.621371;
                     console.log(`🗺️  Using OSRM routing: ${distance.toFixed(2)}km (${distanceMiles.toFixed(2)}mi), ${duration} min, ${routeCoordinates.length} points`);
                 } else {
-                    // Fallback to straight-line calculation
-                    distance = calculateDistance(pickup_lat, pickup_lon, dropoff_lat, dropoff_lon);
+                    // Fallback: sum straight-line legs through every stop
+                    const legs = [
+                        { lat: pickup_lat, lon: pickup_lon },
+                        ...routeVia,
+                        { lat: dropoff_lat, lon: dropoff_lon }
+                    ];
+                    distance = 0;
+                    for (let i = 0; i < legs.length - 1; i++) {
+                        distance += calculateDistance(legs[i].lat, legs[i].lon, legs[i + 1].lat, legs[i + 1].lon);
+                    }
                     duration = (distance / 45) * 60; // faster fallback (~45 km/h) to keep demos snappy
                     const distanceMiles = distance * 0.621371;
                     console.log(`📏 Using straight-line routing: ${distance.toFixed(2)}km (${distanceMiles.toFixed(2)}mi)`);
@@ -3347,6 +3409,8 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                         id: ride.id,
                         pickup: approximateLocation(ride.pickup),
                         dropoff: approximateLocation(ride.dropoff),
+                        // Count only pre-accept — stop locations are PII
+                        stopCount: ride.stops ? ride.stops.length : 0,
                         fare: ride.fare,
                         distance: distance,
                         estimatedFare: estimate,
@@ -3378,6 +3442,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 duration_minutes: Math.round(duration),
                 drivers_notified: driverCount,
                 scheduled_for: scheduledFor,
+                stops: ride.stops || null,
                 route: routeCoordinates,
                 currency: fiatCurrency,
                 estimate
@@ -5501,6 +5566,7 @@ app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
                     // Approximate pre-accept — see approximateLocation
                     pickup: approximateLocation(ride.pickup),
                     dropoff: approximateLocation(ride.dropoff),
+                    stopCount: ride.stops ? ride.stops.length : 0,
                     fare: ride.fare,
                     distance: distanceKm,
                     estimatedFare: estimate,
