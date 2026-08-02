@@ -99,7 +99,6 @@ const profile = {
     liveTracking: true,
     tipping: true,
     safetyAlerts: false,
-    streaming: true,
     photos: true,
     signatures: true,
     quoteNegotiation: false,

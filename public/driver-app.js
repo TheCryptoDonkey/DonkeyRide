@@ -592,7 +592,6 @@ class DriverApp {
       const distanceDisplay = rawDistanceKm != null
         ? formatDistance(rawDistanceKm)
         : '—';
-      const surge = ride.estimatedFare?.breakdown?.surge?.multiplier ?? 1;
       const fareSats = typeof ride.fare === 'number'
         ? ride.fare
         : (ride.estimatedFare?.fare?.sats ?? 0);
@@ -605,7 +604,6 @@ class DriverApp {
         <div class="ride-info">
           <div>Distance: <strong>${distanceDisplay}</strong></div>
           <div>Fare: <strong>${fareDisplay}</strong></div>
-          <div>Surge: <strong>${surge.toFixed?.(2) ?? '1.0'}x</strong></div>
         </div>
         <div class="ride-actions">
           <button class="btn decline">Decline</button>

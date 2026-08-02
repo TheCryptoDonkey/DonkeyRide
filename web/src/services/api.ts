@@ -139,10 +139,6 @@ export function normaliseTask(raw: any): Task {
     distanceKm,
     durationMin: r.duration_minutes ?? r.durationMin,
     routeGeometry: normaliseRoute(r.route ?? r.routeGeometry),
-    streamingPayment: r.streaming ? {
-      totalPaidSats: r.streaming.totalPaid ?? 0,
-      intervalSeconds: 3,
-    } : r.streamingPayment,
     settlement: normaliseSettlement(r.settlementRecord ?? r.settlement),
     createdAt: r.timestamps?.requested
       ? new Date(r.timestamps.requested).toISOString()
@@ -695,7 +691,6 @@ export async function getTripEstimate(params: {
       baseFareSats: raw.fareBreakdown?.baseFareSats ?? Math.round((raw.fare?.sats ?? 0) * 0.3),
       distanceFareSats: raw.fareBreakdown?.distanceFareSats ?? Math.round((raw.fare?.sats ?? 0) * 0.4),
       timeFareSats: raw.fareBreakdown?.timeFareSats ?? Math.round((raw.fare?.sats ?? 0) * 0.2),
-      surgeMultiplier: raw.breakdown?.surge?.multiplier ?? raw.fareBreakdown?.surgeMultiplier ?? 1,
       operatorFeeSats: raw.operatorFee?.sats ?? raw.fareBreakdown?.operatorFeeSats ?? 0,
     },
     fiatEstimate: raw.fare ? {

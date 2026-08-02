@@ -2165,7 +2165,6 @@ app.get('/rides/:rideId', optionalNip98, (req, res) => {
             createdAt: session.createdAt,
             startedAt: session.startedAt,
             completedAt: session.completedAt,
-            streaming: session.streaming || null,
             finalizedAt: session.finalizedAt || null,
             currency: session.currency || 'GBP'
         };
@@ -2189,7 +2188,6 @@ app.get('/rides/:rideId', optionalNip98, (req, res) => {
         startedAt: timestamps.started,
         completedAt: timestamps.completed,
         cancelledAt: timestamps.cancelled,
-        streaming: rideRecord.streaming || null,
         finalizedAt: rideRecord.finalizedAt || timestamps.completed || timestamps.cancelled || null,
         currency: rideRecord.currency || 'GBP'
     };
@@ -3460,9 +3458,6 @@ app.post('/api/rides/:rideId/start', async (req, res) => {
         }
 
         const ride = rideManager.startTrip(rideId);
-        const rideProfile = rideManager.getProfileForRide(rideId);
-        if (!rideProfile || rideProfile.features?.streaming !== false) {
-        }
 
         // Notify rider
         broadcastToRide(rideId, {

@@ -237,39 +237,10 @@ async function publishStakePenalty({
   return publishEvent(KINDS.SETTLEMENT, tags, serialiseProviderEvent(providerEvent));
 }
 
-/**
- * TROTT-04b Kind 30535 Payment Receipt — streaming ticks carry tick_number.
- */
-async function publishStreamPayment({
-  rideId,
-  amount,
-  totalPaid,
-  fare,
-  tickNumber,
-  currency = 'SAT',
-  trustModel = 'unknown'
-}) {
-  const tags = [
-    ['domain', domainId],
-    ['task_id', rideId],
-    ['amount', String(amount)],
-    ['total', String(totalPaid)],
-    ['fare', String(fare)],
-    ['currency', currency],
-    ['trust_model', trustModel],
-    ['status', totalPaid >= fare ? 'settled' : 'in_progress']
-  ];
-  if (tickNumber != null) {
-    tags.push(['tick_number', String(tickNumber)]);
-  }
-  return publishEvent(KINDS.PAYMENT_RECEIPT, tags, '');
-}
-
 module.exports = {
   configure,
   canPublish,
   publishStakeLock,
   publishStakeRelease,
-  publishStakePenalty,
-  publishStreamPayment
+  publishStakePenalty
 };

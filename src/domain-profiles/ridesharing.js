@@ -2,13 +2,13 @@
  * Ridesharing Domain Profile
  *
  * The default domain profile, matching the original DonkeyRide protocol.
- * Geospatial discovery, distance+time+surge pricing, GPS trace completion proof.
+ * Geospatial discovery, distance+time pricing, GPS trace completion proof.
  */
 
 const profile = {
   id: 'ridesharing',
   name: 'DonkeyRide',
-  description: 'Peer-to-peer ridesharing coordination with real-time tracking and streaming payments.',
+  description: 'Peer-to-peer ridesharing coordination with real-time tracking and direct rider-to-driver settlement.',
 
   discoveryMethod: 'geohash',
   pricingModel: 'distance_time_surge',
@@ -81,7 +81,6 @@ const profile = {
     liveTracking: true,
     tipping: true,
     safetyAlerts: true,
-    streaming: true,
     photos: false,
     signatures: false,
     quoteNegotiation: false,

@@ -80,7 +80,7 @@ Each profile defines: state machine (states + valid transitions), role names (re
 
 ### Entry Point & Server
 
-`server.js` is the monolithic Express server (~2000 lines). It loads the domain profile, initialises `TaskManager`, sets up all REST endpoints, WebSocket server, Redis connection, and streaming payment timers. All API routes are defined inline.
+`server.js` is the monolithic Express server (~2000 lines). It loads the domain profile, initialises `TaskManager`, and sets up all REST endpoints, the WebSocket server, and the Redis connection. All API routes are defined inline.
 
 **Geo-dispatch**: ride requests broadcast to online drivers within `DISPATCH_RADIUS_KM` (default 15) of the pickup — unless the driver has declared **working areas** (geohash cells, sent as `areas` on the WS `register_driver` message or `POST /api/drivers/location`), in which case cell membership overrides the radius entirely: the driver receives jobs inside their areas wherever they currently are, and never jobs outside them. `GET /api/rides/open` (alias `/api/tasks/open`) lists every open request — filterable by `?areas=` cells or `?lat/&lon` proximity — so drivers can browse all waiting requesters, not just catch live broadcasts. Its payload mirrors the WS broadcast (no requester identity). **Progressive location disclosure**: every pre-accept payload (broadcast, registration replay, open list) carries only an approximate location (~1 km rounding, `approximate: true`) and no route geometry; exact coordinates exist only on the participant-gated ride detail, i.e. for the driver who accepted.
 

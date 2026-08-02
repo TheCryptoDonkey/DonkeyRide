@@ -31,7 +31,7 @@ const KINDS = {
   SETTLEMENT: 30533,              // outcome tag: released|forfeited|partial_forfeit|expired (operator-signed)
 
   // TROTT-04b: Settlement
-  PAYMENT_RECEIPT: 30535,         // includes streaming ticks via tick_number tag
+  PAYMENT_RECEIPT: 30535,         // spec-assigned; not yet published by this implementation
   EARNINGS_SUMMARY: 30538,
 
   // TROTT-05: Safety

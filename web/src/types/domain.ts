@@ -72,7 +72,6 @@ export interface DomainFeatures {
   liveTracking: boolean;
   tipping: boolean;
   safetyAlerts: boolean;
-  streaming: boolean;
   photos: boolean;
   signatures: boolean;
   quoteNegotiation: boolean;

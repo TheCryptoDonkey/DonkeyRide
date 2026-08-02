@@ -137,12 +137,6 @@ export function RequestPage() {
                   {formatDistance(estimate.distanceKm)} &middot; {formatDuration(estimate.durationMinutes)}
                 </p>
               </div>
-
-              {estimate.fareBreakdown.surgeMultiplier > 1 && (
-                <span className="bg-donkey-orange/20 text-donkey-orange text-xs font-bold px-3 py-1 rounded-full">
-                  {estimate.fareBreakdown.surgeMultiplier.toFixed(1)}x surge
-                </span>
-              )}
             </div>
 
             {/* Fare breakdown */}

@@ -156,14 +156,11 @@ NIP-47 (Nostr Wallet Connect) enables **direct wallet-to-wallet payments** witho
 | Lock stake | `make_hold_invoice` | Task accepted |
 | Release stake | `settle_hold_invoice` | Task completed |
 | Forfeit stake | `cancel_hold_invoice` | Cancellation/no-show |
-| Streaming payment | `pay_invoice` (recurring) | During active task |
 
 ### Operator Role
 
 The operator facilitates payment flow but never has custody:
 - Triggers settlement by publishing a signed completion event (kind 30508)
-- Sends `pay_invoice` requests at regular intervals during streaming
-- Requester's wallet auto-approves payments up to pre-authorised limit
 - If operator disappears mid-task: hold invoices time out and funds return automatically
 
 ### Configuration

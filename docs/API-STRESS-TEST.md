@@ -4,6 +4,14 @@
 **Scope**: Top 5 use cases walked through every API endpoint and WebSocket message
 **Methodology**: Each use case is walked step-by-step through the complete task lifecycle, comparing the TROTT specification with the actual API implementation in `server.js`.
 
+> **Historical snapshot.** This report describes the implementation as of
+> 2026-02-11. Since then the streaming-payment machinery
+> (`startStreamingForRide`, `stream_payment` WebSocket messages, kind 30536
+> ticks) and the vestigial surge-multiplier plumbing it references have been
+> removed entirely — riders now settle directly with drivers via the
+> non-custodial settlement rails (`settlement/`). Line numbers and verdicts
+> referring to streaming or surge no longer correspond to current code.
+
 ## Verdicts
 
 | Verdict | Meaning |

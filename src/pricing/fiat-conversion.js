@@ -154,7 +154,6 @@ async function estimateTripCost(distanceKm, durationMinutes, options = {}) {
     perKm = 1.50, // per km, denominated in rateCardCurrency
     perMinute = 0.30, // per minute, denominated in rateCardCurrency
     rateCardCurrency = 'USD', // currency the three rates above are quoted in
-    surgeMultiplier = 1.0,
     operatorFeePct = 0.005
   } = options;
 
@@ -175,8 +174,7 @@ async function estimateTripCost(distanceKm, durationMinutes, options = {}) {
   }
 
   // Calculate fiat fare
-  let fiatFare = bf + (distanceKm * pk) + (durationMinutes * pm);
-  fiatFare = fiatFare * surgeMultiplier;
+  const fiatFare = bf + (distanceKm * pk) + (durationMinutes * pm);
 
   // Convert to sats
   const fareInSats = await fiatToSats(fiatFare, currency);
@@ -215,10 +213,6 @@ async function estimateTripCost(distanceKm, durationMinutes, options = {}) {
       duration: {
         fiat: durationMinutes * perMinute,
         formatted: formatCurrency(durationMinutes * perMinute, currency)
-      },
-      surge: {
-        multiplier: surgeMultiplier,
-        formatted: `${surgeMultiplier}x`
       }
     },
     operatorFee: {

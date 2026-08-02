@@ -23,7 +23,6 @@ export interface Task {
   routeGeometry?: string | [number, number][];
   requesterStake?: StakeInfo;
   providerStake?: StakeInfo;
-  streamingPayment?: StreamingPaymentInfo;
   settlement?: SettlementInfo;
   createdAt: string;
   startedAt?: string;
@@ -148,12 +147,6 @@ export interface StakeInfo {
   status: 'pending' | 'locked' | 'released' | 'forfeited';
 }
 
-export interface StreamingPaymentInfo {
-  totalPaidSats: number;
-  intervalSeconds: number;
-  lastPaymentAt?: string;
-}
-
 /** Trip estimate response */
 export interface TripEstimate {
   distanceKm: number;
@@ -163,7 +156,6 @@ export interface TripEstimate {
     baseFareSats: number;
     distanceFareSats: number;
     timeFareSats: number;
-    surgeMultiplier: number;
     operatorFeeSats: number;
   };
   fiatEstimate?: FiatAmount;
