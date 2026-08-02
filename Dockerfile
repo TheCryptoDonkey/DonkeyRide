@@ -26,6 +26,7 @@ RUN npm ci --only=production
 COPY server.js ./
 COPY src/ ./src/
 COPY payment-providers/ ./payment-providers/
+COPY settlement/ ./settlement/
 COPY middleware/ ./middleware/
 COPY navigation/ ./navigation/
 COPY public/ ./public/
