@@ -5,6 +5,7 @@ import { createNip98Event } from './nostr';
 import { publishAvailabilityBeacon } from './events';
 import { enableJobPush, disableJobPush } from './push';
 import { subscribeFederatedTasks } from './federation';
+import { startShiftTracking, stopShiftTracking } from './native-location';
 import { loadWorkingAreas, combinedCells } from '../utils/working-areas';
 
 const ONLINE_KEY = 'donkeyride.provider.online';
@@ -51,6 +52,8 @@ class DispatchService {
   private areas: string[] = combinedCells(loadWorkingAreas());
   /** Relay subscription for jobs coordinated by OTHER operators */
   private federation: { close: () => void } | null = null;
+  /** Native background-location watcher (Capacitor wrap only) */
+  private shiftWatcher: { id: string } | null = null;
   /** Foreign jobs expire with their announcement (15 min) */
   private static readonly FOREIGN_TTL_MS = 15 * 60 * 1000;
   private awaitingAuth = false;
@@ -165,6 +168,20 @@ class DispatchService {
     this.connect();
     this.startBeacon();
     this.startFederation();
+    // Native wrap: a foreground-service location watcher keeps fixes AND
+    // the dispatch socket alive with the screen off (no-op on web)
+    void startShiftTracking((location) => {
+      this.location = location;
+      this.queueOrSend({
+        type: 'driver_location',
+        npub: this.identity?.npub || '',
+        pubkey: this.identity?.pubKeyHex || '',
+        location: { lat: location.lat, lon: location.lng },
+      });
+    }).then((watcher) => {
+      if (this.online) this.shiftWatcher = watcher;
+      else void stopShiftTracking(watcher);
+    });
     this.emitStatus();
     // Job alerts while backgrounded — called here so the permission
     // prompt rides the Go online tap (a user gesture)
@@ -178,6 +195,8 @@ class DispatchService {
     localStorage.removeItem(ONLINE_KEY);
     this.stopTimers();
     this.stopFederation();
+    void stopShiftTracking(this.shiftWatcher);
+    this.shiftWatcher = null;
     this.closeSocket();
     this.connected = false;
     this.availableTasks.clear();

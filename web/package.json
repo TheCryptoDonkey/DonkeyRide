@@ -12,6 +12,7 @@
     "native:driver:prepare": "npm run build && rm -rf dist-native-driver && cp -r dist dist-native-driver && cp dist-native-driver/driver.html dist-native-driver/index.html"
   },
   "dependencies": {
+    "@capacitor-community/background-geolocation": "^1.2.26",
     "@capacitor/android": "^8.5.0",
     "@capacitor/core": "^8.5.0",
     "geohash-kit": "^1.6.1",
