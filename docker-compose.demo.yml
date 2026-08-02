@@ -43,6 +43,11 @@ services:
       NOSTR_RELAYS: ${NOSTR_RELAYS:-}
       PUBLIC_RELAY_URLS: ${PUBLIC_RELAY_URLS:-}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      # Web Push job alerts — pin once with `npx web-push generate-vapid-keys`
+      # (unset = ephemeral keys; driver push subscriptions die on restart)
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       # No DATABASE_URL and no REDIS_URL: in-memory + Nostr only.
       DISABLE_REDIS: "true"
       PORT: 3000
