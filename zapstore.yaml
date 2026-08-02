@@ -1,0 +1,32 @@
+# Zapstore publishing config for DonkeyRide Driver (Android).
+# Publish with zsp (https://github.com/zapstore/zsp):
+#
+#   SIGN_WITH=<publisher nsec or bunker://…> zsp publish
+#
+# The signing key becomes the app's PERMANENT publisher identity on
+# Zapstore — every future update must be signed by the same key. Choose
+# it deliberately (dedicated forgesworn publisher key, backed up) before
+# the first publish. See docs/ZAPSTORE.md.
+
+name: DonkeyRide Driver
+description: >-
+  Drive with no sign-up, no commission and no company in the middle.
+  Jobs arrive over Nostr; riders pay you directly — cash, M-Pesa or
+  Lightning. Non-custodial reference implementation of the TROTT
+  protocol.
+repository: https://github.com/TheCryptoDonkey/DonkeyRide
+license: MIT
+tags:
+  - ridesharing
+  - nostr
+  - lightning
+  - trott
+
+# Local signed release build (assembleRelease output). The APK signing
+# certificate (SHA-256 61ca1384…) is linked to the publisher's Nostr
+# identity on first publish (NIP-C1).
+release_source: ./web/android/app/build/outputs/apk/release/app-release.apk
+
+# Publisher Nostr public key — REPLACE with the chosen publisher npub
+# before the first publish, and keep it stable forever after.
+# pubkey: npub1...
