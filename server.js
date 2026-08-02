@@ -313,6 +313,14 @@ const config = {
     // fee, which is only ever deducted on a custodial rail it is licensed for.
     operatorFeePercent: envNumber('OPERATOR_FEE_PERCENT', 0),
 
+    // Fare rate card. Defaults are quoted in USD and auto-converted to the ride
+    // currency, so fares are sane in any currency (incl. KES) out of the box.
+    // An operator running a real market sets these to their own currency and
+    // sets FARE_CURRENCY to match (then no conversion is applied).
+    fareBase: envNumber('FARE_BASE', 2.50),
+    farePerKm: envNumber('FARE_PER_KM', 1.50),
+    farePerMinute: envNumber('FARE_PER_MINUTE', 0.30),
+
     // Server settings
     port: process.env.PORT || 3000,
     wsPort: process.env.WS_PORT || 3001,
@@ -342,6 +350,26 @@ const DEFAULT_FIAT = (() => {
 function resolveFiatCurrency(requested) {
     const c = typeof requested === 'string' ? requested.toUpperCase() : '';
     return SUPPORTED_FIAT.includes(c) ? c : DEFAULT_FIAT;
+}
+
+// Currency the fare rate card is quoted in. Defaults to USD (the built-in rate
+// card is USD-denominated and converted to the ride currency); an operator with
+// a local rate card sets FARE_CURRENCY to their own currency.
+const RATE_CARD_CURRENCY = (() => {
+    const c = (process.env.FARE_CURRENCY || 'USD').toUpperCase();
+    return SUPPORTED_FIAT.includes(c) ? c : 'USD';
+})();
+
+/** Rate-card options passed to every estimateTripCost() call. */
+function rateCardOptions(currency) {
+    return {
+        currency,
+        baseFare: config.fareBase,
+        perKm: config.farePerKm,
+        perMinute: config.farePerMinute,
+        rateCardCurrency: RATE_CARD_CURRENCY,
+        operatorFeePct: config.operatorFeePercent
+    };
 }
 
 const packageVersion = require('./package.json').version;
@@ -2721,10 +2749,7 @@ app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
         const duration = (distance / 30) * 60; // minutes
 
         // Get detailed cost estimate with dual pricing
-        const estimate = await estimateTripCost(distance, duration, {
-            currency: fiatCurrency,
-            operatorFeePct: config.operatorFeePercent
-        });
+        const estimate = await estimateTripCost(distance, duration, rateCardOptions(fiatCurrency));
 
         res.json({
             ...estimate,
@@ -2922,10 +2947,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 console.log(`📍 Single-location task — no route needed`);
             }
 
-            const estimate = await estimateTripCost(distance, duration, {
-                currency: fiatCurrency,
-                operatorFeePct: config.operatorFeePercent
-            });
+            const estimate = await estimateTripCost(distance, duration, rateCardOptions(fiatCurrency));
 
             const estimatedFareSats = fare_sats
                 ? parseInt(fare_sats, 10)

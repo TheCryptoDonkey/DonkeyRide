@@ -150,15 +150,32 @@ function formatDualPrice(sats, currency = 'USD') {
 async function estimateTripCost(distanceKm, durationMinutes, options = {}) {
   const {
     currency = 'USD',
-    baseFare = 2.50, // USD base fare
-    perKm = 1.50, // USD per km
-    perMinute = 0.30, // USD per minute
+    baseFare = 2.50, // base fare, denominated in rateCardCurrency
+    perKm = 1.50, // per km, denominated in rateCardCurrency
+    perMinute = 0.30, // per minute, denominated in rateCardCurrency
+    rateCardCurrency = 'USD', // currency the three rates above are quoted in
     surgeMultiplier = 1.0,
     operatorFeePct = 0.005
   } = options;
 
+  // The rate card is quoted in rateCardCurrency (USD by default). If the ride is
+  // priced in another currency, convert each rate via the BTC cross rate so a
+  // KES ride is not charged "2.50 shillings". Operators who set an explicit rate
+  // card in their own currency (rateCardCurrency === currency) skip conversion.
+  let bf = baseFare, pk = perKm, pm = perMinute;
+  if (rateCardCurrency !== currency) {
+    const src = await getBitcoinPrice(rateCardCurrency);
+    const tgt = await getBitcoinPrice(currency);
+    if (Number.isFinite(src) && src > 0 && Number.isFinite(tgt) && tgt > 0) {
+      const factor = tgt / src; // fiat-per-BTC ratio = target units per source unit
+      bf = baseFare * factor;
+      pk = perKm * factor;
+      pm = perMinute * factor;
+    }
+  }
+
   // Calculate fiat fare
-  let fiatFare = baseFare + (distanceKm * perKm) + (durationMinutes * perMinute);
+  let fiatFare = bf + (distanceKm * pk) + (durationMinutes * pm);
   fiatFare = fiatFare * surgeMultiplier;
 
   // Convert to sats
