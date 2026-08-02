@@ -146,6 +146,12 @@ export function normaliseTask(raw: any): Task {
       : undefined,
     stopCount: typeof r.stopCount === 'number' ? r.stopCount
       : Array.isArray(r.stops) ? r.stops.length : undefined,
+    vehicle: r.vehicle && typeof r.vehicle === 'object' ? {
+      make: r.vehicle.make || undefined,
+      model: r.vehicle.model || undefined,
+      colour: r.vehicle.colour || undefined,
+      registration: r.vehicle.registration || undefined,
+    } : undefined,
     fareEstimateSats: r.fare ?? r.fareEstimateSats ?? r.estimated_fare ?? 0,
     distanceKm,
     durationMin: r.duration_minutes ?? r.durationMin,
@@ -305,6 +311,8 @@ export async function acceptTask(taskId: string, params: {
   providerPubkey: string;
   providerNpub?: string;
   providerLocation: LatLng;
+  /** The car the requester should look for (device-local profile) */
+  vehicle?: { make?: string; model?: string; colour?: string; registration?: string } | null;
 }): Promise<Task> {
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/accept`, {
     method: 'POST',
@@ -316,6 +324,7 @@ export async function acceptTask(taskId: string, params: {
         lat: params.providerLocation.lat,
         lon: params.providerLocation.lng,
       },
+      ...(params.vehicle ? { vehicle: params.vehicle } : {}),
     }),
   });
   return normaliseTask(raw);

@@ -3483,6 +3483,24 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
             driver_location = { lat: Number(rawLoc.lat), lon: Number(lon) };
         }
 
+        // Vehicle details — what the rider looks for at the kerb. Free
+        // text, capped. Participant-gated PII: lives in-memory on the
+        // ride only (never broadcast, never snapshotted).
+        let vehicle = null;
+        const rawVehicle = req.body.vehicle;
+        if (rawVehicle && typeof rawVehicle === 'object') {
+            const field = (v) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, 40) : null);
+            vehicle = {
+                make: field(rawVehicle.make),
+                model: field(rawVehicle.model),
+                colour: field(rawVehicle.colour),
+                registration: field(rawVehicle.registration)
+            };
+            if (!vehicle.make && !vehicle.model && !vehicle.colour && !vehicle.registration) {
+                vehicle = null;
+            }
+        }
+
         // Note: any driver_rating in the body is deliberately ignored — a
         // rating is never self-reported. Clients read the counterparty's
         // aggregated signed ratings from GET /api/reputation/:npub.
@@ -3503,6 +3521,10 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
             return res.status(400).json({
                 error: 'Ride already accepted by another driver'
             });
+        }
+
+        if (vehicle) {
+            ride.vehicle = vehicle;
         }
 
         // Start en route
@@ -3540,6 +3562,7 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
             id: ride.id,
             status: ride.status,
             driver: ride.driver,
+            vehicle: ride.vehicle || null,
             eta_seconds: eta,
             driver_route: driverRoute  // Route from driver to pickup
         };

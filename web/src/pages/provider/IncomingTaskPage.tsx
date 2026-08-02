@@ -14,6 +14,7 @@ import { getSavedPaymentMethods } from '../../utils/payment-methods';
 import { formatDistance, formatDuration } from '../../services/pricing';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import { dispatchService } from '../../services/dispatch';
+import { loadVehicle } from '../../utils/vehicle';
 
 export function IncomingTaskPage() {
   const navigate = useNavigate();
@@ -42,6 +43,8 @@ export function IncomingTaskPage() {
         providerPubkey: identity.pubKeyHex,
         providerNpub: identity.npub,
         providerLocation: location,
+        // The car the requester should look for (set on the profile page)
+        vehicle: loadVehicle(),
       });
       dispatchService.removeAvailable(activeTask.id);
       setActiveTask(updated);

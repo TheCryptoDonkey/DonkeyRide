@@ -9,6 +9,14 @@ export interface TaskStop extends LatLng {
   address?: string;
 }
 
+/** The provider's vehicle — participant-gated, set on accept */
+export interface TaskVehicle {
+  make?: string;
+  model?: string;
+  colour?: string;
+  registration?: string;
+}
+
 /** A ride/task as returned by the API */
 export interface Task {
   id: string;
@@ -22,6 +30,8 @@ export interface Task {
   stops?: TaskStop[];
   /** Stop count — the only stop information pre-accept payloads carry */
   stopCount?: number;
+  /** The car to look for — participant-gated detail only */
+  vehicle?: TaskVehicle | null;
   pickupAddress?: string;
   dropoffAddress?: string;
   fareEstimateSats: number;

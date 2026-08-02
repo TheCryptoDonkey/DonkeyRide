@@ -5,6 +5,7 @@ import {
   getIdentityRecoveryNotice, clearIdentityRecoveryNotice,
 } from '../../services/nostr';
 import { PaymentMethodsEditor } from '../../components/payment/PaymentMethodsEditor';
+import { VehicleEditor } from '../../components/provider/VehicleEditor';
 
 interface ProfilePageProps {
   role: 'requester' | 'provider';
@@ -171,6 +172,9 @@ export function ProfilePage({ role }: ProfilePageProps) {
 
       {/* Provider only: accepted payment methods (non-custodial, direct) */}
       {role === 'provider' && <PaymentMethodsEditor />}
+
+      {/* Provider only: the car a matched requester should look for */}
+      {role === 'provider' && <VehicleEditor />}
     </div>
   );
 }

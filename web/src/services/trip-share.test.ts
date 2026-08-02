@@ -35,6 +35,15 @@ describe('trip share messages', () => {
     expect(text).toContain('not yet assigned');
   });
 
+  it('share names the car when the driver provided one', () => {
+    const text = buildTripShareText({
+      ...task,
+      vehicle: { colour: 'Blue', make: 'Toyota', model: 'Prius', registration: 'MN65 XYZ' },
+    });
+    expect(text).toContain('Vehicle: Blue Toyota Prius · MN65 XYZ');
+    expect(buildTripShareText(task)).not.toContain('Vehicle:');
+  });
+
   it('all-clear is unambiguous', () => {
     expect(buildAllClearText()).toContain('All clear');
     expect(buildAllClearText()).toContain('arrived safely');

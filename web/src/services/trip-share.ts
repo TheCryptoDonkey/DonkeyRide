@@ -16,6 +16,7 @@
 import type { NostrEvent } from '../types/nostr';
 import { hexToBytes } from './nostr';
 import { publishToRelays } from './relays';
+import { describeVehicle } from '../utils/vehicle';
 import type { Task } from '../types/api';
 
 const DM_KIND = 14;
@@ -114,9 +115,11 @@ export function buildTripShareText(task: Task, taskNoun = 'ride'): string {
   const driver = task.providerNpub
     ? `${task.providerNpub.slice(0, 20)}…`
     : 'not yet assigned';
+  const car = describeVehicle(task.vehicle);
   return [
     `🫏 I'm taking a DonkeyRide ${taskNoun} and I'm sharing it with you.`,
     `Driver: ${driver}`,
+    ...(car ? [`Vehicle: ${car}`] : []),
     `From around ${area(task.pickup)} to around ${area(task.dropoff)}.`,
     `I'll send an all-clear here when I arrive — if you don't hear from me, please check in.`,
   ].join('\n');

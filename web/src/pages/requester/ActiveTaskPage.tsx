@@ -31,6 +31,7 @@ import {
 } from '../../services/trip-share';
 import { createRideCheck, type RideCheckMonitor, type RideCheckReason } from '../../utils/ride-check';
 import { routePositions } from '../../utils/geo';
+import { describeVehicle } from '../../utils/vehicle';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import type { WsMessage, Task, OperatorPaymentInfo } from '../../types/api';
 
@@ -336,6 +337,12 @@ export function ActiveTaskPage() {
               <div className="mt-1">
                 <ReputationBadge subject={activeTask.providerNpub} />
               </div>
+              {describeVehicle(activeTask.vehicle) && (
+                <p className="text-sm text-donkey-text mt-1">
+                  <span className="meta-label">Look for </span>
+                  <span className="font-bold">{describeVehicle(activeTask.vehicle)}</span>
+                </p>
+              )}
             </div>
             {activeTask.durationMin != null && (
               <div className="text-right">
