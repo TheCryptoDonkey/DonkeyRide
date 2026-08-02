@@ -1,6 +1,7 @@
 {
   "name": "donkeyride-relay",
   "version": "1.0.0",
+  "private": true,
   "description": "DonkeyRide stake relay operator server - run your own and earn fees",
   "main": "server.js",
   "scripts": {
