@@ -12,6 +12,11 @@ import { getCurrencySymbol } from './pricing';
 // Same-origin by default; native (Capacitor) builds bake in the operator URL
 const BASE = import.meta.env.VITE_API_BASE || '';
 
+/** The operator origin this app instance talks to (absolute) */
+export function getApiBase(): string {
+  return BASE || window.location.origin;
+}
+
 /** Error thrown for non-2xx responses — carries the HTTP status code */
 export class ApiError extends Error {
   status?: number;
@@ -495,6 +500,31 @@ export async function getActiveParticipantTask(pubkey: string): Promise<Task | n
   return raw.task ? normaliseTask(raw.task) : null;
 }
 
+/**
+ * GET /api/tasks/open — every open (unaccepted) task, so a provider can
+ * browse all waiting requesters rather than only catching live broadcasts.
+ * Filter by working-area geohash cells, or by proximity to a location
+ * (operator dispatch radius). Payload mirrors the WS broadcast: no
+ * requester identity beyond the task itself.
+ */
+export async function getOpenTasks(params?: {
+  location?: LatLng;
+  areas?: string[];
+}): Promise<Task[]> {
+  const query = new URLSearchParams();
+  if (params?.areas && params.areas.length > 0) {
+    query.set('areas', params.areas.join(','));
+  } else if (params?.location) {
+    query.set('lat', String(params.location.lat));
+    query.set('lon', String(params.location.lng));
+  }
+  const qs = query.toString();
+  const raw = await request<{ rides: Record<string, unknown>[] }>(
+    `/api/tasks/open${qs ? `?${qs}` : ''}`,
+  );
+  return (raw.rides || []).map(normaliseTask);
+}
+
 /** GET /api/tasks/stats */
 export function getTaskStats(): Promise<{
   total: number;
@@ -718,9 +748,38 @@ export async function getAvailableProviders(params?: {
 
 // ── Reputation ──────────────────────────────────────
 
-/** GET /api/reputation/:npub */
+/** GET /api/reputation/:npub (accepts npub or hex pubkey) */
 export function getReputation(npub: string): Promise<Reputation> {
   return request(`/api/reputation/${npub}`);
+}
+
+// ── Web Push (job alerts) ───────────────────────────
+
+/** GET /api/push/vapid-key — the operator's self-generated VAPID public key */
+export async function getVapidKey(): Promise<string | null> {
+  const raw = await request<{ key?: string | null }>(`/api/push/vapid-key`);
+  return raw.key || null;
+}
+
+/** POST /api/push/subscribe — register this device for job alerts */
+export function subscribePush(params: {
+  subscription: unknown;
+  pubkey: string;
+  areas?: string[];
+  location?: { lat: number; lon: number } | null;
+}): Promise<{ success: boolean }> {
+  return request(`/api/push/subscribe`, {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}
+
+/** DELETE /api/push/subscribe — stop job alerts for this driver */
+export function unsubscribePush(pubkey: string): Promise<{ success: boolean }> {
+  return request(`/api/push/subscribe`, {
+    method: 'DELETE',
+    body: JSON.stringify({ pubkey }),
+  });
 }
 
 // ── Proof & Quotes ──────────────────────────────────

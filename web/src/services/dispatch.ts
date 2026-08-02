@@ -1,13 +1,17 @@
 import type { Task, LatLng } from '../types/api';
 import { WS_PROTOCOL, getWsBaseUrl, normaliseWsMessage } from './websocket';
-import { getAuthPrivKey, normaliseTask } from './api';
+import { getAuthPrivKey, getOpenTasks, normaliseTask } from './api';
 import { createNip98Event } from './nostr';
 import { publishAvailabilityBeacon } from './events';
+import { enableJobPush, disableJobPush } from './push';
+import { subscribeFederatedTasks } from './federation';
+import { loadWorkingAreas, combinedCells } from '../utils/working-areas';
 
 const ONLINE_KEY = 'donkeyride.provider.online';
 const RECONNECT_DELAY_MS = 4000;
 const PRESENCE_INTERVAL_MS = 30_000;
 const BEACON_INTERVAL_MS = 60_000;
+const OPEN_POLL_INTERVAL_MS = 30_000;
 
 export interface DispatchState {
   online: boolean;
@@ -16,6 +20,7 @@ export interface DispatchState {
 
 type TaskHandler = (task: Task, distanceKm?: number) => void;
 type StatusHandler = (state: DispatchState) => void;
+type AvailableHandler = (tasks: Task[]) => void;
 
 /**
  * Module-level dispatch connection for the provider app.
@@ -38,6 +43,16 @@ class DispatchService {
   private beaconTimer: ReturnType<typeof setInterval> | null = null;
   private taskHandlers: Set<TaskHandler> = new Set();
   private statusHandlers: Set<StatusHandler> = new Set();
+  private availableHandlers: Set<AvailableHandler> = new Set();
+  /** Every open job the driver could take, keyed by task id */
+  private availableTasks: Map<string, { task: Task; receivedAt: number }> = new Map();
+  private openPollTimer: ReturnType<typeof setInterval> | null = null;
+  /** Working-area geohash cells sent with registration ([] = radius dispatch) */
+  private areas: string[] = combinedCells(loadWorkingAreas());
+  /** Relay subscription for jobs coordinated by OTHER operators */
+  private federation: { close: () => void } | null = null;
+  /** Foreign jobs expire with their announcement (15 min) */
+  private static readonly FOREIGN_TTL_MS = 15 * 60 * 1000;
   private awaitingAuth = false;
   private authRetried = false;
   private authTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -66,6 +81,82 @@ class DispatchService {
     this.location = location;
   }
 
+  /**
+   * Set the driver's working-area geohash cells. An empty array reverts to
+   * radius dispatch. Re-registers immediately so the operator applies the
+   * new areas and replays any open jobs inside them.
+   */
+  setAreas(cells: string[]): void {
+    this.areas = cells;
+    if (this.connected) {
+      this.queueOrSend(this.registerMessage());
+      void this.refreshOpenTasks();
+    }
+    // Push targeting must track the new areas too
+    if (this.online && this.identity) {
+      void enableJobPush(this.identity.pubKeyHex, this.areas, this.location);
+    }
+  }
+
+  getAreas(): string[] {
+    return this.areas;
+  }
+
+  /** Every open job the driver could take, oldest first */
+  getAvailableTasks(): Task[] {
+    return Array.from(this.availableTasks.values())
+      .sort((a, b) => a.receivedAt - b.receivedAt)
+      .map((entry) => entry.task);
+  }
+
+  /** Subscribe to the available-jobs list — returns unsubscribe */
+  onAvailable(handler: AvailableHandler): () => void {
+    this.availableHandlers.add(handler);
+    handler(this.getAvailableTasks());
+    return () => { this.availableHandlers.delete(handler); };
+  }
+
+  /** Drop a job from the list (accepted, taken by someone else, declined) */
+  removeAvailable(taskId: string): void {
+    if (this.availableTasks.delete(taskId)) {
+      this.emitAvailable();
+    }
+  }
+
+  /**
+   * Reconcile the list against GET /api/tasks/open: jobs accepted or
+   * cancelled elsewhere disappear; jobs broadcast before we connected
+   * (or outside a dropped frame) appear.
+   */
+  async refreshOpenTasks(): Promise<void> {
+    if (!this.online) return;
+    let open: Task[];
+    try {
+      open = await getOpenTasks(
+        this.areas.length > 0
+          ? { areas: this.areas }
+          : { location: this.location ?? undefined },
+      );
+    } catch {
+      return; // transient — the next poll reconciles
+    }
+    const next = new Map<string, { task: Task; receivedAt: number }>();
+    for (const task of open) {
+      const existing = this.availableTasks.get(task.id);
+      next.set(task.id, { task, receivedAt: existing?.receivedAt ?? Date.now() });
+    }
+    // Foreign (federated) jobs are not in OUR operator's open list — keep
+    // them until their announcement TTL runs out
+    for (const [id, entry] of this.availableTasks) {
+      if (entry.task.operatorBase && !next.has(id)
+          && Date.now() - entry.receivedAt < DispatchService.FOREIGN_TTL_MS) {
+        next.set(id, entry);
+      }
+    }
+    this.availableTasks = next;
+    this.emitAvailable();
+  }
+
   goOnline(): void {
     if (this.online) return;
     this.online = true;
@@ -73,16 +164,28 @@ class DispatchService {
     this.bindWindowListeners();
     this.connect();
     this.startBeacon();
+    this.startFederation();
     this.emitStatus();
+    // Job alerts while backgrounded — called here so the permission
+    // prompt rides the Go online tap (a user gesture)
+    if (this.identity) {
+      void enableJobPush(this.identity.pubKeyHex, this.areas, this.location);
+    }
   }
 
   goOffline(): void {
     this.online = false;
     localStorage.removeItem(ONLINE_KEY);
     this.stopTimers();
+    this.stopFederation();
     this.closeSocket();
     this.connected = false;
+    this.availableTasks.clear();
+    this.emitAvailable();
     this.emitStatus();
+    if (this.identity) {
+      void disableJobPush(this.identity.pubKeyHex);
+    }
   }
 
   /** Subscribe to incoming task broadcasts — returns unsubscribe */
@@ -135,6 +238,7 @@ class DispatchService {
       }
       this.queueOrSend(this.registerMessage());
       this.startPresence();
+      this.startOpenPoll();
       void this.sendBeacon();
     };
 
@@ -169,6 +273,16 @@ class DispatchService {
 
       if (msg.type === 'task_broadcast') {
         const task = normaliseTask(msg.task);
+        const withDistance = msg.distanceKm != null && task.distanceKm == null
+          ? { ...task, distanceKm: msg.distanceKm }
+          : task;
+        // Every broadcast lands in the available list — nothing is dropped
+        // just because another job is already on screen
+        this.availableTasks.set(withDistance.id, {
+          task: withDistance,
+          receivedAt: this.availableTasks.get(withDistance.id)?.receivedAt ?? Date.now(),
+        });
+        this.emitAvailable();
         this.taskHandlers.forEach((handler) => handler(task, msg.distanceKm));
       }
     };
@@ -176,6 +290,7 @@ class DispatchService {
     ws.onclose = () => {
       this.connected = false;
       this.stopPresence();
+      this.stopOpenPoll();
       this.emitStatus();
       if (this.online) this.scheduleReconnect();
     };
@@ -192,6 +307,8 @@ class DispatchService {
       pubkey: this.identity?.pubKeyHex || '',
       // Never register a fallback position — omit location until GPS is real
       location: this.location ? { lat: this.location.lat, lon: this.location.lng } : undefined,
+      // Working-area cells; [] deliberately clears any stored areas
+      areas: this.areas,
     };
   }
 
@@ -291,6 +408,46 @@ class DispatchService {
     }
   }
 
+  /**
+   * Federated discovery: subscribe to kind 37500 task announcements on the
+   * public relays — jobs coordinated by OTHER operators land in the same
+   * available list, badged with their operator. The relays, not any single
+   * operator, are the marketplace.
+   */
+  private startFederation(): void {
+    this.stopFederation();
+    void subscribeFederatedTasks(
+      () => ({ domainId: this.domainId, areas: this.areas, location: this.location }),
+      (task) => {
+        if (!this.online || this.availableTasks.has(task.id)) return;
+        this.availableTasks.set(task.id, { task, receivedAt: Date.now() });
+        this.emitAvailable();
+      },
+    ).then((sub) => {
+      if (this.online) this.federation = sub;
+      else sub.close();
+    });
+  }
+
+  private stopFederation(): void {
+    this.federation?.close();
+    this.federation = null;
+  }
+
+  /** Poll the open-jobs endpoint so the list self-heals against missed frames */
+  private startOpenPoll(): void {
+    this.stopOpenPoll();
+    void this.refreshOpenTasks();
+    this.openPollTimer = setInterval(() => void this.refreshOpenTasks(), OPEN_POLL_INTERVAL_MS);
+  }
+
+  private stopOpenPoll(): void {
+    if (this.openPollTimer) {
+      clearInterval(this.openPollTimer);
+      this.openPollTimer = null;
+    }
+  }
+
   private async sendBeacon(): Promise<void> {
     const key = getAuthPrivKey();
     if (!this.online || !key || !this.location || !this.domainId) return;
@@ -305,6 +462,7 @@ class DispatchService {
     this.clearAuthTimeout();
     this.stopPresence();
     this.stopBeacon();
+    this.stopOpenPoll();
   }
 
   private closeSocket(): void {
@@ -341,6 +499,11 @@ class DispatchService {
   private emitStatus(): void {
     const state = this.getState();
     this.statusHandlers.forEach((handler) => handler(state));
+  }
+
+  private emitAvailable(): void {
+    const tasks = this.getAvailableTasks();
+    this.availableHandlers.forEach((handler) => handler(tasks));
   }
 }
 
