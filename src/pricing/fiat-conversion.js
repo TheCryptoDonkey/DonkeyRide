@@ -201,18 +201,20 @@ async function estimateTripCost(distanceKm, durationMinutes, options = {}) {
       currency,
       formatted: formatDualPrice(fareInSats.sats, currency)
     },
+    // Rows use the converted rates (bf/pk/pm) so they sum to fare.fiat in
+    // the ride currency — the raw rate card may be quoted in another one.
     breakdown: {
       baseFare: {
-        fiat: baseFare,
-        formatted: formatCurrency(baseFare, currency)
+        fiat: bf,
+        formatted: formatCurrency(bf, currency)
       },
       distance: {
-        fiat: distanceKm * perKm,
-        formatted: formatCurrency(distanceKm * perKm, currency)
+        fiat: distanceKm * pk,
+        formatted: formatCurrency(distanceKm * pk, currency)
       },
       duration: {
-        fiat: durationMinutes * perMinute,
-        formatted: formatCurrency(durationMinutes * perMinute, currency)
+        fiat: durationMinutes * pm,
+        formatted: formatCurrency(durationMinutes * pm, currency)
       }
     },
     operatorFee: {
