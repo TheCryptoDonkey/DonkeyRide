@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import { showToast } from './common/Toast';
 import type { LatLng } from '../types/api';
+import {
+  loadRecents,
+  saveRecent,
+  loadSavedPlaces,
+  savePlace,
+  removeSavedPlace,
+  suggestPlaceName,
+  type Place,
+  type SavedPlace,
+} from '../utils/places';
 
 interface PhotonFeature {
   geometry: { coordinates: [number, number] };
@@ -32,27 +42,13 @@ function formatLabel(p: PhotonFeature['properties']): string {
  * Debounced address search backed by Photon (komoot) — free, no API key,
  * OpenStreetMap data. Falls back gracefully: tapping the map still works.
  */
-const RECENTS_KEY = 'donkeyride.recentPlaces';
-
-interface RecentPlace { label: string; lat: number; lng: number }
-
-function loadRecents(): RecentPlace[] {
-  try {
-    return JSON.parse(localStorage.getItem(RECENTS_KEY) || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function saveRecent(place: RecentPlace) {
-  const recents = [place, ...loadRecents().filter((r) => r.label !== place.label)].slice(0, 5);
-  localStorage.setItem(RECENTS_KEY, JSON.stringify(recents));
-}
-
 export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }: AddressSearchProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PhotonFeature[]>([]);
-  const [recents, setRecents] = useState<RecentPlace[]>([]);
+  const [recents, setRecents] = useState<Place[]>([]);
+  const [saved, setSaved] = useState<SavedPlace[]>([]);
+  const [pinning, setPinning] = useState<Place | null>(null);
+  const [pinName, setPinName] = useState('');
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -116,12 +112,33 @@ export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }
     onSelect({ lat, lng }, label);
   };
 
-  const pickRecent = (place: RecentPlace) => {
+  const pickPlace = (place: Place) => {
     selectedRef.current = true;
     setQuery(place.label);
     setOpen(false);
-    saveRecent(place);
+    setPinning(null);
+    saveRecent({ label: place.label, lat: place.lat, lng: place.lng });
     onSelect({ lat: place.lat, lng: place.lng }, place.label);
+  };
+
+  const startPinning = (place: Place) => {
+    setPinning(place);
+    setPinName(suggestPlaceName() || place.label.split(',')[0]);
+  };
+
+  const confirmPin = () => {
+    if (!pinning) return;
+    const updated = savePlace(pinName, pinning);
+    if (updated) {
+      setSaved(updated);
+      setPinning(null);
+    } else {
+      showToast('Could not save — check the name, or remove an old place first.', { type: 'error' });
+    }
+  };
+
+  const unpin = (name: string) => {
+    setSaved(removeSavedPlace(name));
   };
 
   return (
@@ -141,6 +158,7 @@ export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }
             setOpen(true);
           } else if (query.trim().length < 3) {
             setRecents(loadRecents());
+            setSaved(loadSavedPlaces());
             setOpen(true);
           }
         }}
@@ -148,17 +166,69 @@ export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }
       {loading && (
         <div className="absolute right-3 top-3.5 animate-spin h-4 w-4 border-2 border-donkey-blue border-t-transparent rounded-full" />
       )}
-      {open && results.length === 0 && recents.length > 0 && query.trim().length < 3 && (
-        <ul className="absolute left-0 right-0 mt-1 bg-donkey-surface border border-donkey-border rounded-lg shadow-panel overflow-hidden">
-          <li className="px-4 py-2 text-xs uppercase tracking-wider text-donkey-muted border-b border-donkey-border/50">Recent</li>
-          {recents.map((place) => (
-            <li key={place.label}>
+      {open && results.length === 0 && (saved.length > 0 || recents.length > 0) && query.trim().length < 3 && (
+        <ul className="absolute left-0 right-0 mt-1 bg-donkey-surface border border-donkey-border rounded-lg shadow-panel overflow-hidden max-h-72 overflow-y-auto">
+          {saved.map((place) => (
+            <li key={`saved-${place.name}`} className="flex items-stretch border-b border-donkey-border/50">
               <button
-                className="w-full text-left px-4 py-3 text-sm hover:bg-donkey-card border-b border-donkey-border/50 last:border-0"
-                onClick={() => pickRecent(place)}
+                className="flex-1 text-left px-4 py-3 text-sm hover:bg-donkey-card min-w-0"
+                onClick={() => pickPlace(place)}
               >
-                {place.label}
+                <span className="font-semibold text-donkey-text">
+                  {place.name.toLowerCase() === 'home' ? '🏠 ' : place.name.toLowerCase() === 'work' ? '💼 ' : '⭐ '}
+                  {place.name}
+                </span>
+                <span className="block text-xs text-donkey-muted truncate">{place.label}</span>
               </button>
+              <button
+                className="px-3 text-donkey-muted hover:text-donkey-text"
+                aria-label={`Remove saved place ${place.name}`}
+                onClick={() => unpin(place.name)}
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+          {recents.length > 0 && (
+            <li className="px-4 py-2 text-xs uppercase tracking-wider text-donkey-muted border-b border-donkey-border/50">Recent</li>
+          )}
+          {recents.map((place) => (
+            <li key={place.label} className="border-b border-donkey-border/50 last:border-0">
+              {pinning?.label === place.label ? (
+                <div className="flex items-center gap-2 px-4 py-2">
+                  <input
+                    type="text"
+                    className="flex-1 bg-donkey-card border border-donkey-border rounded px-2 py-1.5 text-sm min-w-0"
+                    value={pinName}
+                    autoFocus
+                    maxLength={30}
+                    placeholder="Name (e.g. Home)"
+                    onChange={(e) => setPinName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') confirmPin(); }}
+                  />
+                  <button className="text-sm text-donkey-green font-semibold" onClick={confirmPin}>Save</button>
+                  <button className="text-sm text-donkey-muted" onClick={() => setPinning(null)}>Cancel</button>
+                </div>
+              ) : (
+                <div className="flex items-stretch">
+                  <button
+                    className="flex-1 text-left px-4 py-3 text-sm hover:bg-donkey-card min-w-0 truncate"
+                    onClick={() => pickPlace(place)}
+                  >
+                    {place.label}
+                  </button>
+                  {!saved.some((s) => s.label === place.label) && (
+                    <button
+                      className="px-3 text-donkey-muted hover:text-donkey-orange"
+                      aria-label={`Save ${place.label}`}
+                      title="Save this place"
+                      onClick={() => startPinning(place)}
+                    >
+                      ☆
+                    </button>
+                  )}
+                </div>
+              )}
             </li>
           ))}
         </ul>
