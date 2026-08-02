@@ -83,20 +83,8 @@ app.use((req, res, next) => {
 });
 app.use(express.static('public')); // Serve demo.html and other static files (legacy)
 
-// Rate limiting: honour ENABLE_RATE_LIMITING (default on). Mutating API
-// traffic shares the authenticated limiter; hot read routes carry their own
-// public limiter at the route definition.
 const rateLimitingEnabled = (process.env.ENABLE_RATE_LIMITING || 'true').toLowerCase() !== 'false';
-if (rateLimitingEnabled) {
-    app.use((req, res, next) => {
-        const guarded = req.path.startsWith('/api/') || req.path.startsWith('/rides');
-        const mutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
-        if (!guarded || !mutating) {
-            return next();
-        }
-        return authenticatedRateLimiter(req, res, next);
-    });
-} else {
+if (!rateLimitingEnabled) {
     console.warn('\u26A0\uFE0F  Rate limiting DISABLED via ENABLE_RATE_LIMITING=false');
 }
 
@@ -141,6 +129,20 @@ if (nip98Enabled) {
 
 // For sensitive GET endpoints: require NIP-98 only when auth is enabled
 const optionalNip98 = nip98Enabled ? validateNIP98Auth : (req, res, next) => next();
+
+// Rate limiting runs AFTER auth so it keys on the authenticated PUBKEY, not
+// the IP — otherwise every user behind a shared mobile-carrier IP would share
+// one bucket. Mutating API traffic is limited per user.
+if (rateLimitingEnabled) {
+    app.use((req, res, next) => {
+        const guarded = req.path.startsWith('/api/') || req.path.startsWith('/rides');
+        const mutating = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method);
+        if (!guarded || !mutating) {
+            return next();
+        }
+        return authenticatedRateLimiter(req, res, next);
+    });
+}
 
 /**
  * Does the authenticated signer match a stored party identity?

@@ -126,10 +126,15 @@ const publicRateLimiter = new RateLimiter({
  */
 const authenticatedRateLimiter = new RateLimiter({
     windowMs: 60000, // 1 minute
-    max: 10, // 10 requests per minute
+    // A live ride is chatty: the driver posts location every few seconds plus
+    // accept/arrive/start/complete, and the rider does request/pay/settle/rate.
+    // Keyed per pubkey (the gate runs after auth), 120/min gives real users
+    // ample headroom while still stopping abuse. Override with AUTH_RATE_MAX.
+    max: parseInt(process.env.AUTH_RATE_MAX || '120', 10),
     message: 'Too many requests to authenticated API',
     keyGenerator: (req) => {
-        // Use pubkey if authenticated, otherwise IP
+        // Runs after the NIP-98 gate, so req.user.pubkey is set for guarded
+        // routes; fall back to IP only for anything unauthenticated.
         return req.user?.pubkey || req.ip;
     }
 });
