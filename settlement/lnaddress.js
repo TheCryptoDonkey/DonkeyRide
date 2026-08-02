@@ -1,6 +1,30 @@
-const crypto = require('crypto');
 const SettlementRail = require('./base');
-const { fetchWithTimeout } = require('../src/utils/fetch-timeout');
+const { resolveLnurlPay, verifyLud21, LnurlError } = require('farrier-kit/lnurl');
+const { verifyPreimage } = require('farrier-kit/preimage');
+const { createPinnedFetch } = require('farrier-kit/node');
+
+// One pinned fetch for resolving and verifying untrusted, driver-supplied
+// Lightning Address hosts. It resolves each host once and connects to the
+// validated address, so a DNS-rebinding race cannot point the operator at an
+// internal service. farrier's SSRF guard and invoice gating ride on top.
+const pinnedFetch = createPinnedFetch();
+
+// Map farrier's LnurlError codes to the rail's user-facing messages.
+function friendlyLnurlError(error) {
+  if (!(error instanceof LnurlError)) return error;
+  switch (error.code) {
+    case 'BAD_ADDRESS': return new Error('A valid Lightning Address (name@domain) is required');
+    case 'NOT_PAYREQUEST': return new Error('Endpoint is not an LNURL-pay service');
+    case 'NO_CALLBACK': return new Error('Lightning Address response had no callback URL');
+    case 'BELOW_MIN':
+    case 'ABOVE_MAX': return new Error(`Amount outside the payee's accepted range (${error.message})`);
+    case 'NO_INVOICE': return new Error('Payee did not return an invoice');
+    case 'AMOUNT_MISMATCH': return new Error(`Payee returned an invoice for the wrong amount (${error.message})`);
+    case 'NETWORK_MISMATCH': return new Error('Payee returned an invoice on the wrong Lightning network');
+    case 'INVOICE_EXPIRED': return new Error('Payee returned an already-expired invoice');
+    default: return error;
+  }
+}
 
 /**
  * Lightning wallet-to-wallet via a Lightning Address / LNURL-pay (LUD-16/LUD-06).
@@ -22,6 +46,9 @@ class LnAddressRail extends SettlementRail {
     this.id = 'lnaddress';
     this.label = 'Lightning';
     this.verifyMethod = 'preimage';
+    // Mainnet by default. A licensed operator settling on another network
+    // overrides it; the invoice the payee returns must match.
+    this.network = config.network || 'bc';
   }
 
   static isLightningAddress(handle) {
@@ -45,55 +72,35 @@ class LnAddressRail extends SettlementRail {
       throw new Error('amountSats must be a positive integer');
     }
 
-    // 1. LNURL-pay metadata
-    const metaRes = await fetchWithTimeout(this._resolveUrl(handle));
-    if (!metaRes.ok) {
-      throw new Error(`Lightning Address lookup failed (${metaRes.status})`);
-    }
-    const meta = await metaRes.json();
-    if (meta.tag !== 'payRequest' || !meta.callback) {
-      throw new Error('Endpoint is not an LNURL-pay service');
-    }
-    const millisats = sats * 1000;
-    if (millisats < (meta.minSendable || 0) || (meta.maxSendable && millisats > meta.maxSendable)) {
-      throw new Error(`Amount ${sats} sats outside the payee's accepted range`);
-    }
-
-    // 2. Callback -> bolt11 invoice
-    const cbUrl = new URL(meta.callback);
-    cbUrl.searchParams.set('amount', String(millisats));
-    if (memo && meta.commentAllowed) {
-      cbUrl.searchParams.set('comment', String(memo).slice(0, meta.commentAllowed));
-    }
-    const invRes = await fetchWithTimeout(cbUrl.toString());
-    if (!invRes.ok) {
-      throw new Error(`Invoice request failed (${invRes.status})`);
-    }
-    const invBody = await invRes.json();
-    if (invBody.status === 'ERROR' || !invBody.pr) {
-      throw new Error(invBody.reason || 'Payee did not return an invoice');
-    }
-
-    // 3. Payment hash for preimage verification (offline bolt11 parse)
-    let paymentHash = null;
+    // farrier runs the whole LNURL-pay flow over the pinned (SSRF-safe) fetch:
+    // metadata, sendable-range, callback, and it returns an invoice whose
+    // amount, network, expiry and description-hash it has already checked. The
+    // payment hash comes from the decoded invoice, no ln-service parse needed.
+    let resolved;
     try {
-      const { parsePaymentRequest } = require('ln-service');
-      paymentHash = parsePaymentRequest({ request: invBody.pr }).id;
+      resolved = await resolveLnurlPay({
+        address: handle,
+        amountSats: sats,
+        comment: memo ? String(memo) : undefined,
+        network: this.network,
+        fetchImpl: pinnedFetch,
+      });
     } catch (error) {
-      paymentHash = null; // verification will fall back to manual
+      throw friendlyLnurlError(error);
     }
 
+    const paymentHash = resolved.paymentHashHex || null;
     return {
       rail: this.id,
       label: this.label,
       custody: 'none',
       operator_transmitted: 0,
       lnAddress: handle,
-      invoice: invBody.pr,
+      invoice: resolved.bolt11,
       paymentHash,
-      // LUD-21 verify URL if the service offers it
-      verifyUrl: invBody.verify || null,
-      payLink: `lightning:${invBody.pr}`,
+      // LUD-21 verify URL if the service offers it (already origin-checked).
+      verifyUrl: resolved.verifyUrl || null,
+      payLink: `lightning:${resolved.bolt11}`,
       amountSats: sats,
       currency: currency || 'SAT',
       verifyMethod: paymentHash ? 'preimage' : 'manual',
@@ -103,13 +110,13 @@ class LnAddressRail extends SettlementRail {
 
   async verify({ instruction, proof }) {
     // Preferred: preimage proof — SHA-256(preimage) must equal the invoice
-    // payment hash. Pure crypto, no trust in any third party.
+    // payment hash. Pure crypto, no trust in any third party. farrier's
+    // verifyPreimage is the constant-time check.
     const preimage = (proof?.preimage || '').trim().toLowerCase();
     const hash = (instruction?.paymentHash || '').toLowerCase();
     if (preimage && /^[0-9a-f]{64}$/.test(preimage)) {
       if (hash) {
-        const computed = crypto.createHash('sha256').update(Buffer.from(preimage, 'hex')).digest('hex');
-        if (computed === hash) {
+        if (verifyPreimage(preimage, hash)) {
           return { verified: true, detail: 'preimage matches invoice payment hash' };
         }
         // A preimage was supplied and definitively contradicts the invoice.
@@ -119,19 +126,24 @@ class LnAddressRail extends SettlementRail {
       return { verified: false, recorded: true, detail: 'preimage recorded (no invoice hash to verify against)' };
     }
 
-    // Fallback: LUD-21 verify URL lets the operator confirm settlement (and
-    // capture the preimage) WITHOUT ever routing the payment itself.
+    // Fallback: LUD-21 verify URL lets the operator confirm settlement WITHOUT
+    // ever routing the payment. farrier cross-checks the service's preimage
+    // against the invoice payment hash, so a bare "settled" claim is not proof.
     const verifyUrl = instruction?.verifyUrl;
     if (verifyUrl) {
       try {
-        const res = await fetchWithTimeout(verifyUrl);
-        if (res.ok) {
-          const body = await res.json();
-          if (body.status === 'OK' && body.settled) {
-            return { verified: true, detail: 'confirmed settled via LUD-21 verify', confirmationCode: body.preimage || null };
-          }
-          return { verified: false, detail: 'LUD-21 verify reports not yet settled' };
+        const result = await verifyLud21({
+          verifyUrl,
+          paymentHashHex: hash || undefined,
+          fetchImpl: pinnedFetch,
+        });
+        if (result.verified) {
+          return { verified: true, detail: 'confirmed settled via LUD-21 (preimage verified against the invoice payment hash)', confirmationCode: result.preimage || null };
         }
+        if (result.settled) {
+          return { verified: false, detail: 'LUD-21 service reports settled but its preimage did not verify against the invoice payment hash' };
+        }
+        return { verified: false, detail: 'LUD-21 verify reports not yet settled' };
       } catch (error) {
         return { verified: false, detail: `LUD-21 verify failed: ${error.message}` };
       }

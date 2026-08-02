@@ -135,6 +135,10 @@ test('full ride lifecycle over HTTP with signed requests', async () => {
   assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
   assert.equal(accepted.body.ride.status, 'en_route');
   assert.equal(accepted.body.ride.driver.pubkey, driverPub);
+  // The driver_rating in the accept body must be ignored — ratings are
+  // never self-reported, only aggregated from signed rating events
+  assert.ok(accepted.body.ride.driver.rating == null,
+    `self-reported rating must not be stored: ${accepted.body.ride.driver.rating}`);
 
   const located = await post(`/api/rides/${rideId}/location`, {
     lat: PICKUP.lat + 0.005,
@@ -247,6 +251,11 @@ test('driver presence feeds /api/drivers/available with radius filtering', async
   assert.ok(
     near.body.drivers.every((d) => d.npub === undefined && d.pubkey === undefined),
     'driver identities must not be exposed'
+  );
+  // ...and must never invent a rating for an anonymised driver
+  assert.ok(
+    near.body.drivers.filter((d) => d.source === 'live').every((d) => d.rating === null),
+    `live drivers must carry no fabricated rating: ${JSON.stringify(near.body.drivers)}`
   );
 
   // London is ~260 km from Manchester — outside any sane dispatch radius,

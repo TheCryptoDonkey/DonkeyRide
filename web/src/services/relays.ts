@@ -50,6 +50,41 @@ export async function getPublicRelays(): Promise<string[]> {
 }
 
 /**
+ * Live subscription on the public relays. Returns a close handle.
+ * Events are deduped across relays by SimplePool; `onEvent` may still see
+ * the same logical message twice on reconnect — callers dedupe by id.
+ */
+export async function subscribeToRelays(
+  filter: object,
+  onEvent: (event: NostrEvent) => void,
+): Promise<{ close: () => void }> {
+  const [pool, relays] = await Promise.all([getPool(), getPublicRelays()]);
+  const sub = pool.subscribeMany(relays, filter as never, {
+    onevent: (event) => onEvent(event as NostrEvent),
+  });
+  return { close: () => sub.close() };
+}
+
+/**
+ * One-shot EOSE-bounded query against the public relays.
+ * Returns the events on success (possibly none — that IS the relays'
+ * answer) and null when the query itself failed, so callers can tell
+ * "no history" apart from "relays unreachable".
+ */
+export async function queryRelays(
+  filter: object,
+  maxWaitMs = 4000,
+): Promise<NostrEvent[] | null> {
+  try {
+    const [pool, relays] = await Promise.all([getPool(), getPublicRelays()]);
+    const events = await pool.querySync(relays, filter as never, { maxWait: maxWaitMs });
+    return events as NostrEvent[];
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Best-effort publish of a signed event to the public relays.
  * Never throws; each relay gets a 5-second timeout.
  * Returns the number of relays that acknowledged the event.

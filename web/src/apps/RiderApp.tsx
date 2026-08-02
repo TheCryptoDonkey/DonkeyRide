@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
+import { Onboarding } from '../components/onboarding/Onboarding';
 import { HomePage } from '../pages/requester/HomePage';
 import { RequestPage } from '../pages/requester/RequestPage';
 import { ActiveTaskPage } from '../pages/requester/ActiveTaskPage';
@@ -9,6 +10,8 @@ import { ExternalRedirect } from './ExternalRedirect';
 
 export function RiderApp() {
   return (
+    <>
+    <Onboarding role="requester" />
     <Routes>
       <Route element={<Layout app="rider" />}>
         <Route path="/" element={<HomePage />} />
@@ -31,5 +34,6 @@ export function RiderApp() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>
+    </>
   );
 }

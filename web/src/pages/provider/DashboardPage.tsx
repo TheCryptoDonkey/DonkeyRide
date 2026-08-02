@@ -2,22 +2,26 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapView } from '../../components/map/MapView';
 import { LocationMarker } from '../../components/map/LocationMarker';
+import { DualPrice } from '../../components/common/DualPrice';
 import { useLocation } from '../../hooks/useLocation';
 import { useIdentity } from '../../context/IdentityContext';
 import { useTask } from '../../context/TaskContext';
 import { useDomain } from '../../context/DomainContext';
 import { getTaskStats, getOperatorInfo } from '../../services/api';
 import { dispatchService, type DispatchState } from '../../services/dispatch';
+import { formatDistance } from '../../services/pricing';
+import type { Task } from '../../types/api';
 
 export function DashboardPage() {
   const navigate = useNavigate();
   const { location, error: geoError, loading: geoLoading } = useLocation();
   const { identity } = useIdentity();
-  const { activeTask } = useTask();
+  const { activeTask, setActiveTask } = useTask();
   const { profile } = useDomain();
   const [stats, setStats] = useState<{ total: number; active: number; completed: number } | null>(null);
   const [operatorFee, setOperatorFee] = useState<string>('0.5%');
   const [dispatchState, setDispatchState] = useState<DispatchState>(dispatchService.getState());
+  const [availableJobs, setAvailableJobs] = useState<Task[]>(dispatchService.getAvailableTasks());
 
   const online = dispatchState.online;
   const wsConnected = dispatchState.connected;
@@ -49,6 +53,15 @@ export function DashboardPage() {
   // The dispatch connection lives in a module singleton — going online
   // survives route changes; this page only mirrors its state.
   useEffect(() => dispatchService.onStatus(setDispatchState), []);
+
+  // Every open job the driver could take — broadcasts plus the polled
+  // open-jobs endpoint, so nothing is missed while another job is on screen
+  useEffect(() => dispatchService.onAvailable(setAvailableJobs), []);
+
+  const openJob = useCallback((task: Task) => {
+    setActiveTask(task);
+    navigate('/provide/incoming');
+  }, [setActiveTask, navigate]);
 
   useEffect(() => {
     if (identity) {
@@ -145,6 +158,38 @@ export function DashboardPage() {
           </div>
         )}
 
+        {/* Every waiting job — tap to review and accept */}
+        {online && availableJobs.length > 0 && (
+          <div className="space-y-2">
+            <p className="section-title">
+              Waiting {taskNoun} requests ({availableJobs.length})
+            </p>
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {availableJobs.map((job) => (
+                <button
+                  key={job.id}
+                  className="w-full flex items-center justify-between bg-donkey-bg border border-donkey-border rounded-lg px-4 py-3 text-left hover:border-donkey-blue transition-colors"
+                  onClick={() => openJob(job)}
+                >
+                  <div>
+                    <DualPrice sats={job.fareEstimateSats} size="sm" />
+                    <p className="text-xs text-donkey-muted mt-0.5">
+                      {job.distanceKm != null && formatDistance(job.distanceKm)}
+                      {job.operatorBase && (
+                        <span className="text-donkey-purple font-semibold">
+                          {job.distanceKm != null && ' · '}
+                          via Nostr · {new URL(job.operatorBase).host}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <span className="text-donkey-blue text-sm font-semibold">View</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* GPS unavailable — geo-dispatch cannot work, so block going online */}
         {geoError && !online && (
           <div className="bg-donkey-orange/20 border border-donkey-orange rounded-lg p-3">
@@ -164,12 +209,20 @@ export function DashboardPage() {
           {online ? 'Go Offline' : 'Go Online'}
         </button>
 
-        <button
-          className="btn-secondary w-full"
-          onClick={() => navigate('/provide/earnings')}
-        >
-          Earnings
-        </button>
+        <div className="flex gap-3">
+          <button
+            className="btn-secondary flex-1"
+            onClick={() => navigate('/provide/earnings')}
+          >
+            Earnings
+          </button>
+          <button
+            className="btn-secondary flex-1"
+            onClick={() => navigate('/provide/areas')}
+          >
+            Working Areas
+          </button>
+        </div>
 
         {online && wsConnected && (
           <p className="text-donkey-green text-sm text-center font-semibold animate-pulse">

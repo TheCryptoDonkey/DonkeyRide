@@ -1,11 +1,13 @@
 import { useEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
+import { Onboarding } from '../components/onboarding/Onboarding';
 import { DashboardPage } from '../pages/provider/DashboardPage';
 import { IncomingTaskPage } from '../pages/provider/IncomingTaskPage';
 import { ActiveTaskPage } from '../pages/provider/ActiveTaskPage';
 import { CompletionPage } from '../pages/provider/CompletionPage';
 import { EarningsPage } from '../pages/provider/EarningsPage';
+import { WorkingAreasPage } from '../pages/provider/WorkingAreasPage';
 import { ProfilePage } from '../pages/shared/ProfilePage';
 import { ExternalRedirect } from './ExternalRedirect';
 import { useTask } from '../context/TaskContext';
@@ -57,7 +59,8 @@ function DispatchTaskListener() {
   useEffect(() => dispatchService.onTask((task, distanceKm) => {
     const current = activeTaskRef.current;
     const terminal = profileRef.current?.states.terminal || [];
-    // Ignore broadcasts while a job is already in hand
+    // A job already in hand keeps the screen — the broadcast still lands
+    // in the dashboard's available-jobs list, so nothing is lost
     if (current && !terminal.includes(current.status)) return;
     setActiveTask(distanceKm != null && task.distanceKm == null
       ? { ...task, distanceKm }
@@ -71,6 +74,7 @@ function DispatchTaskListener() {
 export function DriverApp() {
   return (
     <>
+      <Onboarding role="provider" />
       <DispatchTaskListener />
       <Routes>
         <Route element={<Layout app="driver" />}>
@@ -79,6 +83,7 @@ export function DriverApp() {
           <Route path="/provide/active" element={<ActiveTaskPage />} />
           <Route path="/provide/complete" element={<CompletionPage />} />
           <Route path="/provide/earnings" element={<EarningsPage />} />
+          <Route path="/provide/areas" element={<WorkingAreasPage />} />
           <Route path="/provide/profile" element={<ProfilePage role="provider" />} />
 
           {/* Backward-compatible redirects */}

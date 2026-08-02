@@ -41,26 +41,32 @@ export async function publishAvailabilityBeacon(
  * TROTT-02 task announcement (kind 37500, addressable).
  * Announces an open task near a geohash cell. Carries NO coordinates,
  * NO addresses and NO other PII — geohash precision 5 only.
- * Best-effort: returns the relay ack count, never throws.
+ * The optional operator tags (`operator` pubkey + `api` base URL) let
+ * drivers on OTHER operators discover and resolve this job — the
+ * federation hook. Best-effort: returns the relay ack count, never throws.
  */
 export async function publishTaskAnnouncement(
   taskId: string,
   pickup: LatLng,
   domainId: string,
   privKeyHex: string,
+  operator?: { pubkey?: string | null; api?: string | null },
 ): Promise<number> {
   try {
     const now = Math.floor(Date.now() / 1000);
+    const tags = [
+      ['d', taskId],
+      ['g', encodeGeohash(pickup.lat, pickup.lng, 5)],
+      ['domain', domainId],
+      ['t', 'trott-task'],
+      ['expiration', String(now + 900)],
+    ];
+    if (operator?.pubkey) tags.push(['operator', operator.pubkey]);
+    if (operator?.api) tags.push(['api', operator.api]);
     const event = await signNostrEvent({
       kind: 37500,
       created_at: now,
-      tags: [
-        ['d', taskId],
-        ['g', encodeGeohash(pickup.lat, pickup.lng, 5)],
-        ['domain', domainId],
-        ['t', 'trott-task'],
-        ['expiration', String(now + 900)],
-      ],
+      tags,
       content: '',
     }, privKeyHex);
     return await publishToRelays(event);

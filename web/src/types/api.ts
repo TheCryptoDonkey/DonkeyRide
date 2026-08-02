@@ -31,6 +31,12 @@ export interface Task {
   rating?: number;
   tip?: number;
   quote?: TaskQuote;
+  /**
+   * Set when this job was discovered via a Nostr announcement from a
+   * DIFFERENT operator (federation): that operator's API origin. The job
+   * is coordinated there, not by the operator this app is connected to.
+   */
+  operatorBase?: string;
 }
 
 export interface SettlementInfo {
@@ -214,17 +220,37 @@ export interface OperatorInfo {
   version?: string;
 }
 
-/** Reputation data */
+/**
+ * Reputation summary (GET /api/reputation/:npub) — aggregated server-side
+ * from signature-verified Nostr rating events (kind 30520), deduped to one
+ * rating per (rater, task).
+ */
 export interface Reputation {
   pubkey: string;
   npub: string;
   averageRating: number;
-  totalRatings: number;
-  recentRatings: Array<{
-    rating: number;
-    comment?: string;
-    timestamp: number;
-  }>;
+  ratingsCount: number;
+  distinctRaters: number;
+  /** Unix seconds of the newest rating, null when unrated */
+  lastRatingAt: number | null;
+  /** Verified kind 30540 emergency signals raised BY this keypair */
+  panicCount: number;
+  latestPanicAt: number | null;
+}
+
+/**
+ * One in-app chat message — a NIP-17 gift-wrapped DM exchanged directly
+ * between the two participants over public relays. End-to-end encrypted:
+ * the operator never carries or sees it.
+ */
+export interface ChatMessage {
+  /** The unwrapped rumor's event id (stable across both wrapped copies) */
+  id: string;
+  /** Sender pubkey (hex) */
+  from: string;
+  text: string;
+  /** Epoch milliseconds */
+  at: number;
 }
 
 /**

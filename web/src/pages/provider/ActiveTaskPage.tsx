@@ -24,6 +24,7 @@ import {
 import { PhotoProof } from '../../components/task/PhotoProof';
 import { SignatureCapture } from '../../components/task/SignatureCapture';
 import { QuotePanel } from '../../components/task/QuotePanel';
+import { ChatPanel } from '../../components/task/ChatPanel';
 import type { WsMessage } from '../../types/api';
 
 /** Map known state keys to existing API endpoints */
@@ -291,6 +292,16 @@ export function ActiveTaskPage() {
 
         {/* Stake — only on rails that support custody (never cash) */}
         <TaskStakePanel task={activeTask} role="provider" />
+
+        {/* E2E encrypted chat with the requester */}
+        {!isTerminal && activeTask.requesterPubkey && (
+          <ChatPanel
+            taskId={activeTask.id}
+            selfPubkey={identity.pubKeyHex}
+            counterpartyPubkey={activeTask.requesterPubkey}
+            counterpartyLabel={profile?.roles.requester || 'Requester'}
+          />
+        )}
 
         {/* Non-custodial settlement: confirm the rider's direct payment */}
         <ConfirmReceipt

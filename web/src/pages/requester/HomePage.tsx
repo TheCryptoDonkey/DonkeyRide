@@ -82,7 +82,7 @@ export function HomePage() {
               <LocationMarker
                 key={d.pubkey}
                 position={d.location}
-                label={`${providerLabel} (${d.rating?.toFixed(1) || '?'})`}
+                label={d.rating != null ? `${providerLabel} (${d.rating.toFixed(1)})` : providerLabel}
                 colour="blue"
               />
             ))}

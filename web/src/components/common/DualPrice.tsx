@@ -7,6 +7,11 @@ interface DualPriceProps {
   className?: string;
 }
 
+/**
+ * Fiat-first price display: the currency people think in leads, sats ride
+ * along for the Bitcoin-native. Falls back to sats-only while the BTC
+ * price is still loading or unavailable.
+ */
 export function DualPrice({ sats, size = 'md', className }: DualPriceProps) {
   const { prices } = useBtcPrices();
 
@@ -20,12 +25,18 @@ export function DualPrice({ sats, size = 'md', className }: DualPriceProps) {
 
   return (
     <span className={`inline-flex items-baseline gap-2 ${className || ''}`}>
-      <span className={`text-sats ${sizeClasses[size]}`}>
-        {formatSats(sats)} sats
-      </span>
-      {fiat && (
-        <span className="text-fiat">
-          ({fiat})
+      {fiat ? (
+        <>
+          <span className={`text-donkey-orange font-bold ${sizeClasses[size]}`}>
+            {fiat}
+          </span>
+          <span className="text-donkey-muted text-sm">
+            ({formatSats(sats)} sats)
+          </span>
+        </>
+      ) : (
+        <span className={`text-donkey-orange font-bold ${sizeClasses[size]}`}>
+          {formatSats(sats)} sats
         </span>
       )}
     </span>

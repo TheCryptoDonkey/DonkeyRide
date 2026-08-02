@@ -23,6 +23,7 @@ const reputation = require('./src/nostr/reputation');
 const stakeEvents = require('./src/nostr/stake-events');
 const disputeEvents = require('./src/nostr/dispute-events');
 const operatorAnnounce = require('./src/nostr/operator-announce');
+const pushService = require('./src/push');
 const { validateNIP98Auth } = require('./middleware/nip98-auth');
 const { getPublicKey: nostrGetPublicKey, nip19 } = require('nostr-tools');
 const {
@@ -1078,7 +1079,9 @@ if (wss) {
                         ws.driverNpub = npub;
                         ws.driverPubkey = pubkey;
                         ws.clientType = 'driver';
-                        updateDriverPresence({ npub, pubkey, location });
+                        // Driver-declared working areas (geohash cells) —
+                        // omitted keeps any stored areas, [] clears them
+                        updateDriverPresence({ npub, pubkey, location, areas: sanitiseWorkingAreas(data.areas) });
                         sendPendingRideRequests(ws);
                         break;
                     }
@@ -1161,7 +1164,44 @@ const DRIVER_PRESENCE_TTL_MS = 2 * 60 * 1000; // location older than this is sta
 // STRICT_DISPATCH=true excludes drivers with no known location from dispatch
 const strictDispatch = (process.env.STRICT_DISPATCH || '').toLowerCase() === 'true';
 
-// key: npub or pubkey (lowercase) → { npub, pubkey, location: {lat, lon}, lastSeen }
+// Driver-declared working areas: geohash cells (precision 1-9), capped so a
+// hostile registration cannot balloon presence memory.
+const MAX_WORKING_AREAS = 64;
+const GEOHASH_CELL = /^[0123456789bcdefghjkmnpqrstuvwxyz]{1,9}$/;
+
+/**
+ * Validate driver-supplied working areas. Returns a deduped, lowercased
+ * array of geohash cells; null when the input is not a list at all
+ * (callers treat null as "leave the stored areas unchanged").
+ */
+function sanitiseWorkingAreas(raw) {
+    if (!Array.isArray(raw)) {
+        return null;
+    }
+    const cells = [];
+    for (const value of raw) {
+        if (typeof value !== 'string') {
+            continue;
+        }
+        const cell = value.trim().toLowerCase();
+        if (GEOHASH_CELL.test(cell) && !cells.includes(cell)) {
+            cells.push(cell);
+            if (cells.length >= MAX_WORKING_AREAS) {
+                break;
+            }
+        }
+    }
+    return cells;
+}
+
+/** Is this origin inside any of the given working-area cells? */
+function originInAreas(origin, areas) {
+    const hash = encodeGeohash(origin.lat, origin.lon, 9);
+    return areas.some((cell) => hash.startsWith(cell));
+}
+
+// key: npub or pubkey (lowercase) →
+//   { npub, pubkey, location: {lat, lon}, areas: [geohash]|null, lastSeen }
 const driverPresence = new Map();
 
 // Evict entries that stopped heart-beating — without this the map grows
@@ -1176,7 +1216,7 @@ const presenceSweep = setInterval(() => {
 }, 60000);
 presenceSweep.unref();
 
-function updateDriverPresence({ npub, pubkey, location }) {
+function updateDriverPresence({ npub, pubkey, location, areas }) {
     const key = (npub || pubkey || '').toLowerCase();
     if (!key) {
         return null;
@@ -1188,6 +1228,8 @@ function updateDriverPresence({ npub, pubkey, location }) {
         location: location && Number.isFinite(location.lat) && Number.isFinite(location.lon)
             ? { lat: location.lat, lon: location.lon }
             : existing.location || null,
+        // null/undefined keeps the stored areas; [] clears them (back to radius)
+        areas: Array.isArray(areas) ? areas : existing.areas || null,
         lastSeen: Date.now()
     };
     driverPresence.set(key, entry);
@@ -1207,14 +1249,19 @@ function getDriverPresence(identifier) {
 
 /**
  * Should this driver receive a request with the given origin?
- * Drivers with a fresh location get a haversine radius check; drivers
- * without one are included unless STRICT_DISPATCH=true.
+ * Drivers with declared working areas get a geohash cell-membership check
+ * (wherever they currently are); drivers with a fresh location get a
+ * haversine radius check; drivers with neither are included unless
+ * STRICT_DISPATCH=true.
  */
 function driverInRange(driverIdentifier, origin) {
     if (!origin || !Number.isFinite(origin.lat) || !Number.isFinite(origin.lon)) {
         return true;
     }
     const presence = getDriverPresence(driverIdentifier);
+    if (presence && Array.isArray(presence.areas) && presence.areas.length > 0) {
+        return originInAreas(origin, presence.areas);
+    }
     if (!presence || !presence.location) {
         return !strictDispatch;
     }
@@ -1223,6 +1270,75 @@ function driverInRange(driverIdentifier, origin) {
         origin.lat, origin.lon
     );
     return distanceKm <= DISPATCH_RADIUS_KM;
+}
+
+// ==========================================
+// WEB PUSH JOB ALERTS (VAPID, no Firebase)
+// A WS frame only reaches an open socket; a backgrounded driver app gets
+// a Web Push instead. Payloads are E2E encrypted to the device (RFC 8291)
+// and carry no rider identity or exact coordinates.
+// ==========================================
+
+pushService.init();
+
+/** Drivers with an open, registered dispatch socket right now */
+function connectedDriverPubkeys() {
+    const connected = new Set();
+    if (wss) {
+        wss.clients.forEach((client) => {
+            if (client.clientType === 'driver' && client.readyState === WebSocket.OPEN
+                && client.driverPubkey) {
+                connected.add(client.driverPubkey.toLowerCase());
+            }
+        });
+    }
+    return connected;
+}
+
+/** driverInRange semantics, but against the push store's own snapshot —
+ *  a backgrounded driver's live presence has typically expired */
+function pushEligible(entry, origin) {
+    if (!origin || !Number.isFinite(origin.lat) || !Number.isFinite(origin.lon)) {
+        return true;
+    }
+    if (Array.isArray(entry.areas) && entry.areas.length > 0) {
+        return originInAreas(origin, entry.areas);
+    }
+    if (!entry.location || !validLatLon(entry.location.lat, entry.location.lon)) {
+        return !strictDispatch;
+    }
+    return calculateDistance(
+        entry.location.lat, entry.location.lon,
+        origin.lat, origin.lon
+    ) <= DISPATCH_RADIUS_KM;
+}
+
+/** Push a new-job alert to every eligible subscribed driver whose app is
+ *  not currently connected over WS (those already got the live frame). */
+function pushRideRequestToOfflineDrivers(ride, estimate) {
+    const connected = connectedDriverPubkeys();
+    const noun = rideManager.getProfileForRide(ride.id)?.labels?.taskNoun || 'job';
+    const fareText = estimate?.fare?.formatted || null;
+    const payload = {
+        title: `New ${noun} nearby`,
+        body: fareText
+            ? `${fareText} — open DonkeyRide to view and accept`
+            : 'Open DonkeyRide to view and accept',
+        tag: `ride-${ride.id}`,
+        url: '/provide'
+    };
+    let count = 0;
+    for (const entry of pushService.listSubscriptions()) {
+        if (connected.has(entry.pubkey)) {
+            continue;
+        }
+        if (!pushEligible(entry, ride.pickup)) {
+            continue;
+        }
+        void pushService.sendTo(entry.pubkey, payload);
+        count++;
+    }
+    return count;
 }
 
 // Broadcast to drivers, geo-filtered by origin when provided
@@ -2540,8 +2656,10 @@ app.get('/api/drivers/available', publicRateLimiter, async (req, res) => {
                 name: 'Driver',
                 location: coarse(entry.location),
                 available: true,
-                rating: 5.0,
-                totalRides: 0,
+                // Never invent a rating: identity is withheld here, so no
+                // reputation can honestly be attached
+                rating: null,
+                totalRides: null,
                 lastUpdate: entry.lastSeen,
                 source: 'live'
             });
@@ -2571,8 +2689,8 @@ app.get('/api/drivers/available', publicRateLimiter, async (req, res) => {
                             lon: driver.location.lon ?? driver.location.lng
                         } : null),
                         available: driver.available !== false,
-                        rating: driver.rating || 5.0,
-                        totalRides: driver.totalRides || 0,
+                        rating: driver.rating ?? null,
+                        totalRides: driver.totalRides ?? null,
                         lastUpdate: driver.lastUpdate,
                         source: 'redis'
                     });
@@ -2618,7 +2736,7 @@ app.get('/api/drivers/available', publicRateLimiter, async (req, res) => {
 // Driver reports presence + location (used by the driver app while online)
 app.post('/api/drivers/location', async (req, res) => {
     try {
-        const { npub, pubkey, lat, lon } = req.body || {};
+        const { npub, pubkey, lat, lon, areas } = req.body || {};
         const signerPubkey = req.user?.pubkey || null;
 
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
@@ -2636,17 +2754,85 @@ app.post('/api/drivers/location', async (req, res) => {
         const entry = updateDriverPresence({
             npub,
             pubkey: pubkey || signerPubkey,
-            location: { lat, lon }
+            location: { lat, lon },
+            areas: sanitiseWorkingAreas(areas)
         });
 
         if (!entry) {
             return res.status(400).json({ error: 'Missing driver identity (npub or pubkey)' });
         }
 
+        // Keep push targeting in step with the driver's live position/areas
+        pushService.updateTargeting((pubkey || signerPubkey || '').toLowerCase(), {
+            areas: sanitiseWorkingAreas(areas),
+            location: { lat, lon }
+        });
+
         res.json({ success: true, lastSeen: entry.lastSeen });
     } catch (error) {
         console.error('Error updating driver presence:', error);
         res.status(500).json({ error: 'Failed to update driver presence' });
+    }
+});
+
+// Web Push: the operator's self-generated VAPID public key
+app.get('/api/push/vapid-key', publicRateLimiter, (req, res) => {
+    res.json({ key: pushService.getPublicKey() });
+});
+
+// Driver subscribes for job alerts while their app is backgrounded.
+// The push endpoint URL is device-addressing PII: held in memory only.
+app.post('/api/push/subscribe', optionalNip98, (req, res) => {
+    try {
+        const { subscription, pubkey, areas, location } = req.body || {};
+        if (nip98Enabled && req.user && pubkey
+            && !actorMatchesIdentity(req.user, { pubkey })) {
+            return res.status(403).json({
+                error: 'Forbidden',
+                details: 'Signer does not match the subscribing driver identity'
+            });
+        }
+        const subscriber = ((nip98Enabled && req.user?.pubkey) || pubkey || '').toLowerCase();
+        if (!subscriber) {
+            return res.status(400).json({ error: 'Missing driver pubkey' });
+        }
+        if (!pushService.isValidSubscription(subscription)) {
+            return res.status(400).json({ error: 'Invalid push subscription' });
+        }
+        const loc = location && validLatLon(location.lat, location.lon)
+            ? { lat: location.lat, lon: location.lon }
+            : null;
+        pushService.subscribe(subscriber, subscription, {
+            areas: sanitiseWorkingAreas(areas),
+            location: loc
+        });
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error subscribing for push:', error.message);
+        res.status(500).json({ error: 'Failed to subscribe' });
+    }
+});
+
+// Driver goes off shift — stop pushing to this device
+app.delete('/api/push/subscribe', optionalNip98, (req, res) => {
+    try {
+        const { pubkey } = req.body || {};
+        if (nip98Enabled && req.user && pubkey
+            && !actorMatchesIdentity(req.user, { pubkey })) {
+            return res.status(403).json({
+                error: 'Forbidden',
+                details: 'Signer does not match the unsubscribing driver identity'
+            });
+        }
+        const subscriber = ((nip98Enabled && req.user?.pubkey) || pubkey || '').toLowerCase();
+        if (!subscriber) {
+            return res.status(400).json({ error: 'Missing driver pubkey' });
+        }
+        pushService.unsubscribe(subscriber);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error unsubscribing from push:', error.message);
+        res.status(500).json({ error: 'Failed to unsubscribe' });
     }
 });
 
@@ -3002,6 +3188,12 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
 
             console.log(`📢 Broadcast ride request ${ride.id} to ${driverCount} drivers`);
 
+            // Backgrounded driver apps get a Web Push instead of the WS frame
+            const pushed = pushRideRequestToOfflineDrivers(ride, estimate);
+            if (pushed > 0) {
+                console.log(`🔔 Pushed ride request ${ride.id} to ${pushed} offline drivers`);
+            }
+
             res.json({
                 success: true,
                 ride_id: ride.id,
@@ -3029,7 +3221,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
 app.post('/api/rides/:rideId/accept', async (req, res) => {
     try {
         const { rideId } = req.params;
-        const { driver_npub, driver_name, driver_rating, driver_pubkey } = req.body;
+        const { driver_npub, driver_name, driver_pubkey } = req.body;
 
         if (nip98Enabled && req.user && !actorMatchesIdentity(req.user, { pubkey: driver_pubkey, npub: driver_npub })) {
             return res.status(403).json({
@@ -3051,10 +3243,12 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
             driver_location = { lat: Number(rawLoc.lat), lon: Number(lon) };
         }
 
+        // Note: any driver_rating in the body is deliberately ignored — a
+        // rating is never self-reported. Clients read the counterparty's
+        // aggregated signed ratings from GET /api/reputation/:npub.
         const ride = rideManager.acceptRide(rideId, driver_npub, {
             name: driver_name,
             location: driver_location,
-            rating: driver_rating,
             pubkey: driver_pubkey
         });
 
@@ -5090,6 +5284,68 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
     }
 });
 
+// Open (unaccepted) requests — lets a provider browse every waiting
+// requester rather than only catching live broadcasts. Filterable by
+// working-area cells (?areas=gcpv,gcpw) or proximity (?lat/&lon, operator
+// dispatch radius). Payload mirrors the WS ride_request broadcast: no
+// requester identity, no route geometry. Registered before /api/rides/:rideId
+// so 'open' is not captured as a ride id.
+app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
+    try {
+        const lat = parseFloat(req.query.lat);
+        const lon = parseFloat(req.query.lon ?? req.query.lng);
+        const areas = sanitiseWorkingAreas(
+            typeof req.query.areas === 'string' && req.query.areas.length > 0
+                ? req.query.areas.split(',')
+                : null
+        );
+
+        const rides = rideManager.getActiveRides()
+            .filter((ride) => {
+                const p = rideManager.getProfileForRide(ride.id);
+                return ride.status === p.states.values.REQUESTED;
+            })
+            .filter((ride) => {
+                const pickup = ride.pickup;
+                if (!pickup || !Number.isFinite(pickup.lat) || !Number.isFinite(pickup.lon)) {
+                    return true;
+                }
+                if (areas && areas.length > 0) {
+                    return originInAreas(pickup, areas);
+                }
+                if (Number.isFinite(lat) && Number.isFinite(lon)) {
+                    return calculateDistance(lat, lon, pickup.lat, pickup.lon) <= DISPATCH_RADIUS_KM;
+                }
+                return true;
+            })
+            .map((ride) => {
+                const session = activeRides.get(ride.id) || {};
+                const estimate = session.estimate || null;
+                const distanceKm = typeof session?.estimate?.distance?.km === 'number'
+                    ? session.estimate.distance.km
+                    : null;
+                return {
+                    id: ride.id,
+                    pickup: ride.pickup,
+                    dropoff: ride.dropoff,
+                    fare: ride.fare,
+                    distance: distanceKm,
+                    estimatedFare: estimate,
+                    currency: ride.currency || session.currency || 'GBP',
+                    requestedAt: ride.timestamps?.requested || null
+                };
+            });
+
+        res.json({ success: true, rides, count: rides.length, timestamp: Date.now() });
+    } catch (error) {
+        console.error('Error listing open rides:', error);
+        res.status(500).json({
+            error: 'Failed to list open rides',
+            details: error.message
+        });
+    }
+});
+
 // Ride statistics — MUST be registered before /api/rides/:rideId or the
 // literal path 'stats' is captured as a ride id and 404s
 app.get('/api/rides/stats', publicRateLimiter, (req, res) => {
@@ -5482,7 +5738,10 @@ module.exports = {
     taskManager: rideManager,
     domainProfile,
     reputation,
-    getHttpServer: () => httpServer
+    pushService,
+    getHttpServer: () => httpServer,
+    // Tests that exercise real WS dispatch need to close this to exit cleanly
+    getWss: () => wss
 };
 
 // Graceful shutdown.

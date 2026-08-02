@@ -284,7 +284,9 @@ class TaskManager {
       pubkey: providerIdentity.pubkey,
       name: providerInfo.name || this.roles.provider.charAt(0).toUpperCase() + this.roles.provider.slice(1),
       location: providerInfo.location,
-      rating: providerInfo.rating || 5.0
+      // Never default a rating into existence — reputation comes from
+      // aggregated signed rating events, not from acceptance metadata
+      rating: providerInfo.rating ?? null
     };
 
     task.driver = providerData;
