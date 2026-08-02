@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DonkeyRide — how it works</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; padding: 2rem 1.25rem; background: #0a0a0a; color: #e0e0e0;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      display: flex; justify-content: center;
+    }
+    main { max-width: 34rem; width: 100%; }
+    h1 { font-size: 1.6rem; letter-spacing: -0.02em; }
+    h2 { font-size: 1.15rem; margin-top: 2.25rem; }
+    h3 { font-size: 0.95rem; margin-top: 1.5rem; color: #e0e0e0; }
+    p, li { color: #999; line-height: 1.55; }
+    li { margin-bottom: 0.35rem; }
+    strong { color: #e0e0e0; }
+    a { color: #b24cf3; }
+    .note { font-size: 0.85rem; }
+    ul, ol { padding-left: 1.25rem; }
+    .card {
+      background: #16213e; border: 1px solid #333; border-radius: 0.75rem;
+      padding: 1rem 1.25rem; margin: 1rem 0;
+    }
+    .card p { margin: 0.4rem 0; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>🫏 How DonkeyRide works</h1>
+  <p>
+    DonkeyRide connects riders and drivers <strong>without a company in the
+    middle</strong>. There is no sign-up, no commission taken from your fare,
+    and payment goes directly from rider to driver — cash, Lightning, M-Pesa
+    or ecash. The operator only coordinates: it never holds your money and
+    cannot read your messages.
+  </p>
+
+  <h2>No account needed</h2>
+  <p>
+    The first time you open the app it creates an <strong>Account ID</strong>
+    and a <strong>recovery key</strong> on your phone. That key <em>is</em>
+    your account: back it up from the profile page, and you can restore your
+    identity — and your reputation — on any phone, with any operator. Nobody
+    can reset it for you, because nobody else has it.
+  </p>
+
+  <h2>For riders</h2>
+  <h3>Requesting</h3>
+  <ul>
+    <li>Set your pickup and destination, and add up to
+        <strong>3 stops</strong> along the way — the fare covers the full
+        route, shown up front in your local currency.</li>
+    <li>Ride <strong>now</strong>, or <strong>book up to 30 days
+        ahead</strong> — a driver can commit early, and you both get a
+        reminder near the time.</li>
+    <li>Driver ratings are cryptographically signed and
+        <strong>verified on your own phone</strong> — not numbers the
+        operator asserts.</li>
+  </ul>
+
+  <h3>Meeting your driver</h3>
+  <ul>
+    <li>At match you see the driver's rating and their car —
+        colour, make, model and registration.</li>
+    <li>Both phones derive the same <strong>pickup code</strong> (a PIN and
+        a word) from your encrypted connection. Only your real driver's phone
+        can show it — an impostor car cannot.</li>
+    <li>Chat is <strong>end-to-end encrypted</strong>. The operator cannot
+        read a word of it.</li>
+  </ul>
+
+  <h3>Staying safe</h3>
+  <ul>
+    <li><strong>Share your trip</strong> with people you trust: they get an
+        encrypted note (driver, car, route area) straight to their Nostr
+        messages — any NIP-17 messaging app works, no DonkeyRide needed.
+        Arrival sends them an automatic all-clear. Mark a contact
+        "every trip" and sharing happens by itself.</li>
+    <li><strong>Ride check</strong>: your own phone watches the trip. If it
+        leaves the expected route or stops for too long, you're asked
+        "Everything OK?" — and if you don't answer within a minute, the
+        people you shared with are alerted automatically.</li>
+    <li>The <strong>panic button</strong> alerts your trusted contacts with
+        your last known location and offers a one-tap call to local
+        emergency services.</li>
+  </ul>
+
+  <h3>Paying</h3>
+  <ul>
+    <li><strong>Cash</strong> — hand it over, done.</li>
+    <li><strong>Lightning</strong> — pay the driver's invoice from any
+        wallet, or connect your own wallet in the app.</li>
+    <li><strong>M-Pesa</strong> — Send Money direct to the driver's number
+        (or over Lightning via Tando).</li>
+    <li><strong>Cashu ecash</strong> — send the token in the encrypted chat;
+        only your driver can redeem it.</li>
+  </ul>
+  <p class="note">
+    Whatever the method, the money moves from you to the driver.
+    The operator transmits nothing.
+  </p>
+  <p class="note">
+    Your trip history lives <strong>on your phone only</strong> — the
+    operator keeps no record of where you've been.
+  </p>
+
+  <h2>For drivers</h2>
+  <ul>
+    <li><strong>You keep the whole fare</strong>, and it settles instantly —
+        no weekly payout, no cashout fee. Add your payment methods (Lightning
+        Address, M-Pesa number, Cashu, cash) on the profile page.</li>
+    <li>Go online to receive nearby jobs live, and <strong>browse every
+        waiting request</strong> — including pre-booked rides you can commit
+        to early, and jobs from other operators over Nostr.</li>
+    <li>Draw your own <strong>working areas</strong> on the map, or set a
+        <strong>destination</strong> to only see jobs heading your way.
+        You choose your work — nothing is centrally assigned.</li>
+    <li>Every job shows the fare, distance and rider reputation
+        <strong>before you accept</strong>. Exact locations are revealed
+        only after.</li>
+    <li>Set your <strong>vehicle</strong> once so riders can spot your car.</li>
+    <li>On Android, <a href="/download.html">install the driver app</a> —
+        jobs keep arriving with the screen off.</li>
+  </ul>
+
+  <h2>What the operator can and cannot see</h2>
+  <div class="card">
+    <p><strong>Cannot:</strong> read your chat, see who you shared a trip
+       with, derive your pickup code, touch your money, or keep your trip
+       history.</p>
+    <p><strong>Can:</strong> coordinate the ride while it's live — exact
+       locations are held in memory, shared only between the matched rider
+       and driver, and forgotten. Public records carry approximate areas
+       only.</p>
+  </div>
+
+  <h2>Questions</h2>
+  <p class="note">
+    DonkeyRide is free, open-source software implementing the
+    <a href="https://github.com/TheCryptoDonkey/trott">TROTT protocol</a> —
+    anyone can run an operator, and your account travels with you.
+  </p>
+</main>
+</body>
+</html>

@@ -190,12 +190,20 @@ export function HomePage() {
           </p>
         )}
 
-        <button
-          className="text-xs text-donkey-muted underline w-full text-center mt-2 min-h-[44px]"
-          onClick={() => navigate('/request/history')}
-        >
-          Your past {taskNoun}s
-        </button>
+        <div className="flex items-center justify-center gap-4 mt-2">
+          <button
+            className="text-xs text-donkey-muted underline min-h-[44px]"
+            onClick={() => navigate('/request/history')}
+          >
+            Your past {taskNoun}s
+          </button>
+          <a
+            className="text-xs text-donkey-muted underline min-h-[44px] inline-flex items-center"
+            href="/manual.html"
+          >
+            How it works
+          </a>
+        </div>
       </div>
     </div>
   );
