@@ -1194,6 +1194,25 @@ function sanitiseWorkingAreas(raw) {
     return cells;
 }
 
+/**
+ * Progressive location disclosure: pre-accept payloads (dispatch
+ * broadcasts, pending replays, the open-jobs list) carry only an
+ * APPROXIMATE location — rounded to ~1 km — and no route geometry.
+ * Exact coordinates are revealed only to the driver who accepts (the
+ * participant-gated ride detail). Someone scraping open jobs learns the
+ * neighbourhood, never the doorstep.
+ */
+function approximateLocation(loc) {
+    if (!loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) {
+        return null;
+    }
+    return {
+        lat: Math.round(loc.lat * 100) / 100,
+        lon: Math.round(loc.lon * 100) / 100,
+        approximate: true
+    };
+}
+
 /** Is this origin inside any of the given working-area cells? */
 function originInAreas(origin, areas) {
     const hash = encodeGeohash(origin.lat, origin.lon, 9);
@@ -1396,12 +1415,12 @@ function sendPendingRideRequests(ws) {
             type: 'ride_request',
             ride: {
                 id: ride.id,
-                pickup: ride.pickup,
-                dropoff: ride.dropoff,
+                // Approximate pre-accept — see approximateLocation
+                pickup: approximateLocation(ride.pickup),
+                dropoff: approximateLocation(ride.dropoff),
                 fare: ride.fare,
                 distance: distanceKm,
                 estimatedFare: estimate,
-                route: session.route || ride.route || null,
                 currency: ride.currency || session.currency || 'GBP'
             }
         };
@@ -3168,16 +3187,17 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             ride.currency = fiatCurrency;
 
             // Broadcast to drivers within DISPATCH_RADIUS_KM of the pickup
+            // Approximate location + no route pre-accept (progressive
+            // disclosure); the accepting driver gets exact coordinates
             const driverCount = broadcastToDrivers({
                 type: 'ride_request',
                 ride: {
-                id: ride.id,
-                pickup: ride.pickup,
-                dropoff: ride.dropoff,
+                    id: ride.id,
+                    pickup: approximateLocation(ride.pickup),
+                    dropoff: approximateLocation(ride.dropoff),
                     fare: ride.fare,
                     distance: distance,
                     estimatedFare: estimate,
-                    route: routeCoordinates,
                     currency: fiatCurrency,
                     rider: ride.rider ? {
                         npub: ride.rider.npub,
@@ -5326,8 +5346,9 @@ app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
                     : null;
                 return {
                     id: ride.id,
-                    pickup: ride.pickup,
-                    dropoff: ride.dropoff,
+                    // Approximate pre-accept — see approximateLocation
+                    pickup: approximateLocation(ride.pickup),
+                    dropoff: approximateLocation(ride.dropoff),
                     fare: ride.fare,
                     distance: distanceKm,
                     estimatedFare: estimate,

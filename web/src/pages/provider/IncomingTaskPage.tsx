@@ -124,6 +124,10 @@ export function IncomingTaskPage() {
             </div>
           )}
 
+          <p className="text-xs text-donkey-muted text-center mb-3">
+            Locations are approximate until you accept
+          </p>
+
           {activeTask.requesterPubkey && (
             <>
               <p className="text-xs font-mono text-donkey-muted text-center truncate">

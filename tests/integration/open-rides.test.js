@@ -187,6 +187,32 @@ test('GET /api/rides/open lists waiting requests without rider identity', async 
   }
 });
 
+test('pre-accept payloads disclose only an approximate location; accept reveals exact', async () => {
+  const created = await createRide();
+  const rideId = created.body.ride_id;
+
+  // Open list: ~1 km rounding, flagged approximate, no route
+  const open = await getSigned('/api/rides/open');
+  const listed = open.body.rides.find((r) => r.id === rideId);
+  assert.ok(listed, 'ride listed');
+  assert.equal(listed.pickup.approximate, true, 'pickup flagged approximate');
+  assert.notEqual(listed.pickup.lat, PICKUP.lat, 'exact latitude withheld');
+  assert.ok(Math.abs(listed.pickup.lat - PICKUP.lat) < 0.011, 'still in the right ~km');
+  assert.ok(Math.abs(listed.pickup.lon - PICKUP.lon) < 0.011, 'still in the right ~km');
+  assert.ok(!('route' in listed), 'no route geometry pre-accept');
+
+  // The accepting driver gets exact coordinates
+  const driver = makeDriver();
+  const accepted = await post(`/api/rides/${rideId}/accept`, {
+    driver_npub: driver.npub,
+    driver_pubkey: driver.pub,
+    driver_location: { lat: PICKUP.lat + 0.01, lon: PICKUP.lon + 0.01 }
+  }, driver.priv);
+  assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
+  assert.equal(accepted.body.ride.pickup.lat, PICKUP.lat, 'exact pickup after accept');
+  assert.equal(accepted.body.ride.pickup.lon, PICKUP.lon, 'exact pickup after accept');
+});
+
 test('open list filters by working-area cells and by proximity', async () => {
   const created = await createRide();
   const rideId = created.body.ride_id;
@@ -241,8 +267,11 @@ test('working areas override the radius for WS dispatch', async () => {
   const rideId = created.body.ride_id;
   assert.ok(rideId);
 
-  await waitFor(a.frames, (f) => f.type === 'ride_request' && f.ride?.id === rideId,
+  const frame = await waitFor(a.frames, (f) => f.type === 'ride_request' && f.ride?.id === rideId,
     'ride_request for the in-area driver');
+  // Broadcasts follow progressive disclosure too — approximate, no route
+  assert.equal(frame.ride.pickup.approximate, true, 'broadcast pickup is approximate');
+  assert.ok(!('route' in frame.ride), 'broadcast carries no route geometry');
   await sleep(300);
   assert.ok(!receivedRideIds(b.frames).includes(rideId),
     'out-of-area driver never hears about the job despite being next to it');

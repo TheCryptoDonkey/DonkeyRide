@@ -25,6 +25,7 @@ import { PhotoProof } from '../../components/task/PhotoProof';
 import { SignatureCapture } from '../../components/task/SignatureCapture';
 import { QuotePanel } from '../../components/task/QuotePanel';
 import { ChatPanel } from '../../components/task/ChatPanel';
+import { PickupCode } from '../../components/task/PickupCode';
 import type { WsMessage } from '../../types/api';
 
 /** Map known state keys to existing API endpoints */
@@ -292,6 +293,17 @@ export function ActiveTaskPage() {
 
         {/* Stake — only on rails that support custody (never cash) */}
         <TaskStakePanel task={activeTask} role="provider" />
+
+        {/* Right rider, right car — until the trip starts */}
+        {!isTerminal && activeTask.requesterPubkey && !activeTask.startedAt
+          && status !== profile?.states.values.ACTIVE && (
+          <PickupCode
+            taskId={activeTask.id}
+            counterpartyPubkey={activeTask.requesterPubkey}
+            role="provider"
+            counterpartyLabel={profile?.roles.requester || 'Requester'}
+          />
+        )}
 
         {/* E2E encrypted chat with the requester */}
         {!isTerminal && activeTask.requesterPubkey && (

@@ -9,6 +9,7 @@ import { ReputationBadge } from '../../components/common/ReputationBadge';
 import { PanicButton } from '../../components/safety/PanicButton';
 import { Loading } from '../../components/common/Loading';
 import { ChatPanel } from '../../components/task/ChatPanel';
+import { PickupCode } from '../../components/task/PickupCode';
 import { TaskStakePanel } from '../../components/payment/TaskStakePanel';
 import { PayDriver } from '../../components/payment/PayDriver';
 import { showToast } from '../../components/common/Toast';
@@ -238,6 +239,18 @@ export function ActiveTaskPage() {
               </div>
             )}
           </div>
+        )}
+
+        {/* Right rider, right car — until the trip starts */}
+        {activeTask.providerPubkey && !activeTask.startedAt
+          && activeTask.status !== activeValue
+          && !terminalStates.includes(activeTask.status) && (
+          <PickupCode
+            taskId={activeTask.id}
+            counterpartyPubkey={activeTask.providerPubkey}
+            role="requester"
+            counterpartyLabel={providerRoleLabel}
+          />
         )}
 
         {/* E2E encrypted chat with the matched provider */}
