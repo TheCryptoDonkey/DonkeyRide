@@ -94,22 +94,31 @@ The operator is a **thin compliance layer** — handling only what the law manda
 
 See the [architecture documentation](https://github.com/TheCryptoDonkey/trott/blob/main/docs/architecture.md) for the full analysis.
 
-### Payment Providers
+### Payments — pay the driver directly, any rail
 
-The implementation is **payment-agnostic**. Every monetary event includes explicit `amount`, `currency`, and `trust_model` tags.
+The operator is **non-custodial**: riders pay drivers **directly** and the
+operator never receives, holds, or transmits funds (see
+[docs/REGULATORY-POSTURE.md](./docs/REGULATORY-POSTURE.md)). It advertises the
+driver's accepted rails, produces something the rider can pay, and records or
+verifies the result.
 
-Implemented today:
+Settlement rails (`settlement/`, all custody `none`):
 
-| Provider | Trust Model | Currencies | Status |
-|----------|------------|------------|--------|
-| Cash (record-only) | `social` | Any | Working — the operator never touches money |
-| LND (hodl invoices) | `trustless` | SAT/BTC | Semantics proven on regtest: release cancels (refund), forfeit settles (real penalty) |
-| Demo | `demo` | Any | Testing and demos only |
-| BTCPay / Alby / CLN | `custodial` | SAT/BTC | Experimental — never verified against their real APIs |
+| Rail | How the rider pays the driver | Verification |
+|------|-------------------------------|--------------|
+| **Lightning** | Driver's Lightning Address; rider pays from any LN wallet or a connected NWC wallet | Preimage (`SHA256(preimage) == payment_hash`), or LUD-21 verify |
+| **Tando** | Driver's Kenyan number becomes `2547…@bitcoin.co.ke`; rider pays over Lightning, driver receives **M-Pesa** | Preimage — cryptographic proof for an M-Pesa payout |
+| **M-Pesa** | Direct "Send Money" to the driver's number; rider enters the confirmation code | Code recorded + driver confirms (no operator paybill — that would be custodial) |
+| **Cash** | In person | Driver confirms on receipt |
 
-Planned (the factory rejects these with a clear error rather than pretending): NIP-47/NWC hold invoices (`trustless`), Cashu ecash, Stripe (pure fiat), M-Pesa (mobile money).
+The Lightning/Tando rail is proven live (resolves a real invoice from a real
+LNURL service). NWC lets the rider's own wallet pay the driver's invoice. Adding
+a rail is a module in `settlement/` — the "etc." is config, not a rewrite.
 
-Selected via `PAYMENT_PROVIDER` env var. See [docs/PAYMENT-PROVIDERS.md](./docs/PAYMENT-PROVIDERS.md) for integration details.
+**Stake escrow** (`payment-providers/`) is a separate, optional layer for
+operators who are licensed to custody funds; it is gated off by default
+(`OPERATOR_LICENSED_CUSTODIAN`). The custodial LND hodl-invoice semantics are
+regtest-proven for those operators.
 
 ---
 

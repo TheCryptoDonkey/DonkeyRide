@@ -34,6 +34,17 @@ class PaymentProviderFactory {
             case 'cash':
                 return new CashProvider(config);
 
+            case 'mpesa':
+            case 'lnaddress':
+            case 'lightning':
+            case 'tando':
+                throw new Error(
+                    `'${type}' is a non-custodial SETTLEMENT rail, not a stake provider. ` +
+                    `Riders pay drivers directly on it — see the settlement/ layer and ` +
+                    `/api/settlement/rails. PAYMENT_PROVIDER selects the (optional) escrow ` +
+                    `stake rail only; leave it as 'cash' for the non-custodial default.`
+                );
+
             case 'strike':
             case 'nip47':
             case 'nwc':

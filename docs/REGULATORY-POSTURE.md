@@ -37,6 +37,33 @@ recorded and enforced through public Nostr reputation (ratings, no-show
 reports), not funds the operator escrows. Operators who want custodial escrow
 must be licensed for it and opt in.
 
+### Settlement rails (all non-custodial)
+
+The rider pays the driver directly on a rail of their choosing; the operator
+only advertises the driver's accepted rails, resolves a payable artefact, and
+records or verifies proof. `settlement/` rails:
+
+- **Lightning** (`lnaddress`) — the driver's Lightning Address; the rider pays
+  from their own wallet (QR/deeplink or a connected NWC wallet). Verified by the
+  payment preimage. The operator resolves the address to an invoice but never
+  pays it — paying from an operator float would make it custodial.
+- **Tando** (`tando`) — the driver's Kenyan number resolves to
+  `2547…@bitcoin.co.ke`, an ordinary Lightning Address that settles to the
+  driver's M-Pesa. The rider pays Lightning; the driver gets shillings. Tando
+  (not the operator) performs the conversion and momentary custody. This is the
+  **recommended** way to give M-Pesa payouts with a cryptographic receipt.
+- **M-Pesa** (`mpesa`) — direct "Send Money" to the driver's number; the rider
+  enters the confirmation code and the driver confirms receipt. The operator
+  runs **no** paybill/till/STK-push and initiates no B2C disbursement — any of
+  those would route funds through an operator shortcode and make it an
+  aggregator. The trade-off is that a self-reported SMS code is a weak,
+  human-attested receipt, not cryptographic proof; prefer Tando where possible.
+- **Cash** — in person; the driver confirms on receipt.
+
+NWC (NIP-47) is a client-side capability: the rider connects their own wallet
+and it pays the driver's invoice. The operator never holds the connection
+secret or the funds.
+
 ## The operator holds no database
 
 The default operator runs with **no PostgreSQL and no Redis**:

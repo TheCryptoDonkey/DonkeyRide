@@ -372,3 +372,66 @@ test('tasks survive a manager restart via the task store', async () => {
   remaining.forEach((row) => managerC.hydrateTask(row));
   assert.equal(managerC.getTask(task.id), undefined);
 });
+
+// ── Non-custodial multi-rail settlement ─────────────
+
+test('driver sets accepted rails, rider gets options and a cash pay-instruction, settles, driver confirms', async () => {
+  const created = await createRide();
+  const rideId = created.body.ride_id;
+  await acceptRide(rideId);
+
+  // Driver advertises accepted rails (Lightning + cash)
+  const setMethods = await post(`/api/rides/${rideId}/payment-methods`, {
+    methods: [
+      { rail: 'lnaddress', handle: 'driver@wallet.com' },
+      { rail: 'cash' }
+    ]
+  }, driverPriv);
+  assert.equal(setMethods.status, 200, JSON.stringify(setMethods.body));
+
+  // payment-options carries the driver's handles (participant PII), so an
+  // unauthenticated read is rejected when NIP-98 is on.
+  const optUnauth = await get(`/api/rides/${rideId}/payment-options`);
+  assert.equal(optUnauth.status, 401, JSON.stringify(optUnauth.body));
+
+  // Rider requests a cash pay-instruction
+  const inst = await post(`/api/rides/${rideId}/pay-instruction`, { rail: 'cash' }, riderPriv);
+  assert.equal(inst.status, 200, JSON.stringify(inst.body));
+  assert.equal(inst.body.custody, 'none');
+  assert.equal(inst.body.operator_transmitted, 0);
+
+  // Rider marks paid (cash)
+  const settled = await post(`/api/rides/${rideId}/settle`, { rail: 'cash', proof: {} }, riderPriv);
+  assert.equal(settled.status, 200, JSON.stringify(settled.body));
+  assert.equal(settled.body.settlement.custody, 'none');
+  assert.equal(settled.body.settlement.operator_transmitted, 0);
+
+  // Driver confirms receipt
+  const confirmed = await post(`/api/rides/${rideId}/confirm-received`, {}, driverPriv);
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+  assert.equal(confirmed.body.settlement.status, 'confirmed');
+});
+
+test('a non-driver cannot set payment methods; a non-rider cannot settle', async () => {
+  const created = await createRide();
+  const rideId = created.body.ride_id;
+  await acceptRide(rideId);
+
+  const forgedMethods = await post(`/api/rides/${rideId}/payment-methods`, {
+    methods: [{ rail: 'cash' }]
+  }, riderPriv); // rider trying to set driver's methods
+  assert.equal(forgedMethods.status, 403, JSON.stringify(forgedMethods.body));
+
+  const forgedSettle = await post(`/api/rides/${rideId}/settle`, { rail: 'cash', proof: {} }, driverPriv); // driver trying to settle as rider
+  assert.equal(forgedSettle.status, 403, JSON.stringify(forgedSettle.body));
+});
+
+test('invalid rail handles are rejected', async () => {
+  const created = await createRide();
+  const rideId = created.body.ride_id;
+  await acceptRide(rideId);
+  const bad = await post(`/api/rides/${rideId}/payment-methods`, {
+    methods: [{ rail: 'lnaddress', handle: 'not-an-address' }]
+  }, driverPriv);
+  assert.equal(bad.status, 400, JSON.stringify(bad.body));
+});

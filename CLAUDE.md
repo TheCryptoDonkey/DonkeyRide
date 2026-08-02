@@ -169,6 +169,32 @@ The default production operator runs with **no database and no Redis** and is
   GDPR controller obligations) opt in by setting `DATABASE_URL`; the store is
   then used automatically. It is never in OUR loop.
 
+### Settlement rails (`settlement/`) — how riders actually pay
+
+Distinct from `payment-providers/` (custodial escrow stakes, gated off by
+default). Settlement rails are **non-custodial**: the rider pays the driver
+DIRECTLY and the operator only advertises, resolves, and verifies. Every rail
+reports `custody() === 'none'`.
+
+- `settlement/lnaddress.js` — Lightning wallet-to-wallet via LNURL-pay
+  (LUD-16/06/21). Resolves the driver's Lightning Address to a bolt11 invoice
+  the rider pays from their own wallet; verifies by preimage
+  (`SHA256(preimage)===payment_hash`, offline via `ln-service.parsePaymentRequest`)
+  or LUD-21 verify URL. **Also carries Tando** (a `2547…@bitcoin.co.ke` address
+  that settles to M-Pesa) — proven live against bitcoin.co.ke.
+- `settlement/mpesa.js` — record-only direct Send Money (driver's number, rider
+  enters the confirmation code). No paybill/STK/B2C (those are custodial).
+- `settlement/cash.js`, `settlement/index.js` (registry: getRail/validateHandle/
+  normaliseHandle/isPublicSafe/listRails). Tando normalises a bare Kenyan number
+  to a bitcoin.co.ke Lightning Address.
+- Endpoints: `GET /api/settlement/rails`, `POST /api/rides/:id/payment-methods`
+  (driver), `GET /api/rides/:id/payment-options` (participant),
+  `POST /api/rides/:id/pay-instruction` (rider), `POST /api/rides/:id/settle`
+  (rider), `POST /api/rides/:id/confirm-received` (driver). M-Pesa number is
+  per-ride PII (in-memory, never relayed); Lightning handles are public-safe.
+- NWC (NIP-47) is a **frontend** capability (rider's own wallet pays the
+  driver's invoice); the operator never holds the connection secret.
+
 ### TROTT Protocol Specifications
 
 The protocol is defined by the TROTT specifications and domain profiles in the [trott repository](https://github.com/TheCryptoDonkey/trott). See the [QUICK-REFERENCE](https://github.com/TheCryptoDonkey/trott/blob/main/specs/QUICK-REFERENCE.md) for the complete event kind table; this implementation's kinds are pinned in `src/nostr/kinds.js` and must track that table.

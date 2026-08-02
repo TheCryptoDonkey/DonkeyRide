@@ -1299,6 +1299,8 @@ app.get('/info', publicRateLimiter, (req, res) => {
             custody: typeof paymentProvider.getCustodyModel === 'function' ? paymentProvider.getCustodyModel() : 'custodial',
             capabilities: caps.features
         },
+        // Non-custodial settlement rails riders can pay the driver on directly.
+        settlement_rails: require('./settlement').listRails(),
         // Regulatory posture, machine-readable. The reference operator is an
         // information-society coordination service, not a payment institution.
         regulatory: {
@@ -2226,6 +2228,200 @@ app.post('/api/rides/:rideId/requester-stake', stakeLimiter, (req, res) => handl
 app.post('/api/rides/:rideId/provider-stake', stakeLimiter, (req, res) => handleTaskStake(req, res, 'provider'));
 app.post('/api/rides/:rideId/requester-stake/confirm', (req, res) => confirmTaskStake(req, res, 'requester'));
 app.post('/api/rides/:rideId/provider-stake/confirm', (req, res) => confirmTaskStake(req, res, 'provider'));
+
+// ==========================================
+// NON-CUSTODIAL MULTI-RAIL SETTLEMENT
+// The driver advertises accepted rails; the rider pays the driver DIRECTLY
+// (Lightning wallet-to-wallet, M-Pesa Send Money, Tando, cash). The operator
+// resolves a payable artefact, records/verifies proof, and moves nothing.
+// ==========================================
+const settlement = require('./settlement');
+
+// Public catalogue of rails a driver can offer.
+app.get('/api/settlement/rails', publicRateLimiter, (req, res) => {
+    res.json({ rails: settlement.listRails() });
+});
+
+// Driver declares which rails they accept for THIS ride, with handles.
+// Lightning/Tando handles are payment endpoints; the M-Pesa number is PII and
+// is delivered per-ride to the matched rider only, never published.
+app.post('/api/rides/:rideId/payment-methods', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const { methods } = req.body || {};
+        const ride = rideManager.getRide(rideId);
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+        const authErr = authoriseRideActor(req, ride, ['provider']);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+        if (!Array.isArray(methods) || methods.length === 0) {
+            return res.status(400).json({ error: 'methods must be a non-empty array of { rail, handle }' });
+        }
+        const accepted = [];
+        for (const m of methods.slice(0, 6)) {
+            const rail = (m?.rail || '').toLowerCase();
+            const rawHandle = typeof m?.handle === 'string' ? m.handle.trim() : '';
+            if (!settlement.isKnownRail(rail)) {
+                return res.status(400).json({ error: `Unknown rail: ${m?.rail}` });
+            }
+            if (rail !== 'cash' && !settlement.validateHandle(rail, rawHandle)) {
+                return res.status(400).json({ error: `Invalid handle for ${rail}` });
+            }
+            // Tando: a bare Kenyan number becomes a Lightning Address at bitcoin.co.ke.
+            const handle = rail === 'cash' ? null : settlement.normaliseHandle(rail, rawHandle);
+            accepted.push({ rail, handle });
+        }
+        // Ephemeral, in-memory only. PII (M-Pesa number) is never persisted or relayed.
+        ride.paymentMethods = accepted;
+        res.json({ success: true, methods: accepted.map((m) => ({ rail: m.rail })) });
+    } catch (error) {
+        console.error('Error setting payment methods:', error.message);
+        res.status(500).json({ error: 'Failed to set payment methods' });
+    }
+});
+
+// Rider sees which rails the driver accepts (with handles, since the rider is
+// the matched counterparty who needs them to pay directly).
+app.get('/api/rides/:rideId/payment-options', optionalNip98, (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const ride = rideManager.getRide(rideId);
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+        const authErr = authoriseRideActor(req, ride);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+        const methods = ride.paymentMethods || [{ rail: 'cash', handle: null }];
+        res.json({
+            fare: ride.fare ?? null,
+            currency: ride.currency || 'GBP',
+            custody: 'none',
+            settlement: 'peer-to-peer',
+            methods
+        });
+    } catch (error) {
+        console.error('Error getting payment options:', error.message);
+        res.status(500).json({ error: 'Failed to get payment options' });
+    }
+});
+
+// Rider requests a payable artefact for a chosen rail (e.g. resolves the
+// driver's Lightning Address to an invoice the rider's wallet pays directly).
+app.post('/api/rides/:rideId/pay-instruction', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const { rail } = req.body || {};
+        const ride = rideManager.getRide(rideId);
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+        const authErr = authoriseRideActor(req, ride, ['requester']);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+        const method = (ride.paymentMethods || [{ rail: 'cash', handle: null }])
+            .find((m) => m.rail === (rail || '').toLowerCase());
+        if (!method) {
+            return res.status(400).json({ error: `Driver does not accept rail: ${rail}` });
+        }
+        const railImpl = settlement.getRail(method.rail);
+        const fareSats = Number(ride.fare) || 0;
+        const instruction = await railImpl.getPayInstructions({
+            handle: method.handle,
+            amountSats: fareSats,
+            amount: ride.fareFiat ?? undefined,
+            currency: ride.currency || 'SAT',
+            memo: `DonkeyRide ${rideId}`
+        });
+        // Remember the instruction so /settle can verify against it.
+        ride.pendingInstruction = { rail: method.rail, paymentHash: instruction.paymentHash || null, verifyUrl: instruction.verifyUrl || null };
+        res.json(instruction);
+    } catch (error) {
+        console.error('Error building pay instruction:', error.message);
+        res.status(502).json({ error: 'Failed to build payment instruction', details: error.message });
+    }
+});
+
+// Rider submits proof of a direct payment; the operator verifies/records it.
+app.post('/api/rides/:rideId/settle', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const { rail, proof } = req.body || {};
+        const ride = rideManager.getRide(rideId);
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+        const authErr = authoriseRideActor(req, ride, ['requester']);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+        const railId = (rail || ride.pendingInstruction?.rail || 'cash').toLowerCase();
+        if (!settlement.isKnownRail(railId)) {
+            return res.status(400).json({ error: `Unknown rail: ${rail}` });
+        }
+        const railImpl = settlement.getRail(railId);
+        const result = await railImpl.verify({
+            instruction: ride.pendingInstruction || {},
+            proof: proof || {}
+        });
+        ride.settlementRecord = {
+            rail: railId,
+            custody: 'none',
+            operator_transmitted: 0,
+            settlement: 'peer-to-peer',
+            verified: !!result.verified,
+            status: result.verified ? 'verified' : (result.recorded ? 'declared' : 'declared'),
+            detail: result.detail || null,
+            confirmationCode: result.confirmationCode || null,
+            declaredBy: 'requester',
+            timestamp: Date.now()
+        };
+        rideManager.persistRide(rideId);
+        broadcastToRide(rideId, {
+            type: 'settlement_declared',
+            ride_id: rideId,
+            rail: railId,
+            verified: !!result.verified
+        });
+        res.json({ success: true, settlement: ride.settlementRecord });
+    } catch (error) {
+        console.error('Error settling:', error.message);
+        res.status(500).json({ error: 'Failed to record settlement' });
+    }
+});
+
+// Driver confirms funds received (the human counterpart to verification;
+// required for rails that cannot be auto-verified, e.g. cash and M-Pesa).
+app.post('/api/rides/:rideId/confirm-received', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const ride = rideManager.getRide(rideId);
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+        const authErr = authoriseRideActor(req, ride, ['provider']);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+        ride.settlementRecord = {
+            ...(ride.settlementRecord || { rail: (ride.paymentMethods?.[0]?.rail) || 'cash', custody: 'none', operator_transmitted: 0, settlement: 'peer-to-peer' }),
+            status: 'confirmed',
+            confirmedByProvider: true,
+            confirmedAt: Date.now()
+        };
+        rideManager.persistRide(rideId);
+        broadcastToRide(rideId, { type: 'settlement_confirmed', ride_id: rideId, rail: ride.settlementRecord.rail });
+        res.json({ success: true, settlement: ride.settlementRecord });
+    } catch (error) {
+        console.error('Error confirming receipt:', error.message);
+        res.status(500).json({ error: 'Failed to confirm receipt' });
+    }
+});
 
 // ==========================================
 // PARTICIPANT ACTIVE-TASK RECOVERY
