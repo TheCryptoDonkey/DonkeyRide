@@ -237,10 +237,52 @@ async function publishStakePenalty({
   return publishEvent(KINDS.SETTLEMENT, tags, serialiseProviderEvent(providerEvent));
 }
 
+/**
+ * TROTT-04 Kind 30535 Payment Receipt — non-custodial settlement
+ * complete: the requester paid the provider DIRECTLY and (when
+ * status=confirmed) the provider confirmed receipt. The operator
+ * transmitted nothing; the receipt is the coordination record.
+ * d tag: `{taskId}:receipt` (addressable — confirm supersedes verify).
+ */
+async function publishPaymentReceipt({
+  rideId,
+  amount,
+  currency = 'SAT',
+  paymentRail,
+  status = 'confirmed',
+  verified = false,
+  requesterPubkey,
+  providerPubkey
+}) {
+  const tags = [
+    ['d', `${rideId}:receipt`],
+    ['domain', domainId],
+    ['task_id', rideId],
+    ['amount', String(amount || 0)],
+    ['currency', currency],
+    ['trust_model', 'peer_to_peer'],
+    ['operator_transmitted', '0'],
+    ['status', status],
+    ['verified', verified ? 'true' : 'false'],
+    ['received_at', String(Math.floor(Date.now() / 1000))]
+  ];
+  if (paymentRail) {
+    tags.push(['payment_rail', paymentRail]);
+  }
+  if (requesterPubkey) {
+    tags.push(['p', requesterPubkey.toLowerCase()]);
+  }
+  if (providerPubkey) {
+    tags.push(['p', providerPubkey.toLowerCase()]);
+  }
+  return publishEvent(KINDS.PAYMENT_RECEIPT, tags, '');
+}
+
 module.exports = {
   configure,
   canPublish,
   publishStakeLock,
   publishStakeRelease,
-  publishStakePenalty
+  publishStakePenalty,
+  publishPaymentReceipt
 };

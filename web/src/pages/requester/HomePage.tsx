@@ -189,6 +189,13 @@ export function HomePage() {
             <span className="text-donkey-green font-bold">{providers.length}</span> {providerLabel}{providers.length !== 1 ? 's' : ''} nearby
           </p>
         )}
+
+        <button
+          className="text-xs text-donkey-muted underline w-full text-center mt-2 min-h-[44px]"
+          onClick={() => navigate('/request/history')}
+        >
+          Your past {taskNoun}s
+        </button>
       </div>
     </div>
   );

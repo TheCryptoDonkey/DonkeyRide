@@ -2716,6 +2716,19 @@ app.post('/api/rides/:rideId/settle', async (req, res) => {
             rail: railId,
             verified: !!result.verified
         });
+        // A cryptographically verified payment earns its receipt at once;
+        // declared-only settlements wait for the driver's confirmation
+        if (result.verified) {
+            void stakeEvents.publishPaymentReceipt({
+                rideId,
+                amount: ride.fare,
+                paymentRail: railId,
+                status: 'verified',
+                verified: true,
+                requesterPubkey: (ride.requester || ride.rider)?.pubkey,
+                providerPubkey: (ride.provider || ride.driver)?.pubkey
+            }).catch(() => {});
+        }
         res.json({ success: true, settlement: ride.settlementRecord });
     } catch (error) {
         console.error('Error settling:', error.message);
@@ -2744,6 +2757,17 @@ app.post('/api/rides/:rideId/confirm-received', async (req, res) => {
         };
         rideManager.persistRide(rideId);
         broadcastToRide(rideId, { type: 'settlement_confirmed', ride_id: rideId, rail: ride.settlementRecord.rail });
+        // Kind 30535 payment receipt — addressable, so this supersedes any
+        // verified-only receipt from the settle step
+        void stakeEvents.publishPaymentReceipt({
+            rideId,
+            amount: ride.fare,
+            paymentRail: ride.settlementRecord.rail,
+            status: 'confirmed',
+            verified: !!ride.settlementRecord.verified,
+            requesterPubkey: (ride.requester || ride.rider)?.pubkey,
+            providerPubkey: (ride.provider || ride.driver)?.pubkey
+        }).catch(() => {});
         res.json({ success: true, settlement: ride.settlementRecord });
     } catch (error) {
         console.error('Error confirming receipt:', error.message);

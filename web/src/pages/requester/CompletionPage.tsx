@@ -10,6 +10,7 @@ import { useDomain } from '../../context/DomainContext';
 import { submitRating, sendTip, getOperatorInfoCached, getTask } from '../../services/api';
 import { GuaranteeBanner } from '../../components/task/GuaranteeBanner';
 import { formatDistance, formatDuration } from '../../services/pricing';
+import { recordTrip } from '../../services/trip-history';
 import type { OperatorPaymentInfo, SettlementInfo } from '../../types/api';
 
 export function CompletionPage() {
@@ -54,6 +55,12 @@ export function CompletionPage() {
     }, 5000);
     return () => clearInterval(timer);
   }, [task?.id, settlementConfirmed]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Your copy of the trip — device-local history (the operator keeps none).
+  // Re-records when settlement confirms so the paid-by rail lands too.
+  useEffect(() => {
+    if (task) recordTrip({ ...task, settlement: settlement ?? undefined });
+  }, [task?.id, settlement?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDone = () => {
     clearCompletedTask();
