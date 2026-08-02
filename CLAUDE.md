@@ -194,6 +194,15 @@ reports `custody() === 'none'`.
   per-ride PII (in-memory, never relayed); Lightning handles are public-safe.
 - NWC (NIP-47) is a **frontend** capability (rider's own wallet pays the
   driver's invoice); the operator never holds the connection secret.
+- **Amounts**: `pay-instruction` sends **sats** to Lightning rails (lnaddress/
+  lightning/tando) and the **fiat** figure (derived on demand via `satsToFiat`,
+  so it survives Nostr rehydration) to fiat rails (mpesa/cash). `ride.fare` is
+  always sats; there is no stored `fareFiat`.
+- **Currencies**: `USD|EUR|GBP|KES` (`DEFAULT_FIAT_CURRENCY`, default GBP). KES is
+  first-class for M-Pesa/Tando — CoinGecko has no KES, so BTC/KES is derived as
+  BTC/USD × USD/KES (open.er-api.com). The default fare rate card is USD-quoted and
+  auto-converted to the ride currency; operators set `FARE_BASE`/`FARE_PER_KM`/
+  `FARE_PER_MINUTE` + `FARE_CURRENCY` for a local market (used verbatim).
 
 ### TROTT Protocol Specifications
 
@@ -222,6 +231,8 @@ Copy `.env.example` for configuration. Key variables:
 - `DOMAIN` — Domain profile selection (ridesharing|locksmith|delivery, default: ridesharing)
 - `OPERATOR_PUBKEY` / `OPERATOR_PRIVKEY` — Operator Nostr identity
 - `PAYMENT_PROVIDER` — Payment backend (cash|lnd|btcpay|alby|cln|demo)
+- `DEFAULT_FIAT_CURRENCY` — Ride pricing currency (USD|EUR|GBP|KES, default GBP; set KES for M-Pesa/Tando markets)
+- `FARE_BASE` / `FARE_PER_KM` / `FARE_PER_MINUTE` / `FARE_CURRENCY` — Rate card (USD-quoted default, auto-converted; set FARE_CURRENCY to price verbatim in a local currency)
 - `NAVIGATION_PROVIDER` — Routing backend (osrm|ors)
 - `DATABASE_URL` — PostgreSQL connection (OPTIONAL; omit for the default non-custodial, DB-free operator)
 - `REDIS_URL` — Redis connection (OPTIONAL; presence is in-memory. `DISABLE_REDIS=true` to skip)
