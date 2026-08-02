@@ -5,8 +5,10 @@ import { LocationMarker } from '../../components/map/LocationMarker';
 import { RoutePolyline } from '../../components/map/RoutePolyline';
 import { StatusBadge } from '../../components/common/StatusBadge';
 import { DualPrice } from '../../components/common/DualPrice';
+import { ReputationBadge } from '../../components/common/ReputationBadge';
 import { PanicButton } from '../../components/safety/PanicButton';
 import { Loading } from '../../components/common/Loading';
+import { ChatPanel } from '../../components/task/ChatPanel';
 import { TaskStakePanel } from '../../components/payment/TaskStakePanel';
 import { PayDriver } from '../../components/payment/PayDriver';
 import { showToast } from '../../components/common/Toast';
@@ -223,6 +225,9 @@ export function ActiveTaskPage() {
               <p className="text-sm font-mono text-donkey-text mt-1">
                 {activeTask.providerNpub.slice(0, 16)}...
               </p>
+              <div className="mt-1">
+                <ReputationBadge subject={activeTask.providerNpub} />
+              </div>
             </div>
             {activeTask.durationMin != null && (
               <div className="text-right">
@@ -233,6 +238,17 @@ export function ActiveTaskPage() {
               </div>
             )}
           </div>
+        )}
+
+        {/* E2E encrypted chat with the matched provider */}
+        {activeTask.providerPubkey && identity
+          && !terminalStates.includes(activeTask.status) && (
+          <ChatPanel
+            taskId={activeTask.id}
+            selfPubkey={identity.pubKeyHex}
+            counterpartyPubkey={activeTask.providerPubkey}
+            counterpartyLabel={providerRoleLabel}
+          />
         )}
 
         {/* Honest payment copy per rail */}

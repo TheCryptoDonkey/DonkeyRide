@@ -60,10 +60,11 @@ export function ProfilePage({ role }: ProfilePageProps) {
   return (
     <div className="h-full overflow-y-auto p-6 space-y-6 max-w-lg mx-auto w-full">
       <div>
-        <h1 className="text-xl font-black tracking-tight">Your identity</h1>
+        <h1 className="text-xl font-black tracking-tight">Your account</h1>
         <p className="text-sm text-donkey-muted mt-1">
-          Your Nostr key is your reputation. It belongs to you, not to any
-          operator. Back it up and it travels with you.
+          No sign-up, no phone number: your account lives on this device and
+          belongs to you, not to any company. Back up the recovery key below
+          and your account and ratings travel with you.
         </p>
       </div>
 
@@ -109,19 +110,22 @@ export function ProfilePage({ role }: ProfilePageProps) {
 
       {/* Public identity */}
       <div className="card space-y-2">
-        <p className="text-xs uppercase tracking-wider text-donkey-muted">Public key (npub)</p>
+        <p className="text-xs uppercase tracking-wider text-donkey-muted">Account ID</p>
+        <p className="text-sm text-donkey-muted">
+          Safe to share — this is how others see your ratings.
+        </p>
         <p className="font-mono text-xs break-all">{identity?.npub || '…'}</p>
         <button
           className="btn-secondary w-full"
-          onClick={() => identity && copy('npub', identity.npub)}
+          onClick={() => identity && copy('your ID', identity.npub)}
         >
-          {copied === 'npub' ? 'Copied ✓' : 'Copy npub'}
+          {copied === 'your ID' ? 'Copied ✓' : 'Copy ID'}
         </button>
       </div>
 
       {/* Backup */}
       <div className="card space-y-3">
-        <p className="text-xs uppercase tracking-wider text-donkey-muted">Backup secret key</p>
+        <p className="text-xs uppercase tracking-wider text-donkey-muted">Recovery key</p>
         <p className="text-sm text-donkey-muted">
           Anyone with this key can act as you. Store it somewhere safe
           (password manager). Never share it with support, operators, or
@@ -130,13 +134,13 @@ export function ProfilePage({ role }: ProfilePageProps) {
         {nsec ? (
           <>
             <p className="font-mono text-xs break-all bg-donkey-bg rounded p-3 border border-donkey-border">{nsec}</p>
-            <button className="btn-primary w-full" onClick={() => copy('nsec', nsec)}>
-              {copied === 'nsec' ? 'Copied ✓' : 'Copy secret key'}
+            <button className="btn-primary w-full" onClick={() => copy('your recovery key', nsec)}>
+              {copied === 'your recovery key' ? 'Copied ✓' : 'Copy recovery key'}
             </button>
           </>
         ) : (
           <button className="btn-secondary w-full" onClick={revealNsec}>
-            Reveal secret key
+            Reveal recovery key
           </button>
         )}
       </div>
@@ -145,8 +149,8 @@ export function ProfilePage({ role }: ProfilePageProps) {
       <div className="card space-y-3">
         <p className="text-xs uppercase tracking-wider text-donkey-muted">Restore from backup</p>
         <p className="text-sm text-donkey-muted">
-          Paste an nsec to replace the identity on this device (for example
-          after moving from another phone).
+          Moving from another phone? Paste your recovery key (starts
+          nsec1…) to bring your account and ratings to this device.
         </p>
         <textarea
           className="w-full bg-donkey-bg border border-donkey-border rounded p-3 font-mono text-xs"
@@ -161,7 +165,7 @@ export function ProfilePage({ role }: ProfilePageProps) {
           onClick={handleImport}
           disabled={!importValue.trim()}
         >
-          Replace identity on this device
+          Replace account on this device
         </button>
       </div>
 

@@ -8,7 +8,7 @@ import { Loading } from '../../components/common/Loading';
 import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { useDomain } from '../../context/DomainContext';
-import { getTripEstimate, requestTask } from '../../services/api';
+import { getTripEstimate, requestTask, getOperatorInfoCached, getApiBase } from '../../services/api';
 import { publishTaskAnnouncement } from '../../services/events';
 import { formatDistance, formatDuration } from '../../services/pricing';
 
@@ -79,9 +79,15 @@ export function RequestPage() {
         domain: profile?.id,
       });
       setActiveTask(task);
-      // Decentralised announcement — geohash-only, best-effort, relays only
+      // Decentralised announcement — geohash-only, best-effort, relays only.
+      // Operator tags let drivers on OTHER operators discover this job.
       if (profile?.id) {
-        void publishTaskAnnouncement(task.id, origin, profile.id, identity.privKeyHex);
+        void getOperatorInfoCached()
+          .then((info) => publishTaskAnnouncement(task.id, origin, profile.id, identity.privKeyHex, {
+            pubkey: info.pubkey || null,
+            api: getApiBase(),
+          }))
+          .catch(() => publishTaskAnnouncement(task.id, origin, profile.id, identity.privKeyHex));
       }
       navigate('/request/active');
     } catch (err) {

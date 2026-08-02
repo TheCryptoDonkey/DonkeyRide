@@ -14,6 +14,7 @@
   "dependencies": {
     "@capacitor/android": "^8.5.0",
     "@capacitor/core": "^8.5.0",
+    "geohash-kit": "^1.6.1",
     "leaflet": "^1.9.4",
     "nostr-tools": "^2.10.4",
     "react": "^18.3.1",

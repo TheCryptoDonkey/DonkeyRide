@@ -27,6 +27,41 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Web Push job alerts — payload arrives E2E encrypted (RFC 8291)
+self.addEventListener('push', (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    // Non-JSON payload — show a generic alert
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'DonkeyRide', {
+      body: data.body || 'Open the app for details',
+      icon: '/icons/icon-192.png',
+      badge: '/icons/icon-192.png',
+      tag: data.tag || 'donkeyride',
+      data: { url: data.url || '/provide' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/provide';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+      for (const win of wins) {
+        if ('focus' in win) {
+          if (win.navigate) win.navigate(url);
+          return win.focus();
+        }
+      }
+      return self.clients.openWindow(url);
+    })
+  );
+});
+
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { MapView } from '../../components/map/MapView';
 import { LocationMarker } from '../../components/map/LocationMarker';
 import { DualPrice } from '../../components/common/DualPrice';
+import { ReputationBadge } from '../../components/common/ReputationBadge';
 import { showToast } from '../../components/common/Toast';
 import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
@@ -11,6 +12,7 @@ import { useDomain } from '../../context/DomainContext';
 import { acceptTask, setPaymentMethods, ApiError } from '../../services/api';
 import { getSavedPaymentMethods } from '../../utils/payment-methods';
 import { formatDistance, formatDuration } from '../../services/pricing';
+import { dispatchService } from '../../services/dispatch';
 
 export function IncomingTaskPage() {
   const navigate = useNavigate();
@@ -40,6 +42,7 @@ export function IncomingTaskPage() {
         providerNpub: identity.npub,
         providerLocation: location,
       });
+      dispatchService.removeAvailable(activeTask.id);
       setActiveTask(updated);
 
       // Best-effort: advertise the driver's saved payment methods on this ride
@@ -54,6 +57,7 @@ export function IncomingTaskPage() {
       // Losing a simultaneous-accept race is normal — say so honestly
       const status = err instanceof ApiError ? err.status : undefined;
       const taken = status === 400 || status === 404 || status === 409;
+      if (taken) dispatchService.removeAvailable(activeTask.id);
       showToast(
         taken
           ? 'This job has been taken'
@@ -121,20 +125,54 @@ export function IncomingTaskPage() {
           )}
 
           {activeTask.requesterPubkey && (
-            <p className="text-xs font-mono text-donkey-muted text-center truncate">
-              {requesterLabel}: {activeTask.requesterPubkey.slice(0, 16)}...
-            </p>
+            <>
+              <p className="text-xs font-mono text-donkey-muted text-center truncate">
+                {requesterLabel}: {activeTask.requesterPubkey.slice(0, 16)}...
+              </p>
+              <div className="flex justify-center mt-1">
+                <ReputationBadge subject={activeTask.requesterPubkey} />
+              </div>
+            </>
           )}
         </div>
 
-        <div className="flex gap-3">
-          <button className="btn-secondary flex-1" onClick={handleDecline} disabled={accepting}>
-            Decline
-          </button>
-          <button className="btn-primary flex-1" onClick={handleAccept} disabled={accepting}>
-            {accepting ? 'Accepting...' : 'Accept'}
-          </button>
-        </div>
+        {activeTask.operatorBase ? (
+          // Federated job — coordinated by another operator. Phase 1 is a
+          // hand-off: open their driver app (the account is portable via
+          // the recovery key).
+          <div className="space-y-3">
+            <p className="text-xs text-donkey-muted text-center">
+              This {taskNoun} is coordinated by{' '}
+              <span className="font-semibold text-donkey-purple">
+                {new URL(activeTask.operatorBase).host}
+              </span>{' '}
+              (discovered via Nostr). Accept it in their app — your account
+              works anywhere by restoring your recovery key.
+            </p>
+            <div className="flex gap-3">
+              <button className="btn-secondary flex-1" onClick={handleDecline}>
+                Dismiss
+              </button>
+              <a
+                className="btn-primary flex-1 text-center"
+                href={`${activeTask.operatorBase}/provide`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open operator
+              </a>
+            </div>
+          </div>
+        ) : (
+          <div className="flex gap-3">
+            <button className="btn-secondary flex-1" onClick={handleDecline} disabled={accepting}>
+              Decline
+            </button>
+            <button className="btn-primary flex-1" onClick={handleAccept} disabled={accepting}>
+              {accepting ? 'Accepting...' : 'Accept'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
