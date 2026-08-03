@@ -21,8 +21,14 @@ DonkeyRide is the **reference implementation** of the [TROTT Protocol](https://g
 | **Ridesharing** | `DOMAIN=ridesharing` | Rider/driver coordination, stake escrow, live tracking |
 | **Locksmith** | `DOMAIN=locksmith` | Customer/locksmith dispatch, quote negotiation, flat-rate pricing |
 | **Delivery** | `DOMAIN=delivery` | Sender/courier, chain of custody, photo/signature proofs |
+| **Towing** | `DOMAIN=towing` | Motorist/recovery operator, binding on-site quote before the vehicle is loaded |
+| **Emergency trades** | `DOMAIN=emergency-trades` | Householder/tradesperson, milestone pricing approved stage by stage |
+| **Pet services** | `DOMAIN=pet-services` | Pet owner/carer, check-in to check-out with a GPS session record |
+| **Security** | `DOMAIN=security` | Client/officer, shift with patrol checkpoints and safety check-ins |
+| **Cleaning** | `DOMAIN=cleaning` | Client/cleaner, one task per session, symmetric stakes |
+| **Moving** | `DOMAIN=moving` | Client/mover, loading → transit → unloading milestones |
 
-Six additional domains have [TROTT domain profiles](https://github.com/TheCryptoDonkey/trott/tree/main/domains) but await implementation profiles: towing, emergency trades, pet services, security, cleaning, and moving.
+Each mirrors its [TROTT domain profile](https://github.com/TheCryptoDonkey/trott/tree/main/domains): the same state machine, roles, rating criteria and regulatory posture. Where this implementation cannot yet match the spec it says so in the profile — `moving` records one provider per task, so the spec's multi-mover crew split is settled among the crew rather than by the operator.
 
 ---
 
@@ -50,9 +56,15 @@ docker compose --profile dev up
 
 ### Run with a different domain
 ```bash
-DOMAIN=locksmith npm start     # Locksmith dispatch
-DOMAIN=delivery npm start      # Parcel delivery
-DOMAIN=ridesharing npm start   # Default (ridesharing)
+DOMAIN=locksmith npm start           # Locksmith dispatch
+DOMAIN=delivery npm start            # Parcel delivery
+DOMAIN=towing npm start              # Vehicle recovery
+DOMAIN=emergency-trades npm start    # Emergency trade callouts
+DOMAIN=pet-services npm start        # Dog walking, sitting, grooming
+DOMAIN=security npm start            # Security officer assignments
+DOMAIN=cleaning npm start            # Domestic and specialist cleaning
+DOMAIN=moving npm start              # House and office moves
+DOMAIN=ridesharing npm start         # Default (ridesharing)
 ```
 
 ---

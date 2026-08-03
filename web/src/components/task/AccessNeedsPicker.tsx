@@ -25,17 +25,25 @@ export function AccessNeedsPicker({ value, onChange, role }: AccessNeedsPickerPr
   const { profile } = useDomain();
   const { t } = useT();
   const options = profile?.accessOptions || [];
+  const labels = profile?.labels;
 
   if (options.length === 0) return null;
 
+  // A domain may supply its own question. The default copy asks what this
+  // journey needs, which is wrong when the same list carries trade
+  // qualifications or licence categories. Profile copy is server-sent and
+  // therefore untranslated — the fallback keeps the translated default.
+  const title = role === 'requester'
+    ? labels?.accessRequesterTitle || t('access.riderTitle')
+    : labels?.accessProviderTitle || t('access.providerTitle');
+  const hint = role === 'requester'
+    ? labels?.accessRequesterHint || t('access.riderHint')
+    : labels?.accessProviderHint || t('access.providerHint');
+
   return (
     <div className="meta-card mb-4">
-      <p className="meta-label mb-1">
-        {role === 'requester' ? t('access.riderTitle') : t('access.providerTitle')}
-      </p>
-      <p className="text-xs text-donkey-muted mb-2">
-        {role === 'requester' ? t('access.riderHint') : t('access.providerHint')}
-      </p>
+      <p className="meta-label mb-1">{title}</p>
+      <p className="text-xs text-donkey-muted mb-2">{hint}</p>
       <div className="space-y-1">
         {options.map((option) => {
           const checked = value.includes(option.id);

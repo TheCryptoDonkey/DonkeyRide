@@ -103,6 +103,20 @@ const accept = (rideId, driver, accessFeatures) => post(`/api/rides/${rideId}/ac
   ...(accessFeatures ? { access_features: accessFeatures } : {})
 });
 
+test('the domain endpoint publishes the access catalogue', async () => {
+  // The picker builds itself from this list. Omit it and the server-side
+  // filtering still works perfectly on a need no rider can ever express.
+  const { body } = await get('/api/domains/current');
+
+  assert.ok(Array.isArray(body.accessOptions), 'accessOptions must be sent to clients');
+  const ids = body.accessOptions.map((option) => option.id);
+  assert.ok(ids.includes('wheelchair'), 'wheelchair option must reach the client');
+  for (const option of body.accessOptions) {
+    assert.equal(option.fareMultiplier, undefined,
+      'an access option must never arrive carrying a price');
+  }
+});
+
 test('an access need never changes the fare', async () => {
   const plain = await createRide();
   const needy = await createRide({ access_needs: ['wheelchair', 'assistance_dog'] });

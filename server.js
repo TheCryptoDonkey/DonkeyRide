@@ -6791,6 +6791,9 @@ app.get('/api/domains/current', publicRateLimiter, (req, res) => {
         discoveryMethod: domainProfile.discoveryMethod,
         pricingModel: domainProfile.pricingModel,
         serviceOptions: domainProfile.serviceOptions || [],
+        // Without this the access-needs picker has nothing to render, and a
+        // wheelchair user is quietly offered no way to say so.
+        accessOptions: domainProfile.accessOptions || [],
         stakingModel: domainProfile.stakingModel,
         completionProofTypes: domainProfile.completionProofTypes,
         ratingCriteria: domainProfile.ratingCriteria,
@@ -6815,6 +6818,7 @@ app.get('/api/domains/:id', publicRateLimiter, (req, res) => {
             discoveryMethod: profile.discoveryMethod,
             pricingModel: profile.pricingModel,
             serviceOptions: profile.serviceOptions || [],
+            accessOptions: profile.accessOptions || [],
             stakingModel: profile.stakingModel,
             completionProofTypes: profile.completionProofTypes,
             ratingCriteria: profile.ratingCriteria,

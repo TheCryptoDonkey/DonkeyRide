@@ -79,6 +79,16 @@ export interface DomainLabels {
   completedLabel: string;
   originInstruction: string;
   destinationInstruction: string;
+  /**
+   * Optional overrides for the access-needs picker. The default copy asks
+   * about a journey, which reads wrong in a domain where the same mechanism
+   * carries a trade qualification or an SIA licence category. Absent for
+   * ridesharing, which keeps the translated defaults.
+   */
+  accessRequesterTitle?: string;
+  accessRequesterHint?: string;
+  accessProviderTitle?: string;
+  accessProviderHint?: string;
 }
 
 export interface RatingCriterion {

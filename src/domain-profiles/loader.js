@@ -13,14 +13,20 @@ const { validateProfile } = require('./schema');
 const BUILTIN_PROFILES = {
   ridesharing: () => require('./ridesharing'),
   locksmith: () => require('./locksmith'),
-  delivery: () => require('./delivery')
+  delivery: () => require('./delivery'),
+  towing: () => require('./towing'),
+  'emergency-trades': () => require('./emergency-trades'),
+  'pet-services': () => require('./pet-services'),
+  security: () => require('./security'),
+  cleaning: () => require('./cleaning'),
+  moving: () => require('./moving')
 };
 
 /**
  * Load a domain profile by its identifier.
  *
  * Resolution order:
- * 1. Built-in profiles (ridesharing, locksmith, delivery)
+ * 1. Built-in profiles (listed in BUILTIN_PROFILES)
  * 2. Custom profile file at src/domain-profiles/{id}.js
  *
  * The id is strictly validated BEFORE touching the filesystem: this

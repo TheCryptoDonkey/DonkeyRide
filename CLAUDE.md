@@ -45,9 +45,15 @@ docker compose --profile dev up            # Adds mock-lightning, adminer, redis
 
 **Run with a different domain:**
 ```bash
-DOMAIN=locksmith npm start     # Locksmith dispatch server
-DOMAIN=delivery npm start      # Parcel delivery server
-DOMAIN=ridesharing npm start   # Default ridesharing (same as no DOMAIN)
+DOMAIN=locksmith npm start           # Locksmith dispatch server
+DOMAIN=delivery npm start            # Parcel delivery server
+DOMAIN=towing npm start              # Vehicle recovery
+DOMAIN=emergency-trades npm start    # Emergency trade callouts
+DOMAIN=pet-services npm start        # Dog walking, sitting, grooming
+DOMAIN=security npm start            # Security officer assignments
+DOMAIN=cleaning npm start            # Domestic and specialist cleaning
+DOMAIN=moving npm start              # House and office moves
+DOMAIN=ridesharing npm start         # Default ridesharing (same as no DOMAIN)
 ```
 
 ## Architecture
@@ -63,14 +69,24 @@ src/domain-profiles/
 ├── index.js           # Barrel export
 ├── ridesharing.js     # Default: rider/driver, geohash discovery, distance+time pricing
 ├── locksmith.js       # customer/locksmith, flatRate pricing, quote negotiation
-└── delivery.js        # sender/courier, extra COLLECTED state, photo+signature proofs
+├── delivery.js        # sender/courier, extra COLLECTED state, photo+signature proofs
+├── towing.js          # motorist/recovery operator, binding on-site quote before loading
+├── emergency-trades.js# householder/tradesperson, milestone pricing, trade as a requirement
+├── pet-services.js    # pet owner/carer, check-in→session→check-out, carer stakes higher
+├── security.js        # client/officer, shift cycling station↔patrol↔incident, SIA gated
+├── cleaning.js        # client/cleaner, one session per task, symmetric stakes
+└── moving.js          # client/mover, loading→transit→unloading milestones
 ```
 
 Each profile defines: state machine (states + valid transitions), role names (requester/provider), UI labels (origin/destination/task noun/instructions), pricing model, discovery method, completion proof types, rating criteria, feature flags, regulatory bodies, and Nostr event kind mappings.
 
-**Spec-only domains:** Six additional domains have TROTT domain profiles but not yet implementation profiles — towing, emergency trades, pet services, security, cleaning, and moving. See the [trott domain profiles](https://github.com/TheCryptoDonkey/trott/tree/main/domains) for their state machines and domain-specific tags. These await `src/domain-profiles/` implementations.
+**Every profile must be drivable end to end.** A profile can validate perfectly and still be unusable: `startTrip`/`completeTrip` go through `validateTransition` like anything else, so a domain whose extra states sit between arrival and work must still leave an edge into `ACTIVE` and `COMPLETED`. `tests/integration/spec-domains.test.js` walks EVERY built-in profile through the full lifecycle for exactly this reason, and pins the state keys the engine reaches for by name (`REQUESTED`, `MATCHED`, `PROVIDER_EN_ROUTE`, `PROVIDER_ARRIVED`, `ACTIVE`, `COMPLETED`, `CANCELLED`, `NO_SHOW`).
 
-**To add a new domain:** create `src/domain-profiles/{name}.js` exporting a profile object (~100 lines). The schema validates it on load.
+**Requirements vs price bands.** `serviceOptions` scale the whole rate card (recovery method, crew size); `accessOptions` never touch the fare and fail closed (trade qualifications, SIA licence categories, "reactive dog", "key-held access"). A domain whose profile sets `labels.accessRequesterTitle`/`accessProviderTitle` replaces the journey-flavoured default copy in `AccessNeedsPicker` — asking a gas engineer what they need "for this journey" reads wrong.
+
+**Multi-provider is not supported.** `moving` models a crew of 2-6 in the spec; this engine records ONE provider per task, so the lead mover is the provider of record and the crew split is settled among themselves. Per-mover acceptance and TROTT-04 split payments need multi-provider support in `TaskManager` first.
+
+**To add a new domain:** create `src/domain-profiles/{name}.js` exporting a profile object (~120 lines), register it in `loader.js`'s `BUILTIN_PROFILES`, and add it to `LIFECYCLE_PATHS` in `spec-domains.test.js`. The schema validates it on load.
 
 ### Task Manager (Generalised State Machine)
 
@@ -289,6 +305,7 @@ The three-layer architecture supports GDPR compliance: public Nostr events use o
 Key test files:
 - `reputation-flow.test.js` — NIP-98 auth validation, rating event publishing, reputation caching
 - `domain-profiles.test.js` — Schema validation, profile loading, TaskManager lifecycle across all domains, RideManager backward compatibility
+- `spec-domains.test.js` — The six spec-derived domains: every built-in profile driven through a full lifecycle, engine state keys pinned, rating weights summing to 1.0, requirements never carrying a fare multiplier
 - `http-api.test.js` — Full HTTP lifecycle (request→accept→arrive→start→complete→rate) with signed NIP-98 requests, role authorisation (403s), cancellation, driver presence/geo-dispatch, task-store rehydration
 - `open-rides.test.js` — Open-request browsing (`/api/rides/open` filters, identity redaction) and working-area dispatch over a real WebSocket (areas override radius, replay on register, REST-declared areas)
 - `multi-stop.test.js` — Multi-stop validation, detour-covering estimates, stop-count-only pre-accept payloads, participant-gated exact stops
@@ -306,7 +323,7 @@ Key test files:
 ## Environment
 
 Copy `.env.example` for configuration. Key variables:
-- `DOMAIN` — Domain profile selection (ridesharing|locksmith|delivery, default: ridesharing)
+- `DOMAIN` — Domain profile selection (ridesharing|locksmith|delivery|towing|emergency-trades|pet-services|security|cleaning|moving, default: ridesharing)
 - `OPERATOR_PUBKEY` / `OPERATOR_PRIVKEY` — Operator Nostr identity
 - `PAYMENT_PROVIDER` — Payment backend (cash|lnd|btcpay|alby|cln|demo)
 - `DEFAULT_FIAT_CURRENCY` — Ride pricing currency (USD|EUR|GBP|KES, default GBP; set KES for M-Pesa/Tando markets)
