@@ -15,6 +15,9 @@
 process.env.DISABLE_REDIS = 'true';
 process.env.PAYMENT_PROVIDER = 'demo';
 process.env.ENABLE_RATE_LIMITING = 'false';
+// Unsigned requests — pin auth off rather than inheriting it from a .env
+// (see credentials.test.js).
+process.env.ENABLE_NIP98_AUTH = 'false';
 process.env.DISPATCH_RADIUS_KM = '2';
 process.env.DISPATCH_RADIUS_MAX_KM = '2';
 process.env.BACK_TO_BACK_LEAD_KM = '3';

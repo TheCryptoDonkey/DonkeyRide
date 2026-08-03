@@ -12,6 +12,10 @@ process.env.DISABLE_REDIS = 'true';
 process.env.DISABLE_WS = 'true';
 process.env.PAYMENT_PROVIDER = 'cash';
 process.env.ENABLE_NIP98_AUTH = 'false';
+// Pinned for the same reason as auth: the lifecycle below fires requests
+// back to back, and an inherited ENABLE_RATE_LIMITING=true would throttle
+// them into failures that look like payment bugs.
+process.env.ENABLE_RATE_LIMITING = 'false';
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');

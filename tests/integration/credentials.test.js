@@ -12,6 +12,11 @@
 process.env.DISABLE_REDIS = 'true';
 process.env.PAYMENT_PROVIDER = 'demo';
 process.env.ENABLE_RATE_LIMITING = 'false';
+// These requests are unsigned, so auth must be OFF. Pin it rather than
+// inheriting: server.js loads .env, and a developer whose operator runs with
+// ENABLE_NIP98_AUTH=true would otherwise watch this file fail with 401s that
+// say nothing about credentials.
+process.env.ENABLE_NIP98_AUTH = 'false';
 const WS_PORT = 54000 + Math.floor(Math.random() * 400);
 process.env.WS_PORT = String(WS_PORT);
 
