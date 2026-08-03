@@ -72,7 +72,7 @@ export function HistoryPage() {
             >
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs text-donkey-muted">{formatDate(trip.completedAt)}</p>
-                <DualPrice sats={trip.fareSats} size="sm" compact />
+                <DualPrice sats={trip.fareSats} size="sm" compact ratesOverride={trip.btcPricesAt} />
               </div>
               {(trip.from || trip.to) && (
                 <p className="text-sm text-donkey-text mt-1">

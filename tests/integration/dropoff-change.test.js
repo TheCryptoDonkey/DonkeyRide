@@ -286,3 +286,75 @@ test('the task alias reaches the same handler', async () => {
   assert.equal(status, 200);
   assert.equal(body.preview, true);
 });
+
+// ── The preview's whole promise: tap twice on the SAME number ───────────
+//
+// Preview and change each went through routeAndPrice independently, and the
+// fiat rate card reaches sats through a five-minute-cached BTC price. Caught
+// on real hardware mid-trip: the preview read 24,882 sats, the confirmed
+// change recorded 24,888. Small, but it is exactly the guarantee the second
+// tap exists to give.
+const { getPriceCache } = require('../../src/pricing/fiat-conversion');
+
+function movePrice(factor) {
+  const cache = getPriceCache();
+  for (const ccy of ['USD', 'EUR', 'GBP', 'KES']) {
+    if (typeof cache[ccy] === 'number') cache[ccy] = cache[ccy] * factor;
+  }
+  cache.lastUpdate = Date.now();
+}
+
+test('the previewed price is what the change records, even if the rate moves', async () => {
+  const rideId = await requestRide();
+  await acceptRide(rideId);
+
+  const preview = await post(`/api/rides/${rideId}/dropoff`, {
+    lat: FURTHER.lat, lng: FURTHER.lon, preview: true
+  }, rider.priv);
+  assert.equal(preview.status, 200);
+  assert.ok(preview.body.quote_id, 'a preview must hand back something to spend');
+  const shown = preview.body.fare_sats;
+
+  movePrice(1.05);
+
+  const applied = await post(`/api/rides/${rideId}/dropoff`, {
+    lat: FURTHER.lat, lng: FURTHER.lon, quote_id: preview.body.quote_id
+  }, rider.priv);
+  assert.equal(applied.status, 200);
+  assert.equal(
+    applied.body.fare_sats, shown,
+    'the rider must be charged the number the preview showed'
+  );
+
+  movePrice(1 / 1.05);
+});
+
+test('a preview cannot be spent on a different destination', async () => {
+  const rideId = await requestRide();
+  await acceptRide(rideId);
+
+  const preview = await post(`/api/rides/${rideId}/dropoff`, {
+    lat: DROPOFF.lat, lng: DROPOFF.lon, preview: true
+  }, rider.priv);
+
+  // Same handle, somewhere materially further: the fare must come from the
+  // destination actually being set.
+  const applied = await post(`/api/rides/${rideId}/dropoff`, {
+    lat: FURTHER.lat, lng: FURTHER.lon, quote_id: preview.body.quote_id
+  }, rider.priv);
+  assert.equal(applied.status, 200);
+  assert.ok(
+    applied.body.fare_sats > preview.body.fare_sats,
+    'a mismatched preview must be ignored and the real change priced'
+  );
+});
+
+test('an expired preview still lets the change through, priced live', async () => {
+  const rideId = await requestRide();
+  await acceptRide(rideId);
+  const applied = await post(`/api/rides/${rideId}/dropoff`, {
+    lat: FURTHER.lat, lng: FURTHER.lon, quote_id: 'q_neverissued'
+  }, rider.priv);
+  assert.equal(applied.status, 200, 'a stale preview must not cost them the change');
+  assert.ok(applied.body.fare_sats > 0);
+});

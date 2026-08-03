@@ -60,6 +60,9 @@ export function DestinationChanger({
       const { task: updated } = await changeTaskDropoff(task.id, {
         location: pending.location,
         address: pending.address,
+        // Spend the preview the rider just read, so the fare they confirm is
+        // the fare they were shown
+        quoteId: pending.quote.quote_id,
       }, task.operatorBase);
       onUpdated(updated);
       setPending(null);

@@ -1239,6 +1239,12 @@ export interface DropoffChange {
   distance_km: number;
   duration_minutes: number;
   moved_m: number;
+  /**
+   * Handle to the price this PREVIEW showed. Sent back on the change so the
+   * requester is charged the number they read, not one re-derived a moment
+   * later through a moved exchange rate.
+   */
+  quote_id?: string;
 }
 
 function toServerStop(stop: { lat: number; lng: number; address?: string }) {
@@ -1270,6 +1276,8 @@ export async function changeTaskDropoff(taskId: string, params: {
   location?: LatLng | null;
   address?: string | null;
   stops?: Array<{ lat: number; lng: number; address?: string }>;
+  /** The preview the requester agreed to (DropoffChange.quote_id) */
+  quoteId?: string;
 }, base?: string): Promise<{ task: Task; change: DropoffChange }> {
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/dropoff`, {
     method: 'POST',
@@ -1277,6 +1285,7 @@ export async function changeTaskDropoff(taskId: string, params: {
       ...(params.location ? { lat: params.location.lat, lon: params.location.lng } : {}),
       ...(params.address ? { address: params.address } : {}),
       ...(params.stops ? { stops: params.stops.map(toServerStop) } : {}),
+      ...(params.quoteId ? { quote_id: params.quoteId } : {}),
     }),
   }, base);
   return {

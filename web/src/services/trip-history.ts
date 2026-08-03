@@ -6,7 +6,7 @@
  * site data. Payment receipts live on Nostr as kind 30535.
  */
 
-import type { Task } from '../types/api';
+import type { Task, BtcPrices } from '../types/api';
 
 const STORAGE_KEY = 'donkeyride.trip-history';
 const MAX_RECORDS = 100;
@@ -53,6 +53,16 @@ export interface TripRecord {
   surgeMultiplier?: number;
   /** Service class taken */
   option?: string;
+  /**
+   * BTC price at the moment this trip settled.
+   *
+   * The fare is held in sats, and everything on screen converts to fiat at
+   * the LIVE rate — right for a trip being priced, wrong for one already
+   * paid. Without this a receipt quietly re-prices for ever: a cash fare
+   * handed over as £4.07 read £4.06 an hour later. A receipt is a record of
+   * what happened, so it converts at the rate that applied when it happened.
+   */
+  btcPricesAt?: BtcPrices;
 }
 
 export function getTripHistory(): TripRecord[] {
@@ -81,6 +91,8 @@ function place(loc?: { lat: number; lng: number } | null, address?: string): str
 export function recordTrip(task: Task, extra?: {
   breakdown?: TripRecord['breakdown'];
   surgeMultiplier?: number;
+  /** The rate in force as this trip settled — see TripRecord.btcPricesAt */
+  btcPrices?: BtcPrices | null;
 }): void {
   const record: TripRecord = {
     id: task.id,
@@ -111,6 +123,9 @@ export function recordTrip(task: Task, extra?: {
   // captured earlier rather than losing it on a later re-record
   record.breakdown = extra?.breakdown ?? existing?.breakdown;
   record.surgeMultiplier = extra?.surgeMultiplier ?? existing?.surgeMultiplier;
+  // First rate wins: this trip settled once. A re-record (settlement
+  // confirming, say) must not re-stamp it with a later market.
+  record.btcPricesAt = existing?.btcPricesAt ?? extra?.btcPrices ?? undefined;
   localStorage.setItem(STORAGE_KEY, JSON.stringify([record, ...rest].slice(0, MAX_RECORDS)));
 }
 

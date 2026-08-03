@@ -13,6 +13,7 @@ import { submitRating, sendTip, getOperatorInfoCached, getTask } from '../../ser
 import { GuaranteeBanner } from '../../components/task/GuaranteeBanner';
 import { formatDistance, formatDuration } from '../../services/pricing';
 import { recordTrip } from '../../services/trip-history';
+import { useBtcPrices } from '../../hooks/useBtcPrices';
 import { isFavourite, toggleFavourite } from '../../utils/favourites';
 import { useT } from '../../i18n';
 import type { OperatorPaymentInfo, SettlementInfo } from '../../types/api';
@@ -30,6 +31,7 @@ export function CompletionPage() {
   const navigate = useNavigate();
   const { activeTask, completedTask, clearCompletedTask, reset, estimate } = useTask();
   const { identity } = useIdentity();
+  const { prices } = useBtcPrices();
   const { profile } = useDomain();
   const { t, td } = useT();
   const [rating, setRating] = useState(0);
@@ -88,6 +90,9 @@ export function CompletionPage() {
       recordTrip({ ...task, settlement: settlement ?? undefined }, {
         breakdown: estimate?.fareBreakdown,
         surgeMultiplier: estimate?.surge?.multiplier,
+        // Freeze the rate this trip settled at, so the receipt keeps saying
+        // what was actually paid instead of re-pricing with the market
+        btcPrices: prices,
       });
     }
   }, [task?.id, settlement?.status]); // eslint-disable-line react-hooks/exhaustive-deps

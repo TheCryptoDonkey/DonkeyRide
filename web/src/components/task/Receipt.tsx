@@ -88,7 +88,7 @@ export function Receipt({ trip, onClose, onRebook }: ReceiptProps) {
             {rows.map((row) => (
               <div key={row.label} className="flex justify-between items-baseline text-sm">
                 <span className="text-donkey-muted">{row.label}</span>
-                <DualPrice sats={row.sats} size="sm" compact />
+                <DualPrice sats={row.sats} size="sm" compact ratesOverride={trip.btcPricesAt} />
               </div>
             ))}
             {trip.surgeMultiplier != null && trip.surgeMultiplier > 1 && (
@@ -99,7 +99,7 @@ export function Receipt({ trip, onClose, onRebook }: ReceiptProps) {
             {b && b.operatorFeeSats > 0 && (
               <div className="flex justify-between items-baseline text-xs pt-1">
                 <span className="text-donkey-muted">{t('request.operator')}</span>
-                <DualPrice sats={b.operatorFeeSats} size="sm" compact />
+                <DualPrice sats={b.operatorFeeSats} size="sm" compact ratesOverride={trip.btcPricesAt} />
               </div>
             )}
           </div>
@@ -108,13 +108,13 @@ export function Receipt({ trip, onClose, onRebook }: ReceiptProps) {
         {/* Total */}
         <div className="flex justify-between items-baseline border-t border-donkey-border pt-3">
           <span className="text-sm font-bold text-donkey-text">{t('receipt.total')}</span>
-          <DualPrice sats={trip.fareSats} size="lg" />
+          <DualPrice sats={trip.fareSats} size="lg" ratesOverride={trip.btcPricesAt} />
         </div>
 
         {trip.tipSats ? (
           <div className="flex justify-between items-baseline text-sm">
             <span className="text-donkey-muted">{t('receipt.tip')}</span>
-            <DualPrice sats={trip.tipSats} size="sm" compact />
+            <DualPrice sats={trip.tipSats} size="sm" compact ratesOverride={trip.btcPricesAt} />
           </div>
         ) : null}
 

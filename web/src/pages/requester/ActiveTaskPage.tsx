@@ -80,6 +80,13 @@ export function ActiveTaskPage() {
     if (!activeTask) navigate('/request');
   }, [activeTask, navigate]);
 
+  // Put `origin` back from the task after an app restart. It is held in
+  // sessionStorage (a pre-request convenience) while the task itself is
+  // durable, so reopening the app mid-trip leaves the two out of step.
+  useEffect(() => {
+    if (!origin && activeTask?.pickup) setOrigin(activeTask.pickup);
+  }, [origin, activeTask?.pickup, setOrigin]);
+
   // Honest payment copy needs to know the rail
   useEffect(() => {
     getOperatorInfoCached()
@@ -294,7 +301,14 @@ export function ActiveTaskPage() {
     );
   }
 
-  if (!activeTask || !origin) return <Loading message={`Loading ${taskNoun}...`} />;
+  // Gate on the TASK alone. `origin` lives in sessionStorage and dies with
+  // the app, but the task survives (the operator rehydrates it from its own
+  // snapshots). Waiting for both meant a rider who closed the tab mid-trip —
+  // or whose browser Android killed in the background — reopened to a
+  // permanent spinner, locked out of the live map, the ETA, chat, cancel and
+  // the panic button, with the trip still running. The task carries the
+  // pickup; that is the authority, and the effect above puts it back.
+  if (!activeTask) return <Loading message={`Loading ${taskNoun}...`} />;
 
   const handlePanic = async () => {
     if (!identity) throw new Error('No identity');
@@ -401,21 +415,25 @@ export function ActiveTaskPage() {
       })
     : null;
 
-  const centre = providerLocation || pickupPoint;
+  // The dropoff is a last resort so the map still has somewhere to sit if a
+  // restart left us with neither a provider fix nor a pickup yet.
+  const centre = providerLocation || pickupPoint || activeTask.dropoff || null;
 
   return (
     <div className="h-full flex flex-col">
       {/* Map */}
-      {profile?.features.navigation !== false ? (
+      {profile?.features.navigation !== false && centre ? (
         <div className="flex-1 relative">
           <MapView centre={centre} zoom={15}>
-            <LocationMarker
-              position={pickupPoint}
-              label={originLabel}
-              colour="green"
-              draggable={pickupMovable}
-              onDragEnd={(loc) => void dragPickup(loc)}
-            />
+            {pickupPoint && (
+              <LocationMarker
+                position={pickupPoint}
+                label={originLabel}
+                colour="green"
+                draggable={pickupMovable}
+                onDragEnd={(loc) => void dragPickup(loc)}
+              />
+            )}
             {(activeTask.stops || []).map((stop, i) => (
               <LocationMarker
                 key={`${stop.lat},${stop.lng},${i}`}

@@ -5179,7 +5179,7 @@ app.post('/api/rides/:rideId/dropoff', async (req, res) => {
             * (Number.isFinite(ride.surgeMultiplier) && ride.surgeMultiplier > 1
                 ? ride.surgeMultiplier : 1);
 
-        const { distance, duration, coordinates: routeCoordinates, routed, estimate } =
+        const { distance, duration, coordinates: routeCoordinates, routed, estimate: livePricing } =
             await routeAndPrice(
                 ride.pickup, newDropoff, newStops, fiatCurrency, agreedMultiplier
             );
@@ -5187,23 +5187,56 @@ app.post('/api/rides/:rideId/dropoff', async (req, res) => {
         // Waiting already accrued is not part of the route — carry it over
         // rather than quietly refunding it with a change of plan.
         const waitingSats = ride.waiting?.sats || 0;
-        const newFare = estimate.fare.sats + waitingSats;
         const previousFare = ride.fare || 0;
 
+        // The preview exists so the rider taps a second time on a number they
+        // have SEEN. Pricing the preview and the change independently breaks
+        // exactly that: both go through routeAndPrice, and the fiat rate card
+        // reaches sats through a five-minute-cached BTC price, so a rider who
+        // read "24,882 sats" was charged 24,888. Same remedy as the booking
+        // quote — the preview mints one, the change spends it.
+        const journey = {
+            pickup: ride.pickup,
+            dropoff: newDropoff,
+            stopCount: newStops ? newStops.length : 0,
+            currency: fiatCurrency
+        };
+
         if (req.body.preview === true) {
+            // Price it live and remember that price. Nothing is applied.
+            const quoteId = rememberQuote({
+                ...journey,
+                // Already agreed on this ride, so it cannot move underneath
+                // the rider between seeing the number and accepting it.
+                surgeMultiplier: agreedMultiplier,
+                fares: { __default__: { sats: livePricing.fare.sats, estimate: livePricing } }
+            });
+            const previewFare = livePricing.fare.sats + waitingSats;
             return res.json({
                 success: true,
                 preview: true,
-                fare_sats: newFare,
+                quote_id: quoteId,
+                quote_expires_at: Date.now() + QUOTE_TTL_MS,
+                fare_sats: previewFare,
                 previous_fare_sats: previousFare,
-                fare_change_sats: newFare - previousFare,
+                fare_change_sats: previewFare - previousFare,
                 distance_km: distance,
                 duration_minutes: Math.round(duration),
                 moved_m: Math.round(movedKm * 1000),
                 routed,
-                estimate
+                estimate: livePricing
             });
         }
+
+        // Applying: honour the previewed price if the rider still holds it for
+        // THIS destination, otherwise price live (an expired preview must not
+        // cost them the change).
+        const heldChange = quotedFareFor(redeemQuote(req.body.quote_id, journey), null);
+        if (req.body.quote_id && !heldChange) {
+            console.log(`💱 Dropoff preview ${req.body.quote_id} not honoured (expired or different destination) — re-priced live`);
+        }
+        const estimate = heldChange ? heldChange.estimate : livePricing;
+        const newFare = estimate.fare.sats + waitingSats;
 
         const updated = rideManager.updateDropoff(rideId, newDropoff, {
             ...(address !== undefined ? { address } : {}),

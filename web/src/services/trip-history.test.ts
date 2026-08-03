@@ -50,3 +50,29 @@ describe('trip history', () => {
     expect(getTripHistory()).toEqual([]);
   });
 });
+
+describe('a settled receipt does not re-price', () => {
+  // The fare is held in sats and every price on screen converts at the LIVE
+  // rate. Right for a trip being quoted, wrong for one already paid: two
+  // completed cash trips read £4.07 and £4.29 on the phone, then £4.06 and
+  // £4.28 an hour later. Nobody paid £4.06.
+  const RATE = { USD: 60000, EUR: 55000, GBP: 46274, KES: 7800000, updatedAt: '2026-08-03T11:21:00.000Z' };
+
+  it('freezes the rate the trip settled at', () => {
+    recordTrip(makeTask('ride_1'), { btcPrices: RATE });
+    expect(getTripHistory()[0].btcPricesAt).toEqual(RATE);
+  });
+
+  it('keeps the FIRST rate when the trip is re-recorded', () => {
+    // CompletionPage re-records when settlement confirms. That is the same
+    // trip, settled once — it must not be re-stamped with a later market.
+    recordTrip(makeTask('ride_1'), { btcPrices: RATE });
+    recordTrip(makeTask('ride_1'), { btcPrices: { ...RATE, GBP: 99999 } });
+    expect(getTripHistory()[0].btcPricesAt?.GBP).toBe(46274);
+  });
+
+  it('leaves the rate unset when none was available, rather than inventing one', () => {
+    recordTrip(makeTask('ride_1'), { btcPrices: null });
+    expect(getTripHistory()[0].btcPricesAt).toBeUndefined();
+  });
+});
