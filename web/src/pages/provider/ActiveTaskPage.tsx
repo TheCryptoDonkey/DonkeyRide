@@ -87,13 +87,14 @@ export function ActiveTaskPage() {
     lat: location.lat,
     lng: location.lng,
     enabled: !!(profile?.features.liveTracking && activeTask && identity),
+    operatorBase: activeTask?.operatorBase,
   });
 
   // Re-fetch the task when a WS event signals a state change
   const refreshTask = useCallback(async () => {
     if (!activeTask) return;
     try {
-      const updated = await getTask(activeTask.id);
+      const updated = await getTask(activeTask.id, activeTask.operatorBase);
       setActiveTask(updated);
       if (terminalStates.includes(updated.status)) {
         navigate('/provide/complete');
@@ -149,14 +150,18 @@ export function ActiveTaskPage() {
     }
   }, [activeTask, setActiveTask, navigate, terminalStates, refreshTask, reset, taskNoun, originLabel]);
 
-  const { connected } = useWebSocket(activeTask?.id || null, handleWsMessage);
+  // A federated job's updates live on the operator that holds it, so the
+  // socket follows the job rather than the app's own operator.
+  const { connected } = useWebSocket(
+    activeTask?.id || null, handleWsMessage, activeTask?.operatorBase,
+  );
 
   // Poll for updates
   useEffect(() => {
     if (!activeTask) return;
     const timer = setInterval(async () => {
       try {
-        const updated = await getTask(activeTask.id);
+        const updated = await getTask(activeTask.id, activeTask.operatorBase);
         setActiveTask(updated);
       } catch {
         // Ignore
@@ -206,21 +211,21 @@ export function ActiveTaskPage() {
   const handleArrive = () => runAction('arrive', async () => {
     const updated = await arriveAtOrigin(activeTask.id, {
       providerPubkey: identity.pubKeyHex,
-    });
+    }, activeTask.operatorBase);
     setActiveTask(updated);
   });
 
   const handleStart = () => runAction('start', async () => {
     const updated = await startTask(activeTask.id, {
       providerPubkey: identity.pubKeyHex,
-    });
+    }, activeTask.operatorBase);
     setActiveTask(updated);
   });
 
   const handleComplete = () => runAction('complete', async () => {
     const updated = await completeTask(activeTask.id, {
       providerPubkey: identity.pubKeyHex,
-    });
+    }, activeTask.operatorBase);
     setActiveTask(updated);
     // Anyone this job was shared with hears that it ended safely —
     // fire-and-forget so finishing never waits on relays
@@ -232,7 +237,7 @@ export function ActiveTaskPage() {
     const updated = await transitionTask(activeTask.id, {
       targetState,
       providerPubkey: identity.pubKeyHex,
-    });
+    }, activeTask.operatorBase);
     setActiveTask(updated);
     // Navigate to completion if we've reached a terminal state
     if (terminalStates.includes(updated.status)) {
@@ -454,7 +459,7 @@ export function ActiveTaskPage() {
                 description,
                 providerPubkey: identity.pubKeyHex,
               });
-              const updated = await getTask(activeTask.id);
+              const updated = await getTask(activeTask.id, activeTask.operatorBase);
               setActiveTask(updated);
             }}
           />

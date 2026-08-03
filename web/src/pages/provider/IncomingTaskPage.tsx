@@ -80,15 +80,21 @@ export function IncomingTaskPage() {
         // Fail-closed guard at accept: the server refuses if these do not
         // cover what the request needs
         accessFeatures: loadAccessFeatures(),
-      });
+      }, activeTask.operatorBase);
       dispatchService.removeAvailable(activeTask.id);
-      setActiveTask(updated);
+      // The job stays theirs to coordinate — carry the origin forward so
+      // every later call goes back to the operator that holds it.
+      setActiveTask(activeTask.operatorBase
+        ? { ...updated, operatorBase: activeTask.operatorBase }
+        : updated);
 
       // Best-effort: advertise the driver's saved payment methods on this ride
       // so the rider can pay directly. Never blocks accepting the job.
       const savedMethods = getSavedPaymentMethods();
       if (savedMethods.length > 0) {
-        void setPaymentMethods(updated.id, { methods: savedMethods }).catch(() => {});
+        void setPaymentMethods(
+          updated.id, { methods: savedMethods }, activeTask.operatorBase,
+        ).catch(() => {});
       }
 
       navigate('/provide/active');
@@ -263,43 +269,23 @@ export function IncomingTaskPage() {
           )}
         </div>
 
-        {activeTask.operatorBase ? (
-          // Federated job — coordinated by another operator. Phase 1 is a
-          // hand-off: open their driver app (the account is portable via
-          // the recovery key).
-          <div className="space-y-3">
-            <p className="text-xs text-donkey-muted text-center">
-              This {taskNoun} is coordinated by{' '}
-              <span className="font-semibold text-donkey-purple">
-                {new URL(activeTask.operatorBase).host}
-              </span>{' '}
-              (discovered via Nostr). Accept it in their app — your account
-              works anywhere by restoring your recovery key.
-            </p>
-            <div className="flex gap-3">
-              <button className="btn-secondary flex-1" onClick={handleDecline}>
-                Dismiss
-              </button>
-              <a
-                className="btn-primary flex-1 text-center"
-                href={`${activeTask.operatorBase}/provide`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open operator
-              </a>
-            </div>
-          </div>
-        ) : (
-          <div className="flex gap-3">
-            <button className="btn-secondary flex-1" onClick={handleDecline} disabled={accepting}>
-              {t('common.decline')}
-            </button>
-            <button className="btn-primary flex-1" onClick={handleAccept} disabled={accepting}>
-              {accepting ? t('common.accepting') : t('common.accept')}
-            </button>
-          </div>
+        {activeTask.operatorBase && (
+          // A job coordinated by someone else. It is accepted and run from
+          // here — the driver's key is the account, and it means the same
+          // thing at every operator — but say whose job it is, because that
+          // is who the fare and any dispute sit with.
+          <p className="text-xs text-donkey-muted text-center mb-3">
+            {t('federation.coordinatedBy', { host: new URL(activeTask.operatorBase).host })}
+          </p>
         )}
+        <div className="flex gap-3">
+          <button className="btn-secondary flex-1" onClick={handleDecline} disabled={accepting}>
+            {t('common.decline')}
+          </button>
+          <button className="btn-primary flex-1" onClick={handleAccept} disabled={accepting}>
+            {accepting ? t('common.accepting') : t('common.accept')}
+          </button>
+        </div>
       </div>
     </div>
   );

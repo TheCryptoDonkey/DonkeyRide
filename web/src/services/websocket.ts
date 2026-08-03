@@ -18,6 +18,26 @@ export const WS_PROTOCOL = {
   taskBroadcast: 'ride_request',        // server → client
 } as const;
 
+/**
+ * WebSocket URL for ANOTHER operator's origin (federation phase 2).
+ *
+ * Their reverse proxy convention is assumed to match ours — TLS origins
+ * expose the socket at /ws — because that is what the reference deployment
+ * documents and what an operator running this codebase will have. A
+ * foreign operator that proxies elsewhere simply fails to connect, and the
+ * job falls back to REST polling rather than showing stale state.
+ */
+export function wsUrlForOrigin(origin: string): string | null {
+  try {
+    const url = new URL(origin);
+    if (url.protocol === 'https:') return `wss://${url.host}/ws`;
+    if (url.protocol === 'http:') return `ws://${url.hostname}:${WS_PORT}`;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function getWsBaseUrl(): string {
   // Native (Capacitor) builds bake in the operator's WebSocket URL
   const envUrl = import.meta.env.VITE_WS_URL;
@@ -191,22 +211,31 @@ export class TaskWebSocket {
   private statusHandlers: Set<StatusHandler> = new Set();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private taskId: string | null = null;
+  /** Operator origin when the task belongs to someone else; null = ours */
+  private operatorBase: string | null = null;
   private shouldReconnect = true;
   private awaitingAuth = false;
   private authRetried = false;
   private authTimeout: ReturnType<typeof setTimeout> | null = null;
   private queue: Record<string, unknown>[] = [];
 
-  /** Connect to the real-time WebSocket for a specific task */
-  connect(taskId: string): void {
+  /**
+   * Connect to the real-time WebSocket for a specific task.
+   *
+   * `operatorBase` points the socket at the operator that actually holds
+   * the job — a job found over Nostr is coordinated by whoever announced
+   * it, and its updates only exist there.
+   */
+  connect(taskId: string, operatorBase?: string | null): void {
     this.disconnect();
     this.taskId = taskId;
+    this.operatorBase = operatorBase || null;
     this.shouldReconnect = true;
     this.awaitingAuth = false;
     this.authRetried = false;
     this.queue = [];
 
-    this.wsUrl = getWsBaseUrl();
+    this.wsUrl = (this.operatorBase && wsUrlForOrigin(this.operatorBase)) || getWsBaseUrl();
     this.ws = new WebSocket(this.wsUrl);
 
     this.ws.onopen = async () => {
@@ -270,7 +299,7 @@ export class TaskWebSocket {
       this.notifyStatus(false);
       if (this.shouldReconnect && this.taskId) {
         this.reconnectTimer = setTimeout(() => {
-          if (this.taskId) this.connect(this.taskId);
+          if (this.taskId) this.connect(this.taskId, this.operatorBase);
         }, 3000);
       }
     };
@@ -292,6 +321,7 @@ export class TaskWebSocket {
       this.ws = null;
     }
     this.taskId = null;
+    this.operatorBase = null;
     this.clearAuthTimeout();
     this.awaitingAuth = false;
     this.queue = [];

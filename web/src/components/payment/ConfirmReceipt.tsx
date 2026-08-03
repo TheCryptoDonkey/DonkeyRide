@@ -47,7 +47,7 @@ export function ConfirmReceipt({ task, settlement, declaredRail }: ConfirmReceip
     setConfirming(true);
     setError(null);
     try {
-      await confirmReceived(task.id);
+      await confirmReceived(task.id, task.operatorBase);
       setLocalConfirmed(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('receipt.confirmFailed'));

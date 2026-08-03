@@ -24,6 +24,8 @@ export function useLiveTracking(params: {
   lng: number;
   enabled: boolean;
   intervalMs?: number;
+  /** Coordinating operator for a job found over Nostr; ours when absent */
+  operatorBase?: string;
 }) {
   const coordsRef = useRef({ lat: params.lat, lng: params.lng });
   coordsRef.current = { lat: params.lat, lng: params.lng };
@@ -31,7 +33,7 @@ export function useLiveTracking(params: {
   const pubkeyRef = useRef(params.providerPubkey);
   pubkeyRef.current = params.providerPubkey;
 
-  const { taskId, enabled, intervalMs = 3000 } = params;
+  const { taskId, enabled, intervalMs = 3000, operatorBase } = params;
 
   useEffect(() => {
     if (!enabled || !taskId) return;
@@ -46,7 +48,7 @@ export function useLiveTracking(params: {
           lat: coordsRef.current.lat,
           lng: coordsRef.current.lng,
           providerPubkey,
-        });
+        }, operatorBase);
       } catch {
         // Ignore — location updates are best-effort
       }

@@ -156,6 +156,8 @@ export const sw: Record<string, string> = {
   'incoming.bookedCommit': 'Imeratibiwa {time} — ukikubali unajitolea kufika wakati huo',
   'incoming.approx': 'Mahali ni makadirio hadi utakapokubali',
   'incoming.taken': 'Kazi hii imeshachukuliwa',
+  'federation.coordinatedBy': 'Imepatikana kwenye Nostr. Kazi hii inaratibiwa na {host} — unaikubali na kuiendesha kutoka hapa.',
+  'federation.viaHost': 'kupitia {host}',
   'incoming.acceptFailed': 'Imeshindwa kukubali kazi',
 
   // Profile / account

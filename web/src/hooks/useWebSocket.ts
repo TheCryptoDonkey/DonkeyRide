@@ -11,6 +11,11 @@ import type { WsMessage } from '../types/api';
 export function useWebSocket(
   taskId: string | null,
   onMessage?: (msg: WsMessage) => void,
+  /**
+   * Coordinating operator for a job discovered over Nostr. Its live
+   * updates exist only there, so the socket follows the job.
+   */
+  operatorBase?: string,
 ) {
   const [connected, setConnected] = useState(false);
   const handlerRef = useRef(onMessage);
@@ -21,7 +26,7 @@ export function useWebSocket(
   useEffect(() => {
     if (!taskId) return;
 
-    taskWs.connect(taskId);
+    taskWs.connect(taskId, operatorBase);
 
     const unsubMsg = taskWs.onMessage((msg) => {
       handlerRef.current?.(msg);
@@ -55,7 +60,7 @@ export function useWebSocket(
       clearReconnectNotice();
       taskWs.disconnect();
     };
-  }, [taskId]);
+  }, [taskId, operatorBase]);
 
   const send = useCallback((data: Record<string, unknown>) => {
     taskWs.send(data);

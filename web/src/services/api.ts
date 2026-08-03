@@ -41,7 +41,17 @@ export function getAuthPrivKey(): string | null {
   return _authPrivKey;
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/**
+ * `base` targets ANOTHER operator (federation phase 2): a job discovered
+ * over Nostr belongs to whoever is coordinating it, so its lifecycle calls
+ * must go there, not to the operator this app happens to point at. Omit it
+ * for everything on our own operator.
+ *
+ * NIP-98 signs the URL actually being called, so the foreign operator can
+ * verify the driver without knowing them — the signature is the account.
+ */
+async function request<T>(path: string, init?: RequestInit, base?: string): Promise<T> {
+  const origin = base || BASE;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(init?.headers as Record<string, string> || {}),
@@ -50,7 +60,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   // Add NIP-98 auth header if key is set
   if (_authPrivKey) {
     try {
-      const url = BASE ? `${BASE}${path}` : `${window.location.origin}${path}`;
+      const url = origin ? `${origin}${path}` : `${window.location.origin}${path}`;
       const method = init?.method || 'GET';
       const authToken = await createNip98Auth(url, method, _authPrivKey);
       headers['Authorization'] = `Nostr ${authToken}`;
@@ -59,7 +69,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
   }
 
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${origin}${path}`, {
     ...init,
     headers,
   });
@@ -68,6 +78,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(body.error || `${res.status} ${res.statusText}`, res.status);
   }
   return res.json();
+}
+
+/**
+ * Keep the coordinating operator attached to the task.
+ *
+ * A federated job's origin is known only to the client that found the
+ * announcement — the operator's own response says nothing about itself. If
+ * a single refresh dropped it, the next lifecycle call would go to the
+ * wrong operator and 404, so it is re-stamped on every response instead of
+ * every call site remembering.
+ */
+function stampOrigin(task: Task, base?: string): Task {
+  return base ? { ...task, operatorBase: base } : task;
 }
 
 // ── Response normalisation ──────────────────────────
@@ -368,7 +391,7 @@ export async function acceptTask(taskId: string, params: {
   serviceOptions?: string[];
   /** Access features this vehicle offers — required for a job that needs them */
   accessFeatures?: string[];
-}): Promise<Task> {
+}, base?: string): Promise<Task> {
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/accept`, {
     method: 'POST',
     body: JSON.stringify({
@@ -386,8 +409,8 @@ export async function acceptTask(taskId: string, params: {
       ...(params.accessFeatures && params.accessFeatures.length > 0
         ? { access_features: params.accessFeatures } : {}),
     }),
-  });
-  return normaliseTask(raw);
+  }, base);
+  return stampOrigin(normaliseTask(raw), base);
 }
 
 /** POST /api/tasks/:id/location — update provider location */
@@ -397,7 +420,7 @@ export function updateLocation(taskId: string, params: {
   heading?: number;
   speed?: number;
   providerPubkey: string;
-}): Promise<{ success: boolean }> {
+}, base?: string): Promise<{ success: boolean }> {
   return request(`/api/tasks/${taskId}/location`, {
     method: 'POST',
     body: JSON.stringify({
@@ -405,7 +428,7 @@ export function updateLocation(taskId: string, params: {
       lon: params.lng,
       driverPubkey: params.providerPubkey,
     }),
-  });
+  }, base);
 }
 
 /**
@@ -436,34 +459,34 @@ export async function updateTaskPickup(taskId: string, params: {
 /** POST /api/tasks/:id/arrive — provider arrives at origin */
 export async function arriveAtOrigin(taskId: string, params: {
   providerPubkey: string;
-}): Promise<Task> {
+}, base?: string): Promise<Task> {
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/arrive`, {
     method: 'POST',
     body: JSON.stringify({ driverPubkey: params.providerPubkey }),
-  });
-  return normaliseTask(raw);
+  }, base);
+  return stampOrigin(normaliseTask(raw), base);
 }
 
 /** POST /api/tasks/:id/start — start active phase */
 export async function startTask(taskId: string, params: {
   providerPubkey: string;
-}): Promise<Task> {
+}, base?: string): Promise<Task> {
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/start`, {
     method: 'POST',
     body: JSON.stringify({ driverPubkey: params.providerPubkey }),
-  });
-  return normaliseTask(raw);
+  }, base);
+  return stampOrigin(normaliseTask(raw), base);
 }
 
 /** POST /api/tasks/:id/complete — complete task */
 export async function completeTask(taskId: string, params: {
   providerPubkey?: string;
-}): Promise<Task> {
+}, base?: string): Promise<Task> {
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/complete`, {
     method: 'POST',
     body: JSON.stringify({ driverPubkey: params.providerPubkey }),
-  });
-  return normaliseTask(raw);
+  }, base);
+  return stampOrigin(normaliseTask(raw), base);
 }
 
 /** POST /api/tasks/:id/transition — generic state transition */
@@ -471,7 +494,7 @@ export async function transitionTask(taskId: string, params: {
   targetState: string;
   providerPubkey?: string;
   metadata?: Record<string, unknown>;
-}): Promise<Task> {
+}, base?: string): Promise<Task> {
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/transition`, {
     method: 'POST',
     body: JSON.stringify({
@@ -479,19 +502,19 @@ export async function transitionTask(taskId: string, params: {
       driverPubkey: params.providerPubkey,
       metadata: params.metadata,
     }),
-  });
-  return normaliseTask(raw);
+  }, base);
+  return stampOrigin(normaliseTask(raw), base);
 }
 
 /** POST /api/tasks/:id/cancel — cancel task */
 export function cancelTask(taskId: string, params: {
   cancelledBy: string;
   reason?: string;
-}): Promise<{ success: boolean }> {
+}, base?: string): Promise<{ success: boolean }> {
   return request(`/api/tasks/${taskId}/cancel`, {
     method: 'POST',
     body: JSON.stringify(params),
-  });
+  }, base);
 }
 
 /**
@@ -506,7 +529,7 @@ export async function submitRating(taskId: string, params: {
   raterRole: 'requester' | 'provider';
   targetPubkey?: string;
   domainId: string;
-}): Promise<{ success: boolean }> {
+}, base?: string): Promise<{ success: boolean }> {
   if (!_authPrivKey) {
     throw new Error('No identity available to sign the rating');
   }
@@ -526,10 +549,13 @@ export async function submitRating(taskId: string, params: {
     content: params.comment || '',
   }, _authPrivKey);
 
+  // The relay copy is the real one and reaches every operator; the mirror
+  // goes to whoever coordinated the job, so their fallback aggregate is
+  // right too.
   const res = await request<{ success: boolean }>(`/api/tasks/${taskId}/rate`, {
     method: 'POST',
     body: JSON.stringify({ event }),
-  });
+  }, base);
 
   // Best-effort decentralised publish — never blocks the UI
   void publishToRelays(event);
@@ -670,9 +696,9 @@ export function respondToCheckIn(taskId: string, params: {
 }
 
 /** GET /api/tasks/:id — get task details */
-export async function getTask(taskId: string): Promise<Task> {
-  const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}`);
-  return normaliseTask(raw);
+export async function getTask(taskId: string, base?: string): Promise<Task> {
+  const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}`, undefined, base);
+  return stampOrigin(normaliseTask(raw), base);
 }
 
 /**
@@ -705,7 +731,7 @@ export async function getOpenTasks(params?: {
   access?: string[];
   /** Who is browsing — lets a favourite see a job inside its head start */
   pubkey?: string;
-}): Promise<Task[]> {
+}, base?: string): Promise<Task[]> {
   const query = new URLSearchParams();
   if (params?.areas && params.areas.length > 0) {
     query.set('areas', params.areas.join(','));
@@ -727,9 +753,9 @@ export async function getOpenTasks(params?: {
   }
   const qs = query.toString();
   const raw = await request<{ rides: Record<string, unknown>[] }>(
-    `/api/tasks/open${qs ? `?${qs}` : ''}`,
+    `/api/tasks/open${qs ? `?${qs}` : ''}`, undefined, base,
   );
-  return (raw.rides || []).map(normaliseTask);
+  return (raw.rides || []).map((task) => stampOrigin(normaliseTask(task), base));
 }
 
 /** GET /api/tasks/stats */
@@ -824,16 +850,16 @@ export async function getSettlementRails(): Promise<SettlementRail[]> {
  */
 export function setPaymentMethods(rideId: string, params: {
   methods: PaymentMethod[];
-}): Promise<{ success: boolean; methods: Array<{ rail: string }> }> {
+}, base?: string): Promise<{ success: boolean; methods: Array<{ rail: string }> }> {
   return request(`/api/rides/${rideId}/payment-methods`, {
     method: 'POST',
     body: JSON.stringify({ methods: params.methods }),
-  });
+  }, base);
 }
 
 /** GET /api/rides/:id/payment-options (participant, signed) — the driver's rails */
-export function getPaymentOptions(rideId: string): Promise<PaymentOptions> {
-  return request(`/api/rides/${rideId}/payment-options`);
+export function getPaymentOptions(rideId: string, base?: string): Promise<PaymentOptions> {
+  return request(`/api/rides/${rideId}/payment-options`, undefined, base);
 }
 
 /**
@@ -866,13 +892,13 @@ export function settleRide(rideId: string, params: {
 }
 
 /** POST /api/rides/:id/confirm-received (driver, signed) — confirm funds arrived */
-export function confirmReceived(rideId: string): Promise<{
+export function confirmReceived(rideId: string, base?: string): Promise<{
   success: boolean; settlement: SettlementRecord;
 }> {
   return request(`/api/rides/${rideId}/confirm-received`, {
     method: 'POST',
     body: JSON.stringify({}),
-  });
+  }, base);
 }
 
 // ── Estimates & Pricing ─────────────────────────────

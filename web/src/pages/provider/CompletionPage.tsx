@@ -50,7 +50,7 @@ export function CompletionPage() {
         raterRole: 'provider',
         targetPubkey: task.requesterPubkey,
         domainId: profile?.id || '',
-      });
+      }, task.operatorBase);
       setSubmitted(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('complete.rateFailed'));

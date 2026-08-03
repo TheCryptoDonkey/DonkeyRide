@@ -1,4 +1,4 @@
-import { normaliseTask, getApiBase } from './api';
+import { getApiBase, getOpenTasks } from './api';
 import { subscribeToRelays } from './relays';
 import { decodeGeohash } from '../utils/geohash';
 import type { Task, LatLng } from '../types/api';
@@ -129,15 +129,14 @@ export function isRelevantAnnouncement(
  */
 export async function resolveForeignTask(announcement: TaskAnnouncement): Promise<Task | null> {
   try {
-    const res = await fetch(`${announcement.api}/api/rides/open`);
-    if (!res.ok) return null;
-    const body = await res.json();
-    const raw = (body.rides || body.tasks || []).find(
-      (r: { id?: string }) => r.id === announcement.taskId);
-    if (!raw) return null; // already taken, cancelled, or never real
-    return { ...normaliseTask(raw), operatorBase: announcement.api };
+    // Signed, not a bare fetch: an operator running with NIP-98 enabled —
+    // the recommended posture, and the demo's — answers 401 to an
+    // unauthenticated open-list GET, which silently emptied federated
+    // discovery against exactly the operators most worth federating with.
+    const open = await getOpenTasks(undefined, announcement.api);
+    return open.find((task) => task.id === announcement.taskId) || null;
   } catch {
-    return null;
+    return null; // already taken, cancelled, unreachable, or never real
   }
 }
 

@@ -145,6 +145,8 @@ export const en: Record<string, string> = {
   'incoming.bookedCommit': 'Booked for {time} — accepting commits you to that time',
   'incoming.approx': 'Locations are approximate until you accept',
   'incoming.taken': 'This job has been taken',
+  'federation.coordinatedBy': 'Found on Nostr. This job is coordinated by {host} — you accept and run it from here.',
+  'federation.viaHost': 'via {host}',
   'incoming.acceptFailed': 'Failed to accept the job',
 
   // Profile / account

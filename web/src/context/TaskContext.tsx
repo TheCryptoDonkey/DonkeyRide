@@ -4,6 +4,7 @@ import {
 } from 'react';
 import type { Task, TripEstimate, LatLng } from '../types/api';
 import { getTask, getActiveParticipantTask } from '../services/api';
+import { safeOperatorOrigin } from '../services/federation';
 import { useDomain } from './DomainContext';
 import { useIdentity } from './IdentityContext';
 
@@ -15,6 +16,14 @@ const STORAGE_KEYS = {
 
 /** Active task id survives app/tab restarts — keyed per role */
 const activeTaskIdKey = (role: string) => `donkeyride.activeTaskId.${role}`;
+/**
+ * Which operator coordinates the active task, when it is not ours.
+ * Stored beside the id because a federated job exists ONLY at the
+ * operator that announced it — without this, a restart asks our own
+ * operator about a job it has never heard of and the driver loses it
+ * mid-shift.
+ */
+const activeTaskOriginKey = (role: string) => `donkeyride.activeTaskOrigin.${role}`;
 /** Last terminal task kept until the user taps Done — keyed per role */
 const completedTaskKey = (role: string) => `donkeyride.completedTask.${role}`;
 
@@ -117,11 +126,18 @@ export function TaskProvider({ children }: { children: ReactNode }) {
           localStorage.setItem(completedTaskKey(currentRole), JSON.stringify(task));
         } catch { /* storage full — non-fatal */ }
         localStorage.removeItem(activeTaskIdKey(currentRole));
+        localStorage.removeItem(activeTaskOriginKey(currentRole));
       } else {
         localStorage.setItem(activeTaskIdKey(currentRole), task.id);
+        if (task.operatorBase) {
+          localStorage.setItem(activeTaskOriginKey(currentRole), task.operatorBase);
+        } else {
+          localStorage.removeItem(activeTaskOriginKey(currentRole));
+        }
       }
     } else {
       localStorage.removeItem(activeTaskIdKey(currentRole));
+      localStorage.removeItem(activeTaskOriginKey(currentRole));
     }
   }, []);
 
@@ -150,6 +166,7 @@ export function TaskProvider({ children }: { children: ReactNode }) {
     sessionStorage.removeItem(STORAGE_KEYS.origin);
     sessionStorage.removeItem(STORAGE_KEYS.destination);
     localStorage.removeItem(activeTaskIdKey(roleRef.current));
+    localStorage.removeItem(activeTaskOriginKey(roleRef.current));
   }, []);
 
   // On boot, re-fetch the stored task; if the session is fresh (app/tab
@@ -167,37 +184,52 @@ export function TaskProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    // Re-validated on the way out of storage, not just on the way in: the
+    // origin came from an untrusted relay event, and it is about to be the
+    // target of signed requests.
+    const storedOrigin = () =>
+      safeOperatorOrigin(localStorage.getItem(activeTaskOriginKey(roleRef.current))) || undefined;
+
     const stored = loadJson<Task>(STORAGE_KEYS.activeTask);
     if (stored?.id) {
-      getTask(stored.id)
+      getTask(stored.id, safeOperatorOrigin(stored.operatorBase || null) || storedOrigin())
         .then(adopt)
         .catch(() => reset()); // Task not found — clear
       return;
     }
 
-    // No session task — rehydrate from the operator
+    /** Last resort: the id and, for a federated job, whose job it is */
+    const fromStoredId = () => {
+      const storedId = localStorage.getItem(activeTaskIdKey(roleRef.current));
+      if (!storedId) return;
+      getTask(storedId, storedOrigin())
+        .then((fresh) => {
+          if (!terminalStates.includes(fresh.status)) {
+            setActiveTask(fresh);
+          } else {
+            localStorage.removeItem(activeTaskIdKey(roleRef.current));
+            localStorage.removeItem(activeTaskOriginKey(roleRef.current));
+          }
+        })
+        .catch(() => {
+          localStorage.removeItem(activeTaskIdKey(roleRef.current));
+          localStorage.removeItem(activeTaskOriginKey(roleRef.current));
+        });
+    };
+
+    // No session task — rehydrate from the operator. It only knows its own
+    // jobs, so a null answer with a stored foreign origin is not "no job".
     getActiveParticipantTask(identity.pubKeyHex)
       .then((task) => {
         if (task && !terminalStates.includes(task.status)) {
           setActiveTask(task);
+        } else if (storedOrigin()) {
+          fromStoredId();
         } else {
           localStorage.removeItem(activeTaskIdKey(roleRef.current));
         }
       })
-      .catch(() => {
-        // Endpoint unavailable — fall back to the persisted task id
-        const storedId = localStorage.getItem(activeTaskIdKey(roleRef.current));
-        if (!storedId) return;
-        getTask(storedId)
-          .then((fresh) => {
-            if (!terminalStates.includes(fresh.status)) {
-              setActiveTask(fresh);
-            } else {
-              localStorage.removeItem(activeTaskIdKey(roleRef.current));
-            }
-          })
-          .catch(() => localStorage.removeItem(activeTaskIdKey(roleRef.current)));
-      });
+      .catch(fromStoredId);
   }, [profile, identity?.pubKeyHex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
