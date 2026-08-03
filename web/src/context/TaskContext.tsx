@@ -11,7 +11,9 @@ import { useIdentity } from './IdentityContext';
 const STORAGE_KEYS = {
   activeTask: 'donkeyride.activeTask',
   origin: 'donkeyride.origin',
+  originAddress: 'donkeyride.originAddress',
   destination: 'donkeyride.destination',
+  destinationAddress: 'donkeyride.destinationAddress',
 } as const;
 
 /** Active task id survives app/tab restarts — keyed per role */
@@ -66,13 +68,20 @@ interface TaskState {
   estimate: TripEstimate | null;
   setEstimate: (est: TripEstimate | null) => void;
 
-  /** Selected origin location */
+  /**
+   * Selected origin location, and the human-readable address it was chosen
+   * by. The address travels with the request so the provider navigates to a
+   * street and the receipt reads back as a journey — without it both ends
+   * fall back to raw decimals.
+   */
   origin: LatLng | null;
-  setOrigin: (loc: LatLng | null) => void;
+  originAddress: string | null;
+  setOrigin: (loc: LatLng | null, address?: string | null) => void;
 
-  /** Selected destination location */
+  /** Selected destination location, and the address it was chosen by */
   destination: LatLng | null;
-  setDestination: (loc: LatLng | null) => void;
+  destinationAddress: string | null;
+  setDestination: (loc: LatLng | null, address?: string | null) => void;
 
   /** Provider's current location (from WebSocket) */
   providerLocation: LatLng | null;
@@ -90,8 +99,10 @@ const TaskContext = createContext<TaskState>({
   estimate: null,
   setEstimate: () => {},
   origin: null,
+  originAddress: null,
   setOrigin: () => {},
   destination: null,
+  destinationAddress: null,
   setDestination: () => {},
   providerLocation: null,
   setProviderLocation: () => {},
@@ -106,6 +117,8 @@ export function TaskProvider({ children }: { children: ReactNode }) {
   const [estimate, setEstimate] = useState<TripEstimate | null>(null);
   const [origin, setOriginState] = useState<LatLng | null>(() => loadJson(STORAGE_KEYS.origin));
   const [destination, setDestinationState] = useState<LatLng | null>(() => loadJson(STORAGE_KEYS.destination));
+  const [originAddress, setOriginAddressState] = useState<string | null>(() => loadJson(STORAGE_KEYS.originAddress));
+  const [destinationAddress, setDestinationAddressState] = useState<string | null>(() => loadJson(STORAGE_KEYS.destinationAddress));
   const [providerLocation, setProviderLocation] = useState<LatLng | null>(null);
 
   const terminalStatesRef = useRef<string[]>([]);
@@ -146,14 +159,27 @@ export function TaskProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(completedTaskKey(roleRef.current));
   }, []);
 
-  const setOrigin = useCallback((loc: LatLng | null) => {
+  // Addresses are stored beside the coordinates, not derived later: the
+  // requester picked them by name, and a reverse-geocode of the same point
+  // is a different (and worse) string than the one they chose.
+  const setOrigin = useCallback((loc: LatLng | null, address?: string | null) => {
     setOriginState(loc);
     saveJson(STORAGE_KEYS.origin, loc);
+    if (address !== undefined || loc === null) {
+      const next = loc === null ? null : (address ?? null);
+      setOriginAddressState(next);
+      saveJson(STORAGE_KEYS.originAddress, next);
+    }
   }, []);
 
-  const setDestination = useCallback((loc: LatLng | null) => {
+  const setDestination = useCallback((loc: LatLng | null, address?: string | null) => {
     setDestinationState(loc);
     saveJson(STORAGE_KEYS.destination, loc);
+    if (address !== undefined || loc === null) {
+      const next = loc === null ? null : (address ?? null);
+      setDestinationAddressState(next);
+      saveJson(STORAGE_KEYS.destinationAddress, next);
+    }
   }, []);
 
   const reset = useCallback(() => {
@@ -161,10 +187,14 @@ export function TaskProvider({ children }: { children: ReactNode }) {
     setEstimate(null);
     setOriginState(null);
     setDestinationState(null);
+    setOriginAddressState(null);
+    setDestinationAddressState(null);
     setProviderLocation(null);
     sessionStorage.removeItem(STORAGE_KEYS.activeTask);
     sessionStorage.removeItem(STORAGE_KEYS.origin);
     sessionStorage.removeItem(STORAGE_KEYS.destination);
+    sessionStorage.removeItem(STORAGE_KEYS.originAddress);
+    sessionStorage.removeItem(STORAGE_KEYS.destinationAddress);
     localStorage.removeItem(activeTaskIdKey(roleRef.current));
     localStorage.removeItem(activeTaskOriginKey(roleRef.current));
   }, []);
@@ -238,8 +268,8 @@ export function TaskProvider({ children }: { children: ReactNode }) {
         activeTask, setActiveTask,
         completedTask, clearCompletedTask,
         estimate, setEstimate,
-        origin, setOrigin,
-        destination, setDestination,
+        origin, originAddress, setOrigin,
+        destination, destinationAddress, setDestination,
         providerLocation, setProviderLocation,
         reset,
       }}

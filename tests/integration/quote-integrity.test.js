@@ -171,3 +171,86 @@ test('the quote carries the geometry the price came from', async () => {
     assert.equal(body.routeGeometry, null);
   }
 });
+
+// ── The guarantee across TIME, not just across endpoints ────────────────
+//
+// The tests above take the quote and make the request back-to-back, so they
+// share one BTC price-cache window and agree no matter what. Real riders do
+// not: they read the price, pick a class, type "black gate, side entrance"
+// and tap. The rate card is fiat and reaches sats through a price cached for
+// five minutes, so crossing that boundary used to record a fare the confirm
+// screen never showed — which the completion screen then called the "agreed
+// amount". Found on real hardware: approved £4.26 / 9,203 sats, recorded
+// £4.27 / 9,201 sats.
+const { getPriceCache } = require('../../src/pricing/fiat-conversion');
+
+/** Move the market under our feet, the way five minutes would. */
+function movePrice(factor) {
+  const cache = getPriceCache();
+  for (const ccy of ['USD', 'EUR', 'GBP', 'KES']) {
+    if (typeof cache[ccy] === 'number') cache[ccy] = cache[ccy] * factor;
+  }
+  cache.lastUpdate = Date.now(); // keep it cached, so nothing refetches
+}
+
+test('a quote held while the price moves still records the fare the rider approved', async () => {
+  const q = await quote();
+  assert.equal(q.status, 200);
+  assert.ok(q.body.quote_id, 'the estimate must mint a quote to redeem');
+  const approved = q.body.fare.sats;
+
+  movePrice(1.05);
+
+  const r = await request({ quote_id: q.body.quote_id });
+  assert.equal(r.status, 200);
+  assert.equal(
+    r.body.estimated_fare, approved,
+    'a held quote must be honoured verbatim across a price move'
+  );
+
+  movePrice(1 / 1.05); // leave the cache as we found it
+});
+
+test('without the quote the same price move DOES reprice — which is the bug', async () => {
+  const q = await quote();
+  const approved = q.body.fare.sats;
+
+  movePrice(1.25); // exaggerated so the drift is unmistakable
+
+  const r = await request(); // no quote_id — the old behaviour
+  assert.notEqual(
+    r.body.estimated_fare, approved,
+    'this documents WHY the quote exists: re-deriving drifts with the feed'
+  );
+
+  movePrice(1 / 1.25);
+});
+
+test('a quote cannot be spent on a different journey', async () => {
+  const q = await quote();
+  assert.ok(q.body.quote_id);
+
+  // Same handle, a materially longer trip: the fare must come from the trip
+  // actually requested, not the cheap one that was quoted.
+  const r = await post('/api/rides/request', {
+    pickup_lat: PICKUP.lat,
+    pickup_lon: PICKUP.lon,
+    dropoff_lat: 53.4000,
+    dropoff_lon: -2.9000,
+    rider_pubkey: riderPub,
+    rider_npub: riderNpub,
+    quote_id: q.body.quote_id
+  });
+
+  assert.equal(r.status, 200);
+  assert.ok(
+    r.body.estimated_fare > q.body.fare.sats,
+    'a mismatched quote must be ignored and the real journey priced'
+  );
+});
+
+test('an unknown or expired quote falls back to live pricing rather than failing', async () => {
+  const r = await request({ quote_id: 'q_neverissued' });
+  assert.equal(r.status, 200, 'a stale quote must not cost the rider their ride');
+  assert.ok(r.body.estimated_fare > 0);
+});

@@ -256,6 +256,13 @@ export interface TripEstimate {
   };
   /** Per-class prices when the domain defines service classes */
   options?: ServiceOptionPrice[];
+  /**
+   * Opaque handle to the fares this estimate showed. Sent back on request so
+   * the operator honours the approved number verbatim — the rate card is
+   * fiat and reaches sats through a cached BTC price, so without this a quote
+   * read a few minutes ago silently records a different fare.
+   */
+  quoteId?: string;
 }
 
 /** Available provider (driver, locksmith, courier, etc.) */
@@ -306,6 +313,12 @@ export interface OperatorInfo {
   public_relays?: string[];
   payment?: OperatorPaymentInfo;
   version?: string;
+  /**
+   * Free minutes at the pickup before waiting time joins the fare. Operator
+   * config — never assume a default, or the countdown promises free minutes
+   * the operator is already charging for.
+   */
+  freeWaitingMinutes?: number;
 }
 
 /**

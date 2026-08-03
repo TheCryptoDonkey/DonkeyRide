@@ -324,6 +324,12 @@ export async function requestTask(params: {
    * between seeing it and tapping.
    */
   surgeMultiplier?: number;
+  /**
+   * The quote this rider approved (TripEstimate.quoteId). The operator
+   * records its fare verbatim rather than re-deriving one, so the confirm
+   * screen's number and the recorded fare cannot drift apart.
+   */
+  quoteId?: string;
   /** Favourite providers this rider wants given a head start */
   preferredProviders?: string[];
   /**
@@ -363,6 +369,10 @@ export async function requestTask(params: {
     body.option = params.option;
   }
 
+  if (params.quoteId) {
+    body.quote_id = params.quoteId;
+  }
+
   if (params.preferredProviders && params.preferredProviders.length > 0) {
     body.preferred_providers = params.preferredProviders;
   }
@@ -374,6 +384,17 @@ export async function requestTask(params: {
   if (params.dropoff) {
     body.dropoff_lat = params.dropoff.lat;
     body.dropoff_lon = params.dropoff.lng;
+  }
+
+  // The requester searched for these by name; send them so the provider
+  // navigates to a street rather than a pair of decimals, and so the
+  // receipt records a journey that reads back. Participant-gated on the
+  // operator side — they never appear in a pre-accept payload or a snapshot.
+  if (params.pickupAddress) {
+    body.pickup_address = params.pickupAddress;
+  }
+  if (params.dropoffAddress) {
+    body.dropoff_address = params.dropoffAddress;
   }
 
   if (params.stops && params.stops.length > 0) {
@@ -989,6 +1010,10 @@ export async function getTripEstimate(params: {
       operatorFeeSats: raw.operatorFee?.sats ?? raw.fareBreakdown?.operatorFeeSats ?? 0,
     },
     options: Array.isArray(raw.options) ? raw.options : undefined,
+    // Hand this back with the request and the operator records the fare this
+    // screen showed, rather than re-deriving it through a BTC price that may
+    // have moved while the rider was still choosing.
+    quoteId: typeof raw.quote_id === 'string' ? raw.quote_id : undefined,
     fiatEstimate: raw.fare ? {
       amount: raw.fare.fiat,
       currency: raw.fare.currency || raw.currency || 'GBP',

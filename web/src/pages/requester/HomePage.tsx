@@ -63,11 +63,17 @@ export function HomePage() {
   /** Set the pickup and name it (address lookups are best-effort) */
   const choosePickup = useCallback((loc: LatLng, label?: string) => {
     setPickup(loc);
-    setOrigin(loc);
+    setOrigin(loc, label ?? null);
     setPickupLabel(label ?? null);
     if (label === undefined) {
+      // A dropped pin or a raw fix has no name yet. Reverse-geocode it and
+      // fold the answer back into the task state too, so the provider and
+      // the receipt get a street rather than the coordinates we started with.
       void reverseGeocode(loc).then((named) => {
-        if (named) setPickupLabel(named);
+        if (named) {
+          setPickupLabel(named);
+          setOrigin(loc, named);
+        }
       });
     }
     if (awaitingPickupRef.current) {
@@ -77,8 +83,15 @@ export function HomePage() {
   }, [setOrigin, navigate]);
 
   /** Destination chosen — the last answer we need, unless the pickup is unknown */
-  const chooseDestination = useCallback((loc: LatLng) => {
-    setDestination(loc);
+  const chooseDestination = useCallback((loc: LatLng, label?: string) => {
+    setDestination(loc, label ?? null);
+    // Tapped on the map rather than searched: name it after the fact so the
+    // provider is not sent to a pair of decimals.
+    if (label === undefined) {
+      void reverseGeocode(loc).then((named) => {
+        if (named) setDestination(loc, named);
+      });
+    }
     if (pickup) {
       navigate('/request/new');
       return;
@@ -232,7 +245,7 @@ export function HomePage() {
             <AddressSearch
               placeholder={t('home.whereTo')}
               biasLocation={pickup || location}
-              onSelect={(loc) => chooseDestination(loc)}
+              onSelect={(loc, label) => chooseDestination(loc, label)}
             />
             <p className="text-xs text-donkey-muted mt-2">
               {t('home.selectDestination')}

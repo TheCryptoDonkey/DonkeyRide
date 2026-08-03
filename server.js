@@ -461,6 +461,75 @@ async function routeAndPrice(pickup, dropoff, via, currency, multiplier = 1) {
     return { distance, duration, coordinates, routed, estimate };
 }
 
+// ==========================================
+// QUOTE STORE — the upfront-price guarantee across TIME
+// ==========================================
+// routeAndPrice() makes the quote and the fare agree for the same INPUTS,
+// but the rate card is fiat and reaches sats through a BTC price cached for
+// five minutes. A rider who reads the quote, picks a service class and types
+// a meeting note can easily cross that boundary, and the ride then records a
+// number they never saw — the completion screen even calls it the "agreed
+// amount". Recomputing more carefully cannot fix that; only remembering the
+// quote can. So the estimate mints one, and the request spends it.
+//
+// Kept in memory and short-lived, like every other bit of coordination state
+// here: a lost quote costs a re-price, not a ride.
+const quoteStore = new Map();
+const QUOTE_TTL_MS = parseInt(process.env.QUOTE_TTL_MS || '600000', 10); // 10 min
+// How far the request's coordinates may sit from the quoted ones. Not zero:
+// clients round when they serialise. Far too small to buy a different journey.
+const QUOTE_MATCH_TOLERANCE_KM = 0.1;
+
+function rememberQuote(entry) {
+    // Unguessable: a quote is a promise about money, and a predictable
+    // handle would let one rider spend another's.
+    const id = `q_${require('crypto').randomBytes(16).toString('hex')}`;
+    quoteStore.set(id, { ...entry, expiresAt: Date.now() + QUOTE_TTL_MS });
+    return id;
+}
+
+/** The quote if it is still valid AND is for the journey being requested. */
+function redeemQuote(quoteId, journey) {
+    if (typeof quoteId !== 'string' || !quoteId) return null;
+    const quote = quoteStore.get(quoteId);
+    if (!quote) return null;
+    if (quote.expiresAt <= Date.now()) {
+        quoteStore.delete(quoteId);
+        return null;
+    }
+    // A quote buys the journey it was given for, not a cheaper price on a
+    // different one. Everything the fare depends on has to match.
+    const near = (a, b) => a && b
+        && calculateDistance(a.lat, a.lon, b.lat, b.lon) <= QUOTE_MATCH_TOLERANCE_KM;
+    if (!near(quote.pickup, journey.pickup)) return null;
+    if (Boolean(quote.dropoff) !== Boolean(journey.dropoff)) return null;
+    if (quote.dropoff && !near(quote.dropoff, journey.dropoff)) return null;
+    if ((quote.stopCount || 0) !== (journey.stopCount || 0)) return null;
+    if ((quote.currency || null) !== (journey.currency || null)) return null;
+    return quote;
+}
+
+/**
+ * The sats figure this quote showed for the class the rider actually chose.
+ * The confirm screen prices EVERY class up front, so the class is picked
+ * after the quote is minted — a quote is for a journey, not for one row of
+ * the rate card. Returns null for a class this quote never priced.
+ */
+function quotedFareFor(quote, optionId) {
+    if (!quote) return null;
+    const key = optionId || '__default__';
+    const priced = quote.fares && quote.fares[key];
+    return priced && Number.isFinite(priced.sats) ? priced : null;
+}
+
+const quoteSweep = setInterval(() => {
+    const now = Date.now();
+    for (const [id, q] of quoteStore) {
+        if (q.expiresAt <= now) quoteStore.delete(id);
+    }
+}, 60 * 1000);
+quoteSweep.unref();
+
 /**
  * Sats rows for a fare breakdown that actually sums to the quote. The pricing
  * module returns fiat rows; the client shows sats-and-fiat, so convert with
@@ -1305,6 +1374,9 @@ const DRIVER_PRESENCE_TTL_MS = 2 * 60 * 1000; // location older than this is sta
 const PICKUP_ADJUST_MAX_KM = parseFloat(process.env.PICKUP_ADJUST_MAX_KM) || 1;
 // "Black gate, side entrance" — meeting instructions, not an essay
 const PICKUP_NOTE_MAX_CHARS = 140;
+// "Manchester Piccadilly, Piccadilly Station, M1 2DT" — a searched address,
+// generous enough for a long one but not a place to smuggle a payload.
+const ADDRESS_MAX_CHARS = 200;
 // Favourite providers: how long they get the job to themselves before it
 // opens to everyone, and how many a rider may name.
 const FAVOURITE_HEAD_START_MS = parseInt(process.env.FAVOURITE_HEAD_START_MS || '45000', 10);
@@ -2191,11 +2263,14 @@ function dispatchScheduledRide(ride) {
             scheduledFor: ride.scheduledFor || null,
             womenOnly: ride.womenOnly === true,
             accessNeeds: ride.accessNeeds || [],
-            option: ride.option || null,
-            rider: ride.rider ? {
-                npub: ride.rider.npub,
-                pubkey: ride.rider.pubkey
-            } : null
+            option: ride.option || null
+            // No requester identity pre-accept. A pubkey is a PERSISTENT
+            // identity — broadcasting it to every provider in the dispatch
+            // radius lets anyone merely listening tie a person to a pickup
+            // time and place, and to their public Nostr profile, without
+            // ever committing to the job. The accepting provider gets it
+            // from the participant-gated task detail. Keep this in step with
+            // sendPendingRideRequests() and GET /api/rides/open.
         }
     }, ride.pickup, ride);
     const pushed = pushRideRequestToOfflineDrivers(ride, estimate);
@@ -2392,6 +2467,12 @@ app.get('/info', publicRateLimiter, (req, res) => {
         feePercent: config.operatorFeePercent,
         maxStake: config.maxStakeAmount,
         minStake: config.minStakeAmount,
+        // How long a provider waits at the pickup before waiting time is
+        // added to the agreed fare. The clients show a countdown against
+        // this, so it MUST come from the operator rather than a client-side
+        // constant — otherwise an operator who changes it shows both parties
+        // free minutes that are already chargeable.
+        freeWaitingMinutes: FREE_WAITING_MINUTES,
         activeRides: activeRides.size,
         uptime: process.uptime(),
         version: packageVersion,
@@ -4010,6 +4091,9 @@ app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
         // Per-class prices so the picker shows real numbers, not a
         // multiplier the client had to guess at
         const classes = [];
+        // What each class was priced at, kept for the quote. Not part of the
+        // response — the client already has fareSats per class.
+        const pricedByOption = {};
         for (const option of (domainProfile.serviceOptions || [])) {
             // Class multiplier composes with demand: an XL in a surge is
             // one rate card scaled once, so its breakdown still sums
@@ -4028,7 +4112,23 @@ app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
                 fareFormatted: priced.fare.formatted,
                 fareBreakdown: breakdownSats(priced)
             });
+            pricedByOption[option.id] = { sats: priced.fare.sats, estimate: priced };
         }
+
+        // Remember exactly what this screen showed, for every class on it.
+        // The request redeems this rather than re-deriving, so the number the
+        // rider approves is the number recorded even if the BTC price ticks
+        // between reading the quote and tapping the button.
+        const quoteId = rememberQuote({
+            pickup: { lat: pickup_lat, lon: pickup_lon },
+            // This endpoint validates all four coordinates above, so a quote
+            // always has a destination — unlike a request, which may not.
+            dropoff: { lat: dropoff_lat, lon: dropoff_lon },
+            stopCount: via ? via.length : 0,
+            currency: fiatCurrency,
+            surgeMultiplier: surge.multiplier,
+            fares: { __default__: { sats: estimate.fare.sats, estimate }, ...pricedByOption },
+        });
 
         res.json({
             ...estimate,
@@ -4036,6 +4136,10 @@ app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
             // these instead of inventing percentages
             fareBreakdown: breakdownSats(estimate),
             options: classes,
+            // Hand this back on request and the quoted fare is honoured
+            // verbatim. Valid for QUOTE_TTL_MS, for THIS journey only.
+            quote_id: quoteId,
+            quote_expires_at: Date.now() + QUOTE_TTL_MS,
             // Same polyline the ride will carry, so the confirm screen shows
             // the road the price was calculated from
             routeGeometry: coordinates,
@@ -4170,6 +4274,8 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 women_only,
                 access_needs,
                 pickup_note,
+                pickup_address,
+                dropoff_address,
                 option,
                 preferred_providers
             } = req.body;
@@ -4292,9 +4398,40 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                     : `📏 Using straight-line routing: ${distance.toFixed(2)}km`);
             }
 
+            // The quote the rider actually approved, if they still hold one
+            // for THIS journey. Honoured verbatim: the fiat rate card reaches
+            // sats through a five-minute-cached BTC price, so re-deriving here
+            // records a number the confirm screen never showed and then calls
+            // it the agreed amount. An expired or mismatched quote falls back
+            // to live pricing rather than failing the request.
+            const heldQuote = redeemQuote(req.body.quote_id, {
+                pickup: { lat: pickup_lat, lon: pickup_lon },
+                dropoff: hasDropoff ? { lat: dropoff_lat, lon: dropoff_lon } : null,
+                stopCount: routeVia ? routeVia.length : 0,
+                currency: fiatCurrency
+            });
+            // ...but only while the demand multiplier has not FALLEN. Those
+            // are two different reasons the number can move: price-feed noise
+            // (pin it, the rider approved that figure) and surge easing off
+            // (re-price, the rider should get the cheaper one). Honouring the
+            // quote blindly would turn the existing min(live, quoted) surge
+            // protection into a floor.
+            const surgeHeld = heldQuote == null
+                || Math.abs((heldQuote.surgeMultiplier || 1) - honouredSurge) < 1e-9;
+            const quotedFare = surgeHeld ? quotedFareFor(heldQuote, serviceOption?.id || null) : null;
+            if (req.body.quote_id && !quotedFare) {
+                console.log(heldQuote && !surgeHeld
+                    ? `💱 Quote ${req.body.quote_id} superseded — demand eased since it was given, re-priced lower`
+                    : `💱 Quote ${req.body.quote_id} not honoured (expired or different journey) — re-priced live`);
+            }
+
             const estimatedFareSats = fare_sats
                 ? parseInt(fare_sats, 10)
-                : estimate.fare.sats;
+                : (quotedFare ? quotedFare.sats : estimate.fare.sats);
+            // Everything downstream (breakdown rows, the driver's card, the
+            // receipt) reads the estimate, so it has to describe the fare
+            // actually recorded — not the one we just declined to use.
+            const pricedEstimate = quotedFare && !fare_sats ? quotedFare.estimate : estimate;
 
             // Create ride
             const dropoffLocation = hasDropoff ? { lat: dropoff_lat, lon: dropoff_lon } : null;
@@ -4316,7 +4453,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 if (session) {
                     session.pickup = ride.pickup;
                     session.dropoff = ride.dropoff;
-                    session.estimate = estimate;
+                    session.estimate = pricedEstimate;
                     session.route = routeCoordinates;
                     session.currency = fiatCurrency;
                 }
@@ -4325,7 +4462,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             ride.currency = fiatCurrency;
             // Kept in memory (never snapshotted) so deferred dispatch and the
             // open list can show the fare estimate without a session
-            ride.estimate = estimate;
+            ride.estimate = pricedEstimate;
 
             // Women-only matching (self-declared, honesty-based). Deliberately
             // NOT in the Nostr snapshot: publishing the flag would tag a
@@ -4350,6 +4487,20 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             // pre-accept payload, never in the Nostr snapshot.
             if (typeof pickup_note === 'string' && pickup_note.trim()) {
                 ride.pickupNote = pickup_note.trim().slice(0, PICKUP_NOTE_MAX_CHARS);
+            }
+
+            // Human-readable addresses. The requester already has these —
+            // they searched for them — and without them the provider drives
+            // to a pair of decimals and the receipt records a journey nobody
+            // can read back. Full addresses ARE PII, so they are handled
+            // exactly like the meeting note: participant-gated, in memory,
+            // never in a pre-accept payload, never in the kind 30078
+            // snapshot (which carries geohashes only).
+            if (typeof pickup_address === 'string' && pickup_address.trim()) {
+                ride.pickupAddress = pickup_address.trim().slice(0, ADDRESS_MAX_CHARS);
+            }
+            if (typeof dropoff_address === 'string' && dropoff_address.trim()) {
+                ride.dropoffAddress = dropoff_address.trim().slice(0, ADDRESS_MAX_CHARS);
             }
 
             // Booking for somebody else — a parent sending a child home, an
@@ -4416,23 +4567,25 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                         stopCount: ride.stops ? ride.stops.length : 0,
                         fare: ride.fare,
                         distance: distance,
-                        estimatedFare: estimate,
+                        estimatedFare: pricedEstimate,
                         currency: fiatCurrency,
                         scheduledFor: ride.scheduledFor || null,
                         womenOnly: ride.womenOnly === true,
                         accessNeeds: ride.accessNeeds || [],
-                        option: ride.option || null,
-                        rider: ride.rider ? {
-                            npub: ride.rider.npub,
-                            pubkey: ride.rider.pubkey
-                        } : null
+                        option: ride.option || null
+                        // No requester identity pre-accept — see
+                        // dispatchScheduledRide() for why. This payload is
+                        // the one GET /api/rides/open claims to mirror, and
+                        // it used to be the odd one out: identity arrived on
+                        // the live broadcast, then vanished when the 30 s
+                        // open-list reconcile replaced the same job.
                     }
                 }, ride.pickup, ride);
 
                 console.log(`📢 Broadcast ride request ${ride.id} to ${driverCount} drivers`);
 
                 // Backgrounded driver apps get a Web Push instead of the WS frame
-                const pushed = pushRideRequestToOfflineDrivers(ride, estimate);
+                const pushed = pushRideRequestToOfflineDrivers(ride, pricedEstimate);
                 if (pushed > 0) {
                     console.log(`🔔 Pushed ride request ${ride.id} to ${pushed} offline drivers`);
                 }
@@ -4443,7 +4596,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 ride_id: ride.id,
                 status: ride.status,
                 estimated_fare: estimatedFareSats,
-                estimated_cost: estimate.fare.formatted,
+                estimated_cost: pricedEstimate.fare.formatted,
                 distance_km: distance,
                 duration_minutes: Math.round(duration),
                 drivers_notified: driverCount,

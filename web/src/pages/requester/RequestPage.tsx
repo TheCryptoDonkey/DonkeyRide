@@ -48,7 +48,10 @@ const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 3600 * 1000;
 export function RequestPage() {
   const navigate = useNavigate();
   const { t, td } = useT();
-  const { origin, destination, estimate, setEstimate, setActiveTask, activeTask } = useTask();
+  const {
+    origin, destination, originAddress, destinationAddress,
+    estimate, setEstimate, setActiveTask, activeTask,
+  } = useTask();
   const { identity } = useIdentity();
   const { profile } = useDomain();
   const [loading, setLoading] = useState(false);
@@ -169,6 +172,10 @@ export function RequestPage() {
         dropoff: requiresDestination ? destination! : null,
         requesterPubkey: identity.pubKeyHex,
         requesterNpub: identity.npub,
+        // The names these places were chosen by. Without them the provider
+        // navigates to decimals and the receipt is unreadable later.
+        pickupAddress: originAddress || undefined,
+        dropoffAddress: requiresDestination ? (destinationAddress || undefined) : undefined,
         domain: profile?.id,
         scheduledFor,
         stops: stops.length > 0 ? stops : undefined,
@@ -178,6 +185,8 @@ export function RequestPage() {
         accessNeeds: accessNeeds.length > 0 ? accessNeeds : undefined,
         // The multiplier this screen showed — the server will not exceed it
         surgeMultiplier: estimate?.surge?.multiplier,
+        // ...and the quote itself, so the fare recorded is the fare shown
+        quoteId: estimate?.quoteId,
         preferredProviders: favourites,
         passenger: forSomeoneElse && (passengerName.trim() || passengerNote.trim())
           ? { name: passengerName.trim() || undefined, note: passengerNote.trim() || undefined }
