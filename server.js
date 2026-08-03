@@ -2473,7 +2473,10 @@ app.get('/info', publicRateLimiter, (req, res) => {
         // constant — otherwise an operator who changes it shows both parties
         // free minutes that are already chargeable.
         freeWaitingMinutes: FREE_WAITING_MINUTES,
-        activeRides: activeRides.size,
+        // The REAL count. `activeRides` is the legacy demo-session Map, which
+        // the React apps never populate — so this field read 0 on every
+        // operator actually running the product, however busy it was.
+        activeRides: rideManager.getActiveRides().length,
         uptime: process.uptime(),
         version: packageVersion,
         nostrRelay: config.nostrRelay,

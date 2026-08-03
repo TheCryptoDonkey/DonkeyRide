@@ -85,7 +85,9 @@ export function ActiveTaskPage() {
   const [endShiftAfter, setEndShiftAfter] = useState(dispatchService.isEndingShiftAfterJob());
   const [declaredRail, setDeclaredRail] = useState<string | null>(null);
   // The requester cancelled — its own screen, with the option to record it
-  const [cancelledOn, setCancelledOn] = useState<{ late: boolean } | null>(null);
+  const [cancelledOn, setCancelledOn] = useState<
+    { late: boolean; reasonCode: string | null } | null
+  >(null);
 
   const originLabel = profile?.labels?.originLabel || 'Pickup';
   const destinationLabel = profile?.labels?.destinationLabel || 'Dropoff';
@@ -179,7 +181,10 @@ export function ActiveTaskPage() {
       case 'task_cancelled':
         // A driver who drove to a pickup deserves the same record the rider
         // gets when a driver drops them — same rail, same trust model
-        setCancelledOn({ late: msg.lateCancellation === true });
+        setCancelledOn({
+          late: msg.lateCancellation === true,
+          reasonCode: msg.reasonCode ?? null,
+        });
         break;
     }
   }, [activeTask, setActiveTask, navigate, terminalStates, refreshTask, reset, taskNoun, originLabel]);
@@ -211,6 +216,7 @@ export function ActiveTaskPage() {
         byLabel={requesterLabel.toLowerCase()}
         taskNoun={taskNoun}
         late={cancelledOn.late && Boolean(activeTask.requesterPubkey)}
+        reasonCode={cancelledOn.reasonCode}
         onReport={async () => {
           if (!activeTask.requesterPubkey) return;
           await reportLateCancel(activeTask.id, {
@@ -699,8 +705,19 @@ export function ActiveTaskPage() {
           {!isTerminal && showCancelConfirm && (
             <div className="rounded-lg border border-donkey-red/40 p-3 space-y-3">
               <p className="text-sm font-bold text-donkey-text">{t('pactive.cancelConfirm')}</p>
+              {/* Once the job has STARTED there is no late cancellation to
+                  warn about — the operator only marks one when a provider
+                  committed and dropped it before starting. Telling a driver
+                  mid-trip that this "shows on your record" is a penalty that
+                  does not exist, and it discourages exactly the cancellations
+                  that most need to happen (a breakdown, a passenger who has
+                  become a problem). Say the thing that is actually true. */}
               <p className="text-xs text-donkey-muted">
-                {t('pactive.cancelNote', { label: requesterLabel.toLowerCase() })}
+                {activeTask.startedAt
+                  ? t('pactive.cancelNoteStarted', {
+                    label: requesterLabel.toLowerCase(), noun: taskNoun.toLowerCase(),
+                  })
+                  : t('pactive.cancelNote', { label: requesterLabel.toLowerCase() })}
               </p>
               <CancelReasonPicker
                 side="provider"

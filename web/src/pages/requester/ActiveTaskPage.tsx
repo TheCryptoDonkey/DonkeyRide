@@ -102,7 +102,9 @@ export function ActiveTaskPage() {
   const [noProviders, setNoProviders] = useState<{ radiusKm: number } | null>(null);
   // Set when the provider cancelled — its own screen too, because a toast
   // told the rider nothing and gave them nowhere to record it
-  const [cancelledBy, setCancelledBy] = useState<{ late: boolean } | null>(null);
+  const [cancelledBy, setCancelledBy] = useState<
+    { late: boolean; reasonCode: string | null } | null
+  >(null);
 
   // Route a task that has reached a terminal state
   const routeTerminal = useCallback((task: Task) => {
@@ -115,7 +117,10 @@ export function ActiveTaskPage() {
       }
       // They had committed and then dropped it — the rider gets a screen,
       // not a toast, and the option to put it on the public record
-      setCancelledBy({ late: task.lateCancellation === true });
+      setCancelledBy({
+        late: task.lateCancellation === true,
+        reasonCode: task.cancellationReasonCode ?? null,
+      });
       return;
     } else {
       // Guardians this trip was shared with get their all-clear —
@@ -205,7 +210,10 @@ export function ActiveTaskPage() {
           setNoProviders({ radiusKm: search?.radiusKm || 0 });
           break;
         }
-        setCancelledBy({ late: msg.lateCancellation === true });
+        setCancelledBy({
+          late: msg.lateCancellation === true,
+          reasonCode: msg.reasonCode ?? null,
+        });
         break;
     }
   }, [activeTask, setActiveTask, setProviderLocation, setOrigin, setDestination, navigate, profile, terminalStates, routeTerminal, refreshTask, reset, taskNoun]);
@@ -288,6 +296,7 @@ export function ActiveTaskPage() {
         byLabel={providerRoleLabel.toLowerCase()}
         taskNoun={taskNoun}
         late={cancelledBy.late && Boolean(target)}
+        reasonCode={cancelledBy.reasonCode}
         onReport={async () => {
           if (!target || !activeTask) return;
           await reportLateCancel(activeTask.id, {

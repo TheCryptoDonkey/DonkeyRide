@@ -118,6 +118,8 @@ export const en: Record<string, string> = {
   'dash.waiting': 'Waiting {noun} requests ({n})',
   'dash.booked': 'Booked {time}',
   'dash.noGps': 'Location unavailable. You will not receive {noun} requests until location is enabled.',
+  'dash.onlineNoGps': "You are online, but we cannot tell where you are — so no {noun} can reach you. Check location is switched on.",
+  'dash.retryGps': 'Try again',
   'dash.goOnline': 'Go Online',
   'dash.goOffline': 'Go Offline',
   'dash.earnings': 'Earnings',
@@ -406,6 +408,7 @@ export const en: Record<string, string> = {
   'pactive.cancelJob': 'Cancel job',
   'pactive.cancelConfirm': 'Cancel this job?',
   'pactive.cancelNote': 'The {label} is waiting on you. Cancelling after accepting shows on your record.',
+  'pactive.cancelNoteStarted': 'This {noun} has already started. Nothing goes on your record, but make sure the {label} is somewhere safe before you cancel.',
   'pactive.keepJob': 'Keep job',
 
   // What is happening, said in a sentence rather than a state-machine enum.
@@ -474,6 +477,7 @@ export const en: Record<string, string> = {
   // The counterparty cancelled
   'cancelled.title': 'Your {label} cancelled',
   'cancelled.body': 'The {noun} will not go ahead. Nothing was charged.',
+  'cancelled.reason': 'Reason given: {reason}',
   'cancelled.lateTitle': 'They had already committed',
   'cancelled.lateBody': 'This {label} accepted and then cancelled while you were waiting. You can put that on their public record — it is signed by you, not by us, and no money changes hands either way.',
   'cancelled.report': 'Report the late cancellation',

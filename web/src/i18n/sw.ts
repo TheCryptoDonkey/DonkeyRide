@@ -129,6 +129,8 @@ export const sw: Record<string, string> = {
   'dash.waiting': 'Maombi ya {noun} yanayosubiri ({n})',
   'dash.booked': 'Imeratibiwa {time}',
   'dash.noGps': 'Mahali hapapatikani. Hutapokea maombi ya {noun} hadi uwashe huduma za mahali.',
+  'dash.onlineNoGps': 'Uko mtandaoni, lakini hatuwezi kujua ulipo — hakuna {noun} inayoweza kukufikia. Hakikisha huduma za mahali zimewashwa.',
+  'dash.retryGps': 'Jaribu tena',
   'dash.goOnline': 'Ingia mtandaoni',
   'dash.goOffline': 'Toka mtandaoni',
   'dash.earnings': 'Mapato',
@@ -417,6 +419,7 @@ export const sw: Record<string, string> = {
   'pactive.cancelJob': 'Ghairi kazi',
   'pactive.cancelConfirm': 'Ghairi kazi hii?',
   'pactive.cancelNote': '{label} anakusubiri. Kughairi baada ya kukubali kunaonekana kwenye rekodi yako.',
+  'pactive.cancelNoteStarted': '{noun} hii tayari imeanza. Hakuna kitakachoingia kwenye rekodi yako, lakini hakikisha {label} yuko mahali salama kabla ya kughairi.',
   'pactive.keepJob': 'Endelea na kazi',
 
   // Hali ya safari kwa maneno, si msimbo wa mfumo
@@ -484,6 +487,7 @@ export const sw: Record<string, string> = {
   // Mwenzako ameghairi
   'cancelled.title': '{label} wako ameghairi',
   'cancelled.body': '{noun} haitaendelea. Hakuna malipo yaliyofanyika.',
+  'cancelled.reason': 'Sababu iliyotolewa: {reason}',
   'cancelled.lateTitle': 'Alikuwa amekwisha kubali',
   'cancelled.lateBody': '{label} huyu alikubali kisha akaghairi ukiwa unasubiri. Unaweza kuweka hilo kwenye rekodi yake ya umma — imesainiwa na wewe, si sisi, na hakuna pesa inayobadilishana mikono.',
   'cancelled.report': 'Ripoti kughairi kwa kuchelewa',

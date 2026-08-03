@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useT } from '../../i18n';
+import { reasonKey, prettifyCode } from '../../utils/cancel-reasons';
 
 interface CancelledScreenProps {
   /** Word for whoever cancelled ("driver", "rider") */
@@ -11,6 +12,14 @@ interface CancelledScreenProps {
    * after matching is not a late cancellation.
    */
   late: boolean;
+  /**
+   * The fixed reason code the canceller chose, if they gave one. The whole
+   * point of the per-side vocabulary is that the OTHER party learns why —
+   * this screen used to drop it, so a rider whose app was backgrounded read
+   * "the driver cancelled: a vehicle problem" in the push while one watching
+   * the screen was told only "your driver cancelled".
+   */
+  reasonCode?: string | null;
   onReport: () => Promise<void>;
   onDone: () => void;
 }
@@ -25,7 +34,7 @@ interface CancelledScreenProps {
  * let down can create it.
  */
 export function CancelledScreen({
-  byLabel, taskNoun, late, onReport, onDone,
+  byLabel, taskNoun, late, reasonCode, onReport, onDone,
 }: CancelledScreenProps) {
   const { t } = useT();
   const [reported, setReported] = useState(false);
@@ -53,6 +62,17 @@ export function CancelledScreen({
           <p className="text-sm text-donkey-muted mt-2">
             {t('cancelled.body', { noun: taskNoun })}
           </p>
+          {/* Why, when they said why. "Cancelled" on its own leaves the other
+              party guessing whether they did something wrong. */}
+          {reasonCode && (
+            <p className="text-sm text-donkey-text font-semibold mt-2">
+              {t('cancelled.reason', {
+                reason: (t(reasonKey(reasonCode)) === reasonKey(reasonCode)
+                  ? prettifyCode(reasonCode)
+                  : t(reasonKey(reasonCode))).toLowerCase(),
+              })}
+            </p>
+          )}
         </div>
 
         {/* Only offered when there is genuinely something to report */}

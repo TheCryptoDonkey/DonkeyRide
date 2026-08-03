@@ -29,13 +29,15 @@ function DispatchTaskListener() {
   const { activeTask, setActiveTask } = useTask();
   const { profile } = useDomain();
   const { identity } = useIdentity();
-  const { location, error: geoError, loading: geoLoading } = useLocation();
+  const { location, hasFix } = useLocation();
   const activeTaskRef = useRef(activeTask);
   activeTaskRef.current = activeTask;
   const profileRef = useRef(profile);
   profileRef.current = profile;
 
-  const geoReady = !geoLoading && !geoError;
+  // A real device fix, not the placeholder. Never inferred from the absence
+  // of an error — see useLocation.
+  const geoReady = hasFix;
 
   useEffect(() => {
     if (identity) {

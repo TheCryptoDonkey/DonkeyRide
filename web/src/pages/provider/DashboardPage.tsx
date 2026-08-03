@@ -41,7 +41,7 @@ const NTFY_INSTALL_URL = 'https://f-droid.org/packages/io.heckel.ntfy/';
 export function DashboardPage() {
   const navigate = useNavigate();
   const { t, td } = useT();
-  const { location, error: geoError, loading: geoLoading } = useLocation();
+  const { location, hasFix, error: geoError, refresh: refreshLocation } = useLocation();
   const { identity } = useIdentity();
   const { activeTask, setActiveTask } = useTask();
   const { profile } = useDomain();
@@ -70,7 +70,9 @@ export function DashboardPage() {
 
   const online = dispatchState.online;
   const wsConnected = dispatchState.connected;
-  const geoReady = !geoLoading && !geoError;
+  // A real device fix, not the placeholder. Never inferred from the absence
+  // of an error — see useLocation.
+  const geoReady = hasFix;
 
   // An in-flight job (including one rehydrated after a restart) resumes here
   useEffect(() => {
@@ -172,7 +174,12 @@ export function DashboardPage() {
       {profile?.features.navigation !== false ? (
         <div className="flex-1 relative">
           <MapView centre={location} zoom={14}>
-            <LocationMarker position={location} label={t('common.you')} colour="green" />
+            {/* Only mark "you" where the device actually put us. Without a
+                fix `location` is the London placeholder, and a confident
+                green dot on it is simply a lie. */}
+            {hasFix && (
+              <LocationMarker position={location} label={t('common.you')} colour="green" />
+            )}
           </MapView>
 
           {/* Online status indicator — floating badge with glow */}
@@ -236,6 +243,23 @@ export function DashboardPage() {
             <p className="text-donkey-orange text-sm font-semibold">
               {t('dash.noGps', { noun: taskNoun })}
             </p>
+          </div>
+        )}
+
+        {/* Online, but the operator has no position for us — so no job can
+            ever arrive. Silence here is indistinguishable from a quiet night,
+            and a driver can sit through a whole shift earning nothing. */}
+        {online && !hasFix && (
+          <div className="bg-donkey-red/20 border border-donkey-red rounded-lg p-3" role="alert">
+            <p className="text-donkey-red text-sm font-semibold">
+              {t('dash.onlineNoGps', { noun: taskNoun })}
+            </p>
+            <button
+              className="text-donkey-blue text-sm font-semibold mt-1 min-h-[44px]"
+              onClick={refreshLocation}
+            >
+              {t('dash.retryGps')}
+            </button>
           </div>
         )}
 
@@ -392,17 +416,26 @@ export function DashboardPage() {
           )}
         </SheetSection>
 
-        {/* Native only: the app is online but nothing can reach it once
-            backgrounded. Say so — silence looks identical to a quiet night. */}
-        {isNative && online && pushState !== 'enabled' && pushState !== 'idle' && (
+        {/* The app is online but nothing can reach it once backgrounded. Say
+            so — silence looks identical to a quiet night.
+            NOT native-only: a web driver whose notifications are switched off
+            is in exactly the same position (the tab is frozen the moment it
+            is backgrounded, so the dispatch socket goes with it), and used to
+            be told nothing at all. The distributor prompts below stay Android
+            -only, because UnifiedPush is an Android concept. */}
+        {online && pushState !== 'enabled' && pushState !== 'idle' && (
           <div className="bg-donkey-orange/20 border border-donkey-orange rounded-lg p-3">
             <p className="text-donkey-orange text-sm">
               {pushState === 'no_distributor' && t('dash.pushNoDistributor')}
               {pushState === 'choose_distributor' && t('dash.pushChoose')}
               {pushState === 'denied' && t('dash.pushDenied')}
-              {(pushState === 'failed' || pushState === 'unsupported') && t('dash.pushNoDistributor')}
+              {(pushState === 'failed' || pushState === 'unsupported')
+                && (isNative ? t('dash.pushNoDistributor') : t('dash.pushDenied'))}
             </p>
-            {pushState !== 'denied' && (
+            {/* Installing a UnifiedPush distributor is only meaningful in the
+                Android wrap — on web the answer is the browser's own
+                notification permission, not another app. */}
+            {isNative && pushState !== 'denied' && (
               <a
                 href={NTFY_INSTALL_URL}
                 target="_blank"
