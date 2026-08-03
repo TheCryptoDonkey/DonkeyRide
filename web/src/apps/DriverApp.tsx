@@ -15,6 +15,7 @@ import { useDomain } from '../context/DomainContext';
 import { useIdentity } from '../context/IdentityContext';
 import { useLocation } from '../hooks/useLocation';
 import { dispatchService } from '../services/dispatch';
+import { onNotificationTapped, takePendingUrl } from '../services/unified-push';
 
 /**
  * App-level dispatch listener: the connection is a module singleton, so an
@@ -67,6 +68,21 @@ function DispatchTaskListener() {
       : task);
     navigate('/provide/incoming');
   }), [navigate, setActiveTask]);
+
+  // A tapped job notification in the native app. Two cases: the tap woke a
+  // dead process (the path was stored, so it is read once here on start),
+  // or the app was already running (the plugin says so live).
+  useEffect(() => {
+    let cancelled = false;
+    void takePendingUrl().then((url) => {
+      if (url && !cancelled) navigate(url);
+    });
+    const listener = onNotificationTapped((url) => navigate(url));
+    return () => {
+      cancelled = true;
+      void listener.then((handle) => handle?.remove());
+    };
+  }, [navigate]);
 
   return null;
 }

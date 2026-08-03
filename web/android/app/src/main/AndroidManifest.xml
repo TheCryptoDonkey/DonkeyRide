@@ -24,6 +24,16 @@
 
         </activity>
 
+        <!-- Off-shift job alerts over UnifiedPush. Not exported: the
+             connector's own receiver forwards events to it in-process. -->
+        <service
+            android:name=".DonkeyPushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
+            </intent-filter>
+        </service>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -34,6 +44,15 @@
                 android:resource="@xml/file_paths"></meta-data>
         </provider>
     </application>
+
+    <!-- Package visibility (Android 11+): without this the connector
+         cannot see any installed UnifiedPush distributor, and the driver
+         is told none exists when ntfy is sitting right there. -->
+    <queries>
+        <intent>
+            <action android:name="org.unifiedpush.android.distributor.REGISTER" />
+        </intent>
+    </queries>
 
     <!-- Permissions -->
 

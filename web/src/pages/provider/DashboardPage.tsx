@@ -18,10 +18,13 @@ import {
   saveDestinationMode, clearDestinationMode, type DestinationMode,
 } from '../../utils/destination-mode';
 import { Capacitor } from '@capacitor/core';
+import { getPushState, onPushStateChange, type PushState } from '../../services/push';
 import { useT } from '../../i18n';
 import type { Task } from '../../types/api';
 
 const isNative = Capacitor.isNativePlatform();
+/** F-Droid first: the point of this rail is not needing Google's store either */
+const NTFY_INSTALL_URL = 'https://f-droid.org/packages/io.heckel.ntfy/';
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -41,6 +44,9 @@ export function DashboardPage() {
   const [declined, setDeclined] = useState(dispatchService.declinedCount());
   const [destMode, setDestMode] = useState<DestinationMode | null>(dispatchService.getDestinationMode());
   const [pickingDest, setPickingDest] = useState(false);
+  // Push can fail quietly, and a driver reads silence as "no jobs tonight"
+  const [pushState, setPushState] = useState<PushState>(getPushState);
+  useEffect(() => onPushStateChange(setPushState), []);
 
   const applyDestination = (mode: DestinationMode | null) => {
     if (mode) saveDestinationMode(mode);
@@ -381,6 +387,29 @@ export function DashboardPage() {
           <p className="text-donkey-orange text-sm text-center">
             {t('dash.connectingDispatcher')}
           </p>
+        )}
+
+        {/* Native only: the app is online but nothing can reach it once
+            backgrounded. Say so — silence looks identical to a quiet night. */}
+        {isNative && online && pushState !== 'enabled' && pushState !== 'idle' && (
+          <div className="bg-donkey-orange/20 border border-donkey-orange rounded-lg p-3">
+            <p className="text-donkey-orange text-sm">
+              {pushState === 'no_distributor' && t('dash.pushNoDistributor')}
+              {pushState === 'choose_distributor' && t('dash.pushChoose')}
+              {pushState === 'denied' && t('dash.pushDenied')}
+              {(pushState === 'failed' || pushState === 'unsupported') && t('dash.pushNoDistributor')}
+            </p>
+            {pushState !== 'denied' && (
+              <a
+                href={NTFY_INSTALL_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="text-donkey-blue text-sm font-semibold"
+              >
+                {t('dash.pushGetNtfy')}
+              </a>
+            )}
+          </div>
         )}
 
         {/* Web only: the Android build keeps the shift alive screen-off */}

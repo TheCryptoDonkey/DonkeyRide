@@ -132,6 +132,10 @@ export const en: Record<string, string> = {
   'dash.androidNote': 'Driving on Android?',
   'dash.getApp': 'Get the app',
   'dash.screenOff': '— jobs keep arriving with the screen off.',
+  'dash.pushNoDistributor': 'Alerts while the app is closed need a notification app. Install ntfy, then go online again.',
+  'dash.pushChoose': 'More than one notification app is installed. Open the one you want and set it as your UnifiedPush distributor, then go online again.',
+  'dash.pushDenied': 'Notifications are switched off, so you will only see jobs while the app is open.',
+  'dash.pushGetNtfy': 'Get ntfy',
   'dash.ready': 'Ready to receive {noun} requests',
 
   // Incoming job

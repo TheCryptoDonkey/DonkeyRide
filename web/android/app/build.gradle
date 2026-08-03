@@ -57,6 +57,9 @@ dependencies {
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    // Off-shift job alerts without Firebase: the driver's own distributor
+    // (ntfy or any other) carries RFC 8291 payloads from the operator.
+    implementation "org.unifiedpush.android:connector:$unifiedPushVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

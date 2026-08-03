@@ -143,6 +143,10 @@ export const sw: Record<string, string> = {
   'dash.androidNote': 'Unaendesha kwa Android?',
   'dash.getApp': 'Pakua programu',
   'dash.screenOff': '— kazi zinaendelea kufika hata skrini ikiwa imezimwa.',
+  'dash.pushNoDistributor': 'Arifa wakati programu imefungwa zinahitaji programu ya arifa. Sakinisha ntfy, kisha ingia mtandaoni tena.',
+  'dash.pushChoose': 'Kuna programu zaidi ya moja ya arifa. Fungua ile unayotaka na uiweke kama msambazaji wako wa UnifiedPush, kisha ingia mtandaoni tena.',
+  'dash.pushDenied': 'Arifa zimezimwa, kwa hivyo utaona kazi tu wakati programu imefunguliwa.',
+  'dash.pushGetNtfy': 'Pakua ntfy',
   'dash.ready': 'Tayari kupokea maombi ya {noun}',
 
   // Incoming job
