@@ -16,12 +16,14 @@ import {
   saveDestinationMode, clearDestinationMode, type DestinationMode,
 } from '../../utils/destination-mode';
 import { Capacitor } from '@capacitor/core';
+import { useT } from '../../i18n';
 import type { Task } from '../../types/api';
 
 const isNative = Capacitor.isNativePlatform();
 
 export function DashboardPage() {
   const navigate = useNavigate();
+  const { t, td } = useT();
   const { location, error: geoError, loading: geoLoading } = useLocation();
   const { identity } = useIdentity();
   const { activeTask, setActiveTask } = useTask();
@@ -111,8 +113,9 @@ export function DashboardPage() {
     }
   }, [geoError]);
 
-  const providerLabel = profile?.roles.provider || 'Provider';
-  const taskNoun = profile?.labels?.taskNoun || 'task';
+  const providerLabel = td(profile?.roles.provider || 'Provider');
+  const taskNoun = td(profile?.labels?.taskNoun || 'task');
+  const statusLabel = wsConnected ? t('common.online') : online ? t('common.connecting') : t('common.offline');
 
   return (
     <div className="h-full flex flex-col">
@@ -120,7 +123,7 @@ export function DashboardPage() {
       {profile?.features.navigation !== false ? (
         <div className="flex-1 relative">
           <MapView centre={location} zoom={14}>
-            <LocationMarker position={location} label="You" colour="green" />
+            <LocationMarker position={location} label={t('common.you')} colour="green" />
           </MapView>
 
           {/* Online status indicator — floating badge with glow */}
@@ -128,7 +131,7 @@ export function DashboardPage() {
             <div className={`status-indicator ${online ? (wsConnected ? 'status-online' : 'status-connecting') : 'status-offline'}`}>
               <div className={`status-dot-glow ${wsConnected ? 'glow-green' : online ? 'glow-orange' : 'glow-red'}`} />
               <span className="font-semibold tracking-wide text-sm uppercase">
-                {wsConnected ? 'Online' : online ? 'Connecting...' : 'Offline'}
+                {statusLabel}
               </span>
             </div>
           </div>
@@ -136,15 +139,15 @@ export function DashboardPage() {
       ) : (
         <div className="flex-1 flex items-center justify-center bg-donkey-bg relative">
           <div className="card text-center max-w-sm">
-            <p className="text-lg font-bold text-donkey-text">{providerLabel} Dashboard</p>
-            <p className="text-sm text-donkey-muted mt-1">Ready to receive {taskNoun} requests</p>
+            <p className="text-lg font-bold text-donkey-text">{t('dash.title', { label: providerLabel })}</p>
+            <p className="text-sm text-donkey-muted mt-1">{t('dash.ready', { noun: taskNoun })}</p>
           </div>
           {/* Online status indicator */}
           <div className="absolute top-3 left-3 z-10">
             <div className={`status-indicator ${online ? (wsConnected ? 'status-online' : 'status-connecting') : 'status-offline'}`}>
               <div className={`status-dot-glow ${wsConnected ? 'glow-green' : online ? 'glow-orange' : 'glow-red'}`} />
               <span className="font-semibold tracking-wide text-sm uppercase">
-                {wsConnected ? 'Online' : online ? 'Connecting...' : 'Offline'}
+                {statusLabel}
               </span>
             </div>
           </div>
@@ -154,8 +157,8 @@ export function DashboardPage() {
       {/* Dashboard panel */}
       <div className="bg-donkey-surface border-t-2 border-donkey-border p-6 space-y-4 shadow-panel">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-black tracking-tight">{providerLabel} Dashboard</h2>
-          <span className="text-xs text-donkey-muted font-mono uppercase tracking-wider">Fee: {operatorFee}</span>
+          <h2 className="text-lg font-black tracking-tight">{t('dash.title', { label: providerLabel })}</h2>
+          <span className="text-xs text-donkey-muted font-mono uppercase tracking-wider">{t('dash.fee', { fee: operatorFee })}</span>
         </div>
 
         {/* Stats */}
@@ -163,15 +166,15 @@ export function DashboardPage() {
           <div className="grid grid-cols-3 gap-3 text-center">
             <div className="stat-card">
               <p className="text-2xl font-black text-donkey-blue">{stats.active}</p>
-              <p className="stat-label">Active</p>
+              <p className="stat-label">{t('dash.active')}</p>
             </div>
             <div className="stat-card">
               <p className="text-2xl font-black text-donkey-green">{stats.completed}</p>
-              <p className="stat-label">Completed</p>
+              <p className="stat-label">{t('dash.completed')}</p>
             </div>
             <div className="stat-card">
               <p className="text-2xl font-black text-donkey-text">{stats.total}</p>
-              <p className="stat-label">Total</p>
+              <p className="stat-label">{t('dash.total')}</p>
             </div>
           </div>
         )}
@@ -180,7 +183,7 @@ export function DashboardPage() {
         {online && availableJobs.length > 0 && (
           <div className="space-y-2">
             <p className="section-title">
-              Waiting {taskNoun} requests ({availableJobs.length})
+              {t('dash.waiting', { noun: taskNoun, n: availableJobs.length })}
             </p>
             <div className="space-y-2 max-h-48 overflow-y-auto">
               {availableJobs.map((job) => (
@@ -196,13 +199,13 @@ export function DashboardPage() {
                       {(job.stopCount ?? 0) > 0 && (
                         <span>
                           {job.distanceKm != null && ' · '}
-                          +{job.stopCount} {job.stopCount === 1 ? 'stop' : 'stops'}
+                          +{job.stopCount} {job.stopCount === 1 ? t('common.stop') : t('common.stops')}
                         </span>
                       )}
                       {isUpcoming(job.scheduledFor) && (
                         <span className="text-donkey-blue font-semibold">
                           {(job.distanceKm != null || (job.stopCount ?? 0) > 0) && ' · '}
-                          Booked {formatScheduledTime(job.scheduledFor)}
+                          {t('dash.booked', { time: formatScheduledTime(job.scheduledFor) })}
                         </span>
                       )}
                       {job.operatorBase && (
@@ -213,7 +216,7 @@ export function DashboardPage() {
                       )}
                     </p>
                   </div>
-                  <span className="text-donkey-blue text-sm font-semibold">View</span>
+                  <span className="text-donkey-blue text-sm font-semibold">{t('common.view')}</span>
                 </button>
               ))}
             </div>
@@ -224,8 +227,7 @@ export function DashboardPage() {
         {geoError && !online && (
           <div className="bg-donkey-orange/20 border border-donkey-orange rounded-lg p-3">
             <p className="text-donkey-orange text-sm font-semibold">
-              Location unavailable. You will not receive {taskNoun} requests until
-              location is enabled.
+              {t('dash.noGps', { noun: taskNoun })}
             </p>
           </div>
         )}
@@ -236,7 +238,7 @@ export function DashboardPage() {
           onClick={toggleOnline}
           disabled={!online && !!geoError}
         >
-          {online ? 'Go Offline' : 'Go Online'}
+          {online ? t('dash.goOffline') : t('dash.goOnline')}
         </button>
 
         <div className="flex gap-3">
@@ -244,13 +246,13 @@ export function DashboardPage() {
             className="btn-secondary flex-1"
             onClick={() => navigate('/provide/earnings')}
           >
-            Earnings
+            {t('dash.earnings')}
           </button>
           <button
             className="btn-secondary flex-1"
             onClick={() => navigate('/provide/areas')}
           >
-            Working Areas
+            {t('dash.areas')}
           </button>
         </div>
 
@@ -260,24 +262,24 @@ export function DashboardPage() {
           {destMode ? (
             <div className="flex items-center gap-2">
               <div className="flex-1 min-w-0">
-                <p className="meta-label">Heading to</p>
+                <p className="meta-label">{t('dash.headingTo')}</p>
                 <p className="text-sm font-bold text-donkey-text truncate">{destMode.label}</p>
                 <p className="text-xs text-donkey-muted">
-                  Only {taskNoun} requests on your way are shown
+                  {t('dash.corridorNote', { noun: taskNoun })}
                 </p>
               </div>
               <button
                 className="btn-secondary text-xs px-3"
                 onClick={() => applyDestination(null)}
               >
-                Clear
+                {t('common.clear')}
               </button>
             </div>
           ) : pickingDest ? (
             <div>
-              <p className="meta-label mb-2">Where are you heading?</p>
+              <p className="meta-label mb-2">{t('dash.headingPrompt')}</p>
               <AddressSearch
-                placeholder="Search for your destination..."
+                placeholder={t('dash.searchDestination')}
                 biasLocation={location}
                 autoFocus
                 onSelect={(loc, label) => applyDestination({ ...loc, label })}
@@ -286,7 +288,7 @@ export function DashboardPage() {
                 className="text-donkey-muted text-xs mt-2"
                 onClick={() => setPickingDest(false)}
               >
-                Cancel
+                {t('common.cancel')}
               </button>
             </div>
           ) : (
@@ -294,30 +296,30 @@ export function DashboardPage() {
               className="text-donkey-blue text-sm font-semibold"
               onClick={() => setPickingDest(true)}
             >
-              Heading somewhere? Only see {taskNoun}s on your way →
+              {t('dash.headingCta', { noun: taskNoun })}
             </button>
           )}
         </div>
 
         {online && wsConnected && (
           <p className="text-donkey-green text-sm text-center font-semibold animate-pulse">
-            Listening for {taskNoun} requests...
+            {t('dash.listening', { noun: taskNoun })}
           </p>
         )}
         {online && !wsConnected && (
           <p className="text-donkey-orange text-sm text-center">
-            Connecting to dispatcher...
+            {t('dash.connectingDispatcher')}
           </p>
         )}
 
         {/* Web only: the Android build keeps the shift alive screen-off */}
         {!isNative && (
           <p className="text-xs text-donkey-muted text-center">
-            Driving on Android?{' '}
+            {t('dash.androidNote')}{' '}
             <a href="/download.html" className="text-donkey-blue font-semibold">
-              Get the app
+              {t('dash.getApp')}
             </a>{' '}
-            — jobs keep arriving with the screen off.
+            {t('dash.screenOff')}
           </p>
         )}
       </div>

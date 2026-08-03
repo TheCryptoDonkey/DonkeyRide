@@ -7,11 +7,13 @@ import { useTask } from '../../context/TaskContext';
 import { useDomain } from '../../context/DomainContext';
 import { getAvailableProviders } from '../../services/api';
 import { AddressSearch } from '../../components/AddressSearch';
+import { useT } from '../../i18n';
 import type { AvailableProvider } from '../../types/api';
 import type { LatLng } from '../../types/api';
 
 export function HomePage() {
   const navigate = useNavigate();
+  const { t, td, locale } = useT();
   const { location } = useLocation();
   const { setOrigin, setDestination, activeTask } = useTask();
   const { profile } = useDomain();
@@ -67,9 +69,12 @@ export function HomePage() {
     navigate('/request/new');
   };
 
-  const providerLabel = profile?.roles.provider || 'provider';
-  const originLabel = profile?.labels?.originLabel || 'Pickup';
-  const taskNoun = profile?.labels?.taskNoun || 'ride';
+  const providerLabel = td(profile?.roles.provider || 'provider');
+  const originLabel = td(profile?.labels?.originLabel || 'Pickup');
+  const taskNoun = td(profile?.labels?.taskNoun || 'ride');
+  // Pluralised provider label ("drivers" → "madereva") for counts
+  const providersLabel = (n: number) =>
+    n === 1 ? providerLabel : td(`${profile?.roles.provider || 'provider'}s`);
 
   return (
     <div className="h-full flex flex-col">
@@ -88,7 +93,7 @@ export function HomePage() {
             ))}
 
             {/* User location */}
-            <LocationMarker position={location} label="You" colour="green" />
+            <LocationMarker position={location} label={t('common.you')} colour="green" />
 
             {/* Origin marker */}
             {selectedOrigin && originSet && (
@@ -102,7 +107,7 @@ export function HomePage() {
           {/* Address search — sits above Leaflet's panes (z-index ≥ 1000) */}
           <div className="absolute top-3 left-3 right-3 z-[1100] space-y-2">
             <AddressSearch
-              placeholder={`${originLabel}: search address or tap the map`}
+              placeholder={t('home.searchOrigin', { label: originLabel })}
               biasLocation={location}
               onSelect={(loc) => {
                 setOrigin(loc);
@@ -115,7 +120,7 @@ export function HomePage() {
             />
             {requiresDestination && originSet && (
               <AddressSearch
-                placeholder="Destination: search address or tap the map"
+                placeholder={t('home.searchDestination')}
                 biasLocation={selectedOrigin || location}
                 autoFocus
                 onSelect={(loc) => {
@@ -131,11 +136,11 @@ export function HomePage() {
           <div className="card text-center max-w-sm">
             <p className="text-lg font-bold text-donkey-text mb-2">
               {providers.length > 0
-                ? `${providers.length} ${providerLabel}${providers.length !== 1 ? 's' : ''} available`
-                : `Searching for ${providerLabel}s...`}
+                ? t('home.available', { n: providers.length, label: providersLabel(providers.length) })
+                : t('home.searching', { label: providersLabel(2) })}
             </p>
             <p className="text-sm text-donkey-muted">
-              Location services will be used when your {taskNoun} begins
+              {t('home.locationLater', { noun: taskNoun })}
             </p>
           </div>
         </div>
@@ -148,21 +153,23 @@ export function HomePage() {
           <div className="flex items-center gap-2 mb-3">
             <div className={`w-2 h-2 rounded-full ${originSet ? 'glow-green' : 'glow-orange'}`} />
             <span className="text-xs uppercase tracking-wider text-donkey-muted">
-              Step {originSet ? '2' : '1'} of 2
+              {t('home.step', { n: originSet ? 2 : 1 })}
             </span>
           </div>
         )}
 
         <p className="text-sm text-donkey-text font-semibold mb-1">
           {clickMode === 'origin'
-            ? (profile?.labels?.originInstruction || `Tap the map to set your ${originLabel.toLowerCase()}`)
-            : (profile?.labels?.destinationInstruction || 'Now tap to set your destination')}
+            ? ((locale === 'en' && profile?.labels?.originInstruction)
+              || t('home.tapOrigin', { label: originLabel.toLowerCase() }))
+            : ((locale === 'en' && profile?.labels?.destinationInstruction)
+              || t('home.tapDestination'))}
         </p>
 
         <p className="text-xs text-donkey-muted mb-3">
           {clickMode === 'origin'
-            ? `Select where you want your ${taskNoun} to start`
-            : 'Select your destination to get a fare estimate'}
+            ? t('home.selectStart', { noun: taskNoun })
+            : t('home.selectDestination')}
         </p>
 
         {/* Single-location domain: show confirm button after origin is set */}
@@ -171,7 +178,7 @@ export function HomePage() {
             className="btn-primary w-full mb-2"
             onClick={handleConfirmSingleLocation}
           >
-            Confirm {originLabel}
+            {t('home.confirm', { label: originLabel })}
           </button>
         )}
 
@@ -180,13 +187,13 @@ export function HomePage() {
             className="text-xs text-donkey-purple underline w-full text-center min-h-[44px]"
             onClick={() => { setClickMode('origin'); setOriginSet(false); setOrigin(null); setSelectedOrigin(null); }}
           >
-            Reset {originLabel.toLowerCase()}
+            {t('home.reset', { label: originLabel.toLowerCase() })}
           </button>
         )}
 
         {providers.length > 0 && (
           <p className="text-xs text-donkey-muted text-center mt-3">
-            <span className="text-donkey-green font-bold">{providers.length}</span> {providerLabel}{providers.length !== 1 ? 's' : ''} nearby
+            {t('home.nearby', { n: providers.length, label: providersLabel(providers.length) })}
           </p>
         )}
 
@@ -195,13 +202,13 @@ export function HomePage() {
             className="text-xs text-donkey-muted underline min-h-[44px]"
             onClick={() => navigate('/request/history')}
           >
-            Your past {taskNoun}s
+            {t('home.pastTasks', { noun: taskNoun })}
           </button>
           <a
             className="text-xs text-donkey-muted underline min-h-[44px] inline-flex items-center"
             href="/manual.html"
           >
-            How it works
+            {t('home.howItWorks')}
           </a>
         </div>
       </div>

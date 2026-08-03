@@ -12,6 +12,7 @@ import { getTripEstimate, requestTask, getOperatorInfoCached, getApiBase } from 
 import { publishTaskAnnouncement } from '../../services/events';
 import { formatDistance, formatDuration } from '../../services/pricing';
 import { AddressSearch } from '../../components/AddressSearch';
+import { useT } from '../../i18n';
 import type { TaskStop } from '../../types/api';
 
 const MAX_STOPS = 2;
@@ -27,6 +28,7 @@ const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 3600 * 1000;
 
 export function RequestPage() {
   const navigate = useNavigate();
+  const { t, td } = useT();
   const { origin, destination, estimate, setEstimate, setActiveTask, activeTask } = useTask();
   const { identity } = useIdentity();
   const { profile } = useDomain();
@@ -50,9 +52,9 @@ export function RequestPage() {
   );
 
   const requiresDestination = profile?.features.requiresDestination !== false;
-  const originLabel = profile?.labels?.originLabel || 'Pickup';
-  const destinationLabel = profile?.labels?.destinationLabel || 'Dropoff';
-  const taskNoun = profile?.labels?.taskNoun || 'ride';
+  const originLabel = td(profile?.labels?.originLabel || 'Pickup');
+  const destinationLabel = td(profile?.labels?.destinationLabel || 'Dropoff');
+  const taskNoun = td(profile?.labels?.taskNoun || 'ride');
 
   // Back-navigation guard: an existing active task means no second request
   useEffect(() => {
@@ -130,12 +132,12 @@ export function RequestPage() {
 
   if (!origin) return null;
 
-  const providerLabel = profile?.roles.provider || 'Provider';
+  const providerLabel = td(profile?.roles.provider || 'Provider');
 
   // Multi-stop: add up to MAX_STOPS calling points along the way
   const stopsPicker = (
     <div className="meta-card mb-4">
-      <p className="meta-label mb-2">Stops along the way</p>
+      <p className="meta-label mb-2">{t('request.stopsTitle')}</p>
       {stops.map((stop, i) => (
         <div key={`${stop.lat},${stop.lng},${i}`} className="flex items-center gap-2 mb-2">
           <span className="text-donkey-blue text-xs font-black w-5">{i + 1}.</span>
@@ -153,7 +155,7 @@ export function RequestPage() {
       ))}
       {addingStop ? (
         <AddressSearch
-          placeholder="Search for a stop..."
+          placeholder={t('request.searchStop')}
           biasLocation={origin}
           autoFocus
           onSelect={(loc, label) => {
@@ -166,13 +168,12 @@ export function RequestPage() {
           className="text-donkey-blue text-sm font-semibold"
           onClick={() => setAddingStop(true)}
         >
-          + Add a stop
+          {t('request.addStop')}
         </button>
       ) : null}
       {stops.length > 0 && (
         <p className="text-donkey-muted text-xs mt-2">
-          Your {providerLabel.toLowerCase()} visits each stop in order — the
-          fare covers the full route.
+          {t('request.stopsNote', { label: providerLabel.toLowerCase() })}
         </p>
       )}
     </div>
@@ -181,7 +182,7 @@ export function RequestPage() {
   // "Leave now" vs pre-booked pickup — shared by both pricing layouts
   const whenPicker = (
     <div className="meta-card mb-4">
-      <p className="meta-label mb-2">When do you need it?</p>
+      <p className="meta-label mb-2">{t('request.whenTitle')}</p>
       <div className="flex gap-2">
         <button
           className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-colors ${
@@ -191,7 +192,7 @@ export function RequestPage() {
           }`}
           onClick={() => setWhen('now')}
         >
-          Now
+          {t('common.now')}
         </button>
         <button
           className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-colors ${
@@ -206,7 +207,7 @@ export function RequestPage() {
             }
           }}
         >
-          Later
+          {t('common.later')}
         </button>
       </div>
       {when === 'later' && (
@@ -221,12 +222,11 @@ export function RequestPage() {
           />
           {scheduleInvalid ? (
             <p className="text-donkey-orange text-xs mt-2">
-              Pick a time between 20 minutes and 30 days from now.
+              {t('request.scheduleInvalid')}
             </p>
           ) : (
             <p className="text-donkey-muted text-xs mt-2">
-              A {providerLabel.toLowerCase()} can commit early — you'll both get a
-              reminder as the time approaches.
+              {t('request.scheduleNote', { label: providerLabel.toLowerCase() })}
             </p>
           )}
         </div>
@@ -249,7 +249,7 @@ export function RequestPage() {
               <LocationMarker
                 key={`${stop.lat},${stop.lng},${i}`}
                 position={stop}
-                label={`Stop ${i + 1}`}
+                label={t('request.stopLabel', { n: i + 1 })}
                 colour="blue"
               />
             ))}
@@ -262,8 +262,8 @@ export function RequestPage() {
       ) : (
         <div className="flex-1 flex items-center justify-center bg-donkey-bg">
           <div className="card text-center max-w-sm">
-            <p className="text-lg font-bold text-donkey-text">{originLabel} set</p>
-            <p className="text-sm text-donkey-muted mt-1">Ready to request a {taskNoun}</p>
+            <p className="text-lg font-bold text-donkey-text">{t('request.originSet', { label: originLabel })}</p>
+            <p className="text-sm text-donkey-muted mt-1">{t('request.ready', { noun: taskNoun })}</p>
           </div>
         </div>
       )}
@@ -271,7 +271,7 @@ export function RequestPage() {
       {/* Estimate panel */}
       <div className="bg-donkey-surface border-t-2 border-donkey-border p-6 shadow-panel">
         {requiresDestination && estimating ? (
-          <Loading message="Calculating estimate..." />
+          <Loading message={t('request.estimating')} />
         ) : requiresDestination && estimate ? (
           <div>
             <div className="flex items-center justify-between mb-4">
@@ -285,19 +285,19 @@ export function RequestPage() {
 
             {/* Fare breakdown */}
             <div className="meta-card mb-4">
-              <p className="meta-label mb-2">Fare breakdown</p>
+              <p className="meta-label mb-2">{t('request.fareBreakdown')}</p>
               <div className="grid grid-cols-3 gap-2 text-xs">
                 <div>
                   <p className="text-donkey-text font-bold">{estimate.fareBreakdown.baseFareSats} sats</p>
-                  <p className="text-donkey-muted">Base</p>
+                  <p className="text-donkey-muted">{t('request.base')}</p>
                 </div>
                 <div>
                   <p className="text-donkey-text font-bold">{estimate.fareBreakdown.distanceFareSats} sats</p>
-                  <p className="text-donkey-muted">Distance</p>
+                  <p className="text-donkey-muted">{t('request.distance')}</p>
                 </div>
                 <div>
                   <p className="text-donkey-text font-bold">{estimate.fareBreakdown.operatorFeeSats} sats</p>
-                  <p className="text-donkey-muted">Operator</p>
+                  <p className="text-donkey-muted">{t('request.operator')}</p>
                 </div>
               </div>
             </div>
@@ -311,7 +311,7 @@ export function RequestPage() {
                 className="btn-secondary flex-1"
                 onClick={() => navigate('/request')}
               >
-                Back
+                {t('common.back')}
               </button>
               <button
                 className="btn-primary flex-1"
@@ -319,10 +319,10 @@ export function RequestPage() {
                 disabled={loading || scheduleInvalid}
               >
                 {loading
-                  ? 'Requesting...'
+                  ? t('request.requesting')
                   : when === 'later'
-                    ? `Book ${providerLabel} for later`
-                    : `${profile?.labels?.requestVerb || 'Request'} ${providerLabel}`}
+                    ? t('request.bookForLater', { label: providerLabel })
+                    : t('request.request', { label: providerLabel })}
               </button>
             </div>
 
@@ -381,7 +381,7 @@ export function RequestPage() {
                 className="btn-secondary flex-1"
                 onClick={() => navigate('/request')}
               >
-                Back
+                {t('common.back')}
               </button>
               <button
                 className="btn-primary flex-1"
@@ -389,9 +389,9 @@ export function RequestPage() {
                 disabled={loading || scheduleInvalid}
               >
                 {loading
-                  ? 'Requesting...'
+                  ? t('request.requesting')
                   : when === 'later'
-                    ? 'Book for later'
+                    ? t('request.bookLater')
                     : profile?.labels?.requestVerb || 'Request'}
               </button>
             </div>
@@ -400,9 +400,9 @@ export function RequestPage() {
           </div>
         ) : (
           <div className="text-center">
-            <p className="text-donkey-red">{error || 'Failed to get estimate'}</p>
+            <p className="text-donkey-red">{error || t('request.estimateFailed')}</p>
             <button className="btn-secondary mt-3" onClick={() => navigate('/request')}>
-              Back
+              {t('common.back')}
             </button>
           </div>
         )}

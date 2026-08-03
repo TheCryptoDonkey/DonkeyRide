@@ -15,19 +15,21 @@ import { formatDistance, formatDuration } from '../../services/pricing';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import { dispatchService } from '../../services/dispatch';
 import { loadVehicle } from '../../utils/vehicle';
+import { useT } from '../../i18n';
 
 export function IncomingTaskPage() {
   const navigate = useNavigate();
+  const { t, td } = useT();
   const { activeTask, setActiveTask } = useTask();
   const { identity } = useIdentity();
   const { location } = useLocation();
   const { profile } = useDomain();
   const [accepting, setAccepting] = useState(false);
 
-  const originLabel = profile?.labels?.originLabel || 'Pickup';
-  const destinationLabel = profile?.labels?.destinationLabel || 'Dropoff';
+  const originLabel = td(profile?.labels?.originLabel || 'Pickup');
+  const destinationLabel = td(profile?.labels?.destinationLabel || 'Dropoff');
   const requiresDestination = profile?.features.requiresDestination !== false;
-  const taskNoun = profile?.labels?.taskNoun || 'task';
+  const taskNoun = td(profile?.labels?.taskNoun || 'task');
 
   useEffect(() => {
     if (!activeTask) navigate('/provide');
@@ -64,8 +66,8 @@ export function IncomingTaskPage() {
       if (taken) dispatchService.removeAvailable(activeTask.id);
       showToast(
         taken
-          ? 'This job has been taken'
-          : err instanceof Error ? err.message : 'Failed to accept the job',
+          ? t('incoming.taken')
+          : err instanceof Error ? err.message : t('incoming.acceptFailed'),
         { type: 'error' },
       );
       setActiveTask(null);
@@ -80,7 +82,7 @@ export function IncomingTaskPage() {
     navigate('/provide');
   };
 
-  const requesterLabel = profile?.roles.requester || 'Requester';
+  const requesterLabel = td(profile?.roles.requester || 'Requester');
 
   return (
     <div className="h-full flex flex-col">
@@ -92,15 +94,15 @@ export function IncomingTaskPage() {
             {requiresDestination && activeTask.dropoff && (
               <LocationMarker position={activeTask.dropoff} label={destinationLabel} colour="red" />
             )}
-            <LocationMarker position={location} label="You" colour="blue" />
+            <LocationMarker position={location} label={t('common.you')} colour="blue" />
           </MapView>
         </div>
       ) : (
         <div className="flex-1 flex items-center justify-center bg-donkey-bg">
           <div className="card text-center max-w-sm">
-            <p className="text-lg font-bold text-donkey-text">Incoming {taskNoun}</p>
+            <p className="text-lg font-bold text-donkey-text">{t('incoming.title', { noun: taskNoun })}</p>
             <p className="text-sm text-donkey-muted mt-1">
-              A {profile?.roles.requester || 'requester'} needs your service
+              {t('incoming.needsService', { label: requesterLabel })}
             </p>
           </div>
         </div>
@@ -110,7 +112,7 @@ export function IncomingTaskPage() {
       <div className="bg-donkey-surface border-t-2 border-donkey-border p-6 shadow-panel">
         <div className="incoming-card mb-4">
           <p className="section-title text-center">
-            New {requesterLabel} {taskNoun}
+            {t('incoming.new', { label: requesterLabel, noun: taskNoun })}
           </p>
 
           <div className="text-center mb-3">
@@ -119,8 +121,7 @@ export function IncomingTaskPage() {
 
           {isUpcoming(activeTask.scheduledFor) && (
             <p className="text-sm text-donkey-blue font-bold text-center mb-3">
-              Booked for {formatScheduledTime(activeTask.scheduledFor)} —
-              accepting commits you to that time
+              {t('incoming.bookedCommit', { time: formatScheduledTime(activeTask.scheduledFor) })}
             </p>
           )}
 
@@ -133,13 +134,13 @@ export function IncomingTaskPage() {
                 <span>{formatDuration(activeTask.durationMin)}</span>
               )}
               {(activeTask.stopCount ?? 0) > 0 && (
-                <span>+{activeTask.stopCount} {activeTask.stopCount === 1 ? 'stop' : 'stops'}</span>
+                <span>+{activeTask.stopCount} {activeTask.stopCount === 1 ? t('common.stop') : t('common.stops')}</span>
               )}
             </div>
           )}
 
           <p className="text-xs text-donkey-muted text-center mb-3">
-            Locations are approximate until you accept
+            {t('incoming.approx')}
           </p>
 
           {activeTask.requesterPubkey && (
@@ -184,10 +185,10 @@ export function IncomingTaskPage() {
         ) : (
           <div className="flex gap-3">
             <button className="btn-secondary flex-1" onClick={handleDecline} disabled={accepting}>
-              Decline
+              {t('common.decline')}
             </button>
             <button className="btn-primary flex-1" onClick={handleAccept} disabled={accepting}>
-              {accepting ? 'Accepting...' : 'Accept'}
+              {accepting ? t('common.accepting') : t('common.accept')}
             </button>
           </div>
         )}

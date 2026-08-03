@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useT } from '../../i18n';
 
 const STORAGE_PREFIX = 'donkeyride.onboarded.';
 
@@ -17,45 +18,23 @@ function isIosBrowserTab(): boolean {
   return ios && !standalone;
 }
 
-function slidesFor(role: 'requester' | 'provider'): Slide[] {
+function slidesFor(role: 'requester' | 'provider', t: (key: string) => string): Slide[] {
   if (role === 'provider') {
     return [
-      {
-        emoji: '🚗',
-        title: 'Go online, pick your jobs',
-        body: 'See every open request near you or in areas you draw on the map — you choose the work, nothing is assigned to you.',
-      },
-      {
-        emoji: '💷',
-        title: 'Keep 100% of every fare',
-        body: 'Riders pay you directly — cash, M-Pesa or Lightning. No commission, no payout delays: the money never passes through anyone else.',
-      },
+      { emoji: '🚗', title: t('onboard.p1.title'), body: t('onboard.p1.body') },
+      { emoji: '💷', title: t('onboard.p2.title'), body: t('onboard.p2.body') },
       {
         emoji: '🔔',
-        title: "Never miss a job",
-        body: 'Allow notifications when you go online and jobs reach you even with your screen off.',
-        hint: isIosBrowserTab()
-          ? 'On iPhone: tap Share → “Add to Home Screen” first — iOS only delivers notifications to installed apps.'
-          : undefined,
+        title: t('onboard.p3.title'),
+        body: t('onboard.p3.body'),
+        hint: isIosBrowserTab() ? t('onboard.p3.hint') : undefined,
       },
     ];
   }
   return [
-    {
-      emoji: '📍',
-      title: 'A ride in seconds — no sign-up',
-      body: 'No account, no phone number, no card on file. Tap the map, see the price up front, and request.',
-    },
-    {
-      emoji: '💷',
-      title: 'Pay your driver, not a company',
-      body: 'Settle directly in cash, M-Pesa or Lightning. Nobody stands between you and your driver — and nobody takes a cut.',
-    },
-    {
-      emoji: '🛡️',
-      title: 'Private by design',
-      body: 'Live tracking, a panic button, encrypted chat with your driver, and driver ratings that cannot be faked. Your trip history is nobody’s product.',
-    },
+    { emoji: '📍', title: t('onboard.r1.title'), body: t('onboard.r1.body') },
+    { emoji: '💷', title: t('onboard.r2.title'), body: t('onboard.r2.body') },
+    { emoji: '🛡️', title: t('onboard.r3.title'), body: t('onboard.r3.body') },
   ];
 }
 
@@ -64,6 +43,7 @@ function slidesFor(role: 'requester' | 'provider'): Slide[] {
  * Skippable at any point; never shown again after finishing or skipping.
  */
 export function Onboarding({ role }: { role: 'requester' | 'provider' }) {
+  const { t } = useT();
   const storageKey = `${STORAGE_PREFIX}${role}`;
   const [seen, setSeen] = useState<boolean>(() => {
     try {
@@ -76,7 +56,7 @@ export function Onboarding({ role }: { role: 'requester' | 'provider' }) {
 
   if (seen) return null;
 
-  const slides = slidesFor(role);
+  const slides = slidesFor(role, t);
   const slide = slides[index];
   const last = index === slides.length - 1;
 
@@ -116,11 +96,11 @@ export function Onboarding({ role }: { role: 'requester' | 'provider' }) {
           className="btn-primary w-full"
           onClick={() => (last ? finish() : setIndex(index + 1))}
         >
-          {last ? "Let's go" : 'Next'}
+          {last ? t('onboard.go') : t('common.next')}
         </button>
         {!last && (
           <button className="text-sm text-donkey-muted w-full" onClick={finish}>
-            Skip
+            {t('common.skip')}
           </button>
         )}
       </div>

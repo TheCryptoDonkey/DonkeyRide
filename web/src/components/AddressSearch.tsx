@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { showToast } from './common/Toast';
+import { useT } from '../i18n';
 import type { LatLng } from '../types/api';
 import {
   loadRecents,
@@ -43,6 +44,7 @@ function formatLabel(p: PhotonFeature['properties']): string {
  * OpenStreetMap data. Falls back gracefully: tapping the map still works.
  */
 export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }: AddressSearchProps) {
+  const { t } = useT();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PhotonFeature[]>([]);
   const [recents, setRecents] = useState<Place[]>([]);
@@ -90,7 +92,7 @@ export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }
         setOpen(true);
       } catch {
         setResults([]);
-        showToast('Address search failed. Tap the map to set the location instead.', { type: 'error' });
+        showToast(t('search.failed'), { type: 'error' });
       } finally {
         setLoading(false);
       }
@@ -133,7 +135,7 @@ export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }
       setSaved(updated);
       setPinning(null);
     } else {
-      showToast('Could not save — check the name, or remove an old place first.', { type: 'error' });
+      showToast(t('search.saveFailed'), { type: 'error' });
     }
   };
 
@@ -190,7 +192,7 @@ export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }
             </li>
           ))}
           {recents.length > 0 && (
-            <li className="px-4 py-2 text-xs uppercase tracking-wider text-donkey-muted border-b border-donkey-border/50">Recent</li>
+            <li className="px-4 py-2 text-xs uppercase tracking-wider text-donkey-muted border-b border-donkey-border/50">{t('common.recent')}</li>
           )}
           {recents.map((place) => (
             <li key={place.label} className="border-b border-donkey-border/50 last:border-0">
@@ -202,12 +204,12 @@ export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }
                     value={pinName}
                     autoFocus
                     maxLength={30}
-                    placeholder="Name (e.g. Home)"
+                    placeholder={t('search.placeName')}
                     onChange={(e) => setPinName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') confirmPin(); }}
                   />
-                  <button className="text-sm text-donkey-green font-semibold" onClick={confirmPin}>Save</button>
-                  <button className="text-sm text-donkey-muted" onClick={() => setPinning(null)}>Cancel</button>
+                  <button className="text-sm text-donkey-green font-semibold" onClick={confirmPin}>{t('common.save')}</button>
+                  <button className="text-sm text-donkey-muted" onClick={() => setPinning(null)}>{t('common.cancel')}</button>
                 </div>
               ) : (
                 <div className="flex items-stretch">

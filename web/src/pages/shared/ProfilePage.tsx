@@ -6,6 +6,7 @@ import {
 } from '../../services/nostr';
 import { PaymentMethodsEditor } from '../../components/payment/PaymentMethodsEditor';
 import { VehicleEditor } from '../../components/provider/VehicleEditor';
+import { useT, LOCALES } from '../../i18n';
 
 interface ProfilePageProps {
   role: 'requester' | 'provider';
@@ -17,6 +18,7 @@ interface ProfilePageProps {
  * mean starting from zero, so backup and import are first-class.
  */
 export function ProfilePage({ role }: ProfilePageProps) {
+  const { t, locale, setLocale } = useT();
   const { identity } = useIdentity();
   const [nsec, setNsec] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -61,12 +63,31 @@ export function ProfilePage({ role }: ProfilePageProps) {
   return (
     <div className="h-full overflow-y-auto p-6 space-y-6 max-w-lg mx-auto w-full">
       <div>
-        <h1 className="text-xl font-black tracking-tight">Your account</h1>
+        <h1 className="text-xl font-black tracking-tight">{t('profile.title')}</h1>
         <p className="text-sm text-donkey-muted mt-1">
-          No sign-up, no phone number: your account lives on this device and
-          belongs to you, not to any company. Back up the recovery key below
-          and your account and ratings travel with you.
+          {t('profile.intro')}
         </p>
+      </div>
+
+      {/* Language — device-local, auto-detected from the browser */}
+      <div className="card space-y-2">
+        <p className="text-xs uppercase tracking-wider text-donkey-muted">{t('profile.language')}</p>
+        <p className="text-sm text-donkey-muted">{t('profile.languageNote')}</p>
+        <div className="flex gap-2">
+          {LOCALES.map((l) => (
+            <button
+              key={l.id}
+              className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-colors ${
+                locale === l.id
+                  ? 'border-donkey-blue text-donkey-blue bg-donkey-blue/10'
+                  : 'border-donkey-border text-donkey-muted'
+              }`}
+              onClick={() => setLocale(l.id)}
+            >
+              {l.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Identity recovery notice — stored key was unreadable and replaced */}
@@ -111,47 +132,44 @@ export function ProfilePage({ role }: ProfilePageProps) {
 
       {/* Public identity */}
       <div className="card space-y-2">
-        <p className="text-xs uppercase tracking-wider text-donkey-muted">Account ID</p>
+        <p className="text-xs uppercase tracking-wider text-donkey-muted">{t('profile.accountId')}</p>
         <p className="text-sm text-donkey-muted">
-          Safe to share — this is how others see your ratings.
+          {t('profile.accountIdNote')}
         </p>
         <p className="font-mono text-xs break-all">{identity?.npub || '…'}</p>
         <button
           className="btn-secondary w-full"
           onClick={() => identity && copy('your ID', identity.npub)}
         >
-          {copied === 'your ID' ? 'Copied ✓' : 'Copy ID'}
+          {copied === 'your ID' ? t('profile.copied') : t('profile.copyId')}
         </button>
       </div>
 
       {/* Backup */}
       <div className="card space-y-3">
-        <p className="text-xs uppercase tracking-wider text-donkey-muted">Recovery key</p>
+        <p className="text-xs uppercase tracking-wider text-donkey-muted">{t('profile.recoveryKey')}</p>
         <p className="text-sm text-donkey-muted">
-          Anyone with this key can act as you. Store it somewhere safe
-          (password manager). Never share it with support, operators, or
-          anyone who asks.
+          {t('profile.recoveryNote')}
         </p>
         {nsec ? (
           <>
             <p className="font-mono text-xs break-all bg-donkey-bg rounded p-3 border border-donkey-border">{nsec}</p>
             <button className="btn-primary w-full" onClick={() => copy('your recovery key', nsec)}>
-              {copied === 'your recovery key' ? 'Copied ✓' : 'Copy recovery key'}
+              {copied === 'your recovery key' ? t('profile.copied') : t('profile.copyRecovery')}
             </button>
           </>
         ) : (
           <button className="btn-secondary w-full" onClick={revealNsec}>
-            Reveal recovery key
+            {t('profile.revealRecovery')}
           </button>
         )}
       </div>
 
       {/* Restore */}
       <div className="card space-y-3">
-        <p className="text-xs uppercase tracking-wider text-donkey-muted">Restore from backup</p>
+        <p className="text-xs uppercase tracking-wider text-donkey-muted">{t('profile.restore')}</p>
         <p className="text-sm text-donkey-muted">
-          Moving from another phone? Paste your recovery key (starts
-          nsec1…) to bring your account and ratings to this device.
+          {t('profile.restoreNote')}
         </p>
         <textarea
           className="w-full bg-donkey-bg border border-donkey-border rounded p-3 font-mono text-xs"
@@ -166,7 +184,7 @@ export function ProfilePage({ role }: ProfilePageProps) {
           onClick={handleImport}
           disabled={!importValue.trim()}
         >
-          Replace account on this device
+          {t('profile.replace')}
         </button>
       </div>
 
