@@ -3689,6 +3689,16 @@ app.post('/api/rides/:rideId/settle', async (req, res) => {
         res.json({ success: true, settlement: ride.settlementRecord });
     } catch (error) {
         console.error('Error settling:', error.message);
+        // A rail may refuse the proof outright for a reason the payer needs to
+        // hear — a card number typed where a receipt reference belongs. Those
+        // are marked client-safe and are the payer's error, not a server fault;
+        // everything else stays a generic 500 so internals are not echoed back.
+        if (error.clientSafe) {
+            return res.status(error.status || 400).json({
+                error: 'Payment not recorded',
+                details: error.message
+            });
+        }
         res.status(500).json({ error: 'Failed to record settlement' });
     }
 });

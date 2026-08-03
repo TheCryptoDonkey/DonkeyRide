@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   isLightningAddress, isMpesaNumber, isTandoHandle, validateRailHandle,
+  looksLikeCardNumber,
 } from './payment-validation';
 
 describe('isLightningAddress', () => {
@@ -80,5 +81,42 @@ describe('validateRailHandle', () => {
   it('returns a human-readable error message when invalid', () => {
     expect(validateRailHandle('lnaddress', 'bad').error).toMatch(/Lightning Address/);
     expect(validateRailHandle('mpesa', 'bad').error).toMatch(/Kenyan number/);
+  });
+
+  describe('rails whose handle is optional', () => {
+    // These were impossible to enable: blank gave "Enter a handle", and for
+    // Cashu anything non-blank gave "Unknown rail: cashu".
+    it('accepts a blank card reader name', () => {
+      expect(validateRailHandle('card', '')).toEqual({ valid: true });
+      expect(validateRailHandle('tap-to-pay', '')).toEqual({ valid: true });
+      expect(validateRailHandle('card', 'SumUp')).toEqual({ valid: true });
+    });
+
+    it('accepts a blank Cashu payment request, and a creq when given', () => {
+      expect(validateRailHandle('cashu', '')).toEqual({ valid: true });
+      expect(validateRailHandle('cashu', 'creq1abcdef')).toEqual({ valid: true });
+      expect(validateRailHandle('cashu', 'not-a-request').valid).toBe(false);
+    });
+
+    it('refuses a card number in the reader name', () => {
+      const result = validateRailHandle('card', '4242424242424242');
+      expect(result.valid).toBe(false);
+      expect(result.error).toMatch(/Never enter a card number/i);
+      // Spaced form is the same number
+      expect(validateRailHandle('card', '4242 4242 4242 4242').valid).toBe(false);
+    });
+
+    it('keeps the reader name short enough to display', () => {
+      expect(validateRailHandle('card', 'x'.repeat(33)).valid).toBe(false);
+    });
+  });
+
+  describe('looksLikeCardNumber', () => {
+    it('matches a PAN and not an ordinary reference', () => {
+      expect(looksLikeCardNumber('4242424242424242')).toBe(true);
+      expect(looksLikeCardNumber('4242-4242-4242-4242')).toBe(true);
+      expect(looksLikeCardNumber('1234567890123')).toBe(false);  // fails Luhn
+      expect(looksLikeCardNumber('SUMUP123')).toBe(false);
+    });
   });
 });

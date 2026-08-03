@@ -167,6 +167,10 @@ export interface PayInstruction {
   lnAddress?: string;
   amountSats?: number;
   verifyUrl?: string | null;
+  /** Card: the driver's reader, if they named one ("SumUp", "Tap to Pay") */
+  terminal?: string | null;
+  /** Plain-English statement of who is actually taking the money */
+  note?: string;
   // M-Pesa
   mpesaNumber?: string;
   amount?: number;

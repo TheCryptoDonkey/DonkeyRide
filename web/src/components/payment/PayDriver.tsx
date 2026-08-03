@@ -9,6 +9,7 @@ import {
 import {
   getStoredNwcUri, setStoredNwcUri, payInvoiceViaNwc,
 } from '../../services/nwc';
+import { formatFiatAmount } from '../../services/pricing';
 import type {
   Task, PaymentOptions, PaymentMethod, PayInstruction, SettlementInfo,
 } from '../../types/api';
@@ -25,6 +26,8 @@ const RAIL_LABELS: Record<string, string> = {
   tando: 'Tando (Lightning to M-Pesa)',
   mpesa: 'M-Pesa',
   cashu: 'Cashu (ecash)',
+  card: 'Card',
+  'tap-to-pay': 'Card',
   cash: 'Cash',
 };
 
@@ -333,12 +336,12 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
                 <p className="meta-label">{t('pay.sendMoneyTo')}</p>
                 <p className="text-lg font-black text-donkey-text mt-1">{instruction.mpesaNumber}</p>
                 <p className="text-sm text-donkey-text mt-1">
-                  {instruction.amount} {instruction.currency}
+                  {formatFiatAmount(instruction.amount ?? 0, instruction.currency)}
                 </p>
               </div>
               <ol className="text-xs text-donkey-muted list-decimal list-inside space-y-1">
                 <li>{t('pay.mpesaStep1')}</li>
-                <li>Enter {instruction.mpesaNumber} and {instruction.amount} {instruction.currency}.</li>
+                <li>Enter {instruction.mpesaNumber} and {formatFiatAmount(instruction.amount ?? 0, instruction.currency)}.</li>
                 <li>Confirm the transfer to your {providerLabel}.</li>
                 <li>{t('pay.mpesaStep3')}</li>
               </ol>
@@ -405,7 +408,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
               <div className="meta-card text-center">
                 <p className="meta-label">{t('pay.payCash')}</p>
                 <p className="text-lg font-black text-donkey-text mt-1">
-                  {instruction.amount} {instruction.currency}
+                  {formatFiatAmount(instruction.amount ?? 0, instruction.currency)}
                 </p>
               </div>
               <p className="text-[11px] text-donkey-muted">
@@ -414,6 +417,50 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
               <button
                 className="btn-primary w-full text-sm"
                 onClick={() => doSettle('cash', {})}
+                disabled={busy === 'settle'}
+              >
+                {busy === 'settle' ? t('pay.recording') : t('pay.markPaid')}
+              </button>
+            </div>
+          )}
+
+          {/* Card, on the driver's own reader. The rider taps their card on
+              the DRIVER's terminal — the driver is the merchant of record and
+              the money goes straight to them. The receipt reference is
+              optional and exists only for a dispute; the card number itself
+              must never be typed here, and the server refuses it if it is. */}
+          {instruction && (selectedRail === 'card' || selectedRail === 'tap-to-pay') && (
+            <div className="space-y-3">
+              <div className="meta-card text-center">
+                <p className="meta-label">{t('pay.payCard')}</p>
+                <p className="text-lg font-black text-donkey-text mt-1">
+                  {formatFiatAmount(instruction.amount ?? 0, instruction.currency)}
+                </p>
+                {instruction.terminal && (
+                  <p className="text-xs text-donkey-muted mt-1">
+                    {t('pay.cardReader', { reader: instruction.terminal })}
+                  </p>
+                )}
+              </div>
+              <p className="text-[11px] text-donkey-muted">
+                {t('pay.cardDirect', { label: providerLabel.toLowerCase() })}
+              </p>
+              <input
+                className="input-field w-full text-sm"
+                inputMode="text"
+                autoComplete="off"
+                maxLength={24}
+                placeholder={t('pay.cardRefPlaceholder')}
+                aria-label={t('pay.cardRefPlaceholder')}
+                value={confirmationCode}
+                onChange={(e) => setConfirmationCode(e.target.value)}
+              />
+              <p className="text-[11px] text-donkey-muted">{t('pay.cardNeverAsk')}</p>
+              <button
+                className="btn-primary w-full text-sm"
+                onClick={() => doSettle(selectedRail, {
+                  confirmationCode: confirmationCode.trim() || undefined,
+                })}
                 disabled={busy === 'settle'}
               >
                 {busy === 'settle' ? t('pay.recording') : t('pay.markPaid')}

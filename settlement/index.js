@@ -10,6 +10,7 @@ const CashRail = require('./cash');
 const LnAddressRail = require('./lnaddress');
 const MpesaRail = require('./mpesa');
 const CashuRail = require('./cashu');
+const CardRail = require('./card');
 
 const RAILS = {
   cash: CashRail,
@@ -17,7 +18,9 @@ const RAILS = {
   lightning: LnAddressRail,   // alias
   tando: LnAddressRail,       // Tando = a Lightning Address that settles to M-Pesa
   mpesa: MpesaRail,
-  cashu: CashuRail            // ecash token, rider->driver over E2E chat
+  cashu: CashuRail,           // ecash token, rider->driver over E2E chat
+  card: CardRail,             // the DRIVER's own terminal — they are the merchant
+  'tap-to-pay': CardRail      // alias
 };
 
 // Public presentation for the driver's "accepted methods" picker.
@@ -26,6 +29,7 @@ const RAIL_CATALOGUE = [
   { id: 'tando', label: 'Tando (Lightning to M-Pesa)', handleLabel: 'M-Pesa number', handleHint: '2547XXXXXXXX', settles: 'M-Pesa (paid over Lightning)', custody: 'none' },
   { id: 'mpesa', label: 'M-Pesa', handleLabel: 'M-Pesa number', handleHint: '2547XXXXXXXX', settles: 'M-Pesa', custody: 'none' },
   { id: 'cashu', label: 'Cashu (ecash)', handleLabel: 'Payment request (optional)', handleHint: 'creq... or leave blank', settles: 'Ecash over encrypted chat', custody: 'none' },
+  { id: 'card', label: 'Card (on the driver\'s reader)', handleLabel: 'Card reader (optional)', handleHint: 'Tap to Pay, SumUp, Zettle…', settles: 'Straight to the driver\'s own merchant account', custody: 'none' },
   { id: 'cash', label: 'Cash', handleLabel: null, handleHint: null, settles: 'In person', custody: 'none' }
 ];
 
@@ -72,6 +76,9 @@ function normaliseHandle(railId, handle) {
 function validateHandle(railId, handle) {
   const key = (railId || '').toLowerCase();
   if (key === 'cash') return true;
+  // The terminal name is optional — "the driver takes cards" is the message,
+  // and the reader brand is only there so the rider knows what to expect
+  if (key === 'card' || key === 'tap-to-pay') return CardRail.isTerminalName(handle);
   if (key === 'cashu') {
     // The payment request is optional — blank means "any Cashu token"
     const raw = typeof handle === 'string' ? handle.trim() : '';
@@ -91,8 +98,10 @@ function validateHandle(railId, handle) {
  */
 function isPublicSafe(railId) {
   // A Cashu payment request is a payment endpoint like a Lightning
-  // Address — safe to publish (the driver's phone number is not)
-  return ['lnaddress', 'lightning', 'tando', 'cash', 'cashu'].includes((railId || '').toLowerCase());
+  // Address — safe to publish (the driver's phone number is not).
+  // "I take cards, on a SumUp reader" is a shop sign, not PII.
+  return ['lnaddress', 'lightning', 'tando', 'cash', 'cashu', 'card', 'tap-to-pay']
+    .includes((railId || '').toLowerCase());
 }
 
 module.exports = { getRail, isKnownRail, listRails, validateHandle, normaliseHandle, isPublicSafe, RAIL_CATALOGUE };

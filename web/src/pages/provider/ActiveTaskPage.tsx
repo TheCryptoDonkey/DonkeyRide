@@ -36,6 +36,7 @@ import { CancelledScreen } from '../../components/task/CancelledScreen';
 import { CancelReasonPicker } from '../../components/task/CancelReasonPicker';
 import { Sheet, SheetSection } from '../../components/layout/Sheet';
 import { dispatchService } from '../../services/dispatch';
+import { getAgreedRate } from '../../utils/agreed-rate';
 import { useT } from '../../i18n';
 import type { WsMessage } from '../../types/api';
 
@@ -408,7 +409,13 @@ export function ActiveTaskPage() {
       <Sheet>
         <div className="flex items-center justify-between">
           <StatusBadge status={status} role="provider" />
-          <DualPrice sats={activeTask.fareEstimateSats} size="sm" />
+          {/* Through the rate in force when they accepted — the fare on the
+              offer card is what they agreed to work for */}
+          <DualPrice
+            sats={activeTask.fareEstimateSats}
+            size="sm"
+            ratesOverride={getAgreedRate(activeTask.id)}
+          />
         </div>
 
         {/* Who you are collecting. The driver is meeting a stranger too —

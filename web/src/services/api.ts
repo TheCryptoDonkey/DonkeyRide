@@ -75,7 +75,14 @@ async function request<T>(path: string, init?: RequestInit, base?: string): Prom
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: res.statusText }));
-    throw new ApiError(body.error || `${res.status} ${res.statusText}`, res.status);
+    // `details` is where this operator puts the sentence a person can act on
+    // ("You can only query your own active task", "never send card details");
+    // `error` is usually just the category. Showing only the category turned
+    // a specific, useful refusal into "Failed to record settlement".
+    throw new ApiError(
+      body.details || body.error || `${res.status} ${res.statusText}`,
+      res.status,
+    );
   }
   return res.json();
 }

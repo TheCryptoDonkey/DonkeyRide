@@ -60,6 +60,24 @@ export function satsToFiat(
   return `${getCurrencySymbol(curr)}${shown}`;
 }
 
+/**
+ * Format a fiat amount the operator already derived (a settlement
+ * instruction), with its symbol and the right number of decimals.
+ *
+ * The server rounds to two decimals, which makes £7.90 arrive as the number
+ * 7.9 — printed raw that reads as unfinished software on the one screen
+ * where someone is about to hand over money. KES is quoted in whole
+ * shillings, as everywhere else.
+ */
+export function formatFiatAmount(amount: number, currency?: string): string {
+  const curr = currency || getPreferredCurrency();
+  if (!Number.isFinite(amount)) return '';
+  const shown = curr === 'KES'
+    ? Math.round(amount).toLocaleString()
+    : amount.toFixed(2);
+  return `${getCurrencySymbol(curr)}${shown}`;
+}
+
 /** Format satoshis with comma separators */
 export function formatSats(sats: number): string {
   return Math.round(sats).toLocaleString();

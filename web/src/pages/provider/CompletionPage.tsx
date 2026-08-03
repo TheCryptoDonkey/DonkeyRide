@@ -10,6 +10,7 @@ import { useDomain } from '../../context/DomainContext';
 import { submitRating } from '../../services/api';
 import { recordJob } from '../../services/job-history';
 import { formatDistance, formatDuration } from '../../services/pricing';
+import { getAgreedRate } from '../../utils/agreed-rate';
 import { useT } from '../../i18n';
 
 export function CompletionPage() {
@@ -88,7 +89,7 @@ export function CompletionPage() {
         <div className="earnings-card text-center">
           <p className="text-donkey-green text-lg font-bold mb-2">{completedLabel}</p>
           <p className="meta-label mb-1">{t('complete.earned')}</p>
-          <DualPrice sats={earned} size="lg" />
+          <DualPrice sats={earned} size="lg" ratesOverride={getAgreedRate(task.id)} />
 
           {(task.distanceKm || task.durationMin) && (
             <p className="text-donkey-muted text-sm mt-2">

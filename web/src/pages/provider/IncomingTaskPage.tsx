@@ -21,6 +21,8 @@ import { loadAccessFeatures } from '../../utils/access-needs';
 import { validCredentials } from '../../utils/credentials';
 import { loadGender } from '../../utils/gender';
 import { reverseGeocode } from '../../utils/reverse-geocode';
+import { recordAgreedRate } from '../../utils/agreed-rate';
+import { peekBtcPrices } from '../../hooks/useBtcPrices';
 import { useT } from '../../i18n';
 
 /** How long a driver has to take an offer before it lapses back to the list */
@@ -86,6 +88,11 @@ export function IncomingTaskPage() {
         // ENFORCE_CREDENTIALS refuses the accept, which is the point.
         credentials: validCredentials(),
       }, activeTask.operatorBase);
+      // The rate behind the fare this driver just agreed to work for. Accept
+      // is their moment of agreement, exactly as the request tap is the
+      // rider's — without it the figure drifts against the one on the offer
+      // card they said yes to.
+      recordAgreedRate(activeTask.id, peekBtcPrices());
       dispatchService.removeAvailable(activeTask.id);
       // The job stays theirs to coordinate — carry the origin forward so
       // every later call goes back to the operator that holds it.
