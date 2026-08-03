@@ -16,6 +16,12 @@ process.env.ENABLE_NIP98_AUTH = 'false';
 // back to back, and an inherited ENABLE_RATE_LIMITING=true would throttle
 // them into failures that look like payment bugs.
 process.env.ENABLE_RATE_LIMITING = 'false';
+// No relay: boot rehydrates non-terminal tasks from Nostr snapshots, so a
+// developer with a relay in their .env would start this test with their own
+// live jobs already loaded. Durability is not what is under test here.
+process.env.NOSTR_RELAY = '';
+process.env.PUBLIC_RELAY_URLS = '';
+
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');

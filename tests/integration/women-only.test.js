@@ -19,6 +19,12 @@ process.env.ENABLE_RATE_LIMITING = 'false';
 process.env.DISPATCH_RADIUS_KM = '15';
 const WS_PORT = 43100 + Math.floor(Math.random() * 1800);
 process.env.WS_PORT = String(WS_PORT);
+// No relay: boot rehydrates non-terminal tasks from Nostr snapshots, so a
+// developer with a relay in their .env would start this test with their own
+// live jobs already loaded. Durability is not what is under test here.
+process.env.NOSTR_RELAY = '';
+process.env.PUBLIC_RELAY_URLS = '';
+
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
