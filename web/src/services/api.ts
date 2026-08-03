@@ -620,18 +620,28 @@ export async function submitRating(taskId: string, params: {
     content: params.comment || '',
   }, _authPrivKey);
 
-  // The relay copy is the real one and reaches every operator; the mirror
-  // goes to whoever coordinated the job, so their fallback aggregate is
-  // right too.
-  const res = await request<{ success: boolean }>(`/api/tasks/${taskId}/rate`, {
-    method: 'POST',
-    body: JSON.stringify({ event }),
-  }, base);
-
-  // Best-effort decentralised publish — never blocks the UI
+  // The relay copy is the real one and reaches every operator, so it goes
+  // FIRST and unconditionally. This used to await the operator mirror and
+  // only then publish, which meant a mirror failure took the real rating
+  // with it: the operator drops a completed task after
+  // TERMINAL_TASK_RETAIN_MS (six hours) and never rehydrates one after a
+  // restart, so it answers "Ride not found" — and the rider got a red error
+  // while the driver's reputation event was never published at all. In a
+  // Mode-A system that holds no money, reputation is the ONLY accountability
+  // there is; it cannot depend on the coordinator still remembering the job.
+  // reportNonEvent (just below) already had this ordering.
   void publishToRelays(event);
 
-  return res;
+  // The mirror goes to whoever coordinated the job, so their fallback
+  // aggregate is right too — best-effort, never fatal.
+  try {
+    return await request<{ success: boolean }>(`/api/tasks/${taskId}/rate`, {
+      method: 'POST',
+      body: JSON.stringify({ event }),
+    }, base);
+  } catch {
+    return { success: true };
+  }
 }
 
 /**
