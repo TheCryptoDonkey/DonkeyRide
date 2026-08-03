@@ -23,21 +23,19 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
-      # Node 18's test runner has a flaky IPC crash ("Unable to deserialize
-      # cloned data", nodejs/node#48761) that survives even serial execution.
-      # Retry ONCE, and only when the output shows that exact upstream error —
-      # a genuine test failure still fails on the first pass.
+      # The Node test runner has a flaky IPC crash on the GitHub runners
+      # ("Unable to deserialize cloned data", nodejs/node#48761) that survives
+      # even serial execution. First seen on Node 18; it hit Node 20 too (run
+      # 30789091329), so both versions run serially and retry ONCE, and only
+      # when the output shows that exact upstream error — a genuine test
+      # failure still fails on the first pass.
       - run: |
           set -o pipefail  # default GH shell lacks it; without it tee masks the test exit code
-          if [ "${{ matrix.node }}" = "18" ]; then
-            run_serial() { node --test --test-concurrency=1 tests/integration/*.test.js 2>&1 | tee test-out.log; }
-            if ! run_serial; then
-              grep -q "Unable to deserialize cloned data" test-out.log || exit 1
-              echo "::warning::Retrying after known Node 18 runner IPC flake (nodejs/node#48761)"
-              run_serial
-            fi
-          else
-            npm test
+          run_serial() { node --test --test-concurrency=1 tests/integration/*.test.js 2>&1 | tee test-out.log; }
+          if ! run_serial; then
+            grep -q "Unable to deserialize cloned data" test-out.log || exit 1
+            echo "::warning::Retrying after the known Node test-runner IPC flake (nodejs/node#48761)"
+            run_serial
           fi
 
   web:
