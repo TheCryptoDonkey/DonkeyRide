@@ -500,7 +500,14 @@ export function ActiveTaskPage() {
       <Sheet>
         <div className="flex items-center justify-between">
           <StatusBadge status={activeTask.status} />
-          <DualPrice sats={activeTask.fareEstimateSats} size="sm" />
+          {/* The headline the rider watches for the whole journey. Through
+              the agreed rate, or it drifts a penny at a time against the
+              number they tapped to book. */}
+          <DualPrice
+            sats={activeTask.fareEstimateSats}
+            size="sm"
+            ratesOverride={getAgreedRate(activeTask.id)}
+          />
         </div>
 
         {/* Nobody has taken it yet — show that the search is alive */}

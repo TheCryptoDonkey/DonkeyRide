@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getAuthPrivKey } from '../../services/api';
+import { useIdentity } from '../../context/IdentityContext';
 import { useT } from '../../i18n';
 import { derivePickupCode, type PickupCode as Code } from '../../services/pickup-code';
 
@@ -20,17 +20,24 @@ export function PickupCode({ taskId, counterpartyPubkey, role, counterpartyLabel
   // Checked immediately before getting into a stranger's car — it has to
   // read in the reader's own language
   const { t } = useT();
+  const { identity } = useIdentity();
   const [code, setCode] = useState<Code | null>(null);
 
+  // The key comes from context, NOT the module-level getter, because the
+  // identity loads asynchronously. Reading the getter once at mount meant
+  // that whenever this mounted first — which is what happens on a reload,
+  // since nothing gates it on identity — the effect bailed and never ran
+  // again, so the code was simply absent for the rest of the session. That
+  // is precisely when someone reopens the app at the kerb to check the car.
   useEffect(() => {
-    const privKey = getAuthPrivKey();
+    const privKey = identity?.privKeyHex;
     if (!privKey || !counterpartyPubkey) return;
     let stale = false;
     derivePickupCode(privKey, counterpartyPubkey, taskId)
       .then((derived) => { if (!stale) setCode(derived); })
       .catch(() => {});
     return () => { stale = true; };
-  }, [taskId, counterpartyPubkey]);
+  }, [taskId, counterpartyPubkey, identity?.privKeyHex]);
 
   if (!code) return null;
 
