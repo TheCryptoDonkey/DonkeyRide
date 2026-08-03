@@ -5,7 +5,7 @@ import { createNip98Event } from './nostr';
 import { publishAvailabilityBeacon } from './events';
 import { enableJobPush, disableJobPush } from './push';
 import { subscribeFederatedTasks } from './federation';
-import { startShiftTracking, stopShiftTracking } from './native-location';
+import { startShiftTracking, stopShiftTracking, type ShiftWatcher } from './native-location';
 import { loadWorkingAreas, combinedCells } from '../utils/working-areas';
 import { loadServiceOptions } from '../utils/vehicle';
 import { loadDestinationMode, jobMovesToward } from '../utils/destination-mode';
@@ -71,7 +71,7 @@ class DispatchService {
   /** Relay subscription for jobs coordinated by OTHER operators */
   private federation: { close: () => void } | null = null;
   /** Native background-location watcher (Capacitor wrap only) */
-  private shiftWatcher: { id: string } | null = null;
+  private shiftWatcher: ShiftWatcher | null = null;
   /** Foreign jobs expire with their announcement (15 min) */
   private static readonly FOREIGN_TTL_MS = 15 * 60 * 1000;
   private awaitingAuth = false;

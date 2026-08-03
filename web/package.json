@@ -9,12 +9,15 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "native:driver:prepare": "npm run build && rm -rf dist-native-driver && cp -r dist dist-native-driver && cp dist-native-driver/driver.html dist-native-driver/index.html"
+    "native:driver:prepare": "npm run build && rm -rf dist-native-driver && cp -r dist dist-native-driver && cp dist-native-driver/driver.html dist-native-driver/index.html",
+    "native:driver:android": "npm run native:driver:prepare && npx cap sync android",
+    "native:driver:ios": "npm run native:driver:prepare && npx cap sync ios"
   },
   "dependencies": {
     "@capacitor-community/background-geolocation": "^1.2.26",
     "@capacitor/android": "^8.5.0",
     "@capacitor/core": "^8.5.0",
+    "@capacitor/ios": "^8.5.0",
     "geohash-kit": "^1.6.1",
     "leaflet": "^1.9.4",
     "nostr-tools": "^2.10.4",
