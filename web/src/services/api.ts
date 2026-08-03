@@ -153,6 +153,8 @@ export function normaliseTask(raw: any): Task {
       registration: r.vehicle.registration || undefined,
     } : undefined,
     womenOnly: r.womenOnly === true || r.women_only === true || undefined,
+    accessNeeds: Array.isArray(r.accessNeeds) ? r.accessNeeds
+      : Array.isArray(r.access_needs) ? r.access_needs : undefined,
     pickupAddress: r.pickupAddress || r.pickup_address || undefined,
     pickupNote: r.pickupNote || r.pickup_note || undefined,
     option: r.option || undefined,
@@ -167,6 +169,8 @@ export function normaliseTask(raw: any): Task {
     durationMin: r.duration_minutes ?? r.durationMin,
     routeGeometry: normaliseRoute(r.route ?? r.routeGeometry),
     scheduledFor: r.scheduledFor ?? r.scheduled_for ?? null,
+    cancellationReason: r.cancelReason ?? r.cancellation_reason ?? undefined,
+    lateCancellation: r.lateCancellation === true,
     settlement: normaliseSettlement(r.settlementRecord ?? r.settlement),
     createdAt: r.timestamps?.requested
       ? new Date(r.timestamps.requested).toISOString()
@@ -276,6 +280,14 @@ export async function requestTask(params: {
   pickupNote?: string | null;
   /** Requested service class (domain ride options), e.g. 'xl' */
   option?: string | null;
+  /** Access needs this journey requires (wheelchair, child_seat…) */
+  accessNeeds?: string[];
+  /**
+   * The demand multiplier the rider was shown. The server honours the LOWER
+   * of this and the live figure, so a quote can never reprice upward
+   * between seeing it and tapping.
+   */
+  surgeMultiplier?: number;
   /** Favourite providers this rider wants given a head start */
   preferredProviders?: string[];
 }): Promise<Task> {
@@ -283,6 +295,9 @@ export async function requestTask(params: {
     pickup_lat: params.pickup.lat,
     pickup_lon: params.pickup.lng,
     rider_pubkey: params.requesterPubkey,
+    ...(params.accessNeeds?.length ? { access_needs: params.accessNeeds } : {}),
+    ...(params.surgeMultiplier && params.surgeMultiplier > 1
+      ? { surge_multiplier: params.surgeMultiplier } : {}),
     rider_npub: params.requesterNpub,
   };
 
@@ -351,6 +366,8 @@ export async function acceptTask(taskId: string, params: {
   gender?: 'woman' | 'man' | null;
   /** Service classes this vehicle can serve — required for non-default classes */
   serviceOptions?: string[];
+  /** Access features this vehicle offers — required for a job that needs them */
+  accessFeatures?: string[];
 }): Promise<Task> {
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/accept`, {
     method: 'POST',
@@ -366,6 +383,8 @@ export async function acceptTask(taskId: string, params: {
       ...(params.gender ? { gender: params.gender } : {}),
       ...(params.serviceOptions && params.serviceOptions.length > 0
         ? { service_options: params.serviceOptions } : {}),
+      ...(params.accessFeatures && params.accessFeatures.length > 0
+        ? { access_features: params.accessFeatures } : {}),
     }),
   });
   return normaliseTask(raw);
@@ -519,15 +538,21 @@ export async function submitRating(taskId: string, params: {
 }
 
 /**
- * Report a no-show: a counterparty-signed kind 30520 event carrying a
- * no_show flag (and a 1-star rating, so every aggregator prices it in).
- * Published straight to public relays — reputation never depends on the
- * operator — and best-effort posted to the operator's rate endpoint so
- * its fallback aggregate sees it too. Mode A holds no money: no-show
- * accountability is reputational, and it is signed by the wronged party,
- * never asserted by the operator.
+ * Report that a job did not happen because of the counterparty.
+ *
+ * A wronged-party-signed kind 30520 event carrying the relevant flag (and a
+ * 1-star rating, so every aggregator prices it in). Published straight to
+ * public relays — reputation never depends on the operator — and best-effort
+ * posted to the operator's rate endpoint so its fallback aggregate sees it
+ * too. Mode A holds no money: this accountability is reputational, it is
+ * signed by the party who was let down, and it is never asserted by the
+ * operator.
+ *
+ * `no_show`: they never turned up.
+ * `late_cancel`: they committed, then dropped it after the grace window.
  */
-export async function reportNoShow(taskId: string, params: {
+export async function reportNonEvent(taskId: string, params: {
+  kind: 'no_show' | 'late_cancel';
   targetPubkey: string;
   reporterRole: 'requester' | 'provider';
   domainId?: string;
@@ -539,7 +564,7 @@ export async function reportNoShow(taskId: string, params: {
   const tags: string[][] = [
     ['ride', taskId],
     ['rating', '1'],
-    ['no_show', 'true'],
+    [params.kind, 'true'],
     ['role', params.reporterRole === 'requester' ? 'rider' : 'driver'],
     ['p', params.targetPubkey],
   ];
@@ -549,7 +574,7 @@ export async function reportNoShow(taskId: string, params: {
     kind: 30520,
     created_at: Math.floor(Date.now() / 1000),
     tags,
-    content: 'no_show',
+    content: params.kind,
   }, _authPrivKey);
 
   void publishToRelays(event);
@@ -561,6 +586,24 @@ export async function reportNoShow(taskId: string, params: {
   } catch {
     // The relays are the primary rail; the operator copy is best-effort
   }
+}
+
+/** They never turned up. See reportNonEvent. */
+export function reportNoShow(taskId: string, params: {
+  targetPubkey: string;
+  reporterRole: 'requester' | 'provider';
+  domainId?: string;
+}): Promise<void> {
+  return reportNonEvent(taskId, { ...params, kind: 'no_show' });
+}
+
+/** They committed, then dropped it. See reportNonEvent. */
+export function reportLateCancel(taskId: string, params: {
+  targetPubkey: string;
+  reporterRole: 'requester' | 'provider';
+  domainId?: string;
+}): Promise<void> {
+  return reportNonEvent(taskId, { ...params, kind: 'late_cancel' });
 }
 
 /** POST /api/tasks/:id/tip — send tip */
@@ -658,6 +701,8 @@ export async function getOpenTasks(params?: {
   gender?: 'woman' | 'man';
   /** Service classes this provider can serve — narrows the list */
   options?: string[];
+  /** Access features this provider can offer — jobs needing others stay hidden */
+  access?: string[];
   /** Who is browsing — lets a favourite see a job inside its head start */
   pubkey?: string;
 }): Promise<Task[]> {
@@ -673,6 +718,9 @@ export async function getOpenTasks(params?: {
   }
   if (params?.options && params.options.length > 0) {
     query.set('options', params.options.join(','));
+  }
+  if (params?.access && params.access.length > 0) {
+    query.set('access', params.access.join(','));
   }
   if (params?.pubkey) {
     query.set('pubkey', params.pubkey);
@@ -855,10 +903,13 @@ export async function getTripEstimate(params: {
     distanceKm: raw.distance?.km ?? raw.distanceKm ?? 0,
     durationMinutes: raw.duration?.minutes ?? raw.durationMinutes ?? 0,
     fareEstimateSats: raw.fare?.sats ?? raw.fareEstimateSats ?? 0,
+    // Real rows from the server's own rate card. Never synthesise these from
+    // percentages of the total: a breakdown that does not sum to the fare is
+    // worse than no breakdown at all.
     fareBreakdown: {
-      baseFareSats: raw.fareBreakdown?.baseFareSats ?? Math.round((raw.fare?.sats ?? 0) * 0.3),
-      distanceFareSats: raw.fareBreakdown?.distanceFareSats ?? Math.round((raw.fare?.sats ?? 0) * 0.4),
-      timeFareSats: raw.fareBreakdown?.timeFareSats ?? Math.round((raw.fare?.sats ?? 0) * 0.2),
+      baseFareSats: raw.fareBreakdown?.baseFareSats ?? 0,
+      distanceFareSats: raw.fareBreakdown?.distanceFareSats ?? 0,
+      timeFareSats: raw.fareBreakdown?.timeFareSats ?? 0,
       operatorFeeSats: raw.operatorFee?.sats ?? raw.fareBreakdown?.operatorFeeSats ?? 0,
     },
     options: Array.isArray(raw.options) ? raw.options : undefined,
@@ -867,7 +918,19 @@ export async function getTripEstimate(params: {
       currency: raw.fare.currency || raw.currency || 'GBP',
       symbol: getCurrencySymbol(raw.fare.currency || raw.currency || 'GBP'),
     } : raw.fiatEstimate,
-    routeGeometry: raw.routeGeometry,
+    // The road the price was calculated from — same [lon,lat] convention as
+    // the ride's own route
+    routeGeometry: normaliseRoute(raw.routeGeometry),
+    routed: raw.routed === true,
+    surge: raw.surge && typeof raw.surge.multiplier === 'number'
+      ? {
+        multiplier: raw.surge.multiplier,
+        active: raw.surge.active === true,
+        reason: raw.surge.reason ?? null,
+        waiting: raw.surge.waiting,
+        available: raw.surge.available,
+      }
+      : undefined,
   };
 }
 

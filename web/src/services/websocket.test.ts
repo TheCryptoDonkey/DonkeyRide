@@ -39,7 +39,13 @@ describe('normaliseWsMessage', () => {
     expect(normaliseWsMessage({ type: 'trip_completed', ride_id: 'r' })?.type).toBe('task_completed');
     expect(normaliseWsMessage({ type: 'ride_cancelled', ride_id: 'r', reason: 'x' })).toEqual({
       type: 'task_cancelled', taskId: 'r', cancelledBy: undefined, reason: 'x',
+      lateCancellation: false,
     });
+    // A cancellation past the grace window is flagged, so the wronged party
+    // can be offered the chance to record it
+    expect(normaliseWsMessage({
+      type: 'ride_cancelled', ride_id: 'r', reason: 'x', late_cancellation: true,
+    })).toMatchObject({ type: 'task_cancelled', lateCancellation: true });
   });
 
   it('maps location_update with lon at the top level', () => {

@@ -7,7 +7,9 @@ import { useLocation } from '../../hooks/useLocation';
 import { useIdentity } from '../../context/IdentityContext';
 import { useTask } from '../../context/TaskContext';
 import { useDomain } from '../../context/DomainContext';
-import { getTaskStats, getOperatorInfo } from '../../services/api';
+import { getOperatorInfo, getDriverEarnings, type DriverEarnings } from '../../services/api';
+import { taskPickupProximity, rankJobs } from '../../utils/pickup-distance';
+import { onlineMsToday, formatOnline, satsPerHour } from '../../utils/shift';
 import { dispatchService, type DispatchState } from '../../services/dispatch';
 import { formatDistance } from '../../services/pricing';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
@@ -28,10 +30,15 @@ export function DashboardPage() {
   const { identity } = useIdentity();
   const { activeTask, setActiveTask } = useTask();
   const { profile } = useDomain();
-  const [stats, setStats] = useState<{ total: number; active: number; completed: number } | null>(null);
-  const [operatorFee, setOperatorFee] = useState<string>('0.5%');
+  // The driver's OWN figures. The dashboard used to headline platform-wide
+  // ride counts, which tell a driver nothing about their own day.
+  const [earnings, setEarnings] = useState<DriverEarnings | null>(null);
+  // No guessed default: showing "0.5%" on an operator that takes 0% is a
+  // fee that does not exist, and it flashes on every load
+  const [operatorFee, setOperatorFee] = useState<string | null>(null);
   const [dispatchState, setDispatchState] = useState<DispatchState>(dispatchService.getState());
   const [availableJobs, setAvailableJobs] = useState<Task[]>(dispatchService.getAvailableTasks());
+  const [declined, setDeclined] = useState(dispatchService.declinedCount());
   const [destMode, setDestMode] = useState<DestinationMode | null>(dispatchService.getDestinationMode());
   const [pickingDest, setPickingDest] = useState(false);
 
@@ -63,12 +70,25 @@ export function DashboardPage() {
       .catch(() => {});
   }, []);
 
-  // Fetch stats
+  // The driver's own earnings, refreshed when a job completes
   useEffect(() => {
-    getTaskStats()
-      .then(s => setStats(s))
+    if (!identity?.pubKeyHex) return;
+    let live = true;
+    const load = () => getDriverEarnings(identity.pubKeyHex)
+      .then((e) => { if (live) setEarnings(e); })
       .catch(() => {});
+    void load();
+    const timer = setInterval(load, 60000);
+    return () => { live = false; clearInterval(timer); };
+  }, [identity?.pubKeyHex]);
+
+  // Hours online ticks while the shift runs, so the per-hour rate stays honest
+  const [onlineMs, setOnlineMs] = useState(() => onlineMsToday());
+  useEffect(() => {
+    const timer = setInterval(() => setOnlineMs(onlineMsToday()), 30000);
+    return () => clearInterval(timer);
   }, []);
+  useEffect(() => { setOnlineMs(onlineMsToday()); }, [online]);
 
   // The dispatch connection lives in a module singleton — going online
   // survives route changes; this page only mirrors its state.
@@ -76,7 +96,10 @@ export function DashboardPage() {
 
   // Every open job the driver could take — broadcasts plus the polled
   // open-jobs endpoint, so nothing is missed while another job is on screen
-  useEffect(() => dispatchService.onAvailable(setAvailableJobs), []);
+  useEffect(() => dispatchService.onAvailable((jobs) => {
+    setAvailableJobs(jobs);
+    setDeclined(dispatchService.declinedCount());
+  }), []);
 
   const openJob = useCallback((task: Task) => {
     setActiveTask(task);
@@ -115,6 +138,9 @@ export function DashboardPage() {
 
   const providerLabel = td(profile?.roles.provider || 'Provider');
   const taskNoun = td(profile?.labels?.taskNoun || 'task');
+  const perHour = satsPerHour(earnings?.summary?.today.sats ?? 0, onlineMs);
+  // Nearest first, money breaking ties — the order a driver would pick in
+  const rankedJobs = rankJobs(availableJobs, geoReady ? location : null);
   const statusLabel = wsConnected ? t('common.online') : online ? t('common.connecting') : t('common.offline');
 
   return (
@@ -158,42 +184,66 @@ export function DashboardPage() {
       <div className="bg-donkey-surface border-t-2 border-donkey-border p-6 space-y-4 shadow-panel">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-black tracking-tight">{t('dash.title', { label: providerLabel })}</h2>
-          <span className="text-xs text-donkey-muted font-mono uppercase tracking-wider">{t('dash.fee', { fee: operatorFee })}</span>
+          {operatorFee && (
+            <span className="text-xs text-donkey-muted font-mono uppercase tracking-wider">
+              {t('dash.fee', { fee: operatorFee })}
+            </span>
+          )}
         </div>
 
-        {/* Stats */}
-        {stats && (
-          <div className="grid grid-cols-3 gap-3 text-center">
-            <div className="stat-card">
-              <p className="text-2xl font-black text-donkey-blue">{stats.active}</p>
-              <p className="stat-label">{t('dash.active')}</p>
-            </div>
-            <div className="stat-card">
-              <p className="text-2xl font-black text-donkey-green">{stats.completed}</p>
-              <p className="stat-label">{t('dash.completed')}</p>
-            </div>
-            <div className="stat-card">
-              <p className="text-2xl font-black text-donkey-text">{stats.total}</p>
-              <p className="stat-label">{t('dash.total')}</p>
-            </div>
+        {/* Your day. Not the platform's — a driver deciding whether to keep
+            working needs their own earnings, trips and hours, in that order. */}
+        <div className="grid grid-cols-3 gap-3 text-center">
+          <div className="stat-card">
+            <DualPrice sats={earnings?.summary?.today.sats ?? 0} size="sm" />
+            <p className="stat-label">{t('dash.todayEarned')}</p>
           </div>
+          <div className="stat-card">
+            <p className="text-2xl font-black text-donkey-text">
+              {earnings?.summary?.today.rides ?? 0}
+            </p>
+            <p className="stat-label">{t('dash.todayTrips')}</p>
+          </div>
+          <div className="stat-card">
+            <p className="text-2xl font-black text-donkey-text">{formatOnline(onlineMs)}</p>
+            <p className="stat-label">{t('dash.online')}</p>
+          </div>
+        </div>
+
+        {/* Per hour — the number that says whether the day is worth it.
+            Withheld until enough of a shift has run to mean anything. */}
+        {perHour != null && (
+          <p className="text-xs text-donkey-muted text-center">
+            {t('dash.perHour')} <DualPrice sats={perHour} size="sm" />
+          </p>
         )}
 
-        {/* Every waiting job — tap to review and accept */}
-        {online && availableJobs.length > 0 && (
+        {/* Every waiting job — nearest first, tap to review and accept */}
+        {online && rankedJobs.length > 0 && (
           <div className="space-y-2">
             <p className="section-title">
-              {t('dash.waiting', { noun: taskNoun, n: availableJobs.length })}
+              {t('dash.waiting', { noun: taskNoun, n: rankedJobs.length })}
             </p>
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {availableJobs.map((job) => (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {rankedJobs.map((job) => {
+                // How far the driver is from THIS rider — the thing that
+                // separates a good job from a bad one at the same fare
+                const near = taskPickupProximity(geoReady ? location : null, job);
+                return (
                 <button
                   key={job.id}
                   className="w-full flex items-center justify-between bg-donkey-bg border border-donkey-border rounded-lg px-4 py-3 text-left hover:border-donkey-blue transition-colors"
                   onClick={() => openJob(job)}
                 >
-                  <div>
-                    <DualPrice sats={job.fareEstimateSats} size="sm" />
+                  <div className="min-w-0">
+                    <div className="flex items-baseline gap-2">
+                      <DualPrice sats={job.fareEstimateSats} size="sm" />
+                      {near && (
+                        <span className="text-xs font-bold text-donkey-blue shrink-0">
+                          {t('dash.awayShort', { min: near.minutes })}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-donkey-muted mt-0.5">
                       {job.distanceKm != null && formatDistance(job.distanceKm)}
                       {(job.stopCount ?? 0) > 0 && (
@@ -222,10 +272,25 @@ export function DashboardPage() {
                       )}
                     </p>
                   </div>
-                  <span className="text-donkey-blue text-sm font-semibold">{t('common.view')}</span>
+                  <span className="text-donkey-blue text-sm font-semibold shrink-0 ml-2">
+                    {t('common.view')}
+                  </span>
                 </button>
-              ))}
+                );
+              })}
             </div>
+            {/* A decline is remembered, so give the driver the way back */}
+            {declined > 0 && (
+              <button
+                className="text-donkey-muted text-xs underline w-full text-center min-h-[44px]"
+                onClick={() => {
+                  dispatchService.clearDeclined();
+                  setDeclined(0);
+                }}
+              >
+                {t('dash.showDeclined', { n: declined })}
+              </button>
+            )}
           </div>
         )}
 

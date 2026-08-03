@@ -86,6 +86,12 @@ export function aggregateReputation(
   const latestNoShowAt = noShows.reduce(
     (latest, event) => Math.max(latest, event.created_at || 0), 0);
 
+  // Late cancellations: same rail, same trust model — committed then dropped
+  const lateCancels = deduped.filter((event) =>
+    event.tags.some((t) => t[0] === 'late_cancel' && t[1] === 'true'));
+  const latestLateCancelAt = lateCancels.reduce(
+    (latest, event) => Math.max(latest, event.created_at || 0), 0);
+
   const ownPanics = panicEvents.filter((event) => event.pubkey.toLowerCase() === hex);
   const latestPanicAt = ownPanics.reduce(
     (latest, event) => Math.max(latest, event.created_at || 0), 0);
@@ -101,6 +107,8 @@ export function aggregateReputation(
     latestPanicAt: latestPanicAt || null,
     noShowCount: noShows.length,
     latestNoShowAt: latestNoShowAt || null,
+    lateCancelCount: lateCancels.length,
+    latestLateCancelAt: latestLateCancelAt || null,
   };
 }
 

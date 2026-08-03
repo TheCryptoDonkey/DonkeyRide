@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { DualPrice } from '../common/DualPrice';
 import { QrCodeSvg } from './QrCodeSvg';
 import { useDomain } from '../../context/DomainContext';
+import { useT } from '../../i18n';
 import {
   getPaymentOptions, getPayInstruction, settleRide,
 } from '../../services/api';
@@ -27,7 +28,8 @@ const RAIL_LABELS: Record<string, string> = {
   cash: 'Cash',
 };
 
-const HONEST_LINE = 'You pay the driver directly. DonkeyRide never touches the money.';
+// Rendered via t('pay.honest') — kept as a key so the promise reads in
+// the payer's own language
 
 function isLightningRail(rail: string): boolean {
   return rail === 'lnaddress' || rail === 'lightning' || rail === 'tando';
@@ -41,7 +43,10 @@ function isLightningRail(rail: string): boolean {
  */
 export function PayDriver({ task, settlement }: PayDriverProps) {
   const { profile } = useDomain();
-  const providerLabel = (profile?.roles.provider || 'driver').toLowerCase();
+  // The money path was English-only, which for a KES/Swahili market meant a
+  // translated request screen and an English payment screen
+  const { t, td } = useT();
+  const providerLabel = td(profile?.roles.provider || 'driver').toLowerCase();
 
   const [options, setOptions] = useState<PaymentOptions | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
@@ -68,7 +73,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
     getPaymentOptions(task.id)
       .then((opts) => { if (mounted) setOptions(opts); })
       .catch((err) => {
-        if (mounted) setOptionsError(err instanceof Error ? err.message : 'Failed to load payment options');
+        if (mounted) setOptionsError(err instanceof Error ? err.message : t('pay.optionsFailed'));
       });
     return () => { mounted = false; };
   }, [task.id]);
@@ -90,7 +95,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
       const instr = await getPayInstruction(task.id, { rail });
       setInstruction(instr);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to build the payment');
+      setError(err instanceof Error ? err.message : t('pay.buildFailed'));
     } finally {
       setBusy(null);
     }
@@ -104,12 +109,12 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
       // A supplied proof that did not check out (e.g. a mistyped preimage) comes
       // back as 'unverified' — surface it rather than claiming success.
       if (res.settlement?.status === 'unverified') {
-        setError(res.settlement.detail || 'That payment proof did not check out. Please try again.');
+        setError(res.settlement.detail || t('pay.proofFailed'));
         return;
       }
       setDeclaredRail(res.settlement?.rail || rail);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to record the payment');
+      setError(err instanceof Error ? err.message : t('pay.recordFailed'));
     } finally {
       setBusy(null);
     }
@@ -131,13 +136,13 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
     try {
       // Light sanity check; the client parses fully on use.
       if (!/^nostr\+walletconnect:\/\//i.test(nwcUri.trim())) {
-        throw new Error('Paste a nostr+walletconnect:// string');
+        throw new Error(t('pay.nwcPaste'));
       }
       setStoredNwcUri(nwcUri.trim());
       setNwcConnected(true);
       setNwcUri('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Invalid connection string');
+      setError(err instanceof Error ? err.message : t('pay.nwcInvalid'));
     }
   };
 
@@ -150,7 +155,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
       const { preimage: pre } = await payInvoiceViaNwc(uri, instruction.invoice);
       await doSettle(selectedRail, { preimage: pre });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Wallet payment failed');
+      setError(err instanceof Error ? err.message : t('pay.walletFailed'));
       setBusy(null);
     }
   };
@@ -165,7 +170,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
         <p className="text-xs text-donkey-muted">
           Your {providerLabel} confirmed they received {RAIL_LABELS[settledRail] || settledRail}.
         </p>
-        <p className="text-[11px] text-donkey-muted">{HONEST_LINE}</p>
+        <p className="text-[11px] text-donkey-muted">{t('pay.honest')}</p>
       </div>
     );
   }
@@ -182,7 +187,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
         {settlement?.verified && (
           <p className="text-xs text-donkey-green">Verified by preimage.</p>
         )}
-        <p className="text-[11px] text-donkey-muted">{HONEST_LINE}</p>
+        <p className="text-[11px] text-donkey-muted">{t('pay.honest')}</p>
       </div>
     );
   }
@@ -192,7 +197,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
       <div>
         <p className="section-title">Pay your {providerLabel}</p>
         <div className="mt-1"><DualPrice sats={amountSats} size="md" /></div>
-        <p className="text-[11px] text-donkey-muted mt-1">{HONEST_LINE}</p>
+        <p className="text-[11px] text-donkey-muted mt-1">{t('pay.honest')}</p>
       </div>
 
       {optionsError && <p className="text-donkey-red text-sm">{optionsError}</p>}
@@ -252,7 +257,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
                   Open in wallet
                 </a>
                 <button className="btn-secondary flex-1 text-sm" onClick={handleCopyInvoice}>
-                  {copied ? 'Copied ✓' : 'Copy invoice'}
+                  {copied ? t('profile.copied') : t('pay.copyInvoice')}
                 </button>
               </div>
 
@@ -278,6 +283,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
                     type="text"
                     className="input-field w-full text-xs font-mono"
                     placeholder="nostr+walletconnect://…"
+                    aria-label={t('pay.nwcLabel')}
                     value={nwcUri}
                     onChange={(e) => setNwcUri(e.target.value)}
                   />
@@ -299,7 +305,8 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
                 <input
                   type="text"
                   className="input-field w-full text-xs font-mono"
-                  placeholder="preimage (64 hex chars)"
+                  placeholder={t('pay.preimage')}
+                  aria-label={t('pay.preimage')}
                   value={preimage}
                   onChange={(e) => setPreimage(e.target.value)}
                 />
@@ -325,10 +332,10 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
                 </p>
               </div>
               <ol className="text-xs text-donkey-muted list-decimal list-inside space-y-1">
-                <li>Open M-Pesa and choose "Send Money".</li>
+                <li>{t('pay.mpesaStep1')}</li>
                 <li>Enter {instruction.mpesaNumber} and {instruction.amount} {instruction.currency}.</li>
                 <li>Confirm the transfer to your {providerLabel}.</li>
-                <li>Enter the M-Pesa confirmation code below.</li>
+                <li>{t('pay.mpesaStep3')}</li>
               </ol>
               <p className="text-[11px] text-donkey-muted">
                 This is a direct transfer to your {providerLabel}'s phone.
@@ -336,7 +343,8 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
               <input
                 type="text"
                 className="input-field w-full text-sm uppercase"
-                placeholder="M-Pesa confirmation code"
+                placeholder={t('pay.mpesaCode')}
+                aria-label={t('pay.mpesaCode')}
                 value={confirmationCode}
                 onChange={(e) => setConfirmationCode(e.target.value.toUpperCase())}
               />
@@ -362,7 +370,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
               <ol className="text-xs text-donkey-muted list-decimal list-inside space-y-1">
                 <li>Create a Cashu token for {amountSats.toLocaleString()} sats in your own wallet.</li>
                 <li>Paste it to your {providerLabel} in the chat above — it's end-to-end encrypted.</li>
-                <li>They redeem it in their wallet and confirm.</li>
+                <li>{t('pay.cashuStep')}</li>
               </ol>
               {instruction.paymentRequest && (
                 <div className="meta-card">

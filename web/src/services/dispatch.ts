@@ -10,6 +10,8 @@ import { loadWorkingAreas, combinedCells } from '../utils/working-areas';
 import { loadServiceOptions } from '../utils/vehicle';
 import { loadDestinationMode, jobMovesToward } from '../utils/destination-mode';
 import { loadGender, loadWomenOnlyDriver, type Gender } from '../utils/gender';
+import { startShift, endShift } from '../utils/shift';
+import { loadAccessFeatures } from '../utils/access-needs';
 import type { DestinationMode } from '../utils/destination-mode';
 
 const ONLINE_KEY = 'donkeyride.provider.online';
@@ -51,6 +53,8 @@ class DispatchService {
   private availableHandlers: Set<AvailableHandler> = new Set();
   /** Every open job the driver could take, keyed by task id */
   private availableTasks: Map<string, { task: Task; receivedAt: number }> = new Map();
+  /** Jobs the driver declined this session — never re-offered by the poll */
+  private declined: Set<string> = new Set();
   private openPollTimer: ReturnType<typeof setInterval> | null = null;
   /** Working-area geohash cells sent with registration ([] = radius dispatch) */
   private areas: string[] = combinedCells(loadWorkingAreas());
@@ -127,6 +131,16 @@ class DispatchService {
   refreshGenderPrefs(): void {
     this.gender = loadGender();
     this.womenOnlyPref = loadWomenOnlyDriver();
+    this.refreshDeclarations();
+  }
+
+  /**
+   * Re-read every device-local declaration (access features, service
+   * classes) and re-register so dispatch applies it at once. A driver who
+   * ticks "wheelchair accessible" should start seeing those jobs now, not
+   * after the next reconnect.
+   */
+  refreshDeclarations(): void {
     if (this.connected) {
       this.queueOrSend(this.registerMessage());
       void this.refreshOpenTasks();
@@ -139,6 +153,7 @@ class DispatchService {
     return Array.from(this.availableTasks.values())
       .sort((a, b) => a.receivedAt - b.receivedAt)
       .map((entry) => entry.task)
+      .filter((task) => !this.declined.has(task.id))
       .filter((task) => this.matchesDestination(task))
       .filter((task) => this.matchesGenderPref(task));
   }
@@ -172,11 +187,41 @@ class DispatchService {
     return () => { this.availableHandlers.delete(handler); };
   }
 
-  /** Drop a job from the list (accepted, taken by someone else, declined) */
+  /** Drop a job from the list (accepted, taken by someone else) */
   removeAvailable(taskId: string): void {
     if (this.availableTasks.delete(taskId)) {
       this.emitAvailable();
     }
+  }
+
+  /**
+   * The driver turned this job down — keep it down.
+   *
+   * Removing it was not enough: the 30-second reconcile against the open
+   * list put it straight back at the top, so a driver had to decline the
+   * same job over and over. A decline is remembered for the session.
+   */
+  declineAvailable(taskId: string): void {
+    this.declined.add(taskId);
+    this.availableTasks.delete(taskId);
+    this.emitAvailable();
+  }
+
+  /** Has this driver already turned this job down? */
+  isDeclined(taskId: string): boolean {
+    return this.declined.has(taskId);
+  }
+
+  /** Offer declined jobs again — the driver asked to see everything */
+  clearDeclined(): void {
+    if (this.declined.size === 0) return;
+    this.declined.clear();
+    void this.refreshOpenTasks();
+  }
+
+  /** How many jobs the driver has hidden by declining them */
+  declinedCount(): number {
+    return this.declined.size;
   }
 
   /**
@@ -194,6 +239,7 @@ class DispatchService {
           : { location: this.location ?? undefined }),
         gender: this.gender ?? undefined,
         options: loadServiceOptions(),
+        access: loadAccessFeatures(),
         pubkey: this.identity?.pubKeyHex,
       });
     } catch {
@@ -220,6 +266,8 @@ class DispatchService {
     if (this.online) return;
     this.online = true;
     localStorage.setItem(ONLINE_KEY, '1');
+    // Start the driver's own shift clock — earnings per hour needs it
+    startShift();
     this.bindWindowListeners();
     this.connect();
     this.startBeacon();
@@ -249,6 +297,7 @@ class DispatchService {
   goOffline(): void {
     this.online = false;
     localStorage.removeItem(ONLINE_KEY);
+    endShift();
     this.stopTimers();
     this.stopFederation();
     void stopShiftTracking(this.shiftWatcher);
@@ -360,7 +409,10 @@ class DispatchService {
         this.emitAvailable();
         // Destination mode: a job heading the wrong way stays out of the
         // incoming full-screen too (it is stored, in case the mode clears)
-        if (this.matchesDestination(withDistance) && this.matchesGenderPref(withDistance)) {
+        // A job already turned down must never take over the screen again
+        if (!this.declined.has(withDistance.id)
+            && this.matchesDestination(withDistance)
+            && this.matchesGenderPref(withDistance)) {
           this.taskHandlers.forEach((handler) => handler(task, msg.distanceKm));
         }
       }
@@ -393,6 +445,9 @@ class DispatchService {
       women_only: this.womenOnlyPref,
       // Vehicle classes this driver can serve beyond the default
       service_options: loadServiceOptions(),
+      // What this vehicle can actually accommodate (ramp, child seat…).
+      // Undeclared means jobs needing it never reach this driver.
+      access_features: loadAccessFeatures(),
     };
   }
 

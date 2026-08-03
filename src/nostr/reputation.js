@@ -296,6 +296,15 @@ function buildProfileResponse(hexKey, ratings, panicEvents) {
   summary.latestNoShowAt = noShowEvents.reduce(
     (latest, evt) => Math.max(latest, evt.created_at || 0), 0) || null;
 
+  // Late cancellations: same shape, same trust model. Somebody committed and
+  // then dropped, after the grace window and before the job began. Mode A
+  // levies no fee — the record IS the accountability.
+  const lateCancelEvents = verifiedRatings.filter(evt =>
+    evt.tags.some(t => t[0] === 'late_cancel' && t[1] === 'true'));
+  summary.lateCancelCount = lateCancelEvents.length;
+  summary.latestLateCancelAt = lateCancelEvents.reduce(
+    (latest, evt) => Math.max(latest, evt.created_at || 0), 0) || null;
+
   return summary;
 }
 

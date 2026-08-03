@@ -133,6 +133,7 @@ export function normaliseWsMessage(raw: any): WsMessage | null {
         taskId,
         cancelledBy: raw.cancelledBy ?? raw.cancelled_by,
         reason: raw.reason,
+        lateCancellation: raw.late_cancellation === true,
       };
 
     case 'settlement_declared':
@@ -159,6 +160,17 @@ export function normaliseWsMessage(raw: any): WsMessage | null {
         type: 'scheduled_reminder',
         taskId,
         scheduledFor: typeof raw.scheduled_for === 'number' ? raw.scheduled_for : 0,
+      };
+
+    case 'searching':
+      return {
+        type: 'searching',
+        taskId,
+        attempt: typeof raw.attempt === 'number' ? raw.attempt : 1,
+        radiusKm: typeof raw.radius_km === 'number' ? raw.radius_km : 0,
+        providersNotified: typeof raw.providers_notified === 'number'
+          ? raw.providers_notified : 0,
+        expiresInMs: typeof raw.expires_in_ms === 'number' ? raw.expires_in_ms : 0,
       };
 
     case 'auth_ok':

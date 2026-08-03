@@ -21,6 +21,10 @@ function driverAppFallback(): Plugin {
   };
 }
 
+// Where `npm run dev` proxies API calls. Overridable so a second operator
+// can be run on another port when 3000 is already taken.
+const apiTarget = process.env.VITE_API_TARGET || 'http://localhost:3000';
+
 export default defineConfig({
   plugins: [react(), driverAppFallback()],
   resolve: {
@@ -32,19 +36,19 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        target: apiTarget,
         changeOrigin: true,
       },
       '/info': {
-        target: 'http://localhost:3000',
+        target: apiTarget,
         changeOrigin: true,
       },
       '/rides': {
-        target: 'http://localhost:3000',
+        target: apiTarget,
         changeOrigin: true,
       },
       '/health': {
-        target: 'http://localhost:3000',
+        target: apiTarget,
         changeOrigin: true,
       },
     },

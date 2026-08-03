@@ -4,6 +4,7 @@ import {
   getSharedGuardians, shareTrip, isAutoShare, setAutoShare,
   type ShareRole,
 } from '../../services/trip-share';
+import { useT } from '../../i18n';
 import type { Task } from '../../types/api';
 
 interface TripSharePanelProps {
@@ -20,6 +21,7 @@ interface TripSharePanelProps {
  * panic alert follow automatically to everyone the trip was shared with.
  */
 export function TripSharePanel({ task, privKeyHex, taskNoun = 'ride', role = 'requester' }: TripSharePanelProps) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const [contacts, setContacts] = useState<string[]>(getTrustedContacts());
   const [shared, setShared] = useState<string[]>(getSharedGuardians(task.id));
@@ -35,7 +37,7 @@ export function TripSharePanel({ task, privKeyHex, taskNoun = 'ride', role = 're
       setContacts(getTrustedContacts());
       setNewNpub('');
     } catch {
-      setError('That does not look like an npub (starts npub1…)');
+      setError(t('share.badNpub'));
     }
   };
 
@@ -46,7 +48,7 @@ export function TripSharePanel({ task, privKeyHex, taskNoun = 'ride', role = 're
       await shareTrip(privKeyHex, npub, task, taskNoun, role);
       setShared(getSharedGuardians(task.id));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not send — try again');
+      setError(err instanceof Error ? err.message : t('share.sendFailed'));
     } finally {
       setBusy(null);
     }
@@ -63,21 +65,19 @@ export function TripSharePanel({ task, privKeyHex, taskNoun = 'ride', role = 're
         }}
       >
         <span className="meta-label">
-          Share this {taskNoun}
+          {t('share.title', { noun: taskNoun })}
           {shared.length > 0 && (
-            <span className="text-donkey-green"> · shared with {shared.length}</span>
+            <span className="text-donkey-green">
+              {' '}· {t('share.sharedWith', { n: shared.length })}
+            </span>
           )}
         </span>
-        <span className="text-donkey-muted text-xs">{open ? '▲' : '▼'}</span>
+        <span className="text-donkey-muted text-xs" aria-hidden="true">{open ? '▲' : '▼'}</span>
       </button>
 
       {open && (
         <div className="mt-3 space-y-2">
-          <p className="text-xs text-donkey-muted">
-            Sends an encrypted note straight to their Nostr messages — no
-            account here needed, any NIP-17 DM app works. They'll get an
-            all-clear when you arrive.
-          </p>
+          <p className="text-xs text-donkey-muted">{t('share.explain')}</p>
 
           {contacts.map((npub) => {
             const isShared = shared.includes(npub);
@@ -93,19 +93,20 @@ export function TripSharePanel({ task, privKeyHex, taskNoun = 'ride', role = 're
                     setAutoShare(npub, !auto);
                     setAutoVersion(autoVersion + 1);
                   }}
-                  title="Send this contact every trip automatically"
+                  title={t('share.everyTripHint')}
+                  aria-pressed={auto}
                 >
-                  {auto ? 'Every trip ✓' : 'Every trip'}
+                  {auto ? t('share.everyTripOn') : t('share.everyTrip')}
                 </button>
                 {isShared ? (
-                  <span className="text-donkey-green text-xs font-semibold">Shared ✓</span>
+                  <span className="text-donkey-green text-xs font-semibold">{t('share.done')}</span>
                 ) : (
                   <button
                     className="text-donkey-blue text-xs font-semibold disabled:opacity-50"
                     disabled={busy === npub}
                     onClick={() => handleShare(npub)}
                   >
-                    {busy === npub ? 'Sending…' : 'Share'}
+                    {busy === npub ? t('share.sending') : t('share.share')}
                   </button>
                 )}
                 <button
@@ -114,9 +115,9 @@ export function TripSharePanel({ task, privKeyHex, taskNoun = 'ride', role = 're
                     removeTrustedContact(npub);
                     setContacts(getTrustedContacts());
                   }}
-                  aria-label="Remove contact"
+                  aria-label={t('share.remove')}
                 >
-                  ✕
+                  <span aria-hidden="true">✕</span>
                 </button>
               </div>
             );
@@ -125,7 +126,8 @@ export function TripSharePanel({ task, privKeyHex, taskNoun = 'ride', role = 're
           <div className="flex gap-2">
             <input
               className="flex-1 bg-donkey-bg border border-donkey-border rounded-lg px-3 py-2 text-donkey-text text-xs font-mono"
-              placeholder="npub1… of someone you trust"
+              placeholder={t('share.addPlaceholder')}
+              aria-label={t('share.addPlaceholder')}
               value={newNpub}
               onChange={(e) => setNewNpub(e.target.value)}
             />
@@ -134,11 +136,11 @@ export function TripSharePanel({ task, privKeyHex, taskNoun = 'ride', role = 're
               onClick={handleAdd}
               disabled={!newNpub.trim()}
             >
-              Add
+              {t('share.add')}
             </button>
           </div>
 
-          {error && <p className="text-donkey-orange text-xs">{error}</p>}
+          {error && <p className="text-donkey-orange text-xs" role="alert">{error}</p>}
         </div>
       )}
     </div>

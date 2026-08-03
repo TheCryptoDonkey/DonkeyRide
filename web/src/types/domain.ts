@@ -27,6 +27,18 @@ export interface DomainProfile {
     fareMultiplier: number;
     seats?: number;
   }[];
+  /**
+   * Access needs (wheelchair, child seat, assistance dog…). Requirements
+   * that narrow WHO can take the job — never a price band, so no
+   * fareMultiplier: the fare is identical with or without them.
+   */
+  accessOptions?: {
+    id: string;
+    label: string;
+    description?: string;
+    /** How the same feature is phrased to a provider declaring it */
+    providerPrompt?: string;
+  }[];
   states: {
     values: Record<string, string>;
     transitions: Record<string, string[]>;

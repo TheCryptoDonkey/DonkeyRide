@@ -50,6 +50,11 @@ export function LocationMarker({
       position={[position.lat, position.lng]}
       icon={createIcon(colour, draggable)}
       draggable={draggable}
+      // Leaflet renders every marker as a focusable role="button" div. Without
+      // this, each one lands in the tab order announced as an unnamed button —
+      // the only serious violation an axe scan of these screens turns up.
+      alt={draggable ? `${label} — drag to move` : label}
+      title={label}
       eventHandlers={draggable && onDragEnd ? {
         dragend: (e) => {
           const { lat, lng } = e.target.getLatLng();

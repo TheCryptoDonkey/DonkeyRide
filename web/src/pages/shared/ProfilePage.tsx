@@ -6,6 +6,12 @@ import {
 } from '../../services/nostr';
 import { PaymentMethodsEditor } from '../../components/payment/PaymentMethodsEditor';
 import { VehicleEditor } from '../../components/provider/VehicleEditor';
+import { AccessNeedsPicker } from '../../components/task/AccessNeedsPicker';
+import { NameEditor } from '../../components/common/NameEditor';
+import {
+  loadAccessFeatures, saveAccessFeatures, loadAccessNeeds, saveAccessNeeds,
+} from '../../utils/access-needs';
+import { dispatchService } from '../../services/dispatch';
 import { useT, LOCALES } from '../../i18n';
 import { WomenSafetyCard } from '../../components/safety/WomenSafetyCard';
 import { ReputationBadge } from '../../components/common/ReputationBadge';
@@ -28,6 +34,10 @@ export function ProfilePage({ role }: ProfilePageProps) {
   const [importValue, setImportValue] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
   const [recoveryNotice, setRecoveryNotice] = useState<string | null>(getIdentityRecoveryNotice());
+  // Provider: what this vehicle offers. Requester: what they need.
+  const [accessFeatures, setAccessFeatures] = useState<string[]>(
+    () => (role === 'provider' ? loadAccessFeatures() : loadAccessNeeds()),
+  );
 
   const copy = async (label: string, value: string) => {
     try {
@@ -206,8 +216,28 @@ export function ProfilePage({ role }: ProfilePageProps) {
         </div>
       )}
 
+      {/* The name the other party sees — your own kind 0 metadata */}
+      <NameEditor />
+
       {/* Women-only matching — device-local, self-declared */}
       <WomenSafetyCard role={role} />
+
+      {/* What this journey needs / what this vehicle offers. Remembered on
+          the device so nobody re-declares a wheelchair every single time. */}
+      <AccessNeedsPicker
+        role={role}
+        value={accessFeatures}
+        onChange={(ids) => {
+          setAccessFeatures(ids);
+          if (role === 'provider') {
+            saveAccessFeatures(ids);
+            // Re-register so dispatch applies the change immediately
+            dispatchService.refreshDeclarations();
+          } else {
+            saveAccessNeeds(ids);
+          }
+        }}
+      />
 
       {/* Provider only: accepted payment methods (non-custodial, direct) */}
       {role === 'provider' && <PaymentMethodsEditor />}

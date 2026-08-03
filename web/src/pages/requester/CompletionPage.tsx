@@ -12,13 +12,15 @@ import { GuaranteeBanner } from '../../components/task/GuaranteeBanner';
 import { formatDistance, formatDuration } from '../../services/pricing';
 import { recordTrip } from '../../services/trip-history';
 import { isFavourite, toggleFavourite } from '../../utils/favourites';
+import { useT } from '../../i18n';
 import type { OperatorPaymentInfo, SettlementInfo } from '../../types/api';
 
 export function CompletionPage() {
   const navigate = useNavigate();
-  const { activeTask, completedTask, clearCompletedTask, reset } = useTask();
+  const { activeTask, completedTask, clearCompletedTask, reset, estimate } = useTask();
   const { identity } = useIdentity();
   const { profile } = useDomain();
+  const { t, td } = useT();
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
   const [submitted, setSubmitted] = useState(false);
@@ -30,9 +32,9 @@ export function CompletionPage() {
   // "That one again" — device-local, gives them a head start next time
   const [favourite, setFavourite] = useState(false);
 
-  const taskNoun = profile?.labels?.taskNoun || 'task';
-  const completedLabel = profile?.labels?.completedLabel || 'Complete';
-  const providerLabel = profile?.roles.provider || 'provider';
+  const taskNoun = td(profile?.labels?.taskNoun || 'task');
+  const completedLabel = td(profile?.labels?.completedLabel || 'Complete');
+  const providerLabel = td(profile?.roles.provider || 'provider');
 
   useEffect(() => {
     getOperatorInfoCached()
@@ -67,7 +69,15 @@ export function CompletionPage() {
   // Your copy of the trip — device-local history (the operator keeps none).
   // Re-records when settlement confirms so the paid-by rail lands too.
   useEffect(() => {
-    if (task) recordTrip({ ...task, settlement: settlement ?? undefined });
+    if (task) {
+      // The breakdown and any demand multiplier come from the estimate the
+      // rider approved, so the receipt can explain the fare rather than
+      // just restate it
+      recordTrip({ ...task, settlement: settlement ?? undefined }, {
+        breakdown: estimate?.fareBreakdown,
+        surgeMultiplier: estimate?.surge?.multiplier,
+      });
+    }
   }, [task?.id, settlement?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDone = () => {
@@ -80,9 +90,9 @@ export function CompletionPage() {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="card text-center max-w-md">
-          <p className="text-donkey-muted mb-4">No completed {taskNoun} found</p>
+          <p className="text-donkey-muted mb-4">{t('complete.none', { noun: taskNoun })}</p>
           <button className="btn-primary" onClick={() => navigate('/request')}>
-            Request a {taskNoun}
+            {t('complete.requestAnother', { noun: taskNoun })}
           </button>
         </div>
       </div>
@@ -104,7 +114,7 @@ export function CompletionPage() {
           </p>
           <p className="text-xs font-mono text-donkey-muted break-all">{task.id}</p>
           <button className="btn-primary w-full" onClick={handleDone}>
-            Done
+            {t('complete.done')}
           </button>
         </div>
       </div>
@@ -123,7 +133,7 @@ export function CompletionPage() {
       });
       setSubmitted(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to submit rating');
+      setError(err instanceof Error ? err.message : t('complete.rateFailed'));
     }
   };
 
@@ -137,7 +147,7 @@ export function CompletionPage() {
       });
       setTipped(true);
     } catch (err) {
-      setTipError(err instanceof Error ? err.message : 'Failed to send tip');
+      setTipError(err instanceof Error ? err.message : t('tip.failed'));
     }
   };
 
@@ -208,7 +218,7 @@ export function CompletionPage() {
         {!submitted ? (
           <div className="card">
             <p className="text-sm font-bold uppercase text-donkey-muted mb-3">
-              Rate your {providerLabel}
+              {t('complete.rate', { label: providerLabel })}
             </p>
             <div className="flex justify-center mb-3">
               <StarRating value={rating} onChange={setRating} size="lg" />
@@ -216,7 +226,8 @@ export function CompletionPage() {
             <textarea
               className="input-field w-full text-sm"
               rows={2}
-              placeholder={`Comment (optional)`}
+              placeholder={t('complete.comment')}
+              aria-label={t('complete.comment')}
               value={comment}
               onChange={(e) => setComment(e.target.value)}
             />
@@ -225,13 +236,13 @@ export function CompletionPage() {
               onClick={handleSubmitRating}
               disabled={rating === 0}
             >
-              Submit Rating
+              {t('complete.submitRating')}
             </button>
             {error && <p className="text-donkey-red text-xs mt-2">{error}</p>}
           </div>
         ) : (
           <div className="card text-center">
-            <p className="text-donkey-green font-bold">Rating submitted</p>
+            <p className="text-donkey-green font-bold">{t('complete.rated')}</p>
             <div className="flex justify-center mt-2">
               <StarRating value={rating} readonly size="md" />
             </div>
@@ -254,7 +265,7 @@ export function CompletionPage() {
 
         {tipped && (
           <div className="card text-center">
-            <p className="text-donkey-green font-bold">Tip recorded. Thank you.</p>
+            <p className="text-donkey-green font-bold">{t('tip.recorded')}</p>
             {payment?.provider === 'cash' && (
               <p className="text-xs text-donkey-muted mt-1">
                 On cash payment the tip is settled together with the fare.
@@ -265,7 +276,7 @@ export function CompletionPage() {
 
         {/* Done */}
         <button className="btn-secondary w-full" onClick={handleDone}>
-          Done
+          {t('complete.done')}
         </button>
       </div>
     </div>

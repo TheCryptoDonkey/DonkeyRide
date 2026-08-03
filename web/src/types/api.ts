@@ -34,6 +34,8 @@ export interface Task {
   vehicle?: TaskVehicle | null;
   /** Requester asked to be matched only with declared-women drivers */
   womenOnly?: boolean;
+  /** Access needs this journey requires (wheelchair, child_seat…) */
+  accessNeeds?: string[];
   pickupAddress?: string;
   dropoffAddress?: string;
   /** Meeting instructions for the provider — participant-gated free text */
@@ -53,6 +55,10 @@ export interface Task {
   /** Unix ms pickup time for a pre-booked task; null/absent = immediate */
   scheduledFor?: number | null;
   settlement?: SettlementInfo;
+  /** Why a cancelled task ended — 'no_providers' when the search found nobody */
+  cancellationReason?: string;
+  /** They committed then dropped it, past the grace window and pre-start */
+  lateCancellation?: boolean;
   createdAt: string;
   /** When the provider marked arrival — waiting time counts from here */
   arrivedAt?: string;
@@ -188,6 +194,13 @@ export interface ServiceOptionPrice {
   seats?: number | null;
   fareSats: number;
   fareFormatted?: string;
+  /** Rows that sum to this class's fare */
+  fareBreakdown?: {
+    baseFareSats: number;
+    distanceFareSats: number;
+    timeFareSats: number;
+    operatorFeeSats: number;
+  };
 }
 
 export interface TripEstimate {
@@ -201,7 +214,17 @@ export interface TripEstimate {
     operatorFeeSats: number;
   };
   fiatEstimate?: FiatAmount;
-  routeGeometry?: string;
+  routeGeometry?: string | [number, number][];
+  /** True when a real road route backed the price (not a straight line) */
+  routed?: boolean;
+  /** Demand pricing, disclosed before the rider commits (never after) */
+  surge?: {
+    multiplier: number;
+    active: boolean;
+    reason?: string | null;
+    waiting?: number;
+    available?: number;
+  };
   /** Per-class prices when the domain defines service classes */
   options?: ServiceOptionPrice[];
 }
@@ -274,6 +297,9 @@ export interface Reputation {
   latestPanicAt: number | null;
   /** Counterparty-signed no-show reports (no_show-flagged 30520 events) */
   noShowCount?: number;
+  /** Counterparty-signed late-cancellation reports (late_cancel-flagged) */
+  lateCancelCount?: number;
+  latestLateCancelAt?: number | null;
   latestNoShowAt?: number | null;
 }
 
@@ -308,9 +334,10 @@ export type WsMessage =
   | { type: 'panic_alert'; taskId?: string; triggeredBy?: string; location?: LatLng | null }
   | { type: 'rating_submitted'; taskId?: string; rating?: number }
   | { type: 'tip_sent'; taskId?: string; amountSats?: number }
-  | { type: 'task_cancelled'; taskId?: string; cancelledBy?: string; reason?: string }
+  | { type: 'task_cancelled'; taskId?: string; cancelledBy?: string; reason?: string; lateCancellation?: boolean }
   | { type: 'task_broadcast'; task: Record<string, unknown>; distanceKm?: number }
   | { type: 'scheduled_reminder'; taskId?: string; scheduledFor: number }
+  | { type: 'searching'; taskId?: string; attempt: number; radiusKm: number; providersNotified: number; expiresInMs: number }
   | { type: 'settlement_declared'; taskId?: string; rail?: string; verified?: boolean }
   | { type: 'settlement_confirmed'; taskId?: string; rail?: string }
   | { type: 'auth_ok'; pubkey: string }

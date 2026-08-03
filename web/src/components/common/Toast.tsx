@@ -64,30 +64,33 @@ export function ToastHost() {
     return () => { listeners.delete(listener); };
   }, []);
 
-  if (items.length === 0) return null;
-
+  // The live region is rendered even when empty. A region inserted at the
+  // same moment as its content is unreliably announced; a persistent one
+  // that gains a child is announced every time.
   return (
     <div
       className="fixed left-3 right-3 z-[2000] space-y-2 pointer-events-none"
       style={{ bottom: 'calc(env(safe-area-inset-bottom) + 0.75rem)' }}
+      aria-live="polite"
+      aria-atomic="false"
     >
       {items.map((toast) => (
         <div
           key={toast.id}
-          role="status"
+          // An error interrupts; an ordinary confirmation waits its turn
+          role={toast.type === 'error' ? 'alert' : 'status'}
           className={`pointer-events-auto flex items-center gap-3 rounded-lg px-4 py-3 shadow-panel border text-sm max-w-md mx-auto ${
             toast.type === 'error'
               ? 'bg-donkey-red/90 border-donkey-red text-white'
               : 'bg-donkey-surface border-donkey-border text-donkey-text'
           }`}
-          onClick={() => dismissToast(toast.id)}
         >
           <span className="flex-1">{toast.message}</span>
           {toast.action && (
             <button
+              type="button"
               className="font-bold underline underline-offset-2 min-h-[44px] px-2"
-              onClick={(e) => {
-                e.stopPropagation();
+              onClick={() => {
                 toast.action!.onClick();
                 dismissToast(toast.id);
               }}
@@ -95,6 +98,16 @@ export function ToastHost() {
               {toast.action.label}
             </button>
           )}
+          {/* Dismissal was a click handler on the div: no keyboard, no
+              screen-reader affordance. It is a real button now. */}
+          <button
+            type="button"
+            aria-label="Dismiss"
+            className="shrink-0 min-h-[44px] min-w-[32px] opacity-70 hover:opacity-100"
+            onClick={() => dismissToast(toast.id)}
+          >
+            <span aria-hidden="true">✕</span>
+          </button>
         </div>
       ))}
     </div>

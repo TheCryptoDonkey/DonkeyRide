@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { RideCheckReason } from '../../utils/ride-check';
+import { useT } from '../../i18n';
 
 interface RideCheckPromptProps {
   reason: RideCheckReason;
@@ -19,6 +20,7 @@ interface RideCheckPromptProps {
 export function RideCheckPrompt({
   reason, guardianCount, onDismiss, onAlert, autoAlertSeconds = 60,
 }: RideCheckPromptProps) {
+  const { t } = useT();
   const [remaining, setRemaining] = useState(autoAlertSeconds);
   const alertedRef = useRef(false);
 
@@ -45,31 +47,27 @@ export function RideCheckPrompt({
   }, [guardianCount]);
 
   const what = reason === 'off_route'
-    ? 'Your trip has left the expected route.'
-    : 'You seem to have been stopped for a while.';
+    ? t('ridecheck.offRoute')
+    : t('ridecheck.stopped');
 
   return (
-    <div className="meta-card border-2 border-donkey-orange">
-      <p className="text-base font-black text-donkey-text">Everything OK?</p>
+    <div className="meta-card border-2 border-donkey-orange" role="alert">
+      <p className="text-base font-black text-donkey-text">{t('ridecheck.title')}</p>
       <p className="text-sm text-donkey-text mt-1">{what}</p>
       {guardianCount > 0 ? (
         <p className="text-xs text-donkey-muted mt-1">
-          If you don't respond, the {guardianCount === 1 ? 'contact' : `${guardianCount} contacts`}{' '}
-          you shared this trip with will be alerted in {remaining}s.
+          {t('ridecheck.willAlert', { n: guardianCount, s: remaining })}
         </p>
       ) : (
-        <p className="text-xs text-donkey-muted mt-1">
-          This trip hasn't been shared with anyone — use the panic button
-          below if you need help.
-        </p>
+        <p className="text-xs text-donkey-muted mt-1">{t('ridecheck.notShared')}</p>
       )}
       <div className="flex gap-3 mt-3">
         <button className="btn-secondary flex-1" onClick={onDismiss}>
-          I'm fine
+          {t('ridecheck.fine')}
         </button>
         {guardianCount > 0 && (
           <button className="btn-danger flex-1" onClick={fireAlert}>
-            Alert contacts now
+            {t('ridecheck.alertNow')}
           </button>
         )}
       </div>

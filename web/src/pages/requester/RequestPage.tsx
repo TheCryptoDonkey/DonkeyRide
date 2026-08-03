@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MapView } from '../../components/map/MapView';
 import { LocationMarker } from '../../components/map/LocationMarker';
 import { RoutePolyline } from '../../components/map/RoutePolyline';
@@ -16,6 +16,8 @@ import { AddressSearch } from '../../components/AddressSearch';
 import { useT } from '../../i18n';
 import { loadGender } from '../../utils/gender';
 import { favouritePubkeys } from '../../utils/favourites';
+import { AccessNeedsPicker } from '../../components/task/AccessNeedsPicker';
+import { loadAccessNeeds, saveAccessNeeds } from '../../utils/access-needs';
 import type { TaskStop } from '../../types/api';
 
 const MAX_STOPS = 2;
@@ -38,8 +40,18 @@ export function RequestPage() {
   const [loading, setLoading] = useState(false);
   const [estimating, setEstimating] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [when, setWhen] = useState<'now' | 'later'>('now');
-  const [whenValue, setWhenValue] = useState<string>('');
+  // ?when=later lands here from the "nobody available" screen — a rider who
+  // just failed to get a car now is being offered the booking, not the
+  // identical attempt that just failed
+  const [params] = useSearchParams();
+  const [when, setWhen] = useState<'now' | 'later'>(
+    params.get('when') === 'later' ? 'later' : 'now',
+  );
+  const [whenValue, setWhenValue] = useState<string>(() =>
+    params.get('when') === 'later'
+      ? toLocalInputValue(new Date(Date.now() + 60 * 60 * 1000))
+      : '',
+  );
   // Intermediate stops in visit order (multi-stop trips)
   const [stops, setStops] = useState<TaskStop[]>([]);
   const [addingStop, setAddingStop] = useState(false);
@@ -48,11 +60,19 @@ export function RequestPage() {
   const [womenOnly, setWomenOnly] = useState(false);
   // Meeting instructions a pin cannot express
   const [pickupNote, setPickupNote] = useState('');
+  // What this journey needs. Remembered on the device so a wheelchair user
+  // is not re-declaring it every single time.
+  const [accessNeeds, setAccessNeeds] = useState<string[]>(loadAccessNeeds);
   // Service class (Standard / Comfort / XL) — domains without classes
   // never show the picker
   const [option, setOption] = useState<string | null>(null);
   const serviceOptions = estimate?.options || [];
   const chosenOption = serviceOptions.find((o) => o.id === option) || serviceOptions[0] || null;
+  // A class scales the whole rate card, so its rows — not the base class's —
+  // are the ones that sum to the price on the button
+  const breakdown = chosenOption?.fareBreakdown
+    || estimate?.fareBreakdown
+    || { baseFareSats: 0, distanceFareSats: 0, timeFareSats: 0, operatorFeeSats: 0 };
   // Saved providers get a short head start; the list never leaves the
   // device except as part of this request
   const favourites = favouritePubkeys();
@@ -121,6 +141,8 @@ export function RequestPage() {
     // tap so the permission prompt is gesture-driven (Safari insists), and
     // never blocking: a refusal must not stop the request.
     void enableTaskPush(identity.pubKeyHex).catch(() => {});
+    // Remember the needs so this is not re-declared on every journey
+    saveAccessNeeds(accessNeeds);
     try {
       const task = await requestTask({
         pickup: origin,
@@ -133,6 +155,9 @@ export function RequestPage() {
         womenOnly: isWoman && womenOnly,
         pickupNote: pickupNote.trim() || undefined,
         option: chosenOption?.id,
+        accessNeeds: accessNeeds.length > 0 ? accessNeeds : undefined,
+        // The multiplier this screen showed — the server will not exceed it
+        surgeMultiplier: estimate?.surge?.multiplier,
         preferredProviders: favourites,
       });
       setActiveTask(task);
@@ -180,7 +205,7 @@ export function RequestPage() {
               )}
             </span>
             <span className="shrink-0">
-              <DualPrice sats={o.fareSats} size="sm" />
+              <DualPrice sats={o.fareSats} size="md" compact />
             </span>
           </button>
         ))}
@@ -285,6 +310,7 @@ export function RequestPage() {
         <div className="mt-3">
           <input
             type="datetime-local"
+            aria-label={t('request.whenTitle')}
             className="w-full bg-donkey-bg border border-donkey-border rounded-lg px-3 py-2 text-donkey-text text-sm"
             value={whenValue}
             min={toLocalInputValue(new Date(Date.now() + MIN_SCHEDULE_AHEAD_MS))}
@@ -377,23 +403,46 @@ export function RequestPage() {
               </div>
             </div>
 
-            {/* Fare breakdown */}
+            {/* Demand pricing, said plainly and BEFORE the tap. A rider who
+                discovers a multiplier on the receipt has been ambushed. */}
+            {estimate.surge?.active && (
+              <div className="meta-card mb-4 border border-donkey-orange/50">
+                <p className="text-sm font-bold text-donkey-orange">
+                  {t('surge.title', { x: estimate.surge.multiplier.toFixed(1) })}
+                </p>
+                <p className="text-xs text-donkey-muted mt-1">
+                  {t('surge.body', { label: providerLabel.toLowerCase() + 's' })}
+                </p>
+              </div>
+            )}
+
+            {/* Fare breakdown — the chosen class's own rows, in the same
+                money the headline is in, and they sum to it */}
             <div className="meta-card mb-4">
               <p className="meta-label mb-2">{t('request.fareBreakdown')}</p>
               <div className="grid grid-cols-3 gap-2 text-xs">
                 <div>
-                  <p className="text-donkey-text font-bold">{estimate.fareBreakdown.baseFareSats} sats</p>
+                  <DualPrice sats={breakdown.baseFareSats} size="sm" compact />
                   <p className="text-donkey-muted">{t('request.base')}</p>
                 </div>
                 <div>
-                  <p className="text-donkey-text font-bold">{estimate.fareBreakdown.distanceFareSats} sats</p>
+                  <DualPrice sats={breakdown.distanceFareSats} size="sm" compact />
                   <p className="text-donkey-muted">{t('request.distance')}</p>
                 </div>
                 <div>
-                  <p className="text-donkey-text font-bold">{estimate.fareBreakdown.operatorFeeSats} sats</p>
-                  <p className="text-donkey-muted">{t('request.operator')}</p>
+                  <DualPrice sats={breakdown.timeFareSats} size="sm" compact />
+                  <p className="text-donkey-muted">{t('request.time')}</p>
                 </div>
               </div>
+              {breakdown.operatorFeeSats > 0 && (
+                <p className="text-donkey-muted text-xs mt-2">
+                  {t('request.includesFee')}{' '}
+                  <DualPrice sats={breakdown.operatorFeeSats} size="sm" compact />
+                </p>
+              )}
+              {estimate.routed === false && (
+                <p className="text-donkey-muted text-xs mt-2">{t('request.straightLine')}</p>
+              )}
             </div>
 
             {optionPicker}
@@ -401,6 +450,12 @@ export function RequestPage() {
             {stopsPicker}
 
             {notePicker}
+
+            <AccessNeedsPicker
+              value={accessNeeds}
+              onChange={setAccessNeeds}
+              role="requester"
+            />
 
             {whenPicker}
 

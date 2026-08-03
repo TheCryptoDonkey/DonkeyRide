@@ -5,6 +5,7 @@ import { LocationMarker } from '../../components/map/LocationMarker';
 import { RoutePolyline } from '../../components/map/RoutePolyline';
 import { StatusBadge } from '../../components/common/StatusBadge';
 import { DualPrice } from '../../components/common/DualPrice';
+import { PersonCard } from '../../components/common/PersonCard';
 import { PanicButton } from '../../components/safety/PanicButton';
 import { TaskStakePanel } from '../../components/payment/TaskStakePanel';
 import { PaymentMethodsEditor } from '../../components/payment/PaymentMethodsEditor';
@@ -19,7 +20,7 @@ import { useLiveTracking } from '../../modules/pii';
 import {
   arriveAtOrigin, startTask, completeTask, transitionTask,
   triggerPanic, getTask, submitProof,
-  submitSignatureProof, submitQuote, cancelTask, reportNoShow,
+  submitSignatureProof, submitQuote, cancelTask, reportNoShow, reportLateCancel,
 } from '../../services/api';
 import { PhotoProof } from '../../components/task/PhotoProof';
 import { SignatureCapture } from '../../components/task/SignatureCapture';
@@ -31,6 +32,9 @@ import { sendAllClear, sendGuardianAlert } from '../../services/trip-share';
 import { PickupCode } from '../../components/task/PickupCode';
 import { WaitingTimer } from '../../components/task/WaitingTimer';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
+import { CancelledScreen } from '../../components/task/CancelledScreen';
+import { Sheet, SheetSection } from '../../components/layout/Sheet';
+import { useT } from '../../i18n';
 import type { WsMessage } from '../../types/api';
 
 /** Map known state keys to existing API endpoints */
@@ -55,12 +59,15 @@ export function ActiveTaskPage() {
   const { activeTask, setActiveTask, reset } = useTask();
   const { identity } = useIdentity();
   const { profile } = useDomain();
+  const { t } = useT();
   const { location } = useLocation(true);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [reportRequesterNoShow, setReportRequesterNoShow] = useState(false);
   const [declaredRail, setDeclaredRail] = useState<string | null>(null);
+  // The requester cancelled — its own screen, with the option to record it
+  const [cancelledOn, setCancelledOn] = useState<{ late: boolean } | null>(null);
 
   const originLabel = profile?.labels?.originLabel || 'Pickup';
   const destinationLabel = profile?.labels?.destinationLabel || 'Dropoff';
@@ -135,9 +142,9 @@ export function ActiveTaskPage() {
         showToast(`Upcoming ${taskNoun} — ${formatScheduledTime(msg.scheduledFor)}`);
         break;
       case 'task_cancelled':
-        showToast(`${taskNoun} cancelled`, { type: 'error' });
-        reset();
-        navigate('/provide');
+        // A driver who drove to a pickup deserves the same record the rider
+        // gets when a driver drops them — same rail, same trust model
+        setCancelledOn({ late: msg.lateCancellation === true });
         break;
     }
   }, [activeTask, setActiveTask, navigate, terminalStates, refreshTask, reset, taskNoun, originLabel]);
@@ -157,6 +164,26 @@ export function ActiveTaskPage() {
     }, 5000);
     return () => clearInterval(timer);
   }, [activeTask?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The requester cancelled on a driver who had committed
+  if (cancelledOn && activeTask && identity) {
+    return (
+      <CancelledScreen
+        byLabel={requesterLabel.toLowerCase()}
+        taskNoun={taskNoun}
+        late={cancelledOn.late && Boolean(activeTask.requesterPubkey)}
+        onReport={async () => {
+          if (!activeTask.requesterPubkey) return;
+          await reportLateCancel(activeTask.id, {
+            targetPubkey: activeTask.requesterPubkey,
+            reporterRole: 'provider',
+            domainId: profile?.id,
+          });
+        }}
+        onDone={() => { reset(); navigate('/provide'); }}
+      />
+    );
+  }
 
   if (!activeTask || !identity) return null;
 
@@ -318,46 +345,45 @@ export function ActiveTaskPage() {
         </div>
       )}
 
-      {/* Control panel */}
-      <div className="bg-donkey-surface border-t-2 border-donkey-border p-5 space-y-3 shadow-panel">
+      {/* Sheet: the current step and the person stay visible; detail,
+          safety and payment sit one tap away. Thirteen stacked panels left
+          no map on a phone and buried the action button below the fold. */}
+      <Sheet>
         <div className="flex items-center justify-between">
-          <StatusBadge status={status} />
+          <StatusBadge status={status} role="provider" />
           <DualPrice sats={activeTask.fareEstimateSats} size="sm" />
         </div>
+
+        {/* Who you are collecting. The driver is meeting a stranger too —
+            this screen used to name them nowhere at all. */}
+        {!isTerminal && activeTask.requesterPubkey && (
+          <div className="meta-card">
+            <PersonCard
+              subject={activeTask.requesterPubkey}
+              roleLabel={requesterLabel}
+              size="sm"
+            />
+          </div>
+        )}
 
         {/* Pre-booked job — no need to head out yet */}
         {!isTerminal && isUpcoming(activeTask.scheduledFor) && !activeTask.startedAt && (
           <div className="meta-card border border-donkey-blue/40">
-            <p className="meta-label">Booked for</p>
+            <p className="meta-label">{t('active.bookedFor')}</p>
             <p className="text-sm font-bold text-donkey-text mt-1">
               {formatScheduledTime(activeTask.scheduledFor)}
             </p>
             <p className="text-xs text-donkey-muted mt-1">
-              You've committed to this {taskNoun} — you'll get a reminder as the
-              time approaches.
+              {t('pactive.committed', { noun: taskNoun })}
             </p>
           </div>
         )}
 
-        {/* Task info row */}
-        {(activeTask.distanceKm || activeTask.durationMin) && (
-          <div className="flex gap-4 text-xs text-donkey-muted">
-            {activeTask.distanceKm != null && (
-              <span>{activeTask.distanceKm.toFixed(1)} km</span>
-            )}
-            {activeTask.durationMin != null && (
-              <span>~{Math.round(activeTask.durationMin)} min</span>
-            )}
-          </div>
-        )}
-
-        {/* Waiting time, visible to both sides as it runs */}
-        <WaitingTimer task={activeTask} role="provider" />
-
-        {/* What the pin cannot say — the requester's meeting instructions */}
+        {/* The meeting instructions a dropped pin cannot say. Never behind a
+            tap while heading there — it is the reason the driver finds them. */}
         {activeTask.pickupNote && !activeTask.startedAt && (
           <div className="meta-card border border-donkey-orange/40">
-            <p className="meta-label">Note from the {requesterLabel.toLowerCase()}</p>
+            <p className="meta-label">{t('pactive.noteFrom', { label: requesterLabel.toLowerCase() })}</p>
             <p className="text-sm text-donkey-text mt-1">{activeTask.pickupNote}</p>
           </div>
         )}
@@ -370,75 +396,52 @@ export function ActiveTaskPage() {
           </div>
         )}
 
-        {/* Stops to visit, in order */}
-        {(activeTask.stops || []).length > 0 && (
-          <div className="meta-card">
-            <p className="meta-label">Stops on the way</p>
-            {activeTask.stops!.map((stop, i) => (
-              <p key={`${stop.lat},${stop.lng},${i}`} className="text-sm text-donkey-text mt-1">
-                <span className="text-donkey-blue font-black">{i + 1}.</span>{' '}
-                {stop.address || `${stop.lat.toFixed(4)}, ${stop.lng.toFixed(4)}`}
-              </p>
+        {/* Waiting time — a running meter belongs in front of both parties */}
+        <WaitingTimer task={activeTask} role="provider" />
+
+        {/* The step itself. Primary and first, not below ten panels. */}
+        {buttons.length > 0 && !showCancelConfirm && (
+          <div className="flex gap-3">
+            {buttons.map(({ label, handler, stateKey }) => (
+              <button
+                key={stateKey}
+                className="btn-primary flex-1"
+                onClick={handler}
+                disabled={busyAction !== null}
+              >
+                {busyAction !== null ? t('pactive.working') : label}
+              </button>
             ))}
           </div>
         )}
 
-        {/* Stake — only on rails that support custody (never cash) */}
-        <TaskStakePanel task={activeTask} role="provider" />
+        {/* Navigation hand-off — drivers trust their own nav app */}
+        {(() => {
+          const navTarget = status === profile?.states.values.ACTIVE
+            ? activeTask.dropoff
+            : activeTask.pickup;
+          if (!navTarget || isTerminal) return null;
+          return (
+            <div className="flex gap-3">
+              <a
+                className="btn-secondary flex-1 text-center"
+                href={`https://waze.com/ul?ll=${navTarget.lat},${navTarget.lng}&navigate=yes`}
+                target="_blank" rel="noreferrer"
+              >
+                {t('pactive.waze')}
+              </a>
+              <a
+                className="btn-secondary flex-1 text-center"
+                href={`https://www.google.com/maps/dir/?api=1&destination=${navTarget.lat},${navTarget.lng}`}
+                target="_blank" rel="noreferrer"
+              >
+                {t('pactive.googleMaps')}
+              </a>
+            </div>
+          );
+        })()}
 
-        {/* Right rider, right car — until the trip starts */}
-        {!isTerminal && activeTask.requesterPubkey && !activeTask.startedAt
-          && status !== profile?.states.values.ACTIVE && (
-          <PickupCode
-            taskId={activeTask.id}
-            counterpartyPubkey={activeTask.requesterPubkey}
-            role="provider"
-            counterpartyLabel={profile?.roles.requester || 'Requester'}
-          />
-        )}
-
-        {/* E2E encrypted chat with the requester */}
-        {!isTerminal && activeTask.requesterPubkey && (
-          <ChatPanel
-            taskId={activeTask.id}
-            selfPubkey={identity.pubKeyHex}
-            counterpartyPubkey={activeTask.requesterPubkey}
-            counterpartyLabel={profile?.roles.requester || 'Requester'}
-          />
-        )}
-
-        {/* A driver alone with a stranger is exposed too — same rail,
-            same operator-blindness, passenger named instead of the car */}
-        {!isTerminal && (
-          <TripSharePanel
-            task={activeTask}
-            privKeyHex={identity.privKeyHex}
-            taskNoun={taskNoun}
-            role="provider"
-          />
-        )}
-
-        {/* Opt-in audio recording — device-local, counterparty notified */}
-        {activeTask.requesterPubkey && !isTerminal && (
-          <TripAudioRecorder
-            taskId={activeTask.id}
-            counterpartyPubkey={activeTask.requesterPubkey}
-          />
-        )}
-
-        {/* Non-custodial settlement: confirm the rider's direct payment */}
-        <ConfirmReceipt
-          task={activeTask}
-          settlement={activeTask.settlement}
-          declaredRail={declaredRail}
-        />
-
-        {/* Accepted payment methods for this job (rider pays the driver direct) */}
-        {!isTerminal && (
-          <PaymentMethodsEditor rideId={activeTask.id} />
-        )}
-
-        {/* Quote negotiation — provider submits quote after arrival */}
+        {/* Quote negotiation — an action the job is waiting on */}
         {profile?.features.quoteNegotiation &&
           status === profile?.states.values.PROVIDER_ARRIVED && (
           <QuotePanel
@@ -457,134 +460,187 @@ export function ActiveTaskPage() {
           />
         )}
 
-        {/* Photo proof — shown at states where proof is expected */}
-        {profile?.features.photos && (
+        {/* The rider says they have paid — confirm it */}
+        <ConfirmReceipt
+          task={activeTask}
+          settlement={activeTask.settlement}
+          declaredRail={declaredRail}
+        />
+
+        {/* ── Everything below is one tap away ───────────────────────── */}
+
+        {/* Meeting the right rider */}
+        {!isTerminal && activeTask.requesterPubkey && !activeTask.startedAt
+          && status !== profile?.states.values.ACTIVE && (
+          <SheetSection
+            title={t('sheet.meeting')}
+            icon="📍"
+            defaultOpen
+            rememberAs="driver-meeting"
+          >
+            <PickupCode
+              taskId={activeTask.id}
+              counterpartyPubkey={activeTask.requesterPubkey}
+              role="provider"
+              counterpartyLabel={profile?.roles.requester || 'Requester'}
+            />
+          </SheetSection>
+        )}
+
+        {/* E2E encrypted chat with the requester */}
+        {!isTerminal && activeTask.requesterPubkey && (
+          <SheetSection
+            title={t('sheet.message', { label: requesterLabel })}
+            icon="💬"
+            rememberAs="driver-chat"
+          >
+            <ChatPanel
+              taskId={activeTask.id}
+              selfPubkey={identity.pubKeyHex}
+              counterpartyPubkey={activeTask.requesterPubkey}
+              counterpartyLabel={profile?.roles.requester || 'Requester'}
+            />
+          </SheetSection>
+        )}
+
+        {/* Stops and job detail */}
+        {(activeTask.stops || []).length > 0 && (
+          <SheetSection title={t('sheet.jobDetail')} icon="🗺️" rememberAs="driver-detail">
+            <div>
+              <p className="meta-label">{t('pactive.stops')}</p>
+              {activeTask.stops!.map((stop, i) => (
+                <p key={`${stop.lat},${stop.lng},${i}`} className="text-sm text-donkey-text mt-1">
+                  <span className="text-donkey-blue font-black">{i + 1}.</span>{' '}
+                  {stop.address || `${stop.lat.toFixed(4)}, ${stop.lng.toFixed(4)}`}
+                </p>
+              ))}
+            </div>
+          </SheetSection>
+        )}
+
+        {/* Proof of completion, where the domain asks for it */}
+        {((profile?.features.photos && (
           status === profile?.states.values.PROVIDER_ARRIVED ||
           status === profile?.states.values.COLLECTED ||
           status === profile?.states.values.ARRIVED_AT_DELIVERY
-        ) && (
-          <PhotoProof
-            taskId={activeTask.id}
-            label={status === profile?.states.values.ARRIVED_AT_DELIVERY ? 'Delivery proof' : 'Collection proof'}
-            onSubmit={async (file) => {
-              await submitProof(activeTask.id, {
-                type: 'photo',
-                file,
-                providerPubkey: identity.pubKeyHex,
-              });
-            }}
-          />
+        )) || (profile?.features.signatures
+          && status === profile?.states.values.ARRIVED_AT_DELIVERY)) && (
+          <SheetSection title={t('sheet.proof')} icon="📷" defaultOpen rememberAs="driver-proof">
+            {profile?.features.photos && (
+              status === profile?.states.values.PROVIDER_ARRIVED ||
+              status === profile?.states.values.COLLECTED ||
+              status === profile?.states.values.ARRIVED_AT_DELIVERY
+            ) && (
+              <PhotoProof
+                taskId={activeTask.id}
+                label={status === profile?.states.values.ARRIVED_AT_DELIVERY ? 'Delivery proof' : 'Collection proof'}
+                onSubmit={async (file) => {
+                  await submitProof(activeTask.id, {
+                    type: 'photo',
+                    file,
+                    providerPubkey: identity.pubKeyHex,
+                  });
+                }}
+              />
+            )}
+            {profile?.features.signatures
+              && status === profile?.states.values.ARRIVED_AT_DELIVERY && (
+              <SignatureCapture
+                label="Recipient signature"
+                onSubmit={async (dataUrl) => {
+                  await submitSignatureProof(activeTask.id, {
+                    dataUrl,
+                    providerPubkey: identity.pubKeyHex,
+                  });
+                }}
+              />
+            )}
+          </SheetSection>
         )}
 
-        {/* Signature capture — typically at delivery completion */}
-        {profile?.features.signatures && (
-          status === profile?.states.values.ARRIVED_AT_DELIVERY
-        ) && (
-          <SignatureCapture
-            label="Recipient signature"
-            onSubmit={async (dataUrl) => {
-              await submitSignatureProof(activeTask.id, {
-                dataUrl,
-                providerPubkey: identity.pubKeyHex,
-              });
-            }}
-          />
-        )}
-
-        {/* Dynamic action buttons */}
-        {buttons.length > 0 && !showCancelConfirm && (
-          <div className="flex gap-3">
-            {buttons.map(({ label, handler, stateKey }) => (
-              <button
-                key={stateKey}
-                className="btn-primary flex-1"
-                onClick={handler}
-                disabled={busyAction !== null}
-              >
-                {busyAction !== null ? 'Working...' : label}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Cancel job — with confirm step */}
+        {/* Safety — a driver alone with a stranger is exposed too */}
         {!isTerminal && (
-          <div className="flex gap-3">
-            {!showCancelConfirm ? (
-              <button
-                className="btn-secondary flex-1"
-                onClick={() => setShowCancelConfirm(true)}
-                disabled={busyAction !== null}
-              >
-                Cancel job
-              </button>
-            ) : (
-              <>
-                {!activeTask.startedAt && (
-                  <label className="w-full flex items-center gap-2 mb-2 cursor-pointer basis-full">
-                    <input
-                      type="checkbox"
-                      className="w-4 h-4 accent-donkey-orange"
-                      checked={reportRequesterNoShow}
-                      onChange={(e) => setReportRequesterNoShow(e.target.checked)}
-                    />
-                    <span className="text-xs text-donkey-text">
-                      The {requesterLabel.toLowerCase()} didn't show up — report it
-                    </span>
-                  </label>
-                )}
+          <SheetSection title={t('sheet.safety')} icon="🛡️" rememberAs="driver-safety">
+            <TripSharePanel
+              task={activeTask}
+              privKeyHex={identity.privKeyHex}
+              taskNoun={taskNoun}
+              role="provider"
+            />
+            {activeTask.requesterPubkey && (
+              <TripAudioRecorder
+                taskId={activeTask.id}
+                counterpartyPubkey={activeTask.requesterPubkey}
+              />
+            )}
+          </SheetSection>
+        )}
+
+        {/* How you get paid */}
+        {!isTerminal && (
+          <SheetSection title={t('sheet.payment')} icon="💷" rememberAs="driver-payment">
+            <PaymentMethodsEditor rideId={activeTask.id} />
+            <TaskStakePanel task={activeTask} role="provider" />
+          </SheetSection>
+        )}
+
+        {/* Actions */}
+        <div className="pt-1 space-y-2">
+          {profile?.features.safetyAlerts && !showCancelConfirm && (
+            <PanicButton onPanic={handlePanic} />
+          )}
+
+          {!isTerminal && !showCancelConfirm && (
+            <button
+              className="btn-secondary w-full"
+              onClick={() => setShowCancelConfirm(true)}
+              disabled={busyAction !== null}
+            >
+              {t('pactive.cancelJob')}
+            </button>
+          )}
+
+          {!isTerminal && showCancelConfirm && (
+            <div className="rounded-lg border border-donkey-red/40 p-3 space-y-3">
+              <p className="text-sm font-bold text-donkey-text">{t('pactive.cancelConfirm')}</p>
+              <p className="text-xs text-donkey-muted">
+                {t('pactive.cancelNote', { label: requesterLabel.toLowerCase() })}
+              </p>
+              {!activeTask.startedAt && (
+                <label className="flex items-center gap-2 cursor-pointer min-h-[44px]">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 accent-donkey-orange"
+                    checked={reportRequesterNoShow}
+                    onChange={(e) => setReportRequesterNoShow(e.target.checked)}
+                  />
+                  <span className="text-xs text-donkey-text">
+                    {t('active.reportNoShow', { label: requesterLabel.toLowerCase() })}
+                  </span>
+                </label>
+              )}
+              <div className="flex gap-3">
                 <button
                   className="btn-secondary flex-1"
                   onClick={() => setShowCancelConfirm(false)}
                   disabled={busyAction !== null}
                 >
-                  Keep job
+                  {t('pactive.keepJob')}
                 </button>
                 <button
                   className="btn-danger flex-1"
                   onClick={handleCancel}
                   disabled={busyAction !== null}
                 >
-                  {busyAction === 'cancel' ? 'Cancelling...' : 'Confirm cancel'}
+                  {busyAction === 'cancel' ? t('active.cancelling') : t('active.confirmCancel')}
                 </button>
-              </>
-            )}
-          </div>
-        )}
-
-        {actionError && <p className="text-donkey-red text-sm">{actionError}</p>}
-
-        {/* Hand off to the driver's preferred navigation app — drivers trust
-            their own nav; never trap them in ours */}
-        {(() => {
-          const navTarget = status === profile?.states.values.ACTIVE
-            ? activeTask.dropoff
-            : activeTask.pickup;
-          if (!navTarget) return null;
-          return (
-            <div className="flex gap-3">
-              <a
-                className="btn-secondary flex-1 text-center"
-                href={`https://waze.com/ul?ll=${navTarget.lat},${navTarget.lng}&navigate=yes`}
-                target="_blank" rel="noreferrer"
-              >
-                Navigate (Waze)
-              </a>
-              <a
-                className="btn-secondary flex-1 text-center"
-                href={`https://www.google.com/maps/dir/?api=1&destination=${navTarget.lat},${navTarget.lng}`}
-                target="_blank" rel="noreferrer"
-              >
-                Google Maps
-              </a>
+              </div>
             </div>
-          );
-        })()}
+          )}
 
-        {profile?.features.safetyAlerts && (
-          <PanicButton onPanic={handlePanic} />
-        )}
-      </div>
+          {actionError && <p className="text-donkey-red text-sm">{actionError}</p>}
+        </div>
+      </Sheet>
     </div>
   );
 }

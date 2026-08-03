@@ -8,20 +8,22 @@ import { useIdentity } from '../../context/IdentityContext';
 import { useDomain } from '../../context/DomainContext';
 import { submitRating } from '../../services/api';
 import { formatDistance, formatDuration } from '../../services/pricing';
+import { useT } from '../../i18n';
 
 export function CompletionPage() {
   const navigate = useNavigate();
   const { activeTask, completedTask, clearCompletedTask, reset } = useTask();
   const { identity } = useIdentity();
   const { profile } = useDomain();
+  const { t, td } = useT();
   const [rating, setRating] = useState(0);
   const [comment, setComment] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const taskNoun = profile?.labels?.taskNoun || 'task';
-  const completedLabel = profile?.labels?.completedLabel || 'Complete';
-  const requesterLabel = profile?.roles.requester || 'requester';
+  const taskNoun = td(profile?.labels?.taskNoun || 'task');
+  const completedLabel = td(profile?.labels?.completedLabel || 'Complete');
+  const requesterLabel = td(profile?.roles.requester || 'requester');
 
   // Survive a refresh: fall back to the stored terminal task until Done
   const task = activeTask ?? completedTask;
@@ -30,9 +32,9 @@ export function CompletionPage() {
     return (
       <div className="h-full flex items-center justify-center">
         <div className="card text-center max-w-md">
-          <p className="text-donkey-muted mb-4">No completed {taskNoun} found</p>
+          <p className="text-donkey-muted mb-4">{t('complete.none', { noun: taskNoun })}</p>
           <button className="btn-primary" onClick={() => navigate('/provide')}>
-            Back to Dashboard
+            {t('complete.backToDashboard')}
           </button>
         </div>
       </div>
@@ -51,7 +53,7 @@ export function CompletionPage() {
       });
       setSubmitted(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to submit rating');
+      setError(err instanceof Error ? err.message : t('complete.rateFailed'));
     }
   };
 
@@ -70,7 +72,7 @@ export function CompletionPage() {
         {/* Summary */}
         <div className="earnings-card text-center">
           <p className="text-donkey-green text-lg font-bold mb-2">{completedLabel}</p>
-          <p className="meta-label mb-1">Earned</p>
+          <p className="meta-label mb-1">{t('complete.earned')}</p>
           <DualPrice sats={earned} size="lg" />
 
           {(task.distanceKm || task.durationMin) && (
@@ -88,16 +90,15 @@ export function CompletionPage() {
         {/* Rating */}
         {!submitted ? (
           <div className="card">
-            <p className="section-title">
-              Rate your {requesterLabel}
-            </p>
+            <p className="section-title">{t('complete.rate', { label: requesterLabel })}</p>
             <div className="flex justify-center mb-3">
               <StarRating value={rating} onChange={setRating} size="lg" />
             </div>
             <textarea
               className="input-field w-full text-sm"
               rows={2}
-              placeholder="Comment (optional)"
+              placeholder={t('complete.comment')}
+              aria-label={t('complete.comment')}
               value={comment}
               onChange={(e) => setComment(e.target.value)}
             />
@@ -106,13 +107,13 @@ export function CompletionPage() {
               onClick={handleSubmitRating}
               disabled={rating === 0}
             >
-              Submit Rating
+              {t('complete.submitRating')}
             </button>
             {error && <p className="text-donkey-red text-xs mt-2">{error}</p>}
           </div>
         ) : (
           <div className="card text-center">
-            <p className="text-donkey-green font-bold">Rating submitted</p>
+            <p className="text-donkey-green font-bold">{t('complete.rated')}</p>
             <div className="flex justify-center mt-2">
               <StarRating value={rating} readonly size="md" />
             </div>
@@ -121,7 +122,7 @@ export function CompletionPage() {
 
         {/* Done */}
         <button className="btn-secondary w-full" onClick={handleDone}>
-          Back to Dashboard
+          {t('complete.backToDashboard')}
         </button>
       </div>
     </div>

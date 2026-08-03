@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { MapView } from '../../components/map/MapView';
 import { LocationMarker } from '../../components/map/LocationMarker';
 import { DualPrice } from '../../components/common/DualPrice';
-import { ReputationBadge } from '../../components/common/ReputationBadge';
+import { PersonCard } from '../../components/common/PersonCard';
+import { AcceptCountdown } from '../../components/provider/AcceptCountdown';
 import { showToast } from '../../components/common/Toast';
+import { taskPickupProximity } from '../../utils/pickup-distance';
 import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { useLocation } from '../../hooks/useLocation';
@@ -15,8 +17,13 @@ import { formatDistance, formatDuration } from '../../services/pricing';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import { dispatchService } from '../../services/dispatch';
 import { loadVehicle, loadServiceOptions } from '../../utils/vehicle';
+import { loadAccessFeatures } from '../../utils/access-needs';
 import { loadGender } from '../../utils/gender';
+import { reverseGeocode } from '../../utils/reverse-geocode';
 import { useT } from '../../i18n';
+
+/** How long a driver has to take an offer before it lapses back to the list */
+const ACCEPT_SECONDS = 20;
 
 export function IncomingTaskPage() {
   const navigate = useNavigate();
@@ -36,6 +43,24 @@ export function IncomingTaskPage() {
     if (!activeTask) navigate('/provide');
   }, [activeTask, navigate]);
 
+  // Name the two ends of the job. Pre-accept the coordinates are already
+  // ~1 km rounded, so this yields a neighbourhood — enough for a driver to
+  // know the roads, without the operator handing out an exact address.
+  const [areas, setAreas] = useState<{ from: string | null; to: string | null }>(
+    { from: null, to: null },
+  );
+  useEffect(() => {
+    if (!activeTask) return;
+    let live = true;
+    void Promise.all([
+      activeTask.pickup ? reverseGeocode(activeTask.pickup) : Promise.resolve(null),
+      activeTask.dropoff ? reverseGeocode(activeTask.dropoff) : Promise.resolve(null),
+    ])
+      .then(([from, to]) => { if (live) setAreas({ from, to }); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [activeTask?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!activeTask) return null;
 
   const handleAccept = async () => {
@@ -52,6 +77,9 @@ export function IncomingTaskPage() {
         gender: loadGender(),
         // Vehicle classes declared on the profile page (XL, Comfort …)
         serviceOptions: loadServiceOptions(),
+        // Fail-closed guard at accept: the server refuses if these do not
+        // cover what the request needs
+        accessFeatures: loadAccessFeatures(),
       });
       dispatchService.removeAvailable(activeTask.id);
       setActiveTask(updated);
@@ -82,10 +110,27 @@ export function IncomingTaskPage() {
     }
   };
 
+  // Declining must actually decline. It used to just navigate back, so the
+  // job reappeared at the top of the dashboard immediately and the driver
+  // had to keep re-declining the one they had already turned down.
   const handleDecline = () => {
+    dispatchService.declineAvailable(activeTask.id);
     setActiveTask(null);
     navigate('/provide');
   };
+
+  // Out of time — release the offer rather than hold it silently. The job
+  // goes back on the dashboard list, so this is a lapse, not a rejection.
+  const handleExpire = () => {
+    if (accepting) return;
+    showToast(t('incoming.expired'), { type: 'error' });
+    setActiveTask(null);
+    navigate('/provide');
+  };
+
+  // How far away the rider is — the number that decides whether this job is
+  // worth taking, and the one this screen never used to show
+  const proximity = taskPickupProximity(location, activeTask);
 
   const requesterLabel = td(profile?.roles.requester || 'Requester');
 
@@ -116,13 +161,68 @@ export function IncomingTaskPage() {
       {/* Incoming task panel */}
       <div className="bg-donkey-surface border-t-2 border-donkey-border p-6 shadow-panel">
         <div className="incoming-card mb-4">
-          <p className="section-title text-center">
-            {t('incoming.new', { label: requesterLabel, noun: taskNoun })}
-          </p>
-
-          <div className="text-center mb-3">
-            <DualPrice sats={activeTask.fareEstimateSats} size="lg" />
+          {/* Headline: what it pays, how far to the rider, and how long the
+              offer lasts — the three things a decision needs, side by side */}
+          <div className="flex items-center gap-4 mb-3">
+            <div className="min-w-0 flex-1">
+              <p className="section-title mb-1">
+                {t('incoming.new', { label: requesterLabel, noun: taskNoun })}
+              </p>
+              <DualPrice sats={activeTask.fareEstimateSats} size="lg" />
+              {proximity && (
+                <p className="text-sm font-bold text-donkey-blue mt-1">
+                  {t('incoming.away', {
+                    min: proximity.minutes,
+                    dist: formatDistance(proximity.km),
+                  })}
+                </p>
+              )}
+            </div>
+            {!activeTask.operatorBase && (
+              <AcceptCountdown
+                seconds={ACCEPT_SECONDS}
+                onExpire={handleExpire}
+                paused={accepting}
+              />
+            )}
           </div>
+
+          {/* Where from and where to, in words — a map pin alone does not
+              tell a driver whether they know the road */}
+          <div className="space-y-1 mb-3 text-sm">
+            <p className="flex gap-2">
+              <span className="text-donkey-green shrink-0" aria-hidden="true">●</span>
+              <span className="text-donkey-text truncate">
+                {activeTask.pickupAddress || areas.from || t('incoming.approxPickup')}
+              </span>
+            </p>
+            {requiresDestination && (
+              <p className="flex gap-2">
+                <span className="text-donkey-red shrink-0" aria-hidden="true">●</span>
+                <span className="text-donkey-text truncate">
+                  {activeTask.dropoffAddress || areas.to || t('incoming.approxDropoff')}
+                </span>
+              </p>
+            )}
+          </div>
+
+          {/* What this job needs — the driver already passed the gate, but
+              they still have to know to bring the child seat */}
+          {(activeTask.accessNeeds || []).length > 0 && (
+            <div className="flex flex-wrap gap-1 justify-center mb-3">
+              {activeTask.accessNeeds!.map((id) => {
+                const option = (profile?.accessOptions || []).find((o) => o.id === id);
+                return (
+                  <span
+                    key={id}
+                    className="text-xs font-semibold px-2 py-1 rounded-full bg-donkey-blue/20 text-donkey-blue"
+                  >
+                    {option?.label || id}
+                  </span>
+                );
+              })}
+            </div>
+          )}
 
           {activeTask.womenOnly && (
             <p className="text-sm text-donkey-purple font-bold text-center mb-3">
@@ -155,14 +255,11 @@ export function IncomingTaskPage() {
           </p>
 
           {activeTask.requesterPubkey && (
-            <>
-              <p className="text-xs font-mono text-donkey-muted text-center truncate">
-                {requesterLabel}: {activeTask.requesterPubkey.slice(0, 16)}...
-              </p>
-              <div className="flex justify-center mt-1">
-                <ReputationBadge subject={activeTask.requesterPubkey} />
-              </div>
-            </>
+            <PersonCard
+              subject={activeTask.requesterPubkey}
+              roleLabel={requesterLabel}
+              size="sm"
+            />
           )}
         </div>
 

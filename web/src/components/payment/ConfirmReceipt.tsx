@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { confirmReceived } from '../../services/api';
 import { useDomain } from '../../context/DomainContext';
+import { useT } from '../../i18n';
 import type { Task, SettlementInfo } from '../../types/api';
 
 interface ConfirmReceiptProps {
@@ -28,7 +29,8 @@ const RAIL_LABELS: Record<string, string> = {
  */
 export function ConfirmReceipt({ task, settlement, declaredRail }: ConfirmReceiptProps) {
   const { profile } = useDomain();
-  const requesterLabel = (profile?.roles.requester || 'rider').toLowerCase();
+  const { t, td } = useT();
+  const requesterLabel = td(profile?.roles.requester || 'rider').toLowerCase();
   const [confirming, setConfirming] = useState(false);
   const [localConfirmed, setLocalConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,7 +50,7 @@ export function ConfirmReceipt({ task, settlement, declaredRail }: ConfirmReceip
       await confirmReceived(task.id);
       setLocalConfirmed(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to confirm receipt');
+      setError(err instanceof Error ? err.message : t('receipt.confirmFailed'));
     } finally {
       setConfirming(false);
     }
@@ -57,10 +59,10 @@ export function ConfirmReceipt({ task, settlement, declaredRail }: ConfirmReceip
   if (confirmed) {
     return (
       <div className="card text-center">
-        <p className="text-donkey-green font-bold">Payment confirmed</p>
+        <p className="text-donkey-green font-bold">{t('settle.confirmed')}</p>
         {rail && (
           <p className="text-xs text-donkey-muted mt-1">
-            Received via {RAIL_LABELS[rail] || rail}.
+            {t('settle.receivedVia', { rail: RAIL_LABELS[rail] || rail })}
           </p>
         )}
       </div>
@@ -72,24 +74,23 @@ export function ConfirmReceipt({ task, settlement, declaredRail }: ConfirmReceip
   return (
     <div className="card space-y-3">
       <div>
-        <p className="section-title">Payment declared</p>
+        <p className="section-title">{t('settle.declared')}</p>
         <p className="text-sm text-donkey-text mt-1">
-          Your {requesterLabel} says they paid you
-          {rail ? ` via ${RAIL_LABELS[rail] || rail}` : ''}.
+          {rail
+            ? t('settle.saysPaidVia', { label: requesterLabel, rail: RAIL_LABELS[rail] || rail })
+            : t('settle.saysPaid', { label: requesterLabel })}
         </p>
         {settlement?.verified && (
-          <p className="text-xs text-donkey-green mt-1">Verified by preimage.</p>
+          <p className="text-xs text-donkey-green mt-1">{t('settle.verified')}</p>
         )}
-        <p className="text-[11px] text-donkey-muted mt-1">
-          Confirm only once the money is actually in your account.
-        </p>
+        <p className="text-[11px] text-donkey-muted mt-1">{t('settle.confirmWarning')}</p>
       </div>
       <button
         className="btn-primary w-full"
         onClick={handleConfirm}
         disabled={confirming}
       >
-        {confirming ? 'Confirming…' : 'Confirm received'}
+        {confirming ? t('settle.confirming') : t('settle.confirmReceived')}
       </button>
       {error && <p className="text-donkey-red text-sm">{error}</p>}
     </div>

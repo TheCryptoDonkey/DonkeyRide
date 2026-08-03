@@ -378,6 +378,78 @@ function rateCardOptions(currency, multiplier = 1) {
     };
 }
 
+// Straight-line fallback speed when the router is unreachable. ONE constant:
+// the quote and the recorded fare must never be derived from different
+// assumptions, or the price the rider approved is not the price they get.
+const FALLBACK_SPEED_KMH = parseFloat(process.env.FALLBACK_SPEED_KMH || '30');
+
+/**
+ * Route + price a trip. The single pricing path for BOTH the upfront quote
+ * (`/api/trips/estimate`) and the fare recorded on the ride
+ * (`/api/rides/request`) — see the upfront-price guarantee below. Any change
+ * here moves both, which is the point.
+ *
+ * @returns {{distance:number, duration:number, coordinates:Array|null,
+ *            routed:boolean, estimate:object}}
+ */
+async function routeAndPrice(pickup, dropoff, via, currency, multiplier = 1) {
+    let distance = 0;
+    let duration = 0;
+    let coordinates = null;
+    let routed = false;
+
+    if (dropoff && dropoff.lat != null && dropoff.lon != null) {
+        const osrmRoute = await getRoute(
+            pickup.lat, pickup.lon, dropoff.lat, dropoff.lon, via || []
+        );
+        if (osrmRoute) {
+            distance = parseFloat(osrmRoute.distanceKm);
+            duration = osrmRoute.durationMin;
+            coordinates = osrmRoute.coordinates;
+            routed = true;
+        } else {
+            // Sum straight-line legs through every stop
+            const legs = [pickup, ...(via || []), dropoff];
+            for (let i = 0; i < legs.length - 1; i++) {
+                distance += calculateDistance(
+                    legs[i].lat, legs[i].lon, legs[i + 1].lat, legs[i + 1].lon
+                );
+            }
+            duration = (distance / FALLBACK_SPEED_KMH) * 60;
+        }
+    }
+
+    const estimate = await estimateTripCost(
+        distance, duration, rateCardOptions(currency, multiplier)
+    );
+    return { distance, duration, coordinates, routed, estimate };
+}
+
+/**
+ * Sats rows for a fare breakdown that actually sums to the quote. The pricing
+ * module returns fiat rows; the client shows sats-and-fiat, so convert with
+ * the SAME fiat→sats ratio the total used rather than re-deriving it.
+ */
+function breakdownSats(estimate) {
+    const rows = estimate.breakdown || {};
+    const totalFiat = estimate.fare?.fiat || 0;
+    const totalSats = estimate.fare?.sats || 0;
+    const toSats = (fiat) => (totalFiat > 0
+        ? Math.round((fiat / totalFiat) * totalSats)
+        : 0);
+    const baseFareSats = toSats(rows.baseFare?.fiat || 0);
+    const timeFareSats = toSats(rows.duration?.fiat || 0);
+    // Rounding remainder lands on the distance row so the three rows sum to
+    // the quoted fare EXACTLY — a breakdown that is a sat out invites the
+    // "what's the extra for?" question this feature exists to answer.
+    return {
+        baseFareSats,
+        distanceFareSats: Math.max(0, totalSats - baseFareSats - timeFareSats),
+        timeFareSats,
+        operatorFeeSats: estimate.operatorFee?.sats || 0
+    };
+}
+
 const packageVersion = require('./package.json').version;
 
 // ==========================================
@@ -1105,6 +1177,7 @@ if (wss) {
                             // Self-declared, for women-only matching
                             gender: data.gender,
                             womenOnly: data.women_only,
+                            accessFeatures: sanitiseAccessNeeds(data.access_features, domainProfile),
                             // Vehicle classes this driver can serve
                             serviceOptions: sanitiseServiceOptions(data.service_options)
                         });
@@ -1125,7 +1198,8 @@ if (wss) {
                             pubkey,
                             location,
                             gender: data.gender,
-                            womenOnly: data.women_only
+                            womenOnly: data.women_only,
+                            accessFeatures: sanitiseAccessNeeds(data.access_features, domainProfile)
                         });
                         break;
                     }
@@ -1206,6 +1280,20 @@ const FREE_WAITING_MINUTES = process.env.FREE_WAITING_MINUTES != null
     : 3;
 // STRICT_DISPATCH=true excludes drivers with no known location from dispatch
 const strictDispatch = (process.env.STRICT_DISPATCH || '').toLowerCase() === 'true';
+// An immediate request nobody accepts must not sit in `requested` for ever.
+// It is re-offered on a widening radius, then closed honestly so the rider
+// is told "nobody is available" instead of being left watching a spinner.
+const REQUEST_RETRY_MS = parseInt(process.env.REQUEST_RETRY_MS || '30000', 10);
+const REQUEST_EXPIRE_MS = parseInt(process.env.REQUEST_EXPIRE_MS || String(5 * 60 * 1000), 10);
+// Ceiling for the widening search. Beyond this the answer is genuinely "no".
+const DISPATCH_RADIUS_MAX_KM = parseFloat(
+    process.env.DISPATCH_RADIUS_MAX_KM || String(DISPATCH_RADIUS_KM * 2)
+);
+// How long after matching a party may change their mind with nothing
+// recorded against them. Beyond it, the OTHER party is told they may report
+// a late cancellation — reputational only; the operator holds no money and
+// levies no fee.
+const CANCEL_GRACE_MS = parseInt(process.env.CANCEL_GRACE_MS || '120000', 10);
 
 // Scheduled rides: a request carrying scheduled_for is stored (and browsable
 // on the open list, so drivers can pre-book) but only enters live dispatch —
@@ -1323,6 +1411,133 @@ function optionEligible(entry, ride) {
     return Array.isArray(declared) && declared.includes(wanted);
 }
 
+// ==========================================
+// DEMAND PRICING ("surge")
+//
+// The ridesharing profile has always declared `distance_time_surge`, but no
+// multiplier existed anywhere — the model was a claim the code did not make
+// good on. This implements it, with three constraints that follow from the
+// rest of the architecture:
+//
+//   1. OFF BY DEFAULT. Turning demand pricing on for every existing operator
+//      would silently raise fares. It is opt-in (SURGE_ENABLED=true).
+//   2. DISCLOSED BEFORE COMMITTING. The multiplier and the reason travel in
+//      the estimate, so the rider sees it on the confirm screen and not on
+//      the receipt. The quote is still exactly what the ride records.
+//   3. THE UPLIFT IS THE DRIVER'S. A non-custodial operator takes no cut of
+//      a fare it never holds, so demand pricing here pulls drivers toward
+//      demand rather than pulling a margin out of riders.
+// ==========================================
+
+const SURGE_ENABLED = (process.env.SURGE_ENABLED || '').toLowerCase() === 'true';
+/** Ceiling. Uncapped surge is how a ride home after a concert costs £200. */
+const SURGE_MAX = Math.max(1, parseFloat(process.env.SURGE_MAX || '2'));
+/** Radius over which supply and demand are compared */
+const SURGE_RADIUS_KM = parseFloat(process.env.SURGE_RADIUS_KM || '5');
+/** Below this many waiting requests, never surge — small numbers are noise */
+const SURGE_MIN_DEMAND = parseInt(process.env.SURGE_MIN_DEMAND || '3', 10);
+
+/** Available providers within SURGE_RADIUS_KM of a point, right now */
+function supplyNear(origin) {
+    const now = Date.now();
+    let count = 0;
+    for (const [, entry] of driverPresence) {
+        if ((now - entry.lastSeen) > DRIVER_PRESENCE_TTL_MS) continue;
+        if (!entry.location) continue;
+        if (calculateDistance(
+            entry.location.lat, entry.location.lon, origin.lat, origin.lon
+        ) <= SURGE_RADIUS_KM) count++;
+    }
+    return count;
+}
+
+/** Unmatched requests within SURGE_RADIUS_KM of a point, right now */
+function demandNear(origin) {
+    let count = 0;
+    for (const ride of rideManager.getActiveRides()) {
+        if (ride.driver || ride.provider) continue;
+        if (ride.scheduledFor) continue; // pre-booked demand is not now
+        const pickup = ride.pickup;
+        if (!pickup || !Number.isFinite(pickup.lat)) continue;
+        if (calculateDistance(
+            pickup.lat, pickup.lon, origin.lat, origin.lon
+        ) <= SURGE_RADIUS_KM) count++;
+    }
+    return count;
+}
+
+/**
+ * The demand multiplier for a pickup, and an honest reason for it.
+ *
+ * Stepped to 0.1 rather than continuous: a number that twitches between
+ * quotes reads as a machine haggling with you. Always returns a shape, so
+ * callers never branch on whether the feature is on.
+ */
+function surgeFor(origin) {
+    const off = { multiplier: 1, enabled: SURGE_ENABLED, waiting: 0, available: 0 };
+    if (!SURGE_ENABLED || !origin || !Number.isFinite(origin.lat)) return off;
+
+    const waiting = demandNear(origin);
+    const available = supplyNear(origin);
+    if (waiting < SURGE_MIN_DEMAND) return { ...off, waiting, available };
+
+    // No providers at all is not infinite demand — it is a search that will
+    // fail, and pricing it at the ceiling would be charging for absence.
+    if (available === 0) return { ...off, waiting, available };
+
+    const raw = waiting / available;
+    if (raw <= 1) return { ...off, waiting, available };
+
+    const multiplier = Math.min(SURGE_MAX, Math.round(raw * 10) / 10);
+    return {
+        multiplier,
+        enabled: true,
+        waiting,
+        available,
+        reason: 'high_demand'
+    };
+}
+
+/** Access-need ids this domain recognises */
+function accessOptionIds(profile) {
+    return new Set((profile?.accessOptions || []).map((o) => o.id));
+}
+
+/**
+ * Normalise a list of access-need ids against the domain's own catalogue.
+ * Unknown ids are dropped rather than rejected: a newer client asking for
+ * something this operator does not model should still get a ride.
+ */
+function sanitiseAccessNeeds(value, profile) {
+    if (!Array.isArray(value)) return [];
+    const known = accessOptionIds(profile);
+    const seen = new Set();
+    for (const raw of value) {
+        if (typeof raw === 'string' && known.has(raw)) seen.add(raw);
+        if (seen.size >= 6) break;
+    }
+    return [...seen];
+}
+
+/**
+ * Access needs: does this provider meet EVERY need the request carries?
+ *
+ * Fail closed, exactly like women-only. A provider who has not declared a
+ * feature never sees, and can never accept, a job that needs it. The cost
+ * of the alternative is not a mismatched ride — it is a wheelchair user
+ * watching a car they cannot board drive away, which is the outcome this
+ * whole mechanism exists to prevent.
+ *
+ * Requests with no access needs are unaffected and carry no such data.
+ */
+function accessEligible(entry, ride) {
+    const needs = ride?.accessNeeds;
+    if (!Array.isArray(needs) || needs.length === 0) return true;
+    const declared = entry?.accessFeatures;
+    if (!Array.isArray(declared) || declared.length === 0) return false;
+    return needs.every((need) => declared.includes(need));
+}
+
 /**
  * Favourite providers get a head start.
  *
@@ -1393,7 +1608,7 @@ const presenceSweep = setInterval(() => {
 }, 60000);
 presenceSweep.unref();
 
-function updateDriverPresence({ npub, pubkey, location, areas, gender, womenOnly, serviceOptions }) {
+function updateDriverPresence({ npub, pubkey, location, areas, gender, womenOnly, serviceOptions, accessFeatures }) {
     const key = (npub || pubkey || '').toLowerCase();
     if (!key) {
         return null;
@@ -1415,6 +1630,10 @@ function updateDriverPresence({ npub, pubkey, location, areas, gender, womenOnly
         // undefined keeps the stored declaration; an explicit value replaces it
         gender: gender !== undefined ? sanitiseGender(gender) : existing.gender || null,
         womenOnly: womenOnly !== undefined ? womenOnly === true : existing.womenOnly || false,
+        // What this vehicle/driver can actually accommodate. Undeclared is
+        // the safe default: they simply never see jobs that need it.
+        accessFeatures: Array.isArray(accessFeatures)
+            ? accessFeatures : (existing.accessFeatures || []),
         lastSeen: Date.now()
     };
     driverPresence.set(key, entry);
@@ -1439,7 +1658,7 @@ function getDriverPresence(identifier) {
  * haversine radius check; drivers with neither are included unless
  * STRICT_DISPATCH=true.
  */
-function driverInRange(driverIdentifier, origin) {
+function driverInRange(driverIdentifier, origin, radiusKm = DISPATCH_RADIUS_KM) {
     if (!origin || !Number.isFinite(origin.lat) || !Number.isFinite(origin.lon)) {
         return true;
     }
@@ -1454,7 +1673,15 @@ function driverInRange(driverIdentifier, origin) {
         presence.location.lat, presence.location.lon,
         origin.lat, origin.lon
     );
-    return distanceKm <= DISPATCH_RADIUS_KM;
+    return distanceKm <= radiusKm;
+}
+
+/** The radius a request is currently reaching out to. Grows as a request
+ *  goes unanswered (see the retry sweep) — a job nobody nearby wants is
+ *  better offered to someone further out than left to rot. */
+function rideRadiusKm(ride) {
+    const r = ride && Number(ride.dispatchRadiusKm);
+    return Number.isFinite(r) && r > 0 ? r : DISPATCH_RADIUS_KM;
 }
 
 // ==========================================
@@ -1482,7 +1709,7 @@ function connectedDriverPubkeys() {
 
 /** driverInRange semantics, but against the push store's own snapshot —
  *  a backgrounded driver's live presence has typically expired */
-function pushEligible(entry, origin) {
+function pushEligible(entry, origin, radiusKm = DISPATCH_RADIUS_KM) {
     if (!origin || !Number.isFinite(origin.lat) || !Number.isFinite(origin.lon)) {
         return true;
     }
@@ -1495,7 +1722,7 @@ function pushEligible(entry, origin) {
     return calculateDistance(
         entry.location.lat, entry.location.lon,
         origin.lat, origin.lon
-    ) <= DISPATCH_RADIUS_KM;
+    ) <= radiusKm;
 }
 
 /** Push a new-job alert to every eligible subscribed driver whose app is
@@ -1522,10 +1749,13 @@ function pushRideRequestToOfflineDrivers(ride, estimate) {
         if (connected.has(entry.pubkey)) {
             continue;
         }
-        if (!pushEligible(entry, ride.pickup)) {
+        if (!pushEligible(entry, ride.pickup, rideRadiusKm(ride))) {
             continue;
         }
         if (!genderEligible(entry, ride)) {
+            continue;
+        }
+        if (!accessEligible(entry, ride)) {
             continue;
         }
         if (!optionEligible(entry, ride)) {
@@ -1598,12 +1828,15 @@ function broadcastToDrivers(message, origin = null, constraints = null) {
     wss.clients.forEach(client => {
         if (client.clientType === 'driver' && client.readyState === WebSocket.OPEN) {
             const identifier = client.driverNpub || client.driverPubkey;
-            if (!driverInRange(identifier, origin)) {
+            if (!driverInRange(identifier, origin, rideRadiusKm(constraints))) {
                 return;
             }
             if (constraints) {
                 const presence = getDriverPresence(identifier);
                 if (!genderEligible(presence, constraints)) {
+                    return;
+                }
+                if (!accessEligible(presence, constraints)) {
                     return;
                 }
                 if (!optionEligible(presence, constraints)) {
@@ -1654,6 +1887,9 @@ function sendPendingRideRequests(ws) {
         if (!genderEligible(presence, ride)) {
             return;
         }
+        if (!accessEligible(presence, ride)) {
+            return;
+        }
         if (!optionEligible(presence, ride)) {
             return;
         }
@@ -1684,6 +1920,7 @@ function sendPendingRideRequests(ws) {
                 currency: ride.currency || session.currency || 'GBP',
                 scheduledFor: ride.scheduledFor || null,
                 womenOnly: ride.womenOnly === true,
+                accessNeeds: ride.accessNeeds || [],
                 option: ride.option || null
             }
         };
@@ -1717,6 +1954,7 @@ function dispatchScheduledRide(ride) {
             currency: ride.currency || session.currency || 'GBP',
             scheduledFor: ride.scheduledFor || null,
             womenOnly: ride.womenOnly === true,
+            accessNeeds: ride.accessNeeds || [],
             option: ride.option || null,
             rider: ride.rider ? {
                 npub: ride.rider.npub,
@@ -1726,6 +1964,73 @@ function dispatchScheduledRide(ride) {
     }, ride.pickup, ride);
     const pushed = pushRideRequestToOfflineDrivers(ride, estimate);
     return { driverCount, pushed };
+}
+
+/**
+ * One immediate (not pre-booked) request, one sweep tick.
+ *
+ * Nobody has taken it yet, so do what a dispatcher does: offer it again, a
+ * little further out each time, and when the search is genuinely exhausted
+ * say so. The failure mode this replaces is the worst one in the app — the
+ * rider watching a "REQUESTED" badge for ever because no driver was in range
+ * at the one instant the request was broadcast.
+ */
+function sweepImmediateRequest(ride, now) {
+    const profile = rideManager.getProfileForRide(ride.id);
+    if (ride.status !== profile.states.values.REQUESTED) return;
+    if (ride.driver || ride.provider) return;
+    // A favourite head start is a deliberate silence — don't widen through it
+    if (ride.preferredUntil && !ride.preferredExpanded && now < ride.preferredUntil) return;
+
+    const requestedAt = ride.timestamps?.requested || now;
+    const waited = now - requestedAt;
+
+    // Search exhausted — close it out and tell the rider why
+    if (waited >= REQUEST_EXPIRE_MS) {
+        try {
+            rideManager.cancelRide(ride.id, 'system', 'no_providers');
+            finalizeRideSession(ride.id, 'cancelled');
+            const payload = {
+                ride_id: ride.id,
+                task_id: ride.id,
+                reason: 'no_providers',
+                cancelled_by: 'system',
+                searched_radius_km: rideRadiusKm(ride),
+                waited_ms: waited
+            };
+            broadcastToRide(ride.id, { type: 'ride_cancelled', ...payload });
+            broadcastToRide(ride.id, { type: 'task_cancelled', ...payload });
+            console.log(`🕓 Request ${ride.id} expired — no provider within ${rideRadiusKm(ride)}km after ${Math.round(waited / 1000)}s`);
+        } catch (error) {
+            console.warn(`Failed to expire request ${ride.id}:`, error.message);
+        }
+        return;
+    }
+
+    // Not yet time to try again
+    const lastTry = ride.lastDispatchAt || requestedAt;
+    if (now - lastTry < REQUEST_RETRY_MS) return;
+
+    // Widen and re-offer. Drivers with declared working areas are unaffected
+    // by radius, so this only ever reaches further-out radius drivers.
+    const previous = rideRadiusKm(ride);
+    ride.dispatchRadiusKm = Math.min(DISPATCH_RADIUS_MAX_KM, previous * 1.5);
+    ride.lastDispatchAt = now;
+    ride.dispatchAttempts = (ride.dispatchAttempts || 0) + 1;
+
+    const { driverCount, pushed } = dispatchScheduledRide(ride);
+    // Tell the rider the search is still live and getting wider — silence is
+    // what makes a wait feel broken
+    broadcastToRide(ride.id, {
+        type: 'searching',
+        ride_id: ride.id,
+        task_id: ride.id,
+        attempt: ride.dispatchAttempts,
+        radius_km: ride.dispatchRadiusKm,
+        providers_notified: driverCount + pushed,
+        expires_in_ms: Math.max(0, REQUEST_EXPIRE_MS - waited)
+    });
+    console.log(`🔎 Request ${ride.id} retry ${ride.dispatchAttempts}: radius ${previous}→${ride.dispatchRadiusKm}km, ${driverCount} live, ${pushed} pushed`);
 }
 
 // Scheduled-ride lifecycle. Restart-safe: everything derives from
@@ -1748,7 +2053,10 @@ const scheduleSweep = setInterval(() => {
             }
         }
 
+        // Immediate requests: retry on a widening radius, then close.
+        // Pre-booked rides have their own (much longer) clock below.
         if (!ride.scheduledFor) {
+            sweepImmediateRequest(ride, now);
             continue;
         }
         const profile = rideManager.getProfileForRide(ride.id);
@@ -3159,7 +3467,7 @@ app.get('/api/drivers/available', publicRateLimiter, async (req, res) => {
 // Driver reports presence + location (used by the driver app while online)
 app.post('/api/drivers/location', async (req, res) => {
     try {
-        const { npub, pubkey, lat, lon, areas, gender, women_only, service_options } = req.body || {};
+        const { npub, pubkey, lat, lon, areas, gender, women_only, service_options, access_features } = req.body || {};
         const signerPubkey = req.user?.pubkey || null;
 
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
@@ -3181,6 +3489,7 @@ app.post('/api/drivers/location', async (req, res) => {
             areas: sanitiseWorkingAreas(areas),
             gender,
             womenOnly: women_only,
+            accessFeatures: sanitiseAccessNeeds(access_features, domainProfile),
             serviceOptions: sanitiseServiceOptions(service_options)
         });
 
@@ -3194,6 +3503,7 @@ app.post('/api/drivers/location', async (req, res) => {
             location: { lat, lon },
             gender: gender !== undefined ? sanitiseGender(gender) : undefined,
             womenOnly: women_only !== undefined ? women_only === true : undefined,
+            accessFeatures: sanitiseAccessNeeds(access_features, domainProfile),
             serviceOptions: sanitiseServiceOptions(service_options)
         });
 
@@ -3213,7 +3523,7 @@ app.get('/api/push/vapid-key', publicRateLimiter, (req, res) => {
 // The push endpoint URL is device-addressing PII: held in memory only.
 app.post('/api/push/subscribe', optionalNip98, (req, res) => {
     try {
-        const { subscription, pubkey, areas, location, gender, women_only, role } = req.body || {};
+        const { subscription, pubkey, areas, location, gender, women_only, role, access_features } = req.body || {};
         if (nip98Enabled && req.user && pubkey
             && !actorMatchesIdentity(req.user, { pubkey })) {
             return res.status(403).json({
@@ -3239,6 +3549,7 @@ app.post('/api/push/subscribe', optionalNip98, (req, res) => {
             location: loc,
             gender: sanitiseGender(gender),
             womenOnly: women_only === true,
+            accessFeatures: sanitiseAccessNeeds(access_features, domainProfile),
             serviceOptions: sanitiseServiceOptions(req.body.service_options)
         });
         res.json({ success: true });
@@ -3358,38 +3669,41 @@ app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
             });
         }
 
-        // Sum straight-line legs through any intermediate stops so a
-        // multi-stop estimate covers the detour
+        // Intermediate stops, so a multi-stop quote covers the detour
         const via = Array.isArray(stops)
             ? stops
                 .map((s) => ({ lat: Number(s?.lat), lon: Number(s?.lon != null ? s.lon : s?.lng) }))
                 .filter((s) => isValidLat(s.lat) && isValidLon(s.lon))
                 .slice(0, 3)
             : [];
-        const legs = [
-            { lat: pickup_lat, lon: pickup_lon },
-            ...via,
-            { lat: dropoff_lat, lon: dropoff_lon }
-        ];
-        let distance = 0;
-        for (let i = 0; i < legs.length - 1; i++) {
-            distance += calculateDistance(legs[i].lat, legs[i].lon, legs[i + 1].lat, legs[i + 1].lon);
-        }
 
-        // Estimate duration based on average speed (30 km/h in city)
-        const duration = (distance / 30) * 60; // minutes
+        // Demand pricing, if this operator runs it. Resolved once and
+        // carried into the response so the rider sees the multiplier on the
+        // confirm screen — never discovered afterwards on a receipt.
+        const surge = surgeFor({ lat: pickup_lat, lon: pickup_lon });
 
-        // Get detailed cost estimate with dual pricing
-        const estimate = await estimateTripCost(distance, duration, rateCardOptions(fiatCurrency));
+        // THE upfront-price guarantee: this is the same routing and pricing
+        // path /api/rides/request uses, so the number the rider approves here
+        // is the number recorded on the ride. Quoting a straight line and
+        // charging a road route is how you overcharge everyone by 30%.
+        const { distance, duration, coordinates, routed, estimate } =
+            await routeAndPrice(
+                { lat: pickup_lat, lon: pickup_lon },
+                { lat: dropoff_lat, lon: dropoff_lon },
+                via, fiatCurrency, surge.multiplier
+            );
 
         // Per-class prices so the picker shows real numbers, not a
         // multiplier the client had to guess at
         const classes = [];
         for (const option of (domainProfile.serviceOptions || [])) {
-            const priced = option.fareMultiplier === 1
+            // Class multiplier composes with demand: an XL in a surge is
+            // one rate card scaled once, so its breakdown still sums
+            const combined = option.fareMultiplier * surge.multiplier;
+            const priced = combined === surge.multiplier
                 ? estimate
                 : await estimateTripCost(
-                    distance, duration, rateCardOptions(fiatCurrency, option.fareMultiplier)
+                    distance, duration, rateCardOptions(fiatCurrency, combined)
                 );
             classes.push({
                 id: option.id,
@@ -3397,13 +3711,29 @@ app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
                 description: option.description || null,
                 seats: option.seats || null,
                 fareSats: priced.fare.sats,
-                fareFormatted: priced.fare.formatted
+                fareFormatted: priced.fare.formatted,
+                fareBreakdown: breakdownSats(priced)
             });
         }
 
         res.json({
             ...estimate,
+            // Rows in sats that sum to the quoted fare — the client renders
+            // these instead of inventing percentages
+            fareBreakdown: breakdownSats(estimate),
             options: classes,
+            // Same polyline the ride will carry, so the confirm screen shows
+            // the road the price was calculated from
+            routeGeometry: coordinates,
+            routed,
+            // Disclosed before the rider commits, never after
+            surge: {
+                multiplier: surge.multiplier,
+                active: surge.multiplier > 1,
+                reason: surge.reason || null,
+                waiting: surge.waiting,
+                available: surge.available
+            },
             pickup: { lat: pickup_lat, lon: pickup_lon },
             dropoff: { lat: dropoff_lat, lon: dropoff_lon },
             timestamp: Date.now()
@@ -3524,6 +3854,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 scheduled_for,
                 stops,
                 women_only,
+                access_needs,
                 pickup_note,
                 option,
                 preferred_providers
@@ -3625,51 +3956,41 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 rideOptions.stops = rideStops;
             }
 
-            // Try to get OSRM route for real road routing
-            let distance, duration, routeCoordinates = null;
             const hasDropoff = dropoff_lat && dropoff_lon;
             // Stops without a destination make no sense — quietly ignore them
             // for single-location domains rather than reject
             const routeVia = (hasDropoff && rideStops) ? rideStops : [];
 
-            if (hasDropoff) {
-                const osrmRoute = await getRoute(pickup_lat, pickup_lon, dropoff_lat, dropoff_lon, routeVia);
-
-                if (osrmRoute) {
-                    // Use OSRM routing data
-                    distance = parseFloat(osrmRoute.distanceKm);
-                    duration = osrmRoute.durationMin;
-                    routeCoordinates = osrmRoute.coordinates;
-                    const distanceMiles = distance * 0.621371;
-                    console.log(`🗺️  Using OSRM routing: ${distance.toFixed(2)}km (${distanceMiles.toFixed(2)}mi), ${duration} min, ${routeCoordinates.length} points`);
-                } else {
-                    // Fallback: sum straight-line legs through every stop
-                    const legs = [
-                        { lat: pickup_lat, lon: pickup_lon },
-                        ...routeVia,
-                        { lat: dropoff_lat, lon: dropoff_lon }
-                    ];
-                    distance = 0;
-                    for (let i = 0; i < legs.length - 1; i++) {
-                        distance += calculateDistance(legs[i].lat, legs[i].lon, legs[i + 1].lat, legs[i + 1].lon);
-                    }
-                    duration = (distance / 45) * 60; // faster fallback (~45 km/h) to keep demos snappy
-                    const distanceMiles = distance * 0.621371;
-                    console.log(`📏 Using straight-line routing: ${distance.toFixed(2)}km (${distanceMiles.toFixed(2)}mi)`);
-                }
-            } else {
-                // Single-location domain (e.g. locksmith) — no route to calculate
-                distance = 0;
-                duration = 0;
-                console.log(`📍 Single-location task — no route needed`);
-            }
-
             // Service class (Standard / Comfort / XL): scales the rate card
             const serviceOption = resolveServiceOption(option, requestProfile);
-            const estimate = await estimateTripCost(
-                distance, duration,
-                rateCardOptions(fiatCurrency, serviceOption?.fareMultiplier || 1)
-            );
+
+            // The SAME demand multiplier the quote used. Recomputing it here
+            // is deliberate — surge moves with the market, and a quote taken
+            // minutes ago must not silently reprice on tap. The client sends
+            // back the multiplier it was shown; anything higher is refused
+            // below, so the rider can only ever be charged what they saw.
+            const liveSurge = surgeFor({ lat: pickup_lat, lon: pickup_lon });
+            const quotedSurge = Number(req.body.surge_multiplier);
+            const honouredSurge = Number.isFinite(quotedSurge) && quotedSurge > 0
+                ? Math.min(liveSurge.multiplier, Math.max(1, quotedSurge))
+                : liveSurge.multiplier;
+
+            // Same path as the quote the rider just approved — see
+            // routeAndPrice(). Do not inline routing here again.
+            const { distance, duration, coordinates: routeCoordinates, routed, estimate } =
+                await routeAndPrice(
+                    { lat: pickup_lat, lon: pickup_lon },
+                    hasDropoff ? { lat: dropoff_lat, lon: dropoff_lon } : null,
+                    routeVia, fiatCurrency,
+                    (serviceOption?.fareMultiplier || 1) * honouredSurge
+                );
+            if (!hasDropoff) {
+                console.log(`📍 Single-location task — no route needed`);
+            } else {
+                console.log(routed
+                    ? `🗺️  Using OSRM routing: ${distance.toFixed(2)}km, ${Math.round(duration)} min, ${routeCoordinates.length} points`
+                    : `📏 Using straight-line routing: ${distance.toFixed(2)}km`);
+            }
 
             const estimatedFareSats = fare_sats
                 ? parseInt(fare_sats, 10)
@@ -3712,6 +4033,14 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             // Trade-off: the constraint is lost if the operator restarts
             // mid-request — the rider still has the driver identity, vehicle,
             // pickup code and ratings at match.
+            // Access needs: requirements that filter WHO may take the job.
+            // In memory for the life of the request and deliberately kept
+            // out of the Nostr snapshot — health-adjacent data must never
+            // reach a public relay, exactly like the women-only flag.
+            const accessNeeds = sanitiseAccessNeeds(access_needs, requestProfile);
+            if (accessNeeds.length > 0) {
+                ride.accessNeeds = accessNeeds;
+            }
             if (women_only === true) {
                 ride.womenOnly = true;
             }
@@ -3768,6 +4097,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                         currency: fiatCurrency,
                         scheduledFor: ride.scheduledFor || null,
                         womenOnly: ride.womenOnly === true,
+                        accessNeeds: ride.accessNeeds || [],
                         option: ride.option || null,
                         rider: ride.rider ? {
                             npub: ride.rider.npub,
@@ -3797,7 +4127,10 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 scheduled_for: scheduledFor,
                 stops: ride.stops || null,
                 women_only: ride.womenOnly === true,
+                access_needs: ride.accessNeeds || [],
                 option: ride.option || null,
+                // What was actually applied — never more than the rider saw
+                surge_multiplier: honouredSurge,
                 favourites_first: inFavouriteWindow(ride),
                 route: routeCoordinates,
                 currency: fiatCurrency,
@@ -3870,6 +4203,29 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
                 return res.status(403).json({
                     error: 'Women-only request',
                     details: 'The requester asked to be matched only with drivers who have declared they are women.'
+                });
+            }
+        }
+
+        // Access needs: fail closed at accept too, so a driver who slipped
+        // past dispatch (stale presence, a replayed payload) still cannot
+        // take a job they cannot serve. The person waiting has no fallback.
+        if (Array.isArray(pendingRide?.accessNeeds) && pendingRide.accessNeeds.length > 0) {
+            const acceptProfileForAccess = rideManager.getProfileForRide(rideId) || domainProfile;
+            const declared = sanitiseAccessNeeds(
+                req.body.access_features, acceptProfileForAccess
+            );
+            const presenceFeatures = getDriverPresence(driver_npub || driver_pubkey)?.accessFeatures || [];
+            const claimed = declared.length > 0 ? declared : presenceFeatures;
+            const missing = pendingRide.accessNeeds.filter((n) => !claimed.includes(n));
+            if (missing.length > 0) {
+                const labels = (acceptProfileForAccess.accessOptions || [])
+                    .filter((o) => missing.includes(o.id))
+                    .map((o) => o.label);
+                return res.status(403).json({
+                    error: 'Access needs not met',
+                    details: `This request needs: ${labels.join(', ') || missing.join(', ')}. Declare these on your profile if your vehicle can provide them.`,
+                    missing
                 });
             }
         }
@@ -4422,18 +4778,45 @@ app.post('/api/rides/:rideId/cancel', async (req, res) => {
             }
         }
 
+        // Was this a late cancellation — one that actually cost the other
+        // party something?
+        //
+        // Mode A holds no money, so there is no fee to levy and none is
+        // levied. What there IS, is a fact worth recording: somebody was
+        // committed to and then dropped. Three things must all be true, so
+        // that ordinary behaviour is never marked:
+        //   - a provider had committed (nobody is wronged by cancelling a
+        //     request that no one has taken)
+        //   - the grace window has passed (changing your mind seconds after
+        //     matching is not a late cancellation)
+        //   - the job had not started (mid-trip is a different problem)
+        const matchedAt = ride.timestamps?.matched || null;
+        const lateCancellation = Boolean(
+            matchedAt
+            && !ride.timestamps?.started
+            && Date.now() - matchedAt > CANCEL_GRACE_MS
+        );
+
         const cancelled = rideManager.cancelRide(
             rideId,
             actualCancelledBy,
             reason || 'No reason given'
         );
+        // In-memory only, like every other participant-gated fact: it exists
+        // to tell the wronged party they may record it, not to build an
+        // operator-held disciplinary record.
+        cancelled.lateCancellation = lateCancellation;
         finalizeRideSession(rideId, 'cancelled');
 
         const cancelPayload = {
             ride_id: rideId,
             task_id: rideId,
             reason: reason || null,
-            cancelled_by: cancelledBy || null
+            cancelled_by: cancelledBy || null,
+            // Whether the OTHER party has grounds to record this against the
+            // canceller. Reported, never asserted: the operator states the
+            // fact, the wronged party decides whether to publish anything.
+            late_cancellation: cancelled.lateCancellation === true
         };
         broadcastToRide(rideId, { type: 'ride_cancelled', ...cancelPayload });
         broadcastToRide(rideId, { type: 'task_cancelled', ...cancelPayload });
@@ -4653,13 +5036,15 @@ app.post('/api/rides/:rideId/rate', async (req, res) => {
         }
 
         const rideProfile = rideManager.getProfileForRide(rideId);
-        // A cancelled ride accepts exactly one kind of rating: a no-show
-        // report (no_show-flagged event) — the trip never happened, so an
-        // ordinary quality rating would be meaningless.
-        const isNoShowReport = Array.isArray(event?.tags)
-            && event.tags.some((t) => t[0] === 'no_show' && t[1] === 'true');
+        // A cancelled ride accepts exactly two kinds of rating, both about
+        // the ride NOT happening: a no-show report, and a late-cancellation
+        // report. An ordinary quality rating on a trip that never ran would
+        // be meaningless, so it is still refused.
+        const hasFlag = (name) => Array.isArray(event?.tags)
+            && event.tags.some((t) => t[0] === name && t[1] === 'true');
+        const isNonEventReport = hasFlag('no_show') || hasFlag('late_cancel');
         if (!rideManager.isTerminal(ride.status)
-            || (ride.status === rideProfile.states.values.CANCELLED && !isNoShowReport)) {
+            || (ride.status === rideProfile.states.values.CANCELLED && !isNonEventReport)) {
             return res.status(400).json({ error: 'Task not completed yet' });
         }
 
@@ -6223,6 +6608,14 @@ app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
                 ? req.query.options.split(',')
                 : null
         ) || [];
+        // Access features this browser can provide (?access=wheelchair,…).
+        // Declaring none is the safe default: jobs with needs stay hidden.
+        const browsingAccess = sanitiseAccessNeeds(
+            typeof req.query.access === 'string' && req.query.access.length > 0
+                ? req.query.access.split(',')
+                : null,
+            domainProfile
+        );
         const browsingPubkey = ((nip98Enabled && req.user?.pubkey) || req.query.pubkey || '').toLowerCase();
 
         const rides = rideManager.getActiveRides()
@@ -6246,6 +6639,10 @@ app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
             // Women-only requests are only listed to browsers declaring
             // ?gender=woman (self-attested — accept enforces the same claim)
             .filter((ride) => !ride.womenOnly || req.query.gender === 'woman')
+            // Access needs: a job needing a feature is listed only to
+            // providers declaring it (?access=wheelchair,child_seat).
+            // Fail closed — a browser declaring nothing sees no such job.
+            .filter((ride) => accessEligible({ accessFeatures: browsingAccess }, ride))
             // Service classes: a job is listed only to providers who
             // declared the class it asked for (?options=xl,comfort)
             .filter((ride) => optionEligible({ serviceOptions: browsingOptions }, ride))
@@ -6272,6 +6669,7 @@ app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
                     // ahead of the dispatch window
                     scheduledFor: ride.scheduledFor || null,
                     womenOnly: ride.womenOnly === true,
+                    accessNeeds: ride.accessNeeds || [],
                     option: ride.option || null,
                     requestedAt: ride.timestamps?.requested || null
                 };

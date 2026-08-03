@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react';
 import { useIdentity } from '../../context/IdentityContext';
 import { getDriverEarnings, type DriverEarnings } from '../../services/api';
 import { DualPrice } from '../../components/common/DualPrice';
+import { useT } from '../../i18n';
 
 /**
  * Earnings transparency is a core driver-respect feature: full visibility
  * of every completed job, fare and tip — no black-box take rates.
  */
 export function EarningsPage() {
+  const { t } = useT();
   const { identity } = useIdentity();
   const [earnings, setEarnings] = useState<DriverEarnings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -23,7 +25,11 @@ export function EarningsPage() {
   }, [identity?.pubKeyHex]);
 
   if (error) {
-    return <div className="p-6 text-donkey-red text-sm">Failed to load earnings: {error}</div>;
+    return (
+      <div className="p-6 text-donkey-red text-sm" role="alert">
+        {t('earnings.failed', { error })}
+      </div>
+    );
   }
 
   // Loading skeleton — never show zeros as if they were real figures
@@ -31,8 +37,8 @@ export function EarningsPage() {
     return (
       <div className="h-full overflow-y-auto p-6 space-y-6 max-w-lg mx-auto w-full">
         <div>
-          <h1 className="text-xl font-black tracking-tight">Earnings</h1>
-          <p className="text-sm text-donkey-muted mt-1">Loading your earnings...</p>
+          <h1 className="text-xl font-black tracking-tight">{t('earnings.title')}</h1>
+          <p className="text-sm text-donkey-muted mt-1">{t('earnings.loading')}</p>
         </div>
         <div className="grid grid-cols-3 gap-3 animate-pulse">
           {[0, 1, 2].map((i) => (
@@ -60,32 +66,30 @@ export function EarningsPage() {
   return (
     <div className="h-full overflow-y-auto p-6 space-y-6 max-w-lg mx-auto w-full">
       <div>
-        <h1 className="text-xl font-black tracking-tight">Earnings</h1>
-        <p className="text-sm text-donkey-muted mt-1">
-          Every job, every sat. What the rider pays is what you see.
-        </p>
+        <h1 className="text-xl font-black tracking-tight">{t('earnings.title')}</h1>
+        <p className="text-sm text-donkey-muted mt-1">{t('earnings.intro')}</p>
       </div>
 
       <div className="grid grid-cols-3 gap-3 text-center">
         <div className="stat-card">
           <DualPrice sats={summary?.today.sats ?? 0} size="sm" />
-          <p className="stat-label">Today · {summary?.today.rides ?? 0}</p>
+          <p className="stat-label">{t('earnings.today', { n: summary?.today.rides ?? 0 })}</p>
         </div>
         <div className="stat-card">
           <DualPrice sats={summary?.week.sats ?? 0} size="sm" />
-          <p className="stat-label">7 days · {summary?.week.rides ?? 0}</p>
+          <p className="stat-label">{t('earnings.week', { n: summary?.week.rides ?? 0 })}</p>
         </div>
         <div className="stat-card">
           <DualPrice sats={summary?.allTime.sats ?? 0} size="sm" />
-          <p className="stat-label">All time · {summary?.allTime.rides ?? 0}</p>
+          <p className="stat-label">{t('earnings.allTime', { n: summary?.allTime.rides ?? 0 })}</p>
         </div>
       </div>
 
       <div className="space-y-2">
-        <p className="text-xs uppercase tracking-wider text-donkey-muted">Completed jobs</p>
+        <p className="text-xs uppercase tracking-wider text-donkey-muted">{t('earnings.completedJobs')}</p>
         {earnings.rides.length === 0 && (
           <div className="card text-center text-sm text-donkey-muted">
-            No completed jobs yet. Go online to start earning.
+            {t('earnings.empty')}
           </div>
         )}
         {earnings.rides.map((ride) => (
@@ -107,7 +111,9 @@ export function EarningsPage() {
             <div className="text-right">
               <DualPrice sats={ride.fare} size="sm" />
               {ride.tips > 0 && (
-                <p className="text-xs text-donkey-green">+{ride.tips.toLocaleString()} tip</p>
+                <p className="text-xs text-donkey-green">
+                  {t('earnings.tip', { n: ride.tips.toLocaleString() })}
+                </p>
               )}
             </div>
           </div>

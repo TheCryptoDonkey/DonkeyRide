@@ -8,6 +8,14 @@ interface MapViewProps {
   zoom?: number;
   children?: ReactNode;
   className?: string;
+  /**
+   * What this map is showing, for anyone who cannot see it. Every screen
+   * states its situation in text as well (status badge, person card,
+   * addresses), so the map is supplementary rather than the only source —
+   * but it should still announce itself rather than being an unlabelled
+   * region full of tile images.
+   */
+  label?: string;
 }
 
 /** Threshold in degrees (~100m at London's latitude) */
@@ -41,13 +49,18 @@ function MapUpdater({ centre, zoom }: { centre: LatLng; zoom: number }) {
   return null;
 }
 
-export function MapView({ centre, zoom = 14, children, className }: MapViewProps) {
+export function MapView({
+  centre, zoom = 14, children, className, label = 'Map',
+}: MapViewProps) {
   return (
     <MapContainer
       center={[centre.lat, centre.lng]}
       zoom={zoom}
       className={className || 'h-full w-full'}
       zoomControl={false}
+      // MapContainerProps has no role/aria-label, but Leaflet spreads
+      // unknown props onto the container element
+      {...({ role: 'img', 'aria-label': label } as Record<string, string>)}
     >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getAuthPrivKey } from '../../services/api';
+import { useT } from '../../i18n';
 import { derivePickupCode, type PickupCode as Code } from '../../services/pickup-code';
 
 interface PickupCodeProps {
@@ -16,6 +17,9 @@ interface PickupCodeProps {
  * from match until the trip starts.
  */
 export function PickupCode({ taskId, counterpartyPubkey, role, counterpartyLabel }: PickupCodeProps) {
+  // Checked immediately before getting into a stranger's car — it has to
+  // read in the reader's own language
+  const { t } = useT();
   const [code, setCode] = useState<Code | null>(null);
 
   useEffect(() => {
@@ -33,11 +37,11 @@ export function PickupCode({ taskId, counterpartyPubkey, role, counterpartyLabel
   return (
     <div className="meta-card flex items-center justify-between gap-3">
       <div>
-        <p className="meta-label">Pickup code</p>
+        <p className="meta-label">{t('code.title')}</p>
         <p className="text-xs text-donkey-muted mt-1">
           {role === 'requester'
-            ? `Your ${counterpartyLabel.toLowerCase()}'s app shows the same code — check it before getting in.`
-            : `The ${counterpartyLabel.toLowerCase()}'s app shows the same code — confirm it matches.`}
+            ? t('code.riderHint', { label: counterpartyLabel.toLowerCase() })
+            : t('code.providerHint', { label: counterpartyLabel.toLowerCase() })}
         </p>
       </div>
       <div className="text-right shrink-0">

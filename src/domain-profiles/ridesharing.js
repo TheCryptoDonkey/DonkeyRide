@@ -116,6 +116,53 @@ const profile = {
     }
   ],
 
+  // Access needs. Deliberately NOT service classes: a wheelchair user may
+  // want a Standard car, and needing a child seat should not price someone
+  // into Comfort. They are requirements that filter WHO can take the job,
+  // exactly like women-only matching, and they never change the fare.
+  //
+  // Fail closed: a request carrying a need is invisible to, and unacceptable
+  // by, any provider who has not declared they can meet it. Getting this
+  // wrong strands the person who most needed it to be right.
+  accessOptions: [
+    {
+      id: 'wheelchair',
+      label: 'Wheelchair accessible',
+      description: 'Ramp or lift, and space for a wheelchair',
+      providerPrompt: 'My vehicle is wheelchair accessible'
+    },
+    {
+      id: 'step_free',
+      label: 'Step-free / assistance',
+      description: 'Driver can help with a walking frame or heavy bags',
+      providerPrompt: 'I can help with mobility aids and bags'
+    },
+    {
+      id: 'child_seat',
+      label: 'Child seat',
+      description: 'A fitted child seat is available',
+      providerPrompt: 'I carry a child seat'
+    },
+    {
+      id: 'assistance_dog',
+      label: 'Assistance dog',
+      description: 'An assistance dog travels with the passenger',
+      providerPrompt: 'Assistance dogs are welcome in my vehicle'
+    },
+    {
+      id: 'pet_friendly',
+      label: 'Pet friendly',
+      description: 'A pet travels with the passenger',
+      providerPrompt: 'Pets are welcome in my vehicle'
+    },
+    {
+      id: 'extra_luggage',
+      label: 'Extra luggage',
+      description: 'More than the boot of an everyday car takes',
+      providerPrompt: 'I have room for extra luggage'
+    }
+  ],
+
   theme: {
     primary: '#b24cf3',
     primaryRgb: '178, 76, 243',

@@ -102,10 +102,34 @@ function validateProfile(profile) {
     }
   }
 
+  // Access needs — requirements that filter who may take the job, never a
+  // price band. See the ridesharing profile for the reasoning.
+  if (profile.accessOptions !== undefined) {
+    if (!Array.isArray(profile.accessOptions)) {
+      throw new Error('Domain profile \'accessOptions\' must be an array');
+    }
+    for (const option of profile.accessOptions) {
+      if (!option || typeof option.id !== 'string' || !option.id) {
+        throw new Error('Each access option requires a string \'id\'');
+      }
+      if (typeof option.label !== 'string' || !option.label) {
+        throw new Error(`Access option '${option.id}' requires a 'label'`);
+      }
+      // A multiplier here would turn a need into a surcharge — refuse it
+      if (option.fareMultiplier !== undefined) {
+        throw new Error(
+          `Access option '${option.id}' must not carry a 'fareMultiplier' — `
+          + 'access needs never change the fare'
+        );
+      }
+    }
+  }
+
   // Apply defaults for optional fields
   const validated = {
     ...profile,
     serviceOptions: profile.serviceOptions || [],
+    accessOptions: profile.accessOptions || [],
     stakingModel: profile.stakingModel || {
       requesterStakePercent: 0.10,
       providerStakePercent: 0.15,

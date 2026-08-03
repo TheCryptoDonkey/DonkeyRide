@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { emergencyNumber } from '../../utils/emergency';
+import { useT } from '../../i18n';
 
 interface PanicButtonProps {
   onPanic: () => Promise<void>;
@@ -8,6 +9,9 @@ interface PanicButtonProps {
 const HOLD_DURATION = 3000; // 3 seconds to activate
 
 export function PanicButton({ onPanic }: PanicButtonProps) {
+  // Someone reaching for this is in trouble. It must read in their own
+  // language, which it did not before — this whole component was English.
+  const { t } = useT();
   const [holding, setHolding] = useState(false);
   const [progress, setProgress] = useState(0);
   const [sending, setSending] = useState(false);
@@ -63,15 +67,13 @@ export function PanicButton({ onPanic }: PanicButtonProps) {
   if (sent) {
     return (
       <div className="bg-donkey-red/20 border border-donkey-red rounded-xl p-4 text-center">
-        <p className="text-donkey-red font-bold text-lg">EMERGENCY ALERT SENT</p>
-        <p className="text-donkey-muted text-sm mt-1">
-          Your trusted contacts and the operator have been alerted
-        </p>
+        <p className="text-donkey-red font-bold text-lg">{t('panic.sent')}</p>
+        <p className="text-donkey-muted text-sm mt-1">{t('panic.sentBody')}</p>
         <a
           href={`tel:${emergency}`}
           className="block mt-3 bg-donkey-red text-white font-black py-3 rounded-xl"
         >
-          Call {emergency} — emergency services
+          {t('panic.call', { number: emergency })}
         </a>
       </div>
     );
@@ -81,9 +83,11 @@ export function PanicButton({ onPanic }: PanicButtonProps) {
     <div className="space-y-2">
       {failed && (
         <div className="bg-donkey-red border border-donkey-red rounded-xl p-4 text-center">
-          <p className="text-white font-black text-lg">ALERT FAILED</p>
+          <p className="text-white font-black text-lg">{t('panic.failed')}</p>
           <p className="text-white font-bold text-sm mt-1">
-            Call <a href={`tel:${emergency}`} className="underline">{emergency}</a> directly
+            <a href={`tel:${emergency}`} className="underline">
+              {t('panic.callDirect', { number: emergency })}
+            </a>
           </p>
         </div>
       )}
@@ -95,6 +99,7 @@ export function PanicButton({ onPanic }: PanicButtonProps) {
         onTouchStart={startHold}
         onTouchEnd={cancelHold}
         disabled={sending}
+        aria-label={t('panic.aria')}
       >
         {/* Progress overlay */}
         <div
@@ -102,7 +107,9 @@ export function PanicButton({ onPanic }: PanicButtonProps) {
           style={{ width: `${progress * 100}%` }}
         />
         <span className="relative z-10">
-          {sending ? 'SENDING ALERT...' : holding ? 'HOLD TO CONFIRM...' : failed ? 'RETRY PANIC / SOS' : 'PANIC / SOS'}
+          {sending ? t('panic.sending')
+            : holding ? t('panic.holding')
+              : failed ? t('panic.retry') : t('panic.label')}
         </span>
       </button>
     </div>

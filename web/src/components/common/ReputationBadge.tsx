@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchReputation } from '../../services/reputation';
+import { useT } from '../../i18n';
 import type { Reputation } from '../../types/api';
 
 // Session cache — a lookup costs a relay round trip and reputation is
@@ -14,6 +15,7 @@ const cache = new Map<string, Reputation | null>();
  * fresh keypair, and surfaces any emergency signals the keypair raised.
  */
 export function ReputationBadge({ subject }: { subject?: string | null }) {
+  const { t } = useT();
   const [rep, setRep] = useState<Reputation | null | undefined>(
     subject ? cache.get(subject) : undefined,
   );
@@ -41,9 +43,10 @@ export function ReputationBadge({ subject }: { subject?: string | null }) {
   if (!subject || rep === undefined || rep === null) return null;
 
   const noShows = rep.noShowCount ?? 0;
+  const lateCancels = rep.lateCancelCount ?? 0;
 
-  if (rep.ratingsCount === 0 && noShows === 0) {
-    return <p className="text-xs text-donkey-muted">No ratings yet</p>;
+  if (rep.ratingsCount === 0 && noShows === 0 && lateCancels === 0) {
+    return <p className="text-xs text-donkey-muted">{t('rep.none')}</p>;
   }
 
   return (
@@ -51,16 +54,21 @@ export function ReputationBadge({ subject }: { subject?: string | null }) {
       <span className="text-donkey-orange">★</span>{' '}
       <span className="font-bold">{rep.averageRating.toFixed(1)}</span>
       <span className="text-donkey-muted">
-        {' '}· {rep.ratingsCount} rating{rep.ratingsCount === 1 ? '' : 's'}
+        {' '}· {t('rep.ratings', { n: rep.ratingsCount })}
       </span>
       {noShows > 0 && (
         <span className="text-donkey-orange">
-          {' '}· ⚠ {noShows} no-show report{noShows === 1 ? '' : 's'}
+          {' '}· ⚠ {t('rep.noShows', { n: noShows })}
+        </span>
+      )}
+      {lateCancels > 0 && (
+        <span className="text-donkey-orange">
+          {' '}· ⚠ {t('rep.lateCancels', { n: lateCancels })}
         </span>
       )}
       {rep.panicCount > 0 && (
         <span className="text-donkey-red">
-          {' '}· ⚠ {rep.panicCount} emergency signal{rep.panicCount === 1 ? '' : 's'}
+          {' '}· ⚠ {t('rep.panics', { n: rep.panicCount })}
         </span>
       )}
     </p>
