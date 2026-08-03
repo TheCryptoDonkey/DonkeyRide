@@ -63,6 +63,15 @@ function subscribe(listener: () => void): () => void {
 
 const getSnapshot = () => prices;
 
+/**
+ * The current shared price, outside React. For capturing the rate at the
+ * instant something is agreed, where a hook's render-time value is the wrong
+ * thing to reach for.
+ */
+export function peekBtcPrices(): BtcPrices | null {
+  return prices;
+}
+
 /** Reset the shared store — tests only */
 export function __resetBtcPrices(): void {
   prices = null;

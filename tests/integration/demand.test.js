@@ -17,6 +17,13 @@ process.env.ENABLE_RATE_LIMITING = 'false';
 // Unsigned requests — pin auth off rather than inheriting it from a .env
 // (see credentials.test.js).
 process.env.ENABLE_NIP98_AUTH = 'false';
+// No relay, for the same reason. Demand counts EVERY waiting request the
+// operator knows about, and boot rehydrates non-terminal tasks from Nostr
+// snapshots — so a developer with a relay in their .env starts this test
+// with someone else's live jobs already in the aggregate (43 cells instead
+// of 3). Durability is not what is under test here.
+process.env.NOSTR_RELAY = '';
+process.env.PUBLIC_RELAY_URLS = '';
 process.env.REQUEST_RETRY_MS = '600000';
 const WS_PORT = 53000 + Math.floor(Math.random() * 400);
 process.env.WS_PORT = String(WS_PORT);

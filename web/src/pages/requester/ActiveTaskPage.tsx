@@ -46,6 +46,7 @@ import { useT } from '../../i18n';
 import { describeVehicle } from '../../utils/vehicle';
 import { arrivalClock, etaMinutes, remainingSeconds } from '../../utils/eta';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
+import { getAgreedRate } from '../../utils/agreed-rate';
 import type { WsMessage, Task, LatLng, OperatorPaymentInfo } from '../../types/api';
 
 export function ActiveTaskPage() {
@@ -731,7 +732,12 @@ export function ActiveTaskPage() {
             {payment?.provider === 'cash' && (
               <p className="text-sm text-donkey-text">
                 {t('active.payDirect', { label: providerRoleLabel.toLowerCase() })}{' '}
-                <DualPrice sats={activeTask.fareEstimateSats} size="sm" />
+                {/* the rate agreed at booking — "agreed amount" must mean it */}
+                <DualPrice
+                  sats={activeTask.fareEstimateSats}
+                  size="sm"
+                  ratesOverride={getAgreedRate(activeTask.id)}
+                />
               </p>
             )}
             {payment?.provider === 'demo' && (

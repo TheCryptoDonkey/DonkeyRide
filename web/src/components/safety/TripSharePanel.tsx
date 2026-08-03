@@ -5,6 +5,7 @@ import {
   type ShareRole,
 } from '../../services/trip-share';
 import { useT } from '../../i18n';
+import { PersonName } from '../common/PersonCard';
 import type { Task } from '../../types/api';
 
 interface TripSharePanelProps {
@@ -84,9 +85,14 @@ export function TripSharePanel({ task, privKeyHex, taskNoun = 'ride', role = 're
             const auto = isAutoShare(npub);
             return (
               <div key={npub} className="flex items-center gap-2">
-                <p className="flex-1 text-xs font-mono text-donkey-text truncate">
-                  {npub.slice(0, 16)}…
-                </p>
+                {/* These are people the rider CHOSE — a partner, a parent.
+                    Every stranger in this app gets a name from their kind 0;
+                    showing your own guardians as base32 was the last place
+                    that still read as a key rather than a person. */}
+                <PersonName
+                  subject={npub}
+                  className="flex-1 text-xs text-donkey-text truncate"
+                />
                 <button
                   className={`text-xs font-semibold ${auto ? 'text-donkey-green' : 'text-donkey-muted'}`}
                   onClick={() => {

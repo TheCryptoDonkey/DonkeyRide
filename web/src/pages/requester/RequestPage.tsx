@@ -20,6 +20,8 @@ import { favouritePubkeys } from '../../utils/favourites';
 import { AccessNeedsPicker } from '../../components/task/AccessNeedsPicker';
 import { loadAccessNeeds, saveAccessNeeds } from '../../utils/access-needs';
 import { formatScheduledTime } from '../../utils/datetime';
+import { recordAgreedRate } from '../../utils/agreed-rate';
+import { peekBtcPrices } from '../../hooks/useBtcPrices';
 import type { TaskStop } from '../../types/api';
 
 const MAX_STOPS = 2;
@@ -193,6 +195,10 @@ export function RequestPage() {
           : null,
       });
       setActiveTask(task);
+      // The rate behind the number just agreed to. Without it the completion
+      // screen reconverts the same sats at a rate that has since moved, and
+      // reports an "agreed amount" nobody agreed to.
+      recordAgreedRate(task.id, peekBtcPrices());
       // Decentralised announcement — geohash-only, best-effort, relays only.
       // Operator tags let drivers on OTHER operators discover this job.
       if (profile?.id) {

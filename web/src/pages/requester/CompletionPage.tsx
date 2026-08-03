@@ -15,6 +15,7 @@ import { formatDistance, formatDuration } from '../../services/pricing';
 import { recordTrip } from '../../services/trip-history';
 import { useBtcPrices } from '../../hooks/useBtcPrices';
 import { isFavourite, toggleFavourite } from '../../utils/favourites';
+import { getAgreedRate } from '../../utils/agreed-rate';
 import { useT } from '../../i18n';
 import type { OperatorPaymentInfo, SettlementInfo } from '../../types/api';
 
@@ -59,6 +60,9 @@ export function CompletionPage() {
   // Survive a refresh: fall back to the stored terminal task until Done
   const task = activeTask ?? completedTask;
   const settlement = liveSettlement ?? task?.settlement ?? null;
+  // Null for a job booked before this shipped — falls back to the live rate,
+  // which is exactly what it used to do
+  const agreedRate = getAgreedRate(task?.id);
   const settlementConfirmed = settlement?.status === 'confirmed' || settlement?.confirmedByProvider === true;
 
   // Poll for the driver's receipt confirmation while payment is unconfirmed.
@@ -249,7 +253,10 @@ export function CompletionPage() {
         {/* What it was */}
         <div className="card text-center">
           <p className="text-donkey-green text-lg font-bold mb-2">{completedLabel}</p>
-          <DualPrice sats={task.fareEstimateSats} size="lg" />
+          {/* Through the rate agreed at booking: the sats are exact either
+              way, but reconverting them today quietly changes the number the
+              rider actually approved */}
+          <DualPrice sats={task.fareEstimateSats} size="lg" ratesOverride={agreedRate} />
 
           {task.distanceKm && task.durationMin && (
             <p className="text-donkey-muted text-sm mt-2">
@@ -260,7 +267,7 @@ export function CompletionPage() {
           {payment?.provider === 'cash' && (
             <p className="text-sm text-donkey-text mt-3">
               {t('complete.payDirect', { label: providerLabel.toLowerCase() })}{' '}
-              <DualPrice sats={task.fareEstimateSats} size="sm" />
+              <DualPrice sats={task.fareEstimateSats} size="sm" ratesOverride={agreedRate} />
             </p>
           )}
           {payment?.provider === 'demo' && (
