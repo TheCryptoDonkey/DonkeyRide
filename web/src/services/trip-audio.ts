@@ -138,6 +138,17 @@ async function deriveKey(privKeyHex: string, taskId: string): Promise<CryptoKey>
   return crypto.subtle.importKey('raw', digest, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
 
+/**
+ * Copy a buffer into a fresh same-realm ArrayBuffer. WebCrypto rejects
+ * cross-realm ArrayBuffers (e.g. what a sandboxed FileReader hands back),
+ * so every buffer is normalised before it reaches subtle.*.
+ */
+function toRealmBytes(buf: ArrayBuffer): ArrayBuffer {
+  const out = new ArrayBuffer(buf.byteLength);
+  new Uint8Array(out).set(new Uint8Array(buf));
+  return out;
+}
+
 export async function encryptAudio(
   privKeyHex: string,
   taskId: string,
@@ -145,7 +156,7 @@ export async function encryptAudio(
 ): Promise<{ iv: number[]; cipher: ArrayBuffer }> {
   const key = await deriveKey(privKeyHex, taskId);
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plain);
+  const cipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, toRealmBytes(plain));
   return { iv: Array.from(iv), cipher };
 }
 
@@ -156,7 +167,7 @@ export async function decryptAudio(
   cipher: ArrayBuffer,
 ): Promise<ArrayBuffer> {
   const key = await deriveKey(privKeyHex, taskId);
-  return crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(iv) }, key, cipher);
+  return crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(iv) }, key, toRealmBytes(cipher));
 }
 
 /** Blob.arrayBuffer with a FileReader fallback (older WebViews, jsdom) */
