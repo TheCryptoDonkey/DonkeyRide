@@ -431,6 +431,59 @@ class TaskManager {
   }
 
   /**
+   * Change the destination (and/or the calling points) of a live task.
+   *
+   * Plans change mid-journey: the party is at a different address, the
+   * parcel has to go to the depot after all, one more stop on the way.
+   * Unlike a pickup nudge — where the requester walks a few metres and the
+   * agreed fare must stand — a new destination is genuinely different
+   * work, so the caller re-prices and both parties see the new number.
+   * This only mutates and persists; the policy lives in server.js.
+   *
+   * @param {string} taskId - Task identifier
+   * @param {Object} location - { lat, lon } — the new destination
+   * @param {Object} [options] - { address, stops, route, distanceKm, durationMin, fare }
+   * @returns {Object} The updated task
+   */
+  updateDropoff(taskId, location, options = {}) {
+    const task = this.tasks.get(taskId);
+
+    if (!task) {
+      throw new Error(`Task ${taskId} not found`);
+    }
+
+    task.dropoff = { lat: location.lat, lon: location.lon };
+    if (options.address !== undefined) {
+      task.dropoffAddress = options.address;
+    }
+    if (options.stops !== undefined) {
+      task.stops = options.stops;
+    }
+    if (options.route !== undefined) {
+      task.route = options.route;
+    }
+    if (options.distanceKm !== undefined) {
+      task.distance = options.distanceKm;
+    }
+    if (options.durationMin !== undefined) {
+      task.durationMin = options.durationMin;
+    }
+    if (options.fare !== undefined) {
+      task.fare = options.fare;
+    }
+    task.history.push({
+      status: task.status,
+      timestamp: Date.now(),
+      dropoffChanged: true
+    });
+
+    this._persist(task);
+    console.log(`🏁 Destination changed for task ${taskId}`);
+
+    return task;
+  }
+
+  /**
    * Transition the task to a custom intermediate state.
    * Used for domain-specific states like 'access_method_confirmed' or 'collected'.
    *

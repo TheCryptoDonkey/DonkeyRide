@@ -96,6 +96,30 @@ const profile = {
 
   encryptionRequired: false,
 
+  credentials: [
+    {
+      id: 'goods_in_transit',
+      label: 'Goods in transit insurance',
+      description: 'Cover for the customer\'s belongings while they are on your van',
+      expires: true,
+      required: false
+    },
+    {
+      id: 'public_liability',
+      label: 'Public liability insurance',
+      description: 'Cover for damage to the property you are moving out of or into',
+      expires: true,
+      required: false
+    },
+    {
+      id: 'bar_membership',
+      label: 'British Association of Removers membership',
+      description: 'Audited membership with an ombudsman scheme behind it',
+      expires: true,
+      required: false
+    }
+  ],
+
   regulatoryBodies: {
     bar: {
       name: 'British Association of Removers',

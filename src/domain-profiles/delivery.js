@@ -86,6 +86,25 @@ const profile = {
 
   encryptionRequired: false,
 
+  // A courier carrying goods for hire is doing licensable work in most
+  // jurisdictions, and the sender has no way to check unless asked.
+  credentials: [
+    {
+      id: 'goods_in_transit',
+      label: 'Goods in transit insurance',
+      description: 'Cover for what you are carrying, not just the vehicle',
+      expires: true,
+      required: false
+    },
+    {
+      id: 'hire_reward_insurance',
+      label: 'Hire and reward insurance',
+      description: 'Ordinary insurance does not cover carrying goods for a fee',
+      expires: true,
+      required: false
+    }
+  ],
+
   regulatoryBodies: {
     consumerRights: {
       name: 'Consumer Rights Act 2015',

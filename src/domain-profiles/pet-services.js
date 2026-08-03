@@ -91,6 +91,25 @@ const profile = {
 
   encryptionRequired: false,
 
+  // The Animal Welfare Act duty of care applies to a temporary carer, and
+  // boarding or day care is licensable by the local authority.
+  credentials: [
+    {
+      id: 'animal_activity_licence',
+      label: 'Animal activity licence',
+      description: 'Issued by the local authority for boarding, day care or home boarding',
+      expires: true,
+      required: false
+    },
+    {
+      id: 'pet_insurance',
+      label: 'Pet care liability insurance',
+      description: 'Cover for an animal in your care',
+      expires: true,
+      required: false
+    }
+  ],
+
   regulatoryBodies: {
     animalWelfareAct: {
       name: 'Animal Welfare Act 2006',

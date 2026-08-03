@@ -125,11 +125,40 @@ function validateProfile(profile) {
     }
   }
 
+  // Credentials a provider may declare for this domain (private hire
+  // licence, hire-and-reward insurance, SIA badge). Self-attested and
+  // shown to the requester — the operator asserts nothing, exactly as it
+  // asserts nothing about a rating. An operator that must gate on them
+  // sets ENFORCE_CREDENTIALS=true, which is off by default so switching
+  // this on is always a deliberate act.
+  if (profile.credentials !== undefined) {
+    if (!Array.isArray(profile.credentials)) {
+      throw new Error('Domain profile \'credentials\' must be an array');
+    }
+    for (const credential of profile.credentials) {
+      if (!credential || typeof credential.id !== 'string' || !credential.id) {
+        throw new Error('Each credential requires a string \'id\'');
+      }
+      if (typeof credential.label !== 'string' || !credential.label) {
+        throw new Error(`Credential '${credential.id}' requires a 'label'`);
+      }
+      // A credential is a permission to work, never a price band — the same
+      // rule access needs live under
+      if (credential.fareMultiplier !== undefined) {
+        throw new Error(
+          `Credential '${credential.id}' must not carry a 'fareMultiplier' — `
+          + 'a licence is not a service class'
+        );
+      }
+    }
+  }
+
   // Apply defaults for optional fields
   const validated = {
     ...profile,
     serviceOptions: profile.serviceOptions || [],
     accessOptions: profile.accessOptions || [],
+    credentials: profile.credentials || [],
     stakingModel: profile.stakingModel || {
       requesterStakePercent: 0.10,
       providerStakePercent: 0.15,
@@ -268,6 +297,7 @@ function getSchemaTemplate() {
     },
     encryptionRequired: '(boolean) Whether all task data must be encrypted at rest',
     regulatoryBodies: '(object) e.g. { gasSafe: { name: "Gas Safe Register", required: true } }',
+    credentials: '(array) Self-attested provider credentials, e.g. [{ id: "phv_licence", label: "Private hire licence", expires: true, required: true }]',
     features: {
       navigation: '(boolean) Whether the domain uses road navigation',
       liveTracking: '(boolean) Whether real-time location tracking is used',

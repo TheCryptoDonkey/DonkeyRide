@@ -96,6 +96,25 @@ const profile = {
 
   encryptionRequired: false,
 
+  // Recovering anything heavy is licensed work; the motorist at the
+  // roadside has no way to check unless the operator says.
+  credentials: [
+    {
+      id: 'operators_licence',
+      label: 'Operator\'s licence',
+      description: 'Required to recover vehicles over 3,500 kg — state the category you hold',
+      expires: true,
+      required: false
+    },
+    {
+      id: 'recovery_insurance',
+      label: 'Motor trade / recovery insurance',
+      description: 'Cover for the casualty vehicle while it is on your truck',
+      expires: true,
+      required: false
+    }
+  ],
+
   regulatoryBodies: {
     trafficCommissioner: {
       name: 'Traffic Commissioner (Operator\'s Licence)',

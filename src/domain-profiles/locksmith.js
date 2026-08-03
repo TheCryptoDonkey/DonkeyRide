@@ -82,6 +82,25 @@ const profile = {
 
   encryptionRequired: false,
 
+  // Locksmithing is unregulated in the UK, which is exactly why a
+  // declared trade body membership and insurance are worth showing.
+  credentials: [
+    {
+      id: 'mla_membership',
+      label: 'Master Locksmiths Association membership',
+      description: 'Vetted and inspected membership — the trade has no statutory regulator',
+      expires: true,
+      required: false
+    },
+    {
+      id: 'public_liability',
+      label: 'Public liability insurance',
+      description: 'Cover for damage caused while gaining entry',
+      expires: true,
+      required: false
+    }
+  ],
+
   regulatoryBodies: {
     mla: {
       name: 'Master Locksmiths Association',

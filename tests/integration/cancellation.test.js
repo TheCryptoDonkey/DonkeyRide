@@ -202,3 +202,74 @@ test('a started job is not treated as a late cancellation', async () => {
     );
   }
 });
+
+test('a structured reason is recorded and travels to the other party', async () => {
+  const { body } = await createRide();
+  await accept(body.ride_id);
+
+  const cancelled = await post(`/api/rides/${body.ride_id}/cancel`, {
+    cancelledBy: rider.pub,
+    reason_code: 'provider_not_moving'
+  });
+
+  assert.equal(cancelled.status, 200);
+  assert.equal(cancelled.body.ride.cancellationReasonCode, 'provider_not_moving');
+  assert.equal(cancelled.body.ride.cancelledSide, 'requester');
+});
+
+test('a side cannot claim the other side reason', async () => {
+  const { body } = await createRide();
+  await accept(body.ride_id);
+
+  // "vehicle_problem" belongs to the provider vocabulary
+  const cancelled = await post(`/api/rides/${body.ride_id}/cancel`, {
+    cancelledBy: rider.pub,
+    reason_code: 'vehicle_problem'
+  });
+
+  assert.equal(cancelled.status, 200);
+  assert.equal(
+    cancelled.body.ride.cancellationReasonCode, undefined,
+    'an out-of-vocabulary code is dropped, not recorded'
+  );
+});
+
+test('the provider vocabulary works for the provider', async () => {
+  const { body } = await createRide();
+  await accept(body.ride_id);
+
+  const cancelled = await post(`/api/rides/${body.ride_id}/cancel`, {
+    cancelledBy: driver.pub,
+    reason_code: 'vehicle_problem'
+  });
+
+  assert.equal(cancelled.status, 200);
+  assert.equal(cancelled.body.ride.cancellationReasonCode, 'vehicle_problem');
+  assert.equal(cancelled.body.ride.cancelledSide, 'provider');
+});
+
+test('the no-show flow still yields a no_show code', async () => {
+  const { body } = await createRide();
+  await accept(body.ride_id);
+
+  const cancelled = await post(`/api/rides/${body.ride_id}/cancel`, {
+    cancelledBy: rider.pub,
+    reason: 'no_show'
+  });
+
+  assert.equal(cancelled.status, 200);
+  assert.equal(cancelled.body.ride.cancellationReasonCode, 'no_show');
+});
+
+test('the vocabulary is discoverable', async () => {
+  const res = await fetch(`${baseUrl}/api/cancellation-reasons`);
+  const body = await res.json();
+
+  assert.equal(res.status, 200);
+  assert.ok(body.reasons.requester.includes('changed_plans'));
+  assert.ok(body.reasons.provider.includes('too_far'));
+  assert.ok(
+    !body.reasons.requester.includes('vehicle_problem'),
+    'a requester never has a vehicle problem'
+  );
+});

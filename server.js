@@ -217,6 +217,42 @@ function isPositiveInt(value, max = Number.MAX_SAFE_INTEGER) {
     return Number.isInteger(n) && n > 0 && n <= max;
 }
 
+/** Intermediate calling points a request or a destination change may carry */
+const MAX_TASK_STOPS = 3;
+
+/**
+ * Validate and normalise intermediate stops. Shared by the request handler
+ * and the destination-change endpoint so "add a stop" means the same thing
+ * whether it happens before or after the job is under way.
+ *
+ * @returns {{ stops: Array|null }|{ error: string }}
+ */
+function parseStops(stops) {
+    if (stops == null) {
+        return { stops: null };
+    }
+    if (!Array.isArray(stops) || stops.length > MAX_TASK_STOPS) {
+        return { error: `stops must be an array of at most ${MAX_TASK_STOPS} intermediate stops` };
+    }
+    if (stops.length === 0) {
+        return { stops: [] };
+    }
+    const parsed = [];
+    for (const stop of stops) {
+        const stopLon = stop?.lon != null ? stop.lon : stop?.lng;
+        if (!isValidLat(stop?.lat) || !isValidLon(stopLon)) {
+            return { error: 'each stop must contain valid lat and lon/lng' };
+        }
+        parsed.push({
+            lat: Number(stop.lat),
+            lon: Number(stopLon),
+            ...(typeof stop.address === 'string' && stop.address.trim()
+                ? { address: stop.address.trim().slice(0, 200) } : {})
+        });
+    }
+    return { stops: parsed };
+}
+
 function clampText(value, maxLen) {
     if (typeof value !== 'string') {
         return '';
@@ -736,6 +772,7 @@ const rideManager = {
     transitionTo(rideId, ...args) { return _getManagerForRide(rideId).transitionTo(rideId, ...args); },
     updateDriverLocation(rideId, ...args) { return _getManagerForRide(rideId).updateDriverLocation(rideId, ...args); },
     updatePickup(rideId, ...args) { return _getManagerForRide(rideId).updatePickup(rideId, ...args); },
+    updateDropoff(rideId, ...args) { return _getManagerForRide(rideId).updateDropoff(rideId, ...args); },
     recordRating(rideId, ...args) { return _getManagerForRide(rideId).recordRating(rideId, ...args); },
 
     // Persist mutations made directly on the ride object (proofs, tips, safety, quotes)
@@ -1295,6 +1332,64 @@ const DISPATCH_RADIUS_MAX_KM = parseFloat(
 // levies no fee.
 const CANCEL_GRACE_MS = parseInt(process.env.CANCEL_GRACE_MS || '120000', 10);
 
+/**
+ * Why a task was cancelled, as a fixed vocabulary rather than free text.
+ *
+ * "Requester cancelled" told nobody anything: someone whose provider never
+ * moved and someone who simply changed their mind produced identical
+ * records, so neither the counterparty nor the reputation layer could tell
+ * them apart. The code travels on the cancel frame and in the response;
+ * the operator asserts nothing about it and levies nothing for it. Free
+ * text is still accepted alongside, and is still participant-gated.
+ */
+const CANCELLATION_REASONS = {
+    requester: [
+        'changed_plans',
+        'provider_not_moving',
+        'wait_too_long',
+        'wrong_details',
+        'found_another_way',
+        'no_show',
+        'safety',
+        'other'
+    ],
+    provider: [
+        'too_far',
+        'requester_not_here',
+        'wait_too_long',
+        'wrong_details',
+        'vehicle_problem',
+        'unsafe',
+        'no_show',
+        'other'
+    ]
+};
+
+/** A cancellation code the cancelling side is actually allowed to give */
+function sanitiseCancellationReason(code, side) {
+    if (typeof code !== 'string') {
+        return null;
+    }
+    const wanted = code.trim().toLowerCase();
+    return (CANCELLATION_REASONS[side] || []).includes(wanted) ? wanted : null;
+}
+
+/** Plain-English gloss for push copy; clients translate the code themselves */
+const CANCELLATION_REASON_TEXT = {
+    changed_plans: 'plans changed',
+    provider_not_moving: 'nobody was coming',
+    wait_too_long: 'the wait was too long',
+    wrong_details: 'the details were wrong',
+    found_another_way: 'another way was found',
+    no_show: 'nobody showed up',
+    safety: 'a safety concern',
+    too_far: 'the pickup was too far',
+    requester_not_here: 'nobody was at the pickup',
+    vehicle_problem: 'a vehicle problem',
+    unsafe: 'a safety concern',
+    other: null
+};
+
 // Scheduled rides: a request carrying scheduled_for is stored (and browsable
 // on the open list, so drivers can pre-book) but only enters live dispatch —
 // WS broadcast + web push — inside the lead window before the pickup time.
@@ -1392,6 +1487,77 @@ function resolveServiceOption(requested, profile) {
         ? options.find((o) => o.id === requested.trim().toLowerCase())
         : null;
     return found || options[0];
+}
+
+// ==========================================
+// PROVIDER CREDENTIALS
+//
+// A private hire licence, hire-and-reward insurance, an SIA badge. The
+// domain profile says what exists; the provider says what they hold; the
+// requester sees it before they get in the car. Three rules follow from
+// the rest of the architecture:
+//
+//   1. SELF-ATTESTED, AND SAID SO. The operator does not verify these and
+//      never claims to, exactly as it never asserts a rating. The client
+//      copy says "declared", not "verified".
+//   2. EXPIRY IS PART OF THE CLAIM. A licence that ran out in March is not
+//      a licence, so an expired declaration is dropped rather than shown.
+//   3. NOT A GATE BY DEFAULT. ENFORCE_CREDENTIALS=true makes required
+//      credentials fail closed at accept. Off by default: a licensed
+//      private hire operator and a lift-sharing co-op run the same code
+//      and have genuinely different obligations, and silently refusing
+//      every existing driver on upgrade would be worse than either.
+// ==========================================
+
+const ENFORCE_CREDENTIALS = (process.env.ENFORCE_CREDENTIALS || '').toLowerCase() === 'true';
+const MAX_CREDENTIAL_REF_CHARS = 60;
+
+/**
+ * Normalise a provider's declared credentials against a domain profile.
+ * Unknown ids and expired claims are dropped — an expired licence is not
+ * a licence, and pretending otherwise is the whole failure mode here.
+ */
+function sanitiseCredentials(raw, profile) {
+    const known = new Map(
+        ((profile || domainProfile).credentials || []).map((c) => [c.id, c])
+    );
+    if (!Array.isArray(raw) || known.size === 0) {
+        return [];
+    }
+    const now = Date.now();
+    const seen = new Set();
+    const out = [];
+    for (const entry of raw) {
+        const id = typeof entry?.id === 'string' ? entry.id.trim().toLowerCase() : null;
+        if (!id || !known.has(id) || seen.has(id)) {
+            continue;
+        }
+        const expiresAt = entry?.expiresAt != null ? Number(entry.expiresAt) : null;
+        if (expiresAt != null) {
+            if (!Number.isFinite(expiresAt) || expiresAt <= now) {
+                continue; // expired, or unreadable — not a claim we will carry
+            }
+        }
+        seen.add(id);
+        out.push({
+            id,
+            ...(expiresAt != null ? { expiresAt } : {}),
+            // A licence number is on the plate of the car anyway, but it is
+            // still participant-gated: in memory, never broadcast, never
+            // snapshotted to a relay.
+            ...(typeof entry?.reference === 'string' && entry.reference.trim()
+                ? { reference: entry.reference.trim().slice(0, MAX_CREDENTIAL_REF_CHARS) }
+                : {})
+        });
+    }
+    return out;
+}
+
+/** Credential ids this domain says a provider must hold */
+function requiredCredentialIds(profile) {
+    return ((profile || domainProfile).credentials || [])
+        .filter((c) => c.required === true)
+        .map((c) => c.id);
 }
 
 /** Can this provider serve the class this task asked for? */
@@ -1658,6 +1824,66 @@ function getDriverPresence(identifier) {
  * haversine radius check; drivers with neither are included unless
  * STRICT_DISPATCH=true.
  */
+/**
+ * How close to their drop-off a provider must be before the next job is
+ * offered against where they are ABOUT to be rather than where they are.
+ */
+const BACK_TO_BACK_LEAD_KM = parseFloat(process.env.BACK_TO_BACK_LEAD_KM || '3');
+
+/**
+ * Where each busy provider's current job ends, keyed by pubkey.
+ *
+ * Rebuilt on demand with a short TTL: dispatch asks this once per waiting
+ * request per driver, and a stale answer would offer somebody a job from
+ * a destination they have already left.
+ */
+let _finishingCache = { at: 0, map: null };
+function finishingProviders() {
+    if (_finishingCache.map && Date.now() - _finishingCache.at < 1000) {
+        return _finishingCache.map;
+    }
+    const map = new Map();
+    for (const ride of rideManager.getActiveRides()) {
+        const provider = ride.provider || ride.driver;
+        const pubkey = (provider?.pubkey || '').toLowerCase();
+        if (!pubkey || !ride.dropoff) {
+            continue;
+        }
+        const profile = rideManager.getProfileForRide(ride.id);
+        if (ride.status !== profile.states.values.ACTIVE) {
+            continue;
+        }
+        map.set(pubkey, { rideId: ride.id, dropoff: ride.dropoff });
+        if (provider.npub) {
+            map.set(provider.npub.toLowerCase(), { rideId: ride.id, dropoff: ride.dropoff });
+        }
+    }
+    _finishingCache = { at: Date.now(), map };
+    return map;
+}
+
+/**
+ * The point a provider should be judged against for the NEXT job.
+ *
+ * A driver ten minutes from their drop-off is invisible to every request
+ * around that drop-off, so they finish a trip into an empty screen and
+ * drive back across town. If they are on an active job and already close
+ * to the end of it, dispatch also considers where that job ends. Never a
+ * replacement for their real position — an addition to it.
+ */
+function finishingNear(driverIdentifier, currentLocation) {
+    const key = (driverIdentifier || '').toLowerCase();
+    const entry = finishingProviders().get(key);
+    if (!entry || !currentLocation) {
+        return null;
+    }
+    const remainingKm = calculateDistance(
+        currentLocation.lat, currentLocation.lon,
+        entry.dropoff.lat, entry.dropoff.lon
+    );
+    return remainingKm <= BACK_TO_BACK_LEAD_KM ? entry.dropoff : null;
+}
+
 function driverInRange(driverIdentifier, origin, radiusKm = DISPATCH_RADIUS_KM) {
     if (!origin || !Number.isFinite(origin.lat) || !Number.isFinite(origin.lon)) {
         return true;
@@ -1673,7 +1899,17 @@ function driverInRange(driverIdentifier, origin, radiusKm = DISPATCH_RADIUS_KM) 
         presence.location.lat, presence.location.lon,
         origin.lat, origin.lon
     );
-    return distanceKm <= radiusKm;
+    if (distanceKm <= radiusKm) {
+        return true;
+    }
+    // Nearly done with the current job: judge them from where it ends
+    const finishing = finishingNear(driverIdentifier, presence.location);
+    if (finishing) {
+        return calculateDistance(
+            finishing.lat, finishing.lon, origin.lat, origin.lon
+        ) <= radiusKm;
+    }
+    return false;
 }
 
 /** The radius a request is currently reaching out to. Grows as a request
@@ -3107,6 +3343,84 @@ app.get('/api/settlement/rails', publicRateLimiter, (req, res) => {
     res.json({ rails: settlement.listRails() });
 });
 
+// The cancellation vocabulary each side may use. Clients render their own
+// wording for these codes; the server only decides what is valid.
+app.get('/api/cancellation-reasons', publicRateLimiter, (req, res) => {
+    res.json({ reasons: CANCELLATION_REASONS });
+});
+
+/** Cell size for demand reporting — precision 5 is roughly 5 km square */
+const DEMAND_GEOHASH_PRECISION = 5;
+/** Below this, a cell is one person waiting, not a pattern worth driving to */
+const DEMAND_MIN_WAITING = parseInt(process.env.DEMAND_MIN_WAITING || '2', 10);
+
+/**
+ * Where the work is.
+ *
+ * A driver deciding where to sit and wait has, until now, had nothing to
+ * go on but their own guess. This aggregates the SAME waiting requests the
+ * open list already exposes, but coarsened to ~5 km cells and reported as
+ * counts — never a pickup, never an identity, and never a cell with a
+ * single person in it, which would point at a specific doorway.
+ *
+ * Supply is reported alongside demand deliberately: "twelve people waiting"
+ * with thirty idle drivers in the cell is not somewhere to drive to.
+ */
+app.get('/api/demand', publicRateLimiter, (req, res) => {
+    const cells = new Map();
+    for (const ride of rideManager.getActiveRides()) {
+        if (ride.driver || ride.provider) continue;
+        if (ride.scheduledFor) continue; // pre-booked demand is not now
+        const pickup = ride.pickup;
+        if (!pickup || !Number.isFinite(pickup.lat) || !Number.isFinite(pickup.lon)) continue;
+        const cell = encodeGeohash(pickup.lat, pickup.lon, DEMAND_GEOHASH_PRECISION);
+        const existing = cells.get(cell);
+        if (existing) {
+            existing.waiting += 1;
+        } else {
+            cells.set(cell, { geohash: cell, waiting: 1 });
+        }
+    }
+
+    const now = Date.now();
+    const list = [];
+    for (const entry of cells.values()) {
+        if (entry.waiting < DEMAND_MIN_WAITING) continue;
+        const centre = decodeGeohash(entry.geohash);
+        if (!centre) continue;
+        // Idle providers sitting in the same cell
+        let available = 0;
+        for (const [, presence] of driverPresence) {
+            if ((now - presence.lastSeen) > DRIVER_PRESENCE_TTL_MS) continue;
+            if (!presence.location) continue;
+            if (encodeGeohash(
+                presence.location.lat, presence.location.lon, DEMAND_GEOHASH_PRECISION
+            ) === entry.geohash) available += 1;
+        }
+        list.push({
+            geohash: entry.geohash,
+            lat: centre.lat,
+            lon: centre.lon,
+            waiting: entry.waiting,
+            available,
+            // What a request from this cell would price at right now, so the
+            // number a driver sees is the number they would actually earn
+            multiplier: surgeFor({ lat: centre.lat, lon: centre.lon }).multiplier
+        });
+    }
+
+    // Busiest first — a driver reads the top of this list and nothing else
+    list.sort((a, b) => (b.waiting - b.available) - (a.waiting - a.available));
+
+    res.json({
+        cells: list.slice(0, 20),
+        precision: DEMAND_GEOHASH_PRECISION,
+        min_waiting: DEMAND_MIN_WAITING,
+        surge_enabled: SURGE_ENABLED,
+        generated_at: now
+    });
+});
+
 // Driver declares which rails they accept for THIS ride, with handles.
 // Lightning/Tando handles are payment endpoints; the M-Pesa number is PII and
 // is delivered per-ride to the matched rider only, never published.
@@ -3863,27 +4177,13 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             // Intermediate stops (multi-stop trips) — visited in order
             // between pickup and dropoff. Exact coordinates are PII: they
             // stay in memory and only ever leave as a count pre-accept.
-            let rideStops = null;
-            if (stops != null) {
-                if (!Array.isArray(stops) || stops.length > 3) {
-                    return res.status(400).json({ error: 'stops must be an array of at most 3 intermediate stops' });
-                }
-                if (stops.length > 0) {
-                    rideStops = [];
-                    for (const stop of stops) {
-                        const stopLon = stop?.lon != null ? stop.lon : stop?.lng;
-                        if (!isValidLat(stop?.lat) || !isValidLon(stopLon)) {
-                            return res.status(400).json({ error: 'each stop must contain valid lat and lon/lng' });
-                        }
-                        rideStops.push({
-                            lat: Number(stop.lat),
-                            lon: Number(stopLon),
-                            ...(typeof stop.address === 'string' && stop.address.trim()
-                                ? { address: stop.address.trim().slice(0, 200) } : {})
-                        });
-                    }
-                }
+            const parsedStops = parseStops(stops);
+            if (parsedStops.error) {
+                return res.status(400).json({ error: parsedStops.error });
             }
+            const rideStops = parsedStops.stops && parsedStops.stops.length > 0
+                ? parsedStops.stops
+                : null;
 
             // Pre-booked pickup time (unix ms). Anything inside the dispatch
             // lead window is treated as an immediate request.
@@ -4052,8 +4352,31 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 ride.pickupNote = pickup_note.trim().slice(0, PICKUP_NOTE_MAX_CHARS);
             }
 
+            // Booking for somebody else — a parent sending a child home, an
+            // office booking a car for a client. The provider needs a name
+            // to call out at the kerb, and nothing else about them: this is
+            // participant-gated like the meeting note, and deliberately
+            // absent from every pre-accept payload and from the snapshot.
+            const passengerName = typeof req.body.passenger?.name === 'string'
+                ? req.body.passenger.name.trim().slice(0, 60) : '';
+            const passengerNote = typeof req.body.passenger?.note === 'string'
+                ? req.body.passenger.note.trim().slice(0, PICKUP_NOTE_MAX_CHARS) : '';
+            if (passengerName || passengerNote) {
+                ride.passenger = {
+                    ...(passengerName ? { name: passengerName } : {}),
+                    ...(passengerNote ? { note: passengerNote } : {})
+                };
+            }
+
             if (serviceOption) {
                 ride.option = serviceOption.id;
+            }
+
+            // The multiplier the rider actually agreed to. Kept so a later
+            // destination change re-prices on the SAME terms rather than
+            // silently repricing at whatever the market is doing by then.
+            if (honouredSurge > 1) {
+                ride.surgeMultiplier = honouredSurge;
             }
 
             // Favourite providers get a short exclusive window. The list is
@@ -4257,6 +4580,28 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
             }
         }
 
+        // What this provider declares they hold. Shown to the requester at
+        // match; never verified here and never presented as verified.
+        const acceptProfileForCreds = rideManager.getProfileForRide(rideId) || domainProfile;
+        const credentials = sanitiseCredentials(
+            req.body.credentials, acceptProfileForCreds
+        );
+        if (ENFORCE_CREDENTIALS) {
+            const held = new Set(credentials.map((c) => c.id));
+            const missing = requiredCredentialIds(acceptProfileForCreds)
+                .filter((id) => !held.has(id));
+            if (missing.length > 0) {
+                const labels = (acceptProfileForCreds.credentials || [])
+                    .filter((c) => missing.includes(c.id))
+                    .map((c) => c.label);
+                return res.status(403).json({
+                    error: 'Required credentials not declared',
+                    details: `This operator requires: ${labels.join(', ') || missing.join(', ')}. Declare them (with expiry dates) on your profile.`,
+                    missing
+                });
+            }
+        }
+
         // Note: any driver_rating in the body is deliberately ignored — a
         // rating is never self-reported. Clients read the counterparty's
         // aggregated signed ratings from GET /api/reputation/:npub.
@@ -4281,6 +4626,9 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
 
         if (vehicle) {
             ride.vehicle = vehicle;
+        }
+        if (credentials.length > 0) {
+            ride.providerCredentials = credentials;
         }
 
         // Start en route
@@ -4593,6 +4941,181 @@ app.post('/api/rides/:rideId/pickup', async (req, res) => {
     }
 });
 
+/**
+ * Change the destination (and/or the calling points) of a live task.
+ *
+ * The pickup endpoint above deliberately freezes the fare once a provider
+ * has committed: the requester walks a few metres and the agreed number
+ * must stand. A destination change is the opposite case — it is different
+ * work, over a different route, and pretending otherwise would either
+ * short the provider or overcharge the requester. So this RE-PRICES, on
+ * the same terms the requester originally agreed (their service class and
+ * the demand multiplier they accepted at booking, never today's), carries
+ * any waiting charge across untouched, and tells the provider loudly.
+ *
+ * `preview: true` prices the change without applying it, so the requester
+ * sees the new number BEFORE they commit to it.
+ */
+app.post('/api/rides/:rideId/dropoff', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const lat = req.body.lat;
+        const lon = req.body.lon != null ? req.body.lon : req.body.lng;
+        // Adding or removing a calling point is a valid change on its own
+        const stopsOnly = lat == null && lon == null && req.body.stops !== undefined;
+
+        if (!stopsOnly && (!isValidLat(lat) || !isValidLon(lon))) {
+            return res.status(400).json({ error: 'lat and lon/lng must be valid coordinates' });
+        }
+
+        const ride = rideManager.getRide(rideId);
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        const authErr = authoriseRideActor(req, ride, ['requester']);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+
+        const rideProfile = rideManager.getProfileForRide(rideId);
+        if (rideProfile.features?.requiresDestination === false) {
+            return res.status(400).json({
+                error: 'This service has no destination to change',
+                domain: rideProfile.id
+            });
+        }
+        if (!ride.dropoff && stopsOnly) {
+            return res.status(400).json({ error: 'This task has no destination yet' });
+        }
+
+        // Changeable right up until the job is finished — the whole point is
+        // that plans change mid-journey.
+        if ((rideProfile.states.terminal || []).includes(ride.status)) {
+            return res.status(409).json({
+                error: 'Destination can no longer be changed',
+                details: `This ${rideProfile.labels?.taskNoun || 'task'} has already ended`,
+                status: ride.status
+            });
+        }
+
+        const parsed = parseStops(req.body.stops);
+        if (parsed.error) {
+            return res.status(400).json({ error: parsed.error });
+        }
+        const newStops = req.body.stops !== undefined
+            ? parsed.stops
+            : (Array.isArray(ride.stops) ? ride.stops : []);
+
+        const newDropoff = stopsOnly
+            ? { lat: ride.dropoff.lat, lon: ride.dropoff.lon }
+            : { lat: Number(lat), lon: Number(lon) };
+        const movedKm = ride.dropoff
+            ? calculateDistance(ride.dropoff.lat, ride.dropoff.lon, newDropoff.lat, newDropoff.lon)
+            : 0;
+
+        const address = typeof req.body.address === 'string' && req.body.address.trim()
+            ? req.body.address.trim().slice(0, 200)
+            : undefined;
+
+        // Same rate card the requester agreed to: their class, and the
+        // multiplier disclosed at booking rather than the live one.
+        const fiatCurrency = resolveFiatCurrency(ride.currency);
+        const serviceOption = resolveServiceOption(ride.option, rideProfile);
+        const agreedMultiplier = (serviceOption?.fareMultiplier || 1)
+            * (Number.isFinite(ride.surgeMultiplier) && ride.surgeMultiplier > 1
+                ? ride.surgeMultiplier : 1);
+
+        const { distance, duration, coordinates: routeCoordinates, routed, estimate } =
+            await routeAndPrice(
+                ride.pickup, newDropoff, newStops, fiatCurrency, agreedMultiplier
+            );
+
+        // Waiting already accrued is not part of the route — carry it over
+        // rather than quietly refunding it with a change of plan.
+        const waitingSats = ride.waiting?.sats || 0;
+        const newFare = estimate.fare.sats + waitingSats;
+        const previousFare = ride.fare || 0;
+
+        if (req.body.preview === true) {
+            return res.json({
+                success: true,
+                preview: true,
+                fare_sats: newFare,
+                previous_fare_sats: previousFare,
+                fare_change_sats: newFare - previousFare,
+                distance_km: distance,
+                duration_minutes: Math.round(duration),
+                moved_m: Math.round(movedKm * 1000),
+                routed,
+                estimate
+            });
+        }
+
+        const updated = rideManager.updateDropoff(rideId, newDropoff, {
+            ...(address !== undefined ? { address } : {}),
+            ...(req.body.stops !== undefined ? { stops: newStops } : {}),
+            ...(routeCoordinates ? { route: routeCoordinates } : {}),
+            distanceKm: distance,
+            durationMin: Math.round(duration),
+            fare: newFare
+        });
+        updated.estimate = estimate;
+
+        const session = activeRides.get(rideId);
+        if (session) {
+            session.dropoff = updated.dropoff;
+            session.estimate = estimate;
+            session.route = routeCoordinates;
+        }
+
+        const matched = Boolean(ride.driver || ride.provider);
+        if (matched) {
+            broadcastToRide(rideId, {
+                type: 'dropoff_updated',
+                ride_id: rideId,
+                dropoff: updated.dropoff,
+                ...(address ? { address } : {}),
+                stops: updated.stops || [],
+                moved_m: Math.round(movedKm * 1000),
+                fare_sats: newFare,
+                previous_fare_sats: previousFare,
+                distance_km: distance,
+                duration_minutes: Math.round(duration),
+                route: routeCoordinates
+            });
+            // The provider may already be driving the old route
+            pushToParticipant(updated, updated.provider || updated.driver, {
+                title: `${rideProfile.labels?.destinationLabel || 'Destination'} changed`,
+                body: address
+                    || `The ${rideProfile.roles.requester} changed where this ${rideProfile.labels?.taskNoun || 'task'} ends`,
+                url: '/provide/active'
+            });
+        }
+
+        console.log(`🏁 Ride ${rideId}: destination changed (${previousFare} → ${newFare} sats)${matched ? ' (provider notified)' : ''}`);
+
+        res.json({
+            success: true,
+            ride: updated,
+            moved_m: Math.round(movedKm * 1000),
+            fare_sats: newFare,
+            previous_fare_sats: previousFare,
+            fare_change_sats: newFare - previousFare,
+            distance_km: distance,
+            duration_minutes: Math.round(duration),
+            estimate
+        });
+
+    } catch (error) {
+        console.error('Error updating destination:', error);
+        res.status(500).json({
+            error: 'Failed to update destination',
+            details: error.message
+        });
+    }
+});
+
 // Driver arrived at pickup
 app.post('/api/rides/:rideId/arrive', async (req, res) => {
     try {
@@ -4733,6 +5256,18 @@ app.post('/api/rides/:rideId/cancel', async (req, res) => {
             ? (req.user.pubkey || '').toLowerCase()
             : (cancelledBy || 'unknown');
 
+        // Which side cancelled decides which vocabulary applies: a rider
+        // cannot claim "vehicle problem" and a driver cannot claim "found
+        // another way".
+        const requesterPubkey = (ride.requester?.pubkey || ride.rider?.pubkey || '').toLowerCase();
+        const cancellingSide = actualCancelledBy === requesterPubkey ? 'requester' : 'provider';
+        const rawReasonCode = req.body?.reason_code != null
+            ? req.body.reason_code
+            : req.body?.reasonCode;
+        // The no-show flow predates the vocabulary and sends reason:'no_show'
+        const reasonCode = sanitiseCancellationReason(rawReasonCode, cancellingSide)
+            || (reason === 'no_show' ? 'no_show' : null);
+
         // Task-flow stakes: the cancelling party's stake is forfeited, the
         // other party's is released. LND hodl stakes are all-or-nothing.
         if (ride.stakes) {
@@ -4800,18 +5335,25 @@ app.post('/api/rides/:rideId/cancel', async (req, res) => {
         const cancelled = rideManager.cancelRide(
             rideId,
             actualCancelledBy,
-            reason || 'No reason given'
+            clampText(reason, 200) || reasonCode || 'No reason given'
         );
         // In-memory only, like every other participant-gated fact: it exists
         // to tell the wronged party they may record it, not to build an
         // operator-held disciplinary record.
         cancelled.lateCancellation = lateCancellation;
+        if (reasonCode) {
+            cancelled.cancellationReasonCode = reasonCode;
+            cancelled.cancelledSide = cancellingSide;
+        }
         finalizeRideSession(rideId, 'cancelled');
 
         const cancelPayload = {
             ride_id: rideId,
             task_id: rideId,
             reason: reason || null,
+            // The structured half: a fixed code the other app can act on
+            reason_code: reasonCode,
+            cancelled_side: reasonCode ? cancellingSide : null,
             cancelled_by: cancelledBy || null,
             // Whether the OTHER party has grounds to record this against the
             // canceller. Reported, never asserted: the operator states the
@@ -4827,16 +5369,23 @@ app.post('/api/rides/:rideId/cancel', async (req, res) => {
         const requesterId = ride.requester || ride.rider;
         const providerId = ride.provider || ride.driver;
         const cancelledByRequester = actualCancelledBy === (requesterId?.pubkey || '').toLowerCase();
+        // Say why, when there is a why — "cancelled" alone leaves the other
+        // party guessing whether they did something wrong
+        const why = reasonCode ? CANCELLATION_REASON_TEXT[reasonCode] : null;
         if (cancelledByRequester) {
             pushToParticipant(cancelled, providerId, {
                 title: `${cancelProfile.labels?.taskNoun || 'Job'} cancelled`,
-                body: `The ${cancelProfile.roles.requester} cancelled — you are free for the next one`,
+                body: why
+                    ? `The ${cancelProfile.roles.requester} cancelled: ${why}`
+                    : `The ${cancelProfile.roles.requester} cancelled — you are free for the next one`,
                 url: '/provide'
             });
         } else {
             pushToParticipant(cancelled, requesterId, {
                 title: `Your ${cancelProfile.labels?.taskNoun || 'task'} was cancelled`,
-                body: `The ${cancelProfile.roles.provider} cancelled. Request another when you're ready.`,
+                body: why
+                    ? `The ${cancelProfile.roles.provider} cancelled: ${why}`
+                    : `The ${cancelProfile.roles.provider} cancelled. Request another when you're ready.`,
                 url: '/request'
             });
         }
@@ -6794,6 +7343,10 @@ app.get('/api/domains/current', publicRateLimiter, (req, res) => {
         // Without this the access-needs picker has nothing to render, and a
         // wheelchair user is quietly offered no way to say so.
         accessOptions: domainProfile.accessOptions || [],
+        // What a provider may declare they hold (licence, insurance, badge).
+        // Self-attested and shown to the requester; never operator-verified.
+        credentials: domainProfile.credentials || [],
+        enforceCredentials: ENFORCE_CREDENTIALS,
         stakingModel: domainProfile.stakingModel,
         completionProofTypes: domainProfile.completionProofTypes,
         ratingCriteria: domainProfile.ratingCriteria,
@@ -6819,6 +7372,7 @@ app.get('/api/domains/:id', publicRateLimiter, (req, res) => {
             pricingModel: profile.pricingModel,
             serviceOptions: profile.serviceOptions || [],
             accessOptions: profile.accessOptions || [],
+            credentials: profile.credentials || [],
             stakingModel: profile.stakingModel,
             completionProofTypes: profile.completionProofTypes,
             ratingCriteria: profile.ratingCriteria,

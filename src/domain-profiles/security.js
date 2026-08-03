@@ -104,6 +104,26 @@ const profile = {
 
   encryptionRequired: false,
 
+  // SIA is a statutory licence: the profile says so, and the officer
+  // declares theirs here. Self-attested — the SIA public register is the
+  // only authority, and this operator is not it.
+  credentials: [
+    {
+      id: 'sia_licence',
+      label: 'SIA licence',
+      description: 'Front line licence for the category you are working — check the number against the SIA public register',
+      expires: true,
+      required: true
+    },
+    {
+      id: 'first_aid',
+      label: 'First aid at work',
+      description: 'Often required by the client rather than the regulator',
+      expires: true,
+      required: false
+    }
+  ],
+
   regulatoryBodies: {
     sia: {
       name: 'Security Industry Authority',

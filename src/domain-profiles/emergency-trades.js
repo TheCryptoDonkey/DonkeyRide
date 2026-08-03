@@ -104,6 +104,32 @@ const profile = {
 
   encryptionRequired: false,
 
+  // Gas work without registration is a criminal offence, so a trade
+  // declares what it holds and the householder sees it before committing.
+  credentials: [
+    {
+      id: 'gas_safe',
+      label: 'Gas Safe registration',
+      description: 'Mandatory for any gas work — the householder can check your number on the Gas Safe register',
+      expires: true,
+      required: false
+    },
+    {
+      id: 'part_p',
+      label: 'Part P / NICEIC registration',
+      description: 'Competent person scheme for notifiable electrical work',
+      expires: true,
+      required: false
+    },
+    {
+      id: 'public_liability',
+      label: 'Public liability insurance',
+      description: 'Cover for damage caused while working in somebody\'s home',
+      expires: true,
+      required: false
+    }
+  ],
+
   regulatoryBodies: {
     gasSafe: {
       name: 'Gas Safe Register',

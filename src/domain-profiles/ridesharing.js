@@ -76,6 +76,42 @@ const profile = {
   encryptionRequired: false,
   regulatoryBodies: {},
 
+  // What a driver may declare they hold. Self-attested and shown to the
+  // rider at match — the operator never verifies it and never says it did.
+  // Gating on these is an operator decision (ENFORCE_CREDENTIALS), because
+  // a licensed private-hire operator and a lift-sharing co-op running the
+  // same code have genuinely different obligations.
+  credentials: [
+    {
+      id: 'phv_licence',
+      label: 'Private hire licence',
+      description: 'Issued by the local licensing authority for the area you work in',
+      expires: true,
+      required: true
+    },
+    {
+      id: 'hire_reward_insurance',
+      label: 'Hire and reward insurance',
+      description: 'Ordinary private car insurance does not cover carrying passengers for a fare',
+      expires: true,
+      required: true
+    },
+    {
+      id: 'mot',
+      label: 'MOT',
+      description: 'Current test certificate for the vehicle you drive',
+      expires: true,
+      required: false
+    },
+    {
+      id: 'dbs_check',
+      label: 'DBS check',
+      description: 'Enhanced disclosure, usually required by the licensing authority',
+      expires: true,
+      required: false
+    }
+  ],
+
   features: {
     navigation: true,
     liveTracking: true,

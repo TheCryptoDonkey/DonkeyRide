@@ -92,6 +92,23 @@ const profile = {
 
   encryptionRequired: false,
 
+  credentials: [
+    {
+      id: 'public_liability',
+      label: 'Public liability insurance',
+      description: 'Cover for damage caused while working in somebody\'s home',
+      expires: true,
+      required: false
+    },
+    {
+      id: 'coshh_training',
+      label: 'COSHH training',
+      description: 'Safe handling of cleaning chemicals — relevant for specialist work',
+      expires: true,
+      required: false
+    }
+  ],
+
   regulatoryBodies: {
     dbs: {
       name: 'Disclosure and Barring Service',
