@@ -19,7 +19,7 @@ import { useLiveTracking } from '../../modules/pii';
 import {
   arriveAtOrigin, startTask, completeTask, transitionTask,
   triggerPanic, getTask, submitProof,
-  submitSignatureProof, submitQuote, cancelTask,
+  submitSignatureProof, submitQuote, cancelTask, reportNoShow,
 } from '../../services/api';
 import { PhotoProof } from '../../components/task/PhotoProof';
 import { SignatureCapture } from '../../components/task/SignatureCapture';
@@ -55,11 +55,13 @@ export function ActiveTaskPage() {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [reportRequesterNoShow, setReportRequesterNoShow] = useState(false);
   const [declaredRail, setDeclaredRail] = useState<string | null>(null);
 
   const originLabel = profile?.labels?.originLabel || 'Pickup';
   const destinationLabel = profile?.labels?.destinationLabel || 'Dropoff';
   const taskNoun = profile?.labels?.taskNoun || 'task';
+  const requesterLabel = profile?.roles.requester || 'requester';
   const requiresDestination = profile?.features.requiresDestination !== false;
   const terminalStates = profile?.states.terminal || [];
 
@@ -194,10 +196,21 @@ export function ActiveTaskPage() {
   });
 
   const handleCancel = () => runAction('cancel', async () => {
+    const noShowTarget = reportRequesterNoShow ? activeTask.requesterPubkey : null;
     await cancelTask(activeTask.id, {
       cancelledBy: identity.pubKeyHex,
-      reason: 'Provider cancelled',
+      reason: noShowTarget ? 'no_show' : 'Provider cancelled',
     });
+    // Signed by the driver, published to public relays. Fire-and-forget:
+    // cancelling the job never blocks on relay reachability.
+    if (noShowTarget) {
+      void reportNoShow(activeTask.id, {
+        targetPubkey: noShowTarget,
+        reporterRole: 'provider',
+        domainId: profile?.id,
+      }).catch(() => {});
+      showToast('No-show reported');
+    }
     reset();
     navigate('/provide');
   });
@@ -448,6 +461,19 @@ export function ActiveTaskPage() {
               </button>
             ) : (
               <>
+                {!activeTask.startedAt && (
+                  <label className="w-full flex items-center gap-2 mb-2 cursor-pointer basis-full">
+                    <input
+                      type="checkbox"
+                      className="w-4 h-4 accent-donkey-orange"
+                      checked={reportRequesterNoShow}
+                      onChange={(e) => setReportRequesterNoShow(e.target.checked)}
+                    />
+                    <span className="text-xs text-donkey-text">
+                      The {requesterLabel.toLowerCase()} didn't show up — report it
+                    </span>
+                  </label>
+                )}
                 <button
                   className="btn-secondary flex-1"
                   onClick={() => setShowCancelConfirm(false)}

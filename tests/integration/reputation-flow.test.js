@@ -216,6 +216,67 @@ test('reputation module caches events when relays fail', async () => {
   }
 });
 
+test('a no-show report on a cancelled ride aggregates into noShowCount', async () => {
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  try {
+    console.log = () => {};
+    console.warn = () => {};
+
+    reputation.setRelays(['mock://fail']);
+    // Fresh target keypair so earlier tests' cached ratings don't bleed in
+    const noShowDriverPrivBytes = hexToBytes('9d2f6c1b3a8e5d4c7f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4f501');
+    const noShowDriverPub = getPublicKey(noShowDriverPrivBytes);
+    reputation.clearCacheFor(noShowDriverPub);
+
+    const rideManager = new RideManager();
+    const ride = rideManager.createRide(
+      { pubkey: riderPubKey },
+      { lat: 51.5, lon: -0.12 },
+      { lat: 51.52, lon: -0.11 },
+      2500,
+      { rideId: `ride_noshow_${Date.now().toString(36)}` }
+    );
+    rideManager.acceptRide(ride.id, noShowDriverPub, {
+      name: 'No-show Driver',
+      location: { lat: 51.49, lon: -0.13 },
+      pubkey: noShowDriverPub
+    });
+    rideManager.startEnRoute(ride.id);
+    // The driver never arrives; the rider cancels and reports the no-show
+    rideManager.cancelRide(ride.id, riderPubKey, 'no_show');
+
+    const event = {
+      kind: 30520,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ['ride', ride.id],
+        ['p', noShowDriverPub.toLowerCase()],
+        ['rating', '1'],
+        ['no_show', 'true'],
+        ['role', 'rider']
+      ],
+      content: 'no_show'
+    };
+    event.pubkey = riderPubKey;
+    event.id = getEventHash(event);
+    event.sig = getSignature(event, riderPrivBytes);
+
+    const result = await reputation.publishRating(event, rideManager.getRide(ride.id));
+    assert.equal(result.rating, 1);
+    assert.equal(result.targetHex, noShowDriverPub.toLowerCase());
+
+    const profile = await reputation.getProfile(noShowDriverPub);
+    assert.equal(profile.noShowCount, 1, 'no-show counted');
+    assert.ok(profile.latestNoShowAt > 0, 'no-show timestamp surfaced');
+    assert.equal(profile.ratingsCount, 1, 'the report also counts as a rating');
+    assert.equal(profile.averageRating, 1, 'and prices in as 1 star');
+  } finally {
+    console.log = originalLog;
+    console.warn = originalWarn;
+  }
+});
+
 test('locksmith-domain ratings work with role=customer', async () => {
   const originalLog = console.log;
   const originalWarn = console.warn;

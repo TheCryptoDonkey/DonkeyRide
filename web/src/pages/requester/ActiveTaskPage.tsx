@@ -19,7 +19,7 @@ import { useDomain } from '../../context/DomainContext';
 import { useLocation } from '../../hooks/useLocation';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import {
-  triggerPanic, cancelTask, getTask, acceptQuote, declineQuote,
+  triggerPanic, cancelTask, getTask, acceptQuote, declineQuote, reportNoShow,
   getOperatorInfoCached,
 } from '../../services/api';
 import { QuotePanel } from '../../components/task/QuotePanel';
@@ -43,6 +43,7 @@ export function ActiveTaskPage() {
   const { location: currentLocation, error: locationError, loading: locationLoading } = useLocation(true);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [reportProviderNoShow, setReportProviderNoShow] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [payment, setPayment] = useState<OperatorPaymentInfo | null>(null);
 
@@ -224,10 +225,21 @@ export function ActiveTaskPage() {
     setCancelling(true);
     setActionError(null);
     try {
+      const noShowTarget = reportProviderNoShow ? activeTask.providerPubkey : null;
       await cancelTask(activeTask.id, {
         cancelledBy: identity.pubKeyHex,
-        reason: 'Requester cancelled',
+        reason: noShowTarget ? 'no_show' : 'Requester cancelled',
       });
+      // Signed by the rider, published to public relays — the counterparty's
+      // future matches see it. Fire-and-forget: cancel never blocks on relays.
+      if (noShowTarget) {
+        void reportNoShow(activeTask.id, {
+          targetPubkey: noShowTarget,
+          reporterRole: 'requester',
+          domainId: profile?.id,
+        }).catch(() => {});
+        showToast('No-show reported');
+      }
       reset();
       navigate('/request');
     } catch (err) {
@@ -448,6 +460,19 @@ export function ActiveTaskPage() {
           )}
           {showCancelConfirm && (
             <>
+              {activeTask.providerPubkey && !activeTask.startedAt && (
+                <label className="w-full flex items-center gap-2 mb-2 cursor-pointer basis-full">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4 accent-donkey-orange"
+                    checked={reportProviderNoShow}
+                    onChange={(e) => setReportProviderNoShow(e.target.checked)}
+                  />
+                  <span className="text-xs text-donkey-text">
+                    The {providerRoleLabel.toLowerCase()} didn't show up — report it
+                  </span>
+                </label>
+              )}
               <button
                 className="btn-secondary flex-1"
                 onClick={() => setShowCancelConfirm(false)}

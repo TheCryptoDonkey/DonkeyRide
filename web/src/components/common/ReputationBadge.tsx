@@ -40,7 +40,9 @@ export function ReputationBadge({ subject }: { subject?: string | null }) {
   // Loading or lookup failed — show nothing rather than a made-up figure
   if (!subject || rep === undefined || rep === null) return null;
 
-  if (rep.ratingsCount === 0) {
+  const noShows = rep.noShowCount ?? 0;
+
+  if (rep.ratingsCount === 0 && noShows === 0) {
     return <p className="text-xs text-donkey-muted">No ratings yet</p>;
   }
 
@@ -51,6 +53,11 @@ export function ReputationBadge({ subject }: { subject?: string | null }) {
       <span className="text-donkey-muted">
         {' '}· {rep.ratingsCount} rating{rep.ratingsCount === 1 ? '' : 's'}
       </span>
+      {noShows > 0 && (
+        <span className="text-donkey-orange">
+          {' '}· ⚠ {noShows} no-show report{noShows === 1 ? '' : 's'}
+        </span>
+      )}
       {rep.panicCount > 0 && (
         <span className="text-donkey-red">
           {' '}· ⚠ {rep.panicCount} emergency signal{rep.panicCount === 1 ? '' : 's'}

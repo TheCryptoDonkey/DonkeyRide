@@ -252,6 +252,9 @@ export interface Reputation {
   /** Verified kind 30540 emergency signals raised BY this keypair */
   panicCount: number;
   latestPanicAt: number | null;
+  /** Counterparty-signed no-show reports (no_show-flagged 30520 events) */
+  noShowCount?: number;
+  latestNoShowAt?: number | null;
 }
 
 /**

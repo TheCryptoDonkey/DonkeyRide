@@ -79,6 +79,13 @@ export function aggregateReputation(
     lastRatingAt = Math.max(lastRatingAt, event.created_at || 0);
   }
 
+  // No-show reports ride the rating rail: flagged events stay in the
+  // average (they carry rating 1) and are surfaced as a separate count
+  const noShows = deduped.filter((event) =>
+    event.tags.some((t) => t[0] === 'no_show' && t[1] === 'true'));
+  const latestNoShowAt = noShows.reduce(
+    (latest, event) => Math.max(latest, event.created_at || 0), 0);
+
   const ownPanics = panicEvents.filter((event) => event.pubkey.toLowerCase() === hex);
   const latestPanicAt = ownPanics.reduce(
     (latest, event) => Math.max(latest, event.created_at || 0), 0);
@@ -92,6 +99,8 @@ export function aggregateReputation(
     lastRatingAt: lastRatingAt || null,
     panicCount: ownPanics.length,
     latestPanicAt: latestPanicAt || null,
+    noShowCount: noShows.length,
+    latestNoShowAt: latestNoShowAt || null,
   };
 }
 

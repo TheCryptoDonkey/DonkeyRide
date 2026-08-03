@@ -462,6 +462,51 @@ export async function submitRating(taskId: string, params: {
   return res;
 }
 
+/**
+ * Report a no-show: a counterparty-signed kind 30520 event carrying a
+ * no_show flag (and a 1-star rating, so every aggregator prices it in).
+ * Published straight to public relays — reputation never depends on the
+ * operator — and best-effort posted to the operator's rate endpoint so
+ * its fallback aggregate sees it too. Mode A holds no money: no-show
+ * accountability is reputational, and it is signed by the wronged party,
+ * never asserted by the operator.
+ */
+export async function reportNoShow(taskId: string, params: {
+  targetPubkey: string;
+  reporterRole: 'requester' | 'provider';
+  domainId?: string;
+}): Promise<void> {
+  if (!_authPrivKey) {
+    throw new Error('No identity available to sign the report');
+  }
+
+  const tags: string[][] = [
+    ['ride', taskId],
+    ['rating', '1'],
+    ['no_show', 'true'],
+    ['role', params.reporterRole === 'requester' ? 'rider' : 'driver'],
+    ['p', params.targetPubkey],
+  ];
+  if (params.domainId) tags.push(['domain', params.domainId]);
+
+  const event = await signNostrEvent({
+    kind: 30520,
+    created_at: Math.floor(Date.now() / 1000),
+    tags,
+    content: 'no_show',
+  }, _authPrivKey);
+
+  void publishToRelays(event);
+  try {
+    await request(`/api/tasks/${taskId}/rate`, {
+      method: 'POST',
+      body: JSON.stringify({ event }),
+    });
+  } catch {
+    // The relays are the primary rail; the operator copy is best-effort
+  }
+}
+
 /** POST /api/tasks/:id/tip — send tip */
 export function sendTip(taskId: string, params: {
   amountSats: number;

@@ -4110,7 +4110,13 @@ app.post('/api/rides/:rideId/rate', async (req, res) => {
         }
 
         const rideProfile = rideManager.getProfileForRide(rideId);
-        if (!rideManager.isTerminal(ride.status) || ride.status === rideProfile.states.values.CANCELLED) {
+        // A cancelled ride accepts exactly one kind of rating: a no-show
+        // report (no_show-flagged event) — the trip never happened, so an
+        // ordinary quality rating would be meaningless.
+        const isNoShowReport = Array.isArray(event?.tags)
+            && event.tags.some((t) => t[0] === 'no_show' && t[1] === 'true');
+        if (!rideManager.isTerminal(ride.status)
+            || (ride.status === rideProfile.states.values.CANCELLED && !isNoShowReport)) {
             return res.status(400).json({ error: 'Task not completed yet' });
         }
 

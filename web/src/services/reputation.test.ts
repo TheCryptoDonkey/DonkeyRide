@@ -58,6 +58,29 @@ describe('client-side reputation', () => {
     expect(rep.averageRating).toBe(5);
   });
 
+  it('counts no-show reports separately while pricing them into the average', () => {
+    const a = makeIdentity();
+    const b = makeIdentity();
+    const noShow = finalizeEvent({
+      kind: TASK_RATING,
+      created_at: Math.floor(Date.now() / 1000),
+      tags: [
+        ['p', subject.pub],
+        ['rating', '1'],
+        ['no_show', 'true'],
+        ['ride', 'ride-ns'],
+      ],
+      content: 'no_show',
+    }, a.priv) as NostrEvent;
+    const ordinary = signedRating(b, subject.pub, 5, 'ride-ok');
+
+    const rep = aggregateReputation(subject.pub, subjectNpub, [noShow, ordinary], []);
+    expect(rep.noShowCount).toBe(1);
+    expect(rep.latestNoShowAt).toBeGreaterThan(0);
+    expect(rep.ratingsCount).toBe(2);
+    expect(rep.averageRating).toBe(3);
+  });
+
   it('rejects events with forged signatures', () => {
     const rater = makeIdentity();
     // JSON round-trip strips nostr-tools' verified-symbol stamp, matching

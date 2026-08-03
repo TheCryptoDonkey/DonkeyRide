@@ -286,6 +286,16 @@ function buildProfileResponse(hexKey, ratings, panicEvents) {
     summary.lastRatingAt = verifiedRatings.reduce((latest, evt) => Math.max(latest, evt.created_at || 0), 0) || null;
   }
 
+  // No-show reports: counterparty-signed rating events flagged no_show.
+  // They stay IN the average (they carry rating 1 — a no-show is a bad
+  // experience) and are additionally surfaced as a count. Mode A has no
+  // custody, so no-show accountability is reputational, not financial.
+  const noShowEvents = verifiedRatings.filter(evt =>
+    evt.tags.some(t => t[0] === 'no_show' && t[1] === 'true'));
+  summary.noShowCount = noShowEvents.length;
+  summary.latestNoShowAt = noShowEvents.reduce(
+    (latest, evt) => Math.max(latest, evt.created_at || 0), 0) || null;
+
   return summary;
 }
 
