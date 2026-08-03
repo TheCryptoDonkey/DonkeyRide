@@ -1,4 +1,5 @@
 import { getVapidKey, subscribePush, unsubscribePush } from './api';
+import { loadGender, loadWomenOnlyDriver } from '../utils/gender';
 import type { LatLng } from '../types/api';
 
 /**
@@ -59,6 +60,9 @@ export async function enableJobPush(
       pubkey,
       areas,
       location: location ? { lat: location.lat, lon: location.lng } : null,
+      // Self-declared, so pushed jobs honour women-only pairing too
+      gender: loadGender(),
+      women_only: loadWomenOnlyDriver(),
     });
     return true;
   } catch {

@@ -57,7 +57,7 @@ function isValidSubscription(sub) {
         && typeof sub.keys.auth === 'string');
 }
 
-function subscribe(pubkey, subscription, { areas = null, location = null } = {}) {
+function subscribe(pubkey, subscription, { areas = null, location = null, gender = null, womenOnly = false } = {}) {
     if (!pubkey || !isValidSubscription(subscription)) {
         return false;
     }
@@ -65,6 +65,9 @@ function subscribe(pubkey, subscription, { areas = null, location = null } = {})
         subscription,
         areas: Array.isArray(areas) && areas.length > 0 ? areas : null,
         location: location || null,
+        // Self-declared, for women-only matching of pushed jobs
+        gender: gender || null,
+        womenOnly: womenOnly === true,
         subscribedAt: Date.now()
     });
     return true;
@@ -74,8 +77,8 @@ function unsubscribe(pubkey) {
     return subscriptions.delete((pubkey || '').toLowerCase());
 }
 
-/** Refresh dispatch targeting (working areas / last location) for a driver */
-function updateTargeting(pubkey, { areas, location } = {}) {
+/** Refresh dispatch targeting (working areas / last location / gender prefs) */
+function updateTargeting(pubkey, { areas, location, gender, womenOnly } = {}) {
     const entry = subscriptions.get((pubkey || '').toLowerCase());
     if (!entry) {
         return;
@@ -85,6 +88,12 @@ function updateTargeting(pubkey, { areas, location } = {}) {
     }
     if (location) {
         entry.location = location;
+    }
+    if (gender !== undefined) {
+        entry.gender = gender || null;
+    }
+    if (womenOnly !== undefined) {
+        entry.womenOnly = womenOnly === true;
     }
 }
 

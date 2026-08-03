@@ -158,6 +158,18 @@ export const sw: Record<string, string> = {
     'Ufuatiliaji wa moja kwa moja, kitufe cha dharura, mazungumzo yaliyosimbwa na dereva wako, na ukadiriaji wa madereva usioweza kughushiwa. Historia ya safari zako si bidhaa ya mtu yeyote.',
   'onboard.go': 'Twende',
 
+  // Women-only matching
+  'women.title': 'Usalama wa wanawake',
+  'women.iAmAWoman': 'Mimi ni mwanamke',
+  'women.selfDeclared':
+    'Umejitangaza mwenyewe — DonkeyRide haina akaunti na haiwezi kuthibitisha jinsia. Daima angalia gari, namba za gari na nambari ya kuchukuliwa kabla ya kuingia.',
+  'women.driverOnly': 'Pokea maombi kutoka kwa wanawake pekee',
+  'women.driverOnlyNote': 'Utatumiwa maombi ya wanawake pekee.',
+  'women.requestToggle': '{label} wanawake pekee',
+  'women.requestNote': '{label} waliojitangaza kuwa wanawake pekee ndio wataona ombi hili.',
+  'women.badge': 'Wanawake pekee',
+  'women.incomingNote': '{label} ameomba {provider} mwanamke. Ukikubali unajitangaza kuwa mmoja.',
+
   // Address search
   'search.failed': 'Utafutaji wa anwani umeshindikana. Gusa ramani kuweka mahali badala yake.',
   'search.saveFailed': 'Imeshindwa kuhifadhi — angalia jina, au futa mahali pa zamani kwanza.',

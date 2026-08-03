@@ -202,6 +202,12 @@ export function DashboardPage() {
                           +{job.stopCount} {job.stopCount === 1 ? t('common.stop') : t('common.stops')}
                         </span>
                       )}
+                      {job.womenOnly && (
+                        <span className="text-donkey-purple font-semibold">
+                          {(job.distanceKm != null || (job.stopCount ?? 0) > 0) && ' · '}
+                          ♀ {t('women.badge')}
+                        </span>
+                      )}
                       {isUpcoming(job.scheduledFor) && (
                         <span className="text-donkey-blue font-semibold">
                           {(job.distanceKm != null || (job.stopCount ?? 0) > 0) && ' · '}

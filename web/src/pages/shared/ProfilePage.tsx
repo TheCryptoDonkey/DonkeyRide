@@ -7,6 +7,7 @@ import {
 import { PaymentMethodsEditor } from '../../components/payment/PaymentMethodsEditor';
 import { VehicleEditor } from '../../components/provider/VehicleEditor';
 import { useT, LOCALES } from '../../i18n';
+import { WomenSafetyCard } from '../../components/safety/WomenSafetyCard';
 
 interface ProfilePageProps {
   role: 'requester' | 'provider';
@@ -187,6 +188,9 @@ export function ProfilePage({ role }: ProfilePageProps) {
           {t('profile.replace')}
         </button>
       </div>
+
+      {/* Women-only matching — device-local, self-declared */}
+      <WomenSafetyCard role={role} />
 
       {/* Provider only: accepted payment methods (non-custodial, direct) */}
       {role === 'provider' && <PaymentMethodsEditor />}

@@ -8,6 +8,7 @@ import { subscribeFederatedTasks } from './federation';
 import { startShiftTracking, stopShiftTracking } from './native-location';
 import { loadWorkingAreas, combinedCells } from '../utils/working-areas';
 import { loadDestinationMode, jobMovesToward } from '../utils/destination-mode';
+import { loadGender, loadWomenOnlyDriver, type Gender } from '../utils/gender';
 import type { DestinationMode } from '../utils/destination-mode';
 
 const ONLINE_KEY = 'donkeyride.provider.online';
@@ -59,6 +60,9 @@ class DispatchService {
    * destination) instantly restores everything already received.
    */
   private destination: DestinationMode | null = loadDestinationMode();
+  /** Self-declared gender + women-only preference (device-local) */
+  private gender: Gender | null = loadGender();
+  private womenOnlyPref: boolean = loadWomenOnlyDriver();
   /** Relay subscription for jobs coordinated by OTHER operators */
   private federation: { close: () => void } | null = null;
   /** Native background-location watcher (Capacitor wrap only) */
@@ -114,16 +118,40 @@ class DispatchService {
     return this.areas;
   }
 
+  /**
+   * Re-read the device-local gender declaration and women-only preference
+   * (changed on the profile page) and re-register so the operator applies
+   * them to dispatch immediately.
+   */
+  refreshGenderPrefs(): void {
+    this.gender = loadGender();
+    this.womenOnlyPref = loadWomenOnlyDriver();
+    if (this.connected) {
+      this.queueOrSend(this.registerMessage());
+      void this.refreshOpenTasks();
+    }
+    this.emitAvailable();
+  }
+
   /** Every open job the driver could take, oldest first */
   getAvailableTasks(): Task[] {
     return Array.from(this.availableTasks.values())
       .sort((a, b) => a.receivedAt - b.receivedAt)
       .map((entry) => entry.task)
-      .filter((task) => this.matchesDestination(task));
+      .filter((task) => this.matchesDestination(task))
+      .filter((task) => this.matchesGenderPref(task));
   }
 
   private matchesDestination(task: Task): boolean {
     return !this.destination || jobMovesToward(task, this.destination);
+  }
+
+  /** Mirror of the server's women-only pairing, for lists built client-side
+   *  (federated jobs, stale entries). Jobs stay stored unfiltered. */
+  private matchesGenderPref(task: Task): boolean {
+    if (task.womenOnly && this.gender !== 'woman') return false;
+    if (this.womenOnlyPref && !task.womenOnly) return false;
+    return true;
   }
 
   /** Set (or clear) destination mode; the visible list updates at once */
@@ -159,11 +187,12 @@ class DispatchService {
     if (!this.online) return;
     let open: Task[];
     try {
-      open = await getOpenTasks(
-        this.areas.length > 0
+      open = await getOpenTasks({
+        ...(this.areas.length > 0
           ? { areas: this.areas }
-          : { location: this.location ?? undefined },
-      );
+          : { location: this.location ?? undefined }),
+        gender: this.gender ?? undefined,
+      });
     } catch {
       return; // transient — the next poll reconciles
     }
@@ -328,7 +357,7 @@ class DispatchService {
         this.emitAvailable();
         // Destination mode: a job heading the wrong way stays out of the
         // incoming full-screen too (it is stored, in case the mode clears)
-        if (this.matchesDestination(withDistance)) {
+        if (this.matchesDestination(withDistance) && this.matchesGenderPref(withDistance)) {
           this.taskHandlers.forEach((handler) => handler(task, msg.distanceKm));
         }
       }
@@ -356,6 +385,9 @@ class DispatchService {
       location: this.location ? { lat: this.location.lat, lon: this.location.lng } : undefined,
       // Working-area cells; [] deliberately clears any stored areas
       areas: this.areas,
+      // Self-declared, for women-only matching (null clears a declaration)
+      gender: this.gender,
+      women_only: this.womenOnlyPref,
     };
   }
 

@@ -15,6 +15,7 @@ import { formatDistance, formatDuration } from '../../services/pricing';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import { dispatchService } from '../../services/dispatch';
 import { loadVehicle } from '../../utils/vehicle';
+import { loadGender } from '../../utils/gender';
 import { useT } from '../../i18n';
 
 export function IncomingTaskPage() {
@@ -47,6 +48,8 @@ export function IncomingTaskPage() {
         providerLocation: location,
         // The car the requester should look for (set on the profile page)
         vehicle: loadVehicle(),
+        // Self-declared — required by the server for a women-only task
+        gender: loadGender(),
       });
       dispatchService.removeAvailable(activeTask.id);
       setActiveTask(updated);
@@ -118,6 +121,12 @@ export function IncomingTaskPage() {
           <div className="text-center mb-3">
             <DualPrice sats={activeTask.fareEstimateSats} size="lg" />
           </div>
+
+          {activeTask.womenOnly && (
+            <p className="text-sm text-donkey-purple font-bold text-center mb-3">
+              ♀ {t('women.badge')} — {t('women.incomingNote', { label: requesterLabel, provider: td(profile?.roles.provider || 'driver').toLowerCase() })}
+            </p>
+          )}
 
           {isUpcoming(activeTask.scheduledFor) && (
             <p className="text-sm text-donkey-blue font-bold text-center mb-3">

@@ -147,6 +147,18 @@ export const en: Record<string, string> = {
     'Live tracking, a panic button, encrypted chat with your driver, and driver ratings that cannot be faked. Your trip history is nobody’s product.',
   'onboard.go': "Let's go",
 
+  // Women-only matching
+  'women.title': "Women's safety",
+  'women.iAmAWoman': "I'm a woman",
+  'women.selfDeclared':
+    'Self-declared — DonkeyRide has no accounts and cannot verify gender. Always check the car, registration and pickup code before getting in.',
+  'women.driverOnly': 'Only receive requests from women',
+  'women.driverOnlyNote': "You'll only be sent women-only requests.",
+  'women.requestToggle': 'Women {label} only',
+  'women.requestNote': 'Only {label} who have declared they are women will see this request.',
+  'women.badge': 'Women-only',
+  'women.incomingNote': 'The {label} asked for a woman {provider}. Accepting declares that you are one.',
+
   // Address search
   'search.failed': 'Address search failed. Tap the map to set the location instead.',
   'search.saveFailed': 'Could not save — check the name, or remove an old place first.',

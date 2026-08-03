@@ -152,6 +152,7 @@ export function normaliseTask(raw: any): Task {
       colour: r.vehicle.colour || undefined,
       registration: r.vehicle.registration || undefined,
     } : undefined,
+    womenOnly: r.womenOnly === true || r.women_only === true || undefined,
     fareEstimateSats: r.fare ?? r.fareEstimateSats ?? r.estimated_fare ?? 0,
     distanceKm,
     durationMin: r.duration_minutes ?? r.durationMin,
@@ -260,6 +261,8 @@ export async function requestTask(params: {
   scheduledFor?: number | null;
   /** Intermediate stops in visit order (≤3) */
   stops?: { lat: number; lng: number; address?: string }[];
+  /** Match only with drivers who have declared they are women */
+  womenOnly?: boolean;
 }): Promise<Task> {
   const body: Record<string, unknown> = {
     pickup_lat: params.pickup.lat,
@@ -274,6 +277,10 @@ export async function requestTask(params: {
 
   if (params.scheduledFor) {
     body.scheduled_for = params.scheduledFor;
+  }
+
+  if (params.womenOnly) {
+    body.women_only = true;
   }
 
   if (params.dropoff) {
@@ -313,6 +320,8 @@ export async function acceptTask(taskId: string, params: {
   providerLocation: LatLng;
   /** The car the requester should look for (device-local profile) */
   vehicle?: { make?: string; model?: string; colour?: string; registration?: string } | null;
+  /** Self-declared gender — required to accept a women-only task */
+  gender?: 'woman' | 'man' | null;
 }): Promise<Task> {
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/accept`, {
     method: 'POST',
@@ -325,6 +334,7 @@ export async function acceptTask(taskId: string, params: {
         lon: params.providerLocation.lng,
       },
       ...(params.vehicle ? { vehicle: params.vehicle } : {}),
+      ...(params.gender ? { gender: params.gender } : {}),
     }),
   });
   return normaliseTask(raw);
@@ -543,6 +553,8 @@ export async function getActiveParticipantTask(pubkey: string): Promise<Task | n
 export async function getOpenTasks(params?: {
   location?: LatLng;
   areas?: string[];
+  /** Self-declared — women-only tasks are only listed to declared women */
+  gender?: 'woman' | 'man';
 }): Promise<Task[]> {
   const query = new URLSearchParams();
   if (params?.areas && params.areas.length > 0) {
@@ -550,6 +562,9 @@ export async function getOpenTasks(params?: {
   } else if (params?.location) {
     query.set('lat', String(params.location.lat));
     query.set('lon', String(params.location.lng));
+  }
+  if (params?.gender) {
+    query.set('gender', params.gender);
   }
   const qs = query.toString();
   const raw = await request<{ rides: Record<string, unknown>[] }>(
@@ -804,6 +819,9 @@ export function subscribePush(params: {
   pubkey: string;
   areas?: string[];
   location?: { lat: number; lon: number } | null;
+  /** Self-declared, for women-only matching of pushed jobs */
+  gender?: 'woman' | 'man' | null;
+  women_only?: boolean;
 }): Promise<{ success: boolean }> {
   return request(`/api/push/subscribe`, {
     method: 'POST',

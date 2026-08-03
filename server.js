@@ -1093,7 +1093,13 @@ if (wss) {
                         ws.clientType = 'driver';
                         // Driver-declared working areas (geohash cells) —
                         // omitted keeps any stored areas, [] clears them
-                        updateDriverPresence({ npub, pubkey, location, areas: sanitiseWorkingAreas(data.areas) });
+                        updateDriverPresence({
+                            npub, pubkey, location,
+                            areas: sanitiseWorkingAreas(data.areas),
+                            // Self-declared, for women-only matching
+                            gender: data.gender,
+                            womenOnly: data.women_only
+                        });
                         sendPendingRideRequests(ws);
                         break;
                     }
@@ -1109,7 +1115,9 @@ if (wss) {
                         updateDriverPresence({
                             npub: nip98Enabled ? ws.driverNpub : (data.npub || ws.driverNpub),
                             pubkey,
-                            location
+                            location,
+                            gender: data.gender,
+                            womenOnly: data.women_only
                         });
                         break;
                     }
@@ -1239,8 +1247,31 @@ function originInAreas(origin, areas) {
     return areas.some((cell) => hash.startsWith(cell));
 }
 
+/**
+ * Self-declared gender for women-only matching. TROTT is pseudonymous:
+ * this is attestation, not verification, and the UI says so honestly.
+ * Only 'woman' has matching semantics; anything else normalises to null.
+ */
+function sanitiseGender(value) {
+    return value === 'woman' || value === 'man' ? value : null;
+}
+
+/**
+ * Women-only pairing (both directions, Bolt W4W-style):
+ * - a women-only request reaches only drivers who declared woman — fail
+ *   closed: a driver with no presence/gender never sees it;
+ * - a driver who set women_only receives only women-only requests.
+ * Ordinary requests carry no gender information at all.
+ */
+function genderEligible(entry, ride) {
+    if (ride?.womenOnly && entry?.gender !== 'woman') return false;
+    if (entry?.womenOnly && !ride?.womenOnly) return false;
+    return true;
+}
+
 // key: npub or pubkey (lowercase) →
-//   { npub, pubkey, location: {lat, lon}, areas: [geohash]|null, lastSeen }
+//   { npub, pubkey, location: {lat, lon}, areas: [geohash]|null,
+//     gender: 'woman'|'man'|null, womenOnly: bool, lastSeen }
 const driverPresence = new Map();
 
 // Evict entries that stopped heart-beating — without this the map grows
@@ -1255,7 +1286,7 @@ const presenceSweep = setInterval(() => {
 }, 60000);
 presenceSweep.unref();
 
-function updateDriverPresence({ npub, pubkey, location, areas }) {
+function updateDriverPresence({ npub, pubkey, location, areas, gender, womenOnly }) {
     const key = (npub || pubkey || '').toLowerCase();
     if (!key) {
         return null;
@@ -1269,6 +1300,9 @@ function updateDriverPresence({ npub, pubkey, location, areas }) {
             : existing.location || null,
         // null/undefined keeps the stored areas; [] clears them (back to radius)
         areas: Array.isArray(areas) ? areas : existing.areas || null,
+        // undefined keeps the stored declaration; an explicit value replaces it
+        gender: gender !== undefined ? sanitiseGender(gender) : existing.gender || null,
+        womenOnly: womenOnly !== undefined ? womenOnly === true : existing.womenOnly || false,
         lastSeen: Date.now()
     };
     driverPresence.set(key, entry);
@@ -1374,14 +1408,18 @@ function pushRideRequestToOfflineDrivers(ride, estimate) {
         if (!pushEligible(entry, ride.pickup)) {
             continue;
         }
+        if (!genderEligible(entry, ride)) {
+            continue;
+        }
         void pushService.sendTo(entry.pubkey, payload);
         count++;
     }
     return count;
 }
 
-// Broadcast to drivers, geo-filtered by origin when provided
-function broadcastToDrivers(message, origin = null) {
+// Broadcast to drivers, geo-filtered by origin when provided. `constraints`
+// (a ride, or {womenOnly}) additionally applies women-only pairing.
+function broadcastToDrivers(message, origin = null, constraints = null) {
     if (!wss) {
         return 0;
     }
@@ -1389,6 +1427,10 @@ function broadcastToDrivers(message, origin = null) {
     wss.clients.forEach(client => {
         if (client.clientType === 'driver' && client.readyState === WebSocket.OPEN) {
             if (!driverInRange(client.driverNpub || client.driverPubkey, origin)) {
+                return;
+            }
+            if (constraints
+                && !genderEligible(getDriverPresence(client.driverNpub || client.driverPubkey), constraints)) {
                 return;
             }
             client.send(JSON.stringify(message));
@@ -1426,6 +1468,9 @@ function sendPendingRideRequests(ws) {
         if (!driverInRange(ws.driverNpub || ws.driverPubkey, ride.pickup)) {
             return;
         }
+        if (!genderEligible(getDriverPresence(ws.driverNpub || ws.driverPubkey), ride)) {
+            return;
+        }
         // Pre-booked rides outside the lead window are browsable on the open
         // list but not replayed as live jobs
         if (ride.scheduledFor && ride.scheduledFor - Date.now() > SCHEDULE_DISPATCH_LEAD_MS) {
@@ -1448,7 +1493,8 @@ function sendPendingRideRequests(ws) {
                 distance: distanceKm,
                 estimatedFare: estimate,
                 currency: ride.currency || session.currency || 'GBP',
-                scheduledFor: ride.scheduledFor || null
+                scheduledFor: ride.scheduledFor || null,
+                womenOnly: ride.womenOnly === true
             }
         };
 
@@ -1480,12 +1526,13 @@ function dispatchScheduledRide(ride) {
             estimatedFare: estimate,
             currency: ride.currency || session.currency || 'GBP',
             scheduledFor: ride.scheduledFor || null,
+            womenOnly: ride.womenOnly === true,
             rider: ride.rider ? {
                 npub: ride.rider.npub,
                 pubkey: ride.rider.pubkey
             } : null
         }
-    }, ride.pickup);
+    }, ride.pickup, ride);
     const pushed = pushRideRequestToOfflineDrivers(ride, estimate);
     return { driverCount, pushed };
 }
@@ -2908,7 +2955,7 @@ app.get('/api/drivers/available', publicRateLimiter, async (req, res) => {
 // Driver reports presence + location (used by the driver app while online)
 app.post('/api/drivers/location', async (req, res) => {
     try {
-        const { npub, pubkey, lat, lon, areas } = req.body || {};
+        const { npub, pubkey, lat, lon, areas, gender, women_only } = req.body || {};
         const signerPubkey = req.user?.pubkey || null;
 
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
@@ -2927,7 +2974,9 @@ app.post('/api/drivers/location', async (req, res) => {
             npub,
             pubkey: pubkey || signerPubkey,
             location: { lat, lon },
-            areas: sanitiseWorkingAreas(areas)
+            areas: sanitiseWorkingAreas(areas),
+            gender,
+            womenOnly: women_only
         });
 
         if (!entry) {
@@ -2937,7 +2986,9 @@ app.post('/api/drivers/location', async (req, res) => {
         // Keep push targeting in step with the driver's live position/areas
         pushService.updateTargeting((pubkey || signerPubkey || '').toLowerCase(), {
             areas: sanitiseWorkingAreas(areas),
-            location: { lat, lon }
+            location: { lat, lon },
+            gender: gender !== undefined ? sanitiseGender(gender) : undefined,
+            womenOnly: women_only !== undefined ? women_only === true : undefined
         });
 
         res.json({ success: true, lastSeen: entry.lastSeen });
@@ -2956,7 +3007,7 @@ app.get('/api/push/vapid-key', publicRateLimiter, (req, res) => {
 // The push endpoint URL is device-addressing PII: held in memory only.
 app.post('/api/push/subscribe', optionalNip98, (req, res) => {
     try {
-        const { subscription, pubkey, areas, location } = req.body || {};
+        const { subscription, pubkey, areas, location, gender, women_only } = req.body || {};
         if (nip98Enabled && req.user && pubkey
             && !actorMatchesIdentity(req.user, { pubkey })) {
             return res.status(403).json({
@@ -2976,7 +3027,9 @@ app.post('/api/push/subscribe', optionalNip98, (req, res) => {
             : null;
         pushService.subscribe(subscriber, subscription, {
             areas: sanitiseWorkingAreas(areas),
-            location: loc
+            location: loc,
+            gender: sanitiseGender(gender),
+            womenOnly: women_only === true
         });
         res.json({ success: true });
     } catch (error) {
@@ -3239,7 +3292,8 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 currency,
                 domain,
                 scheduled_for,
-                stops
+                stops,
+                women_only
             } = req.body;
 
             // Intermediate stops (multi-stop trips) — visited in order
@@ -3414,6 +3468,16 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             // open list can show the fare estimate without a session
             ride.estimate = estimate;
 
+            // Women-only matching (self-declared, honesty-based). Deliberately
+            // NOT in the Nostr snapshot: publishing the flag would tag a
+            // pseudonym with special-category data on public relays forever.
+            // Trade-off: the constraint is lost if the operator restarts
+            // mid-request — the rider still has the driver identity, vehicle,
+            // pickup code and ratings at match.
+            if (women_only === true) {
+                ride.womenOnly = true;
+            }
+
             // Broadcast to drivers within DISPATCH_RADIUS_KM of the pickup
             // Approximate location + no route pre-accept (progressive
             // disclosure); the accepting driver gets exact coordinates.
@@ -3440,12 +3504,13 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                         estimatedFare: estimate,
                         currency: fiatCurrency,
                         scheduledFor: ride.scheduledFor || null,
+                        womenOnly: ride.womenOnly === true,
                         rider: ride.rider ? {
                             npub: ride.rider.npub,
                             pubkey: ride.rider.pubkey
                         } : null
                     }
-                }, ride.pickup);
+                }, ride.pickup, ride);
 
                 console.log(`📢 Broadcast ride request ${ride.id} to ${driverCount} drivers`);
 
@@ -3467,6 +3532,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 drivers_notified: driverCount,
                 scheduled_for: scheduledFor,
                 stops: ride.stops || null,
+                women_only: ride.womenOnly === true,
                 route: routeCoordinates,
                 currency: fiatCurrency,
                 estimate
@@ -3522,6 +3588,23 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
             };
             if (!vehicle.make && !vehicle.model && !vehicle.colour && !vehicle.registration) {
                 vehicle = null;
+            }
+        }
+
+        // Women-only pairing: enforce the contract explicitly so an
+        // ordinary driver gets a clear refusal, not a race loss. Gender is
+        // self-attested (pseudonymous system) — the claim comes from the
+        // accept body or the driver's registered presence.
+        const pendingRide = rideManager.getRide(rideId);
+        if (pendingRide?.womenOnly) {
+            const claimed = sanitiseGender(req.body.gender)
+                || getDriverPresence(driver_npub || driver_pubkey)?.gender
+                || null;
+            if (claimed !== 'woman') {
+                return res.status(403).json({
+                    error: 'Women-only request',
+                    details: 'The requester asked to be matched only with drivers who have declared they are women.'
+                });
             }
         }
 
@@ -5602,6 +5685,9 @@ app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
                 }
                 return true;
             })
+            // Women-only requests are only listed to browsers declaring
+            // ?gender=woman (self-attested — accept enforces the same claim)
+            .filter((ride) => !ride.womenOnly || req.query.gender === 'woman')
             .map((ride) => {
                 const session = activeRides.get(ride.id) || {};
                 const estimate = session.estimate || ride.estimate || null;
@@ -5621,6 +5707,7 @@ app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
                     // Pre-booked pickup time — drivers can browse and accept
                     // ahead of the dispatch window
                     scheduledFor: ride.scheduledFor || null,
+                    womenOnly: ride.womenOnly === true,
                     requestedAt: ride.timestamps?.requested || null
                 };
             });

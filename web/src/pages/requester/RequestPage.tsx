@@ -13,6 +13,7 @@ import { publishTaskAnnouncement } from '../../services/events';
 import { formatDistance, formatDuration } from '../../services/pricing';
 import { AddressSearch } from '../../components/AddressSearch';
 import { useT } from '../../i18n';
+import { loadGender } from '../../utils/gender';
 import type { TaskStop } from '../../types/api';
 
 const MAX_STOPS = 2;
@@ -40,6 +41,9 @@ export function RequestPage() {
   // Intermediate stops in visit order (multi-stop trips)
   const [stops, setStops] = useState<TaskStop[]>([]);
   const [addingStop, setAddingStop] = useState(false);
+  // Women-only matching — the toggle only exists for a declared woman
+  const isWoman = loadGender() === 'woman';
+  const [womenOnly, setWomenOnly] = useState(false);
 
   // Resolved pickup time (unix ms) when scheduling; null = leave now
   const scheduledFor = when === 'later' && whenValue
@@ -110,6 +114,7 @@ export function RequestPage() {
         domain: profile?.id,
         scheduledFor,
         stops: stops.length > 0 ? stops : undefined,
+        womenOnly: isWoman && womenOnly,
       });
       setActiveTask(task);
       // Decentralised announcement — geohash-only, best-effort, relays only.
@@ -234,6 +239,29 @@ export function RequestPage() {
     </div>
   );
 
+  // Women-only toggle — shown only when the rider declared woman on the
+  // profile page. Self-attested matching; the note says so.
+  const womenOnlyPicker = isWoman ? (
+    <div className="meta-card mb-4">
+      <label className="flex items-center gap-3 min-h-[44px] cursor-pointer">
+        <input
+          type="checkbox"
+          className="w-5 h-5 accent-donkey-purple"
+          checked={womenOnly}
+          onChange={(e) => setWomenOnly(e.target.checked)}
+        />
+        <span className="text-sm text-donkey-text font-semibold">
+          {t('women.requestToggle', { label: providerLabel.toLowerCase() + 's' })}
+        </span>
+      </label>
+      {womenOnly && (
+        <p className="text-donkey-muted text-xs mt-1">
+          {t('women.requestNote', { label: providerLabel.toLowerCase() + 's' })}
+        </p>
+      )}
+    </div>
+  ) : null;
+
   const mapCentre = destination
     ? { lat: (origin.lat + destination.lat) / 2, lng: (origin.lng + destination.lng) / 2 }
     : origin;
@@ -306,6 +334,8 @@ export function RequestPage() {
 
             {whenPicker}
 
+            {womenOnlyPicker}
+
             <div className="flex gap-3">
               <button
                 className="btn-secondary flex-1"
@@ -375,6 +405,8 @@ export function RequestPage() {
             </div>
 
             {whenPicker}
+
+            {womenOnlyPicker}
 
             <div className="flex gap-3">
               <button

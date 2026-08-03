@@ -32,6 +32,8 @@ export interface Task {
   stopCount?: number;
   /** The car to look for — participant-gated detail only */
   vehicle?: TaskVehicle | null;
+  /** Requester asked to be matched only with declared-women drivers */
+  womenOnly?: boolean;
   pickupAddress?: string;
   dropoffAddress?: string;
   fareEstimateSats: number;
