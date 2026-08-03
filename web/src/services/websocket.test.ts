@@ -51,7 +51,28 @@ describe('normaliseWsMessage', () => {
       location: { lat: 51.5, lng: -0.12 },
       heading: 90,
       speed: undefined,
+      etaSeconds: null,
     });
+  });
+
+  it('carries the pickup ETA so the rider sees "arriving in N min"', () => {
+    expect(normaliseWsMessage({
+      type: 'location_update', ride_id: 'r', data: { lat: 1, lng: 2, eta_seconds: 240 },
+    })).toMatchObject({ type: 'location_update', etaSeconds: 240 });
+  });
+
+  it('maps a moved pickup, and ignores one with no coordinates', () => {
+    expect(normaliseWsMessage({
+      type: 'pickup_updated', ride_id: 'r', pickup: { lat: 51.5, lon: -0.12 }, moved_m: 240,
+      address: 'Deansgate',
+    })).toEqual({
+      type: 'pickup_updated',
+      taskId: 'r',
+      pickup: { lat: 51.5, lng: -0.12 },
+      address: 'Deansgate',
+      movedMetres: 240,
+    });
+    expect(normaliseWsMessage({ type: 'pickup_updated', ride_id: 'r' })).toBeNull();
   });
 
   it('maps location_update with a nested location object', () => {

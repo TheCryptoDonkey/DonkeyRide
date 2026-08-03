@@ -658,6 +658,7 @@ const rideManager = {
     cancelRide(rideId, ...args) { return _getManagerForRide(rideId).cancelRide(rideId, ...args); },
     transitionTo(rideId, ...args) { return _getManagerForRide(rideId).transitionTo(rideId, ...args); },
     updateDriverLocation(rideId, ...args) { return _getManagerForRide(rideId).updateDriverLocation(rideId, ...args); },
+    updatePickup(rideId, ...args) { return _getManagerForRide(rideId).updatePickup(rideId, ...args); },
     recordRating(rideId, ...args) { return _getManagerForRide(rideId).recordRating(rideId, ...args); },
 
     // Persist mutations made directly on the ride object (proofs, tips, safety, quotes)
@@ -1181,6 +1182,9 @@ function broadcastToRide(rideId, message) {
 
 const DISPATCH_RADIUS_KM = parseFloat(process.env.DISPATCH_RADIUS_KM) || 15;
 const DRIVER_PRESENCE_TTL_MS = 2 * 60 * 1000; // location older than this is stale
+// How far a rider may move the pickup after a provider has committed —
+// a walk to a legal kerb, not a different job.
+const PICKUP_ADJUST_MAX_KM = parseFloat(process.env.PICKUP_ADJUST_MAX_KM) || 1;
 // STRICT_DISPATCH=true excludes drivers with no known location from dispatch
 const strictDispatch = (process.env.STRICT_DISPATCH || '').toLowerCase() === 'true';
 
@@ -3753,6 +3757,150 @@ app.post('/api/rides/:rideId/location', async (req, res) => {
         console.error('Error updating location:', error);
         res.status(500).json({
             error: 'Failed to update location',
+            details: error.message
+        });
+    }
+});
+
+/**
+ * Move the pickup point — the rider walked.
+ *
+ * People do not stand still while a car comes to them: they leave the
+ * pub, cross to a legal kerb, or dropped the pin on the wrong side of a
+ * dual carriageway. The point stays editable until the provider
+ * arrives.
+ *
+ * Policy: requester only. Before a provider commits, the pickup may move
+ * anywhere and the fare is re-estimated. Once a provider has committed,
+ * the move is capped at PICKUP_ADJUST_MAX_KM (they agreed to drive to a
+ * place, not to a different town) and the AGREED FARE IS NEVER CHANGED —
+ * a short walk must not re-price the job in either direction. The route
+ * is recalculated either way so navigation stays honest.
+ */
+app.post('/api/rides/:rideId/pickup', async (req, res) => {
+    try {
+        const { rideId } = req.params;
+        const lat = req.body.lat;
+        const lon = req.body.lon != null ? req.body.lon : req.body.lng;
+
+        if (!isValidLat(lat) || !isValidLon(lon)) {
+            return res.status(400).json({ error: 'lat and lon/lng must be valid coordinates' });
+        }
+
+        const ride = rideManager.getRide(rideId);
+        if (!ride) {
+            return res.status(404).json({ error: 'Ride not found' });
+        }
+
+        const authErr = authoriseRideActor(req, ride, ['requester']);
+        if (authErr) {
+            return res.status(authErr.status).json(authErr);
+        }
+
+        const rideProfile = rideManager.getProfileForRide(rideId);
+        const states = rideProfile.states.values;
+
+        // Once the provider is at the kerb (or the job is under way, or
+        // over), the pickup is history — not a setting.
+        const movableStates = [states.REQUESTED, states.MATCHED, states.PROVIDER_EN_ROUTE]
+            .filter(Boolean);
+        if (!movableStates.includes(ride.status)) {
+            return res.status(409).json({
+                error: 'Pickup can no longer be changed',
+                details: `The ${rideProfile.roles.provider} has already arrived or the ${rideProfile.labels?.taskNoun || 'task'} is under way`,
+                status: ride.status
+            });
+        }
+
+        const newPickup = { lat: Number(lat), lon: Number(lon) };
+        const movedKm = calculateDistance(ride.pickup.lat, ride.pickup.lon, newPickup.lat, newPickup.lon);
+        const matched = Boolean(ride.driver || ride.provider);
+
+        if (matched && movedKm > PICKUP_ADJUST_MAX_KM) {
+            return res.status(400).json({
+                error: 'New pickup is too far from the agreed one',
+                details: `Move it by at most ${PICKUP_ADJUST_MAX_KM} km once a ${rideProfile.roles.provider} has committed, or cancel and request again`,
+                moved_km: Math.round(movedKm * 100) / 100,
+                max_km: PICKUP_ADJUST_MAX_KM
+            });
+        }
+
+        const address = typeof req.body.address === 'string' && req.body.address.trim()
+            ? req.body.address.trim().slice(0, 200)
+            : undefined;
+
+        // Recalculate the route from the new pickup so both apps navigate
+        // to the right place. Pre-accept the fare follows the route;
+        // post-accept the agreed fare stands.
+        const fiatCurrency = resolveFiatCurrency(ride.currency);
+        let distance = 0;
+        let duration = 0;
+        let routeCoordinates = null;
+
+        if (ride.dropoff) {
+            const routeVia = Array.isArray(ride.stops) ? ride.stops : [];
+            const osrmRoute = await getRoute(
+                newPickup.lat, newPickup.lon, ride.dropoff.lat, ride.dropoff.lon, routeVia
+            );
+            if (osrmRoute) {
+                distance = parseFloat(osrmRoute.distanceKm);
+                duration = osrmRoute.durationMin;
+                routeCoordinates = osrmRoute.coordinates;
+            } else {
+                const legs = [newPickup, ...routeVia, ride.dropoff];
+                for (let i = 0; i < legs.length - 1; i++) {
+                    distance += calculateDistance(legs[i].lat, legs[i].lon, legs[i + 1].lat, legs[i + 1].lon);
+                }
+                duration = (distance / 45) * 60;
+            }
+        }
+
+        const estimate = await estimateTripCost(distance, duration, rateCardOptions(fiatCurrency));
+
+        const updated = rideManager.updatePickup(rideId, newPickup, {
+            ...(address !== undefined ? { address } : {}),
+            ...(routeCoordinates ? { route: routeCoordinates } : {}),
+            distanceKm: distance,
+            durationMin: Math.round(duration),
+            // Never re-price a committed job
+            ...(matched ? {} : { fare: estimate.fare.sats })
+        });
+        updated.estimate = estimate;
+
+        const session = activeRides.get(rideId);
+        if (session) {
+            session.pickup = updated.pickup;
+            session.estimate = estimate;
+            session.route = routeCoordinates;
+        }
+
+        // Tell the committed provider — exact coordinates, participant-gated
+        // (ride subscriptions are participant-only when auth is on).
+        if (matched) {
+            broadcastToRide(rideId, {
+                type: 'pickup_updated',
+                ride_id: rideId,
+                pickup: updated.pickup,
+                ...(address ? { address } : {}),
+                moved_m: Math.round(movedKm * 1000),
+                route: routeCoordinates
+            });
+        }
+
+        console.log(`📍 Ride ${rideId}: rider moved pickup ${Math.round(movedKm * 1000)}m${matched ? ' (provider notified)' : ''}`);
+
+        res.json({
+            success: true,
+            ride: updated,
+            moved_m: Math.round(movedKm * 1000),
+            repriced: !matched,
+            estimate
+        });
+
+    } catch (error) {
+        console.error('Error updating pickup:', error);
+        res.status(500).json({
+            error: 'Failed to update pickup',
             details: error.message
         });
     }

@@ -10,6 +10,7 @@ import { PanicButton } from '../../components/safety/PanicButton';
 import { Loading } from '../../components/common/Loading';
 import { ChatPanel } from '../../components/task/ChatPanel';
 import { PickupCode } from '../../components/task/PickupCode';
+import { PickupAdjuster } from '../../components/task/PickupAdjuster';
 import { TaskStakePanel } from '../../components/payment/TaskStakePanel';
 import { PayDriver } from '../../components/payment/PayDriver';
 import { showToast } from '../../components/common/Toast';
@@ -20,8 +21,9 @@ import { useLocation } from '../../hooks/useLocation';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import {
   triggerPanic, cancelTask, getTask, acceptQuote, declineQuote, reportNoShow,
-  getOperatorInfoCached,
+  getOperatorInfoCached, updateTaskPickup,
 } from '../../services/api';
+import { reverseGeocode } from '../../utils/reverse-geocode';
 import { QuotePanel } from '../../components/task/QuotePanel';
 import { TripSharePanel } from '../../components/safety/TripSharePanel';
 import { TripAudioRecorder } from '../../components/safety/TripAudioRecorder';
@@ -32,15 +34,17 @@ import {
 } from '../../services/trip-share';
 import { createRideCheck, type RideCheckMonitor, type RideCheckReason } from '../../utils/ride-check';
 import { routePositions } from '../../utils/geo';
+import { useT } from '../../i18n';
 import { describeVehicle } from '../../utils/vehicle';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
-import type { WsMessage, Task, OperatorPaymentInfo } from '../../types/api';
+import type { WsMessage, Task, LatLng, OperatorPaymentInfo } from '../../types/api';
 
 export function ActiveTaskPage() {
   const navigate = useNavigate();
-  const { activeTask, setActiveTask, origin, destination, providerLocation, setProviderLocation, reset } = useTask();
+  const { activeTask, setActiveTask, origin, setOrigin, destination, providerLocation, setProviderLocation, reset } = useTask();
   const { identity } = useIdentity();
   const { profile } = useDomain();
+  const { t } = useT();
   const { location: currentLocation, error: locationError, loading: locationLoading } = useLocation(true);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -99,6 +103,10 @@ export function ActiveTaskPage() {
     }
   }, [activeTask?.id, setActiveTask, terminalStates, routeTerminal]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // How long until the car is here — the question every rider is asking.
+  // Comes with each provider location update; cleared once they arrive.
+  const [pickupEtaSeconds, setPickupEtaSeconds] = useState<number | null>(null);
+
   // Handle WebSocket messages — state updates arrive live, not just via poll
   const handleWsMessage = useCallback((msg: WsMessage) => {
     switch (msg.type) {
@@ -106,6 +114,15 @@ export function ActiveTaskPage() {
         if (profile?.features.liveTracking) {
           setProviderLocation(msg.location);
         }
+        if (typeof msg.etaSeconds === 'number') {
+          setPickupEtaSeconds(msg.etaSeconds);
+        }
+        break;
+      case 'pickup_updated':
+        // Normally this phone moved it — but a second device (or a
+        // reconnect) must not show a stale meeting point
+        setOrigin(msg.pickup);
+        void refreshTask();
         break;
       case 'status_change':
         if (activeTask) {
@@ -136,7 +153,7 @@ export function ActiveTaskPage() {
         navigate('/request');
         break;
     }
-  }, [activeTask, setActiveTask, setProviderLocation, navigate, profile, terminalStates, routeTerminal, refreshTask, reset, taskNoun]);
+  }, [activeTask, setActiveTask, setProviderLocation, setOrigin, navigate, profile, terminalStates, routeTerminal, refreshTask, reset, taskNoun]);
 
   const { connected } = useWebSocket(activeTask?.id || null, handleWsMessage);
 
@@ -257,7 +274,39 @@ export function ActiveTaskPage() {
     && activeTask.status !== activeValue
     && !activeTask.startedAt;
 
-  const centre = providerLocation || origin;
+  // The pickup stays editable until the provider is actually at the kerb —
+  // riders walk while the car is on its way
+  const arrivedValue = profile?.states.values.PROVIDER_ARRIVED || 'arrived';
+  const matched = Boolean(activeTask.providerPubkey);
+  const pickupMovable = !terminalStates.includes(activeTask.status)
+    && activeTask.status !== arrivedValue
+    && activeTask.status !== activeValue
+    && !activeTask.startedAt;
+
+  const pickupPoint = (activeTask.pickup && (activeTask.pickup.lat || activeTask.pickup.lng))
+    ? activeTask.pickup
+    : origin;
+
+  const applyPickup = (updated: Task) => {
+    setActiveTask(updated);
+    if (updated.pickup) setOrigin(updated.pickup);
+  };
+
+  const dragPickup = async (loc: LatLng) => {
+    try {
+      const named = await reverseGeocode(loc);
+      applyPickup(await updateTaskPickup(activeTask.id, { location: loc, address: named }));
+      showToast(t('active.pickupMoved', { label: originLabel }));
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : t('active.pickupMoveFailed'), { type: 'error' });
+    }
+  };
+
+  const arrivingMinutes = pickupEtaSeconds != null && pickupEtaSeconds >= 0
+    ? Math.max(1, Math.round(pickupEtaSeconds / 60))
+    : null;
+
+  const centre = providerLocation || pickupPoint;
 
   return (
     <div className="h-full flex flex-col">
@@ -265,7 +314,13 @@ export function ActiveTaskPage() {
       {profile?.features.navigation !== false ? (
         <div className="flex-1 relative">
           <MapView centre={centre} zoom={15}>
-            <LocationMarker position={origin} label={originLabel} colour="green" />
+            <LocationMarker
+              position={pickupPoint}
+              label={originLabel}
+              colour="green"
+              draggable={pickupMovable}
+              onDragEnd={(loc) => void dragPickup(loc)}
+            />
             {(activeTask.stops || []).map((stop, i) => (
               <LocationMarker
                 key={`${stop.lat},${stop.lng},${i}`}
@@ -357,15 +412,35 @@ export function ActiveTaskPage() {
                 </p>
               )}
             </div>
-            {activeTask.durationMin != null && (
+            {/* While they are coming to you, the only number that matters
+                is how long until they are here — not the trip length */}
+            {arrivingMinutes != null && pickupMovable ? (
               <div className="text-right">
-                <p className="meta-label">ETA</p>
+                <p className="meta-label">{t('active.arriving')}</p>
+                <p className="text-lg font-black text-donkey-green mt-1">
+                  {t('active.arrivingIn', { n: arrivingMinutes })}
+                </p>
+              </div>
+            ) : activeTask.durationMin != null && (
+              <div className="text-right">
+                <p className="meta-label">{t('active.tripTime')}</p>
                 <p className="text-lg font-black text-donkey-green mt-1">
                   {Math.round(activeTask.durationMin)} min
                 </p>
               </div>
             )}
           </div>
+        )}
+
+        {/* Riders walk: the meeting point stays editable until arrival */}
+        {pickupMovable && (
+          <PickupAdjuster
+            task={activeTask}
+            originLabel={originLabel}
+            providerLabel={providerRoleLabel}
+            matched={matched}
+            onUpdated={applyPickup}
+          />
         )}
 
         {/* Right rider, right car — until the trip starts */}

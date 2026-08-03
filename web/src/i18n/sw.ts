@@ -43,14 +43,16 @@ export const sw: Record<string, string> = {
 
   // Rider home
   'home.searchOrigin': '{label}: tafuta anwani au gusa ramani',
+  'home.whereTo': 'Unakoenda?',
+  'home.currentLocation': 'Ulipo sasa',
+  'home.locating': 'Inatafuta ulipo...',
+  'home.noFix': 'Tafuta au gusa ramani kuweka {label}',
+  'home.change': 'Badilisha',
+  'home.movePickup': 'Vuta kibandiko, gusa ramani, au tafuta kuhamisha {label}.',
+  'home.useMyLocation': 'Tumia mahali nilipo sasa',
   'home.searchDestination': 'Unakoenda: tafuta anwani au gusa ramani',
-  'home.step': 'Hatua {n} kati ya 2',
-  'home.tapOrigin': 'Gusa ramani kuweka {label}',
-  'home.tapDestination': 'Sasa gusa kuweka unakoenda',
-  'home.selectStart': 'Chagua mahali {noun} yako ianzie',
   'home.selectDestination': 'Chagua unakoenda upate makadirio ya nauli',
   'home.confirm': 'Thibitisha {label}',
-  'home.reset': 'Weka upya {label}',
   'home.nearby': '{label} {n} karibu nawe',
   'home.available': '{label} {n} wapo',
   'home.searching': 'Inatafuta {label}...',
@@ -79,6 +81,23 @@ export const sw: Record<string, string> = {
   'request.estimateFailed': 'Imeshindwa kupata makadirio',
   'request.originSet': '{label} imewekwa',
   'request.ready': 'Tayari kuomba {noun}',
+
+
+  // Active task — rider
+  'active.arriving': 'Anawasili',
+  'active.arrivingIn': 'dakika {n}',
+  'active.tripTime': 'Muda wa safari',
+  'active.movedTitle': 'Umehama? Sasisha {label}',
+  'active.movedBody': 'Unaweza kuhamisha {label} hadi atakapofika.',
+  'active.moveTitle': 'Hamisha {label}',
+  'active.imHereNow': 'Nipo hapa sasa',
+  'active.moving': 'Inahamisha...',
+  'active.searchPickup': 'Tafuta {label} mpya...',
+  'active.moveLimit': 'Umbali mfupi tu — {label} wako alikubali kuja karibu na hapa, na nauli haitabadilika.',
+  'active.moveFree': 'Bado hakuna aliyejitolea, hivyo nauli itasasishwa kulingana na njia mpya.',
+  'active.moveDrag': 'Pia unaweza kuvuta kibandiko kwenye ramani.',
+  'active.pickupMoved': '{label} imesasishwa',
+  'active.pickupMoveFailed': 'Imeshindwa kuhamisha pa kuanzia',
 
   // Driver dashboard
   'dash.title': 'Dashibodi ya {label}',

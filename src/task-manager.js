@@ -378,6 +378,55 @@ class TaskManager {
   }
 
   /**
+   * Move the pickup point of a live task.
+   *
+   * Riders walk: they step out of the pub, round the corner to a legal
+   * kerb, or simply drop the pin badly in the first place. The point is
+   * editable until the provider arrives; the caller owns the policy
+   * (who may move it, and how far), this only mutates and persists.
+   *
+   * @param {string} taskId - Task identifier
+   * @param {Object} location - { lat, lon } — the new pickup point
+   * @param {Object} [options] - { address, route, distanceKm, durationMin, fare }
+   * @returns {Object} The updated task
+   */
+  updatePickup(taskId, location, options = {}) {
+    const task = this.tasks.get(taskId);
+
+    if (!task) {
+      throw new Error(`Task ${taskId} not found`);
+    }
+
+    task.pickup = { lat: location.lat, lon: location.lon };
+    if (options.address !== undefined) {
+      task.pickupAddress = options.address;
+    }
+    if (options.route !== undefined) {
+      task.route = options.route;
+    }
+    if (options.distanceKm !== undefined) {
+      task.distance = options.distanceKm;
+    }
+    if (options.durationMin !== undefined) {
+      task.durationMin = options.durationMin;
+    }
+    // Re-priced only before a provider commits — see server.js
+    if (options.fare !== undefined) {
+      task.fare = options.fare;
+    }
+    task.history.push({
+      status: task.status,
+      timestamp: Date.now(),
+      pickupMoved: true
+    });
+
+    this._persist(task);
+    console.log(`📍 Pickup moved for task ${taskId}`);
+
+    return task;
+  }
+
+  /**
    * Transition the task to a custom intermediate state.
    * Used for domain-specific states like 'access_method_confirmed' or 'collected'.
    *

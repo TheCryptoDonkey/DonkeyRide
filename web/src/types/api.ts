@@ -283,7 +283,8 @@ export type WsMessage =
   | { type: 'provider_arrived'; taskId?: string }
   | { type: 'task_started'; taskId?: string }
   | { type: 'task_completed'; taskId?: string }
-  | { type: 'location_update'; taskId?: string; location: LatLng; heading?: number; speed?: number }
+  | { type: 'location_update'; taskId?: string; location: LatLng; heading?: number; speed?: number; etaSeconds?: number | null }
+  | { type: 'pickup_updated'; taskId?: string; pickup: LatLng; address?: string; movedMetres?: number }
   | { type: 'panic_alert'; taskId?: string; triggeredBy?: string; location?: LatLng | null }
   | { type: 'rating_submitted'; taskId?: string; rating?: number }
   | { type: 'tip_sent'; taskId?: string; amountSats?: number }

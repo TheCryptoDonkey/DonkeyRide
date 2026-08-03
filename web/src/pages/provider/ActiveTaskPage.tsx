@@ -106,6 +106,17 @@ export function ActiveTaskPage() {
       case 'task_completed':
         void refreshTask();
         break;
+      case 'pickup_updated':
+        // The rider walked. Loud, because the driver may already be
+        // turning into the old street.
+        showToast(
+          msg.address
+            ? `${originLabel} moved: ${msg.address}`
+            : `${originLabel} moved${msg.movedMetres ? ` ${msg.movedMetres} m` : ''}`,
+          { type: 'error' },
+        );
+        void refreshTask();
+        break;
       case 'tip_sent':
         showToast('Tip received');
         break;
@@ -126,7 +137,7 @@ export function ActiveTaskPage() {
         navigate('/provide');
         break;
     }
-  }, [activeTask, setActiveTask, navigate, terminalStates, refreshTask, reset, taskNoun]);
+  }, [activeTask, setActiveTask, navigate, terminalStates, refreshTask, reset, taskNoun, originLabel]);
 
   const { connected } = useWebSocket(activeTask?.id || null, handleWsMessage);
 

@@ -32,14 +32,16 @@ export const en: Record<string, string> = {
 
   // Rider home
   'home.searchOrigin': '{label}: search address or tap the map',
+  'home.whereTo': 'Where to?',
+  'home.currentLocation': 'Current location',
+  'home.locating': 'Finding where you are...',
+  'home.noFix': 'Search or tap the map to set your {label}',
+  'home.change': 'Change',
+  'home.movePickup': 'Drag the pin, tap the map, or search to move your {label}.',
+  'home.useMyLocation': 'Use my current location',
   'home.searchDestination': 'Destination: search address or tap the map',
-  'home.step': 'Step {n} of 2',
-  'home.tapOrigin': 'Tap the map to set your {label}',
-  'home.tapDestination': 'Now tap to set your destination',
-  'home.selectStart': 'Select where you want your {noun} to start',
   'home.selectDestination': 'Select your destination to get a fare estimate',
   'home.confirm': 'Confirm {label}',
-  'home.reset': 'Reset {label}',
   'home.nearby': '{n} {label} nearby',
   'home.available': '{n} {label} available',
   'home.searching': 'Searching for {label}...',
@@ -68,6 +70,23 @@ export const en: Record<string, string> = {
   'request.estimateFailed': 'Failed to get estimate',
   'request.originSet': '{label} set',
   'request.ready': 'Ready to request a {noun}',
+
+
+  // Active task — rider
+  'active.arriving': 'Arriving',
+  'active.arrivingIn': '{n} min',
+  'active.tripTime': 'Trip time',
+  'active.movedTitle': 'Moved? Update your {label}',
+  'active.movedBody': 'You can move the {label} until they arrive.',
+  'active.moveTitle': 'Move your {label}',
+  'active.imHereNow': "I'm here now",
+  'active.moving': 'Moving...',
+  'active.searchPickup': 'Search for a new {label}...',
+  'active.moveLimit': 'Short moves only — your {label} agreed to come to roughly this spot, and the fare will not change.',
+  'active.moveFree': 'Nobody has committed yet, so the fare updates with the new route.',
+  'active.moveDrag': 'You can also drag the pin on the map.',
+  'active.pickupMoved': '{label} updated',
+  'active.pickupMoveFailed': 'Could not move the pickup',
 
   // Driver dashboard
   'dash.title': '{label} Dashboard',

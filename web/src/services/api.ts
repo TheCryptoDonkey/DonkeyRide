@@ -153,6 +153,7 @@ export function normaliseTask(raw: any): Task {
       registration: r.vehicle.registration || undefined,
     } : undefined,
     womenOnly: r.womenOnly === true || r.women_only === true || undefined,
+    pickupAddress: r.pickupAddress || r.pickup_address || undefined,
     fareEstimateSats: r.fare ?? r.fareEstimateSats ?? r.estimated_fare ?? 0,
     distanceKm,
     durationMin: r.duration_minutes ?? r.durationMin,
@@ -356,6 +357,28 @@ export function updateLocation(taskId: string, params: {
       driverPubkey: params.providerPubkey,
     }),
   });
+}
+
+/**
+ * POST /api/tasks/:id/pickup — the requester moves the pickup point.
+ *
+ * Allowed until the provider arrives. Before anyone commits the fare
+ * follows the new route; afterwards the agreed fare stands and the move
+ * is capped operator-side (a walk, not a new job).
+ */
+export async function updateTaskPickup(taskId: string, params: {
+  location: LatLng;
+  address?: string | null;
+}): Promise<Task> {
+  const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/pickup`, {
+    method: 'POST',
+    body: JSON.stringify({
+      lat: params.location.lat,
+      lon: params.location.lng,
+      ...(params.address ? { address: params.address } : {}),
+    }),
+  });
+  return normaliseTask(raw);
 }
 
 /** POST /api/tasks/:id/arrive — provider arrives at origin */

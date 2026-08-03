@@ -85,7 +85,27 @@ export function normaliseWsMessage(raw: any): WsMessage | null {
       const location = normWsLocation(raw.location ?? raw.data ?? raw);
       if (!location) return null;
       const src = raw.location ?? raw.data ?? raw;
-      return { type: 'location_update', taskId, location, heading: src.heading, speed: src.speed };
+      const eta = src.eta_seconds ?? src.etaSeconds ?? raw.eta_seconds;
+      return {
+        type: 'location_update',
+        taskId,
+        location,
+        heading: src.heading,
+        speed: src.speed,
+        etaSeconds: typeof eta === 'number' ? eta : null,
+      };
+    }
+
+    case 'pickup_updated': {
+      const pickup = normWsLocation(raw.pickup);
+      if (!pickup) return null;
+      return {
+        type: 'pickup_updated',
+        taskId,
+        pickup,
+        address: typeof raw.address === 'string' ? raw.address : undefined,
+        movedMetres: typeof raw.moved_m === 'number' ? raw.moved_m : undefined,
+      };
     }
 
     case 'panic_alert':

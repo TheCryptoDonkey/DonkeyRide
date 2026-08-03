@@ -10,7 +10,7 @@ describe('i18n', () => {
   });
 
   it('translates a key with interpolation', () => {
-    expect(t('home.step', { n: 2 })).toBe('Step 2 of 2');
+    expect(t('home.nearby', { n: 2, label: 'drivers' })).toBe('2 drivers nearby');
   });
 
   it('falls back to English for a key missing in Swahili', () => {
