@@ -183,6 +183,11 @@ export const sw: Record<string, string> = {
   'profile.standingNote': 'Kile wengine wanachokiona wakikuangalia: ukadiriaji uliotiwa saini na watu uliofanya nao kazi, unaosomwa kutoka relays za umma na kuthibitishwa kwenye kifaa hiki. Hakuna opereta anayeweza kuupandisha au kuushusha.',
   'profile.language': 'Lugha',
   'profile.languageNote': 'Chagua lugha ya programu kwenye kifaa hiki.',
+  'profile.appearance': 'Muonekano',
+  'profile.appearanceNote': 'Mwanga ni rahisi kusoma nje mchana.',
+  'theme.system': 'Kifaa',
+  'theme.light': 'Mwanga',
+  'theme.dark': 'Giza',
 
   // Onboarding — provider
   'onboard.p1.title': 'Ingia mtandaoni, chagua kazi zako',

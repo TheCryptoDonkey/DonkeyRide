@@ -1,26 +1,38 @@
 /** @type {import('tailwindcss').Config} */
+
+/**
+ * Every colour resolves through a CSS custom property, so one `data-theme`
+ * attribute on <html> switches the whole app between light and dark.
+ * Triplets are SPACE separated — comma-separated channels are a parse error
+ * once Tailwind appends `/ <alpha-value>`. See src/index.css.
+ */
+const themed = (name) => `rgb(var(--donkey-${name}-rgb) / <alpha-value>)`;
+
 export default {
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  // driver.html is a real entry point; without it, classes used only in the
+  // driver shell are never generated
+  content: ['./index.html', './driver.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
       colors: {
         donkey: {
-          bg: '#0a0a0a',
-          surface: '#1a1a2e',
-          card: '#16213e',
-          border: '#333',
-          text: '#e0e0e0',
-          muted: '#999',
-          purple: 'rgb(var(--theme-primary-rgb) / <alpha-value>)',
-          pink: 'rgb(var(--theme-secondary-rgb) / <alpha-value>)',
-          green: 'rgb(var(--theme-accent-rgb) / <alpha-value>)',
+          bg: themed('bg'),
+          surface: themed('surface'),
+          card: themed('card'),
+          border: themed('border'),
+          text: themed('text'),
+          muted: themed('muted'),
+          purple: themed('primary'),
+          pink: themed('secondary'),
+          green: themed('accent'),
           orange: '#f5a623',
           red: '#ff4444',
           blue: '#4fc3f7',
         },
       },
       fontFamily: {
-        mono: ['SF Mono', 'Monaco', 'Consolas', 'monospace'],
+        sans: ['var(--font-sans)'],
+        mono: ['var(--font-mono)'],
       },
       backgroundImage: {
         'brand-gradient': 'linear-gradient(var(--theme-gradient-angle, 135deg), var(--theme-gradient-from, #b24cf3) 0%, var(--theme-gradient-to, #ff6ec7) 100%)',

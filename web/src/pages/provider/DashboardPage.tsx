@@ -218,7 +218,9 @@ export function DashboardPage() {
             working needs their own earnings, trips and hours, in that order. */}
         <div className="grid grid-cols-3 gap-3 text-center">
           <div className="stat-card">
-            <DualPrice sats={earnings?.summary?.today.sats ?? 0} size="sm" />
+            {/* compact: at a third of a phone's width the sats line runs out
+                of the card and over the one beside it */}
+            <DualPrice sats={earnings?.summary?.today.sats ?? 0} size="sm" compact />
             <p className="stat-label">{t('dash.todayEarned')}</p>
           </div>
           <div className="stat-card">

@@ -15,6 +15,7 @@ import {
 } from '../../utils/access-needs';
 import { dispatchService } from '../../services/dispatch';
 import { useT, LOCALES } from '../../i18n';
+import { ThemeToggle } from '../../components/common/ThemeToggle';
 import { WomenSafetyCard } from '../../components/safety/WomenSafetyCard';
 import { ReputationBadge } from '../../components/common/ReputationBadge';
 
@@ -82,6 +83,9 @@ export function ProfilePage({ role }: ProfilePageProps) {
           {t('profile.intro')}
         </p>
       </div>
+
+      {/* Appearance — device-local, follows the system unless overridden */}
+      <ThemeToggle />
 
       {/* Language — device-local, auto-detected from the browser */}
       <div className="card space-y-2">

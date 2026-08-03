@@ -172,6 +172,11 @@ export const en: Record<string, string> = {
   'profile.standingNote': 'What others see when they check you: ratings signed by the people you have worked with, read from public relays and verified on this device. No operator can raise or lower it.',
   'profile.language': 'Language',
   'profile.languageNote': 'Choose the language of the app on this device.',
+  'profile.appearance': 'Appearance',
+  'profile.appearanceNote': 'Light is easier to read outdoors in daylight.',
+  'theme.system': 'System',
+  'theme.light': 'Light',
+  'theme.dark': 'Dark',
 
   // Onboarding — provider
   'onboard.p1.title': 'Go online, pick your jobs',

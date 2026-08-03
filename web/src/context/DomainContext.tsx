@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import type { DomainProfile } from '../types/domain';
 import { getCurrentDomain, getDomain, listDomains } from '../services/api';
+import { normaliseRgbTriplet, readableOnLight } from '../utils/theme';
 
 const STORAGE_KEY = 'donkeyride-domain';
 
@@ -24,12 +25,25 @@ const DomainContext = createContext<DomainState>({
 function applyTheme(profile: DomainProfile) {
   if (profile.theme) {
     const root = document.documentElement.style;
+
+    // Profiles publish channels comma-separated ('178, 76, 243'), which is a
+    // parse error once Tailwind appends `/ <alpha>` — normalise rather than
+    // require every operator to reformat their own profile. A malformed
+    // triplet is left alone so the stylesheet default stands.
+    const setRgb = (name: string, value: string) => {
+      const rgb = normaliseRgbTriplet(value);
+      if (!rgb) return;
+      root.setProperty(`--theme-${name}-rgb`, rgb);
+      const onLight = readableOnLight(rgb);
+      if (onLight) root.setProperty(`--theme-${name}-on-light-rgb`, onLight);
+    };
+
     root.setProperty('--theme-primary', profile.theme.primary);
-    root.setProperty('--theme-primary-rgb', profile.theme.primaryRgb);
+    setRgb('primary', profile.theme.primaryRgb);
     root.setProperty('--theme-secondary', profile.theme.secondary);
-    root.setProperty('--theme-secondary-rgb', profile.theme.secondaryRgb);
+    setRgb('secondary', profile.theme.secondaryRgb);
     root.setProperty('--theme-accent', profile.theme.accent);
-    root.setProperty('--theme-accent-rgb', profile.theme.accentRgb);
+    setRgb('accent', profile.theme.accentRgb);
     root.setProperty('--theme-gradient-from', profile.theme.gradientFrom);
     root.setProperty('--theme-gradient-to', profile.theme.gradientTo);
     root.setProperty('--theme-gradient-angle', profile.theme.gradientAngle);

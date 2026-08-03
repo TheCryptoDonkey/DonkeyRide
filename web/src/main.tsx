@@ -7,8 +7,11 @@ import { IdentityProvider } from './context/IdentityContext';
 import { TaskProvider } from './context/TaskContext';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { registerServiceWorker } from './pwa';
+import { initTheme } from './utils/theme';
 import './index.css';
 
+// Before render: flipping the whole page a beat after load looks broken
+initTheme();
 registerServiceWorker();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

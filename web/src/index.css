@@ -3,17 +3,94 @@
 @tailwind utilities;
 
 @layer base {
+  /* ── Theme tokens ─────────────────────────────────
+     Channels are SPACE separated, never comma. Tailwind emits
+     `rgb(var(--x) / <alpha>)`, which is modern rgb() syntax and rejects
+     comma-separated channels outright — `rgb(178, 76, 243 / 1)` is a parse
+     error, so the colour silently renders as nothing.  */
   :root {
+    /* Brand — replaced per domain by DomainContext */
     --theme-primary: #b24cf3;
-    --theme-primary-rgb: 178, 76, 243;
+    --theme-primary-rgb: 178 76 243;
     --theme-secondary: #ff6ec7;
-    --theme-secondary-rgb: 255, 110, 199;
+    --theme-secondary-rgb: 255 110 199;
     --theme-accent: #00ff88;
-    --theme-accent-rgb: 0, 255, 136;
+    --theme-accent-rgb: 0 255 136;
     --theme-gradient-from: #b24cf3;
     --theme-gradient-to: #ff6ec7;
     --theme-gradient-angle: 135deg;
     --theme-route-colour: #b24cf3;
+
+    /* Darkened for legibility on a light background. A neon accent that
+       reads beautifully on near-black is invisible on white, so DomainContext
+       computes a variant with real contrast rather than reusing the brand. */
+    --theme-primary-on-light-rgb: 124 40 178;
+    --theme-secondary-on-light-rgb: 176 32 116;
+    --theme-accent-on-light-rgb: 0 110 59;
+
+    /* Typography. Mono is for keys, npubs and IDs — things you compare
+       character by character — not for an app you hail a car with. */
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+                 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+    --font-mono: 'SF Mono', Monaco, Consolas, 'Liberation Mono', monospace;
+  }
+
+  /* ── Dark (the default) ─────────────────────────── */
+  :root,
+  :root[data-theme='dark'] {
+    color-scheme: dark;
+
+    --donkey-bg-rgb: 10 10 10;
+    --donkey-surface-rgb: 26 26 46;
+    --donkey-card-rgb: 22 33 62;
+    --donkey-border-rgb: 51 51 51;
+    --donkey-text-rgb: 224 224 224;
+    --donkey-muted-rgb: 153 153 153;
+
+    /* Panels that sit above the page rather than on it */
+    --donkey-raised-rgb: 20 20 20;
+    /* Hairline separators and inset highlights */
+    --donkey-hairline-rgb: 255 255 255;
+    --donkey-hairline-alpha: 0.05;
+    --donkey-shadow-rgb: 0 0 0;
+    --donkey-shadow-alpha: 0.4;
+    --donkey-scroll-track-rgb: 26 26 46;
+    --donkey-scroll-thumb-rgb: 85 85 85;
+
+    /* Glows read as neon on black and as smudge on white */
+    --glow-alpha: 0.8;
+    --glow-alpha-soft: 0.15;
+
+    --donkey-primary-rgb: var(--theme-primary-rgb);
+    --donkey-secondary-rgb: var(--theme-secondary-rgb);
+    --donkey-accent-rgb: var(--theme-accent-rgb);
+  }
+
+  /* ── Light ──────────────────────────────────────── */
+  :root[data-theme='light'] {
+    color-scheme: light;
+
+    --donkey-bg-rgb: 247 248 250;
+    --donkey-surface-rgb: 255 255 255;
+    --donkey-card-rgb: 255 255 255;
+    --donkey-border-rgb: 226 229 234;
+    --donkey-text-rgb: 20 22 26;
+    --donkey-muted-rgb: 95 102 114;
+
+    --donkey-raised-rgb: 255 255 255;
+    --donkey-hairline-rgb: 20 22 26;
+    --donkey-hairline-alpha: 0.08;
+    --donkey-shadow-rgb: 20 22 26;
+    --donkey-shadow-alpha: 0.12;
+    --donkey-scroll-track-rgb: 236 238 242;
+    --donkey-scroll-thumb-rgb: 176 182 192;
+
+    --glow-alpha: 0.3;
+    --glow-alpha-soft: 0.1;
+
+    --donkey-primary-rgb: var(--theme-primary-on-light-rgb);
+    --donkey-secondary-rgb: var(--theme-secondary-on-light-rgb);
+    --donkey-accent-rgb: var(--theme-accent-on-light-rgb);
   }
 
   html, body, #root {
@@ -21,9 +98,9 @@
   }
 
   body {
-    font-family: 'SF Mono', Monaco, Consolas, monospace;
-    background: #0a0a0a;
-    color: #e0e0e0;
+    font-family: var(--font-sans);
+    background: rgb(var(--donkey-bg-rgb));
+    color: rgb(var(--donkey-text-rgb));
   }
 
   /* Leaflet map container needs explicit height */
@@ -33,19 +110,28 @@
     z-index: 0;
   }
 
-  /* Custom scrollbar for dark theme */
   ::-webkit-scrollbar {
     width: 6px;
   }
   ::-webkit-scrollbar-track {
-    background: #1a1a2e;
+    background: rgb(var(--donkey-scroll-track-rgb));
   }
   ::-webkit-scrollbar-thumb {
-    background: #555;
+    background: rgb(var(--donkey-scroll-thumb-rgb));
     border-radius: 3px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #777;
+    background: rgb(var(--donkey-muted-rgb));
+  }
+
+  /* An indefinite animation is a distraction at best and a migraine trigger
+     at worst. The utility classes honour this; these keyframes must too. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }
 
@@ -54,12 +140,12 @@
     @apply bg-brand-gradient text-white font-bold py-3 px-6 rounded-lg
            transition-all duration-150
            disabled:opacity-40 disabled:cursor-not-allowed;
-    box-shadow: 0 8px 20px rgba(var(--theme-primary-rgb), 0.25);
+    box-shadow: 0 8px 20px rgb(var(--donkey-primary-rgb) / 0.25);
   }
 
   .btn-primary:hover:not(:disabled) {
     transform: translateY(-1px);
-    box-shadow: 0 10px 28px rgba(var(--theme-primary-rgb), 0.35);
+    box-shadow: 0 10px 28px rgb(var(--donkey-primary-rgb) / 0.35);
   }
 
   .btn-primary:active:not(:disabled) {
@@ -74,9 +160,9 @@
   }
 
   .btn-secondary:hover:not(:disabled) {
-    border-color: var(--theme-secondary);
+    border-color: rgb(var(--donkey-secondary-rgb));
     transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(var(--theme-secondary-rgb), 0.15);
+    box-shadow: 0 4px 12px rgb(var(--donkey-secondary-rgb) / 0.15);
   }
 
   .btn-danger {
@@ -86,12 +172,12 @@
 
   .btn-danger:hover {
     transform: translateY(-1px);
-    box-shadow: 0 8px 20px rgba(255, 68, 68, 0.3);
+    box-shadow: 0 8px 20px rgb(255 68 68 / 0.3);
   }
 
   .card {
     @apply bg-donkey-surface border border-donkey-border rounded-xl p-4;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+    box-shadow: 0 1px 2px rgb(var(--donkey-shadow-rgb) / calc(var(--donkey-shadow-alpha) * 0.4));
   }
 
   .input-field {
@@ -113,26 +199,26 @@
     @apply text-donkey-muted text-sm;
   }
 
-  /* ── Status indicators with glow ─────────────── */
+  /* ── Status indicators ───────────────────────── */
 
   .status-indicator {
     @apply flex items-center gap-2 rounded-full px-4 py-2;
-    background: rgba(10, 10, 10, 0.85);
+    background: rgb(var(--donkey-bg-rgb) / 0.85);
     backdrop-filter: blur(8px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid rgb(var(--donkey-hairline-rgb) / var(--donkey-hairline-alpha));
   }
 
   .status-online {
-    border-color: rgba(var(--theme-accent-rgb), 0.4);
-    box-shadow: 0 0 16px rgba(var(--theme-accent-rgb), 0.15);
+    border-color: rgb(var(--donkey-accent-rgb) / 0.4);
+    box-shadow: 0 0 16px rgb(var(--donkey-accent-rgb) / var(--glow-alpha-soft));
   }
 
   .status-connecting {
-    border-color: rgba(245, 166, 35, 0.4);
+    border-color: rgb(245 166 35 / 0.4);
   }
 
   .status-offline {
-    border-color: rgba(102, 102, 102, 0.3);
+    border-color: rgb(var(--donkey-muted-rgb) / 0.3);
   }
 
   .status-dot-glow {
@@ -140,18 +226,18 @@
   }
 
   .glow-green {
-    background: var(--theme-accent);
-    box-shadow: 0 0 10px rgba(var(--theme-accent-rgb), 0.8);
+    background: rgb(var(--donkey-accent-rgb));
+    box-shadow: 0 0 10px rgb(var(--donkey-accent-rgb) / var(--glow-alpha));
   }
 
   .glow-orange {
     background: #f5a623;
-    box-shadow: 0 0 10px rgba(245, 166, 35, 0.7);
+    box-shadow: 0 0 10px rgb(245 166 35 / var(--glow-alpha));
     animation: pulse-glow 2s infinite;
   }
 
   .glow-red {
-    background: #666;
+    background: rgb(var(--donkey-muted-rgb));
     box-shadow: none;
   }
 
@@ -159,9 +245,9 @@
 
   .stat-card {
     @apply rounded-xl p-4;
-    background: rgba(20, 20, 20, 0.8);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+    background: rgb(var(--donkey-raised-rgb) / 0.8);
+    border: 1px solid rgb(var(--donkey-hairline-rgb) / var(--donkey-hairline-alpha));
+    box-shadow: 0 1px 2px rgb(var(--donkey-shadow-rgb) / calc(var(--donkey-shadow-alpha) * 0.4));
   }
 
   .stat-label {
@@ -173,24 +259,23 @@
 
   .incoming-card {
     @apply rounded-xl p-5;
-    background: rgba(20, 20, 20, 0.9);
-    border: 2px solid rgba(var(--theme-secondary-rgb), 0.4);
+    background: rgb(var(--donkey-raised-rgb) / 0.9);
+    border: 2px solid rgb(var(--donkey-secondary-rgb) / 0.4);
     animation: pulse-border 2.4s infinite;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
   }
 
   /* ── Panel shadow (for bottom panels) ────────── */
 
   .shadow-panel {
-    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 -8px 30px rgb(var(--donkey-shadow-rgb) / var(--donkey-shadow-alpha));
   }
 
   /* ── Meta cards (driver info, earnings) ──────── */
 
   .meta-card {
     @apply rounded-lg p-3;
-    background: rgba(19, 19, 19, 0.95);
-    border: 1px solid rgba(31, 31, 31, 0.8);
+    background: rgb(var(--donkey-raised-rgb) / 0.95);
+    border: 1px solid rgb(var(--donkey-border-rgb) / 0.8);
   }
 
   .meta-label {
@@ -206,9 +291,10 @@
 
   .earnings-card {
     @apply rounded-xl p-4;
-    background: linear-gradient(135deg, rgba(var(--theme-accent-rgb), 0.08), rgba(27, 27, 27, 0.95));
-    border: 1px solid rgba(var(--theme-accent-rgb), 0.35);
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+    background: linear-gradient(135deg,
+      rgb(var(--donkey-accent-rgb) / 0.08),
+      rgb(var(--donkey-raised-rgb) / 0.95));
+    border: 1px solid rgb(var(--donkey-accent-rgb) / 0.35);
   }
 
   /* ── Connection dot (top-right on active pages) */
@@ -221,7 +307,7 @@
   /* ── Section headers ─────────────────────────── */
 
   .section-title {
-    color: var(--theme-secondary);
+    color: rgb(var(--donkey-secondary-rgb));
     @apply font-bold uppercase tracking-wider text-sm mb-3;
     letter-spacing: 0.04em;
   }
@@ -231,20 +317,20 @@
 
 @keyframes pulse-glow {
   0%, 100% {
-    box-shadow: 0 0 10px rgba(245, 166, 35, 0.7);
+    box-shadow: 0 0 10px rgb(245 166 35 / var(--glow-alpha));
   }
   50% {
-    box-shadow: 0 0 20px rgba(245, 166, 35, 0.9);
+    box-shadow: 0 0 20px rgb(245 166 35 / calc(var(--glow-alpha) + 0.1));
   }
 }
 
 @keyframes pulse-border {
   0%, 100% {
-    border-color: rgba(var(--theme-secondary-rgb), 0.4);
-    box-shadow: 0 0 0 0 rgba(var(--theme-secondary-rgb), 0.1);
+    border-color: rgb(var(--donkey-secondary-rgb) / 0.4);
+    box-shadow: 0 0 0 0 rgb(var(--donkey-secondary-rgb) / 0.1);
   }
   50% {
-    border-color: rgba(var(--theme-secondary-rgb), 0.7);
-    box-shadow: 0 0 20px rgba(var(--theme-secondary-rgb), 0.15);
+    border-color: rgb(var(--donkey-secondary-rgb) / 0.7);
+    box-shadow: 0 0 20px rgb(var(--donkey-secondary-rgb) / var(--glow-alpha-soft));
   }
 }
