@@ -139,14 +139,17 @@ async function deriveKey(privKeyHex: string, taskId: string): Promise<CryptoKey>
 }
 
 /**
- * Copy a buffer into a fresh same-realm ArrayBuffer. WebCrypto rejects
- * cross-realm ArrayBuffers (e.g. what a sandboxed FileReader hands back),
- * so every buffer is normalised before it reaches subtle.*.
+ * Copy a buffer into a freshly-allocated typed-array view before it
+ * reaches WebCrypto. Node 20's WebIDL converter (vitest/jsdom on CI)
+ * rejects buffers whose constructor crossed a realm boundary (e.g. from
+ * a sandboxed FileReader); a fresh same-realm view always passes, in
+ * browsers and in Node.
  */
-function toRealmBytes(buf: ArrayBuffer): ArrayBuffer {
-  const out = new ArrayBuffer(buf.byteLength);
-  new Uint8Array(out).set(new Uint8Array(buf));
-  return out;
+function toRealmBytes(buf: ArrayBuffer): BufferSource {
+  const src = new Uint8Array(buf);
+  const copy = new Uint8Array(src.length);
+  copy.set(src);
+  return copy;
 }
 
 export async function encryptAudio(
