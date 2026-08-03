@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { DualPrice } from '../common/DualPrice';
+import { useT } from '../../i18n';
 import type { StakeInfo } from '../../types/api';
 
 interface StakePanelProps {
@@ -14,6 +15,7 @@ export function StakePanel({ stake, label, onLock, onConfirmPaid }: StakePanelPr
   const [locking, setLocking] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
+  const { t } = useT();
   const [error, setError] = useState<string | null>(null);
 
   const handleLock = async () => {
@@ -23,7 +25,7 @@ export function StakePanel({ stake, label, onLock, onConfirmPaid }: StakePanelPr
     try {
       await onLock();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to lock stake');
+      setError(err instanceof Error ? err.message : t('stake.lockFailed'));
     } finally {
       setLocking(false);
     }
@@ -36,7 +38,7 @@ export function StakePanel({ stake, label, onLock, onConfirmPaid }: StakePanelPr
     try {
       await onConfirmPaid();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to confirm payment');
+      setError(err instanceof Error ? err.message : t('stake.confirmFailed'));
     } finally {
       setConfirming(false);
     }
@@ -66,7 +68,7 @@ export function StakePanel({ stake, label, onLock, onConfirmPaid }: StakePanelPr
           stake.status === 'forfeited' ? 'text-donkey-red' :
           'text-donkey-orange'
         }`}>
-          {awaitingPayment ? 'awaiting payment' : stake.status}
+          {awaitingPayment ? t('stake.awaiting') : stake.status}
         </span>
       </div>
 
@@ -78,14 +80,14 @@ export function StakePanel({ stake, label, onLock, onConfirmPaid }: StakePanelPr
           onClick={handleLock}
           disabled={locking}
         >
-          {locking ? 'Locking...' : 'Lock Stake'}
+          {locking ? t('stake.locking') : t('stake.lock')}
         </button>
       )}
 
       {awaitingPayment && (
         <div className="mt-3 space-y-2">
           <p className="text-xs text-donkey-muted">
-            Pay this invoice to lock your stake, then confirm below.
+            {t('stake.payInvoice')}
           </p>
           <div className="p-2 bg-donkey-bg rounded text-xs font-mono break-all text-donkey-muted">
             {stake.invoice}
@@ -95,7 +97,7 @@ export function StakePanel({ stake, label, onLock, onConfirmPaid }: StakePanelPr
               className="btn-secondary flex-1 text-sm"
               onClick={copyInvoice}
             >
-              {copied ? 'Copied ✓' : 'Copy invoice'}
+              {copied ? t('profile.copied') : t('pay.copyInvoice')}
             </button>
             {onConfirmPaid && (
               <button
@@ -103,7 +105,7 @@ export function StakePanel({ stake, label, onLock, onConfirmPaid }: StakePanelPr
                 onClick={handleConfirmPaid}
                 disabled={confirming}
               >
-                {confirming ? 'Checking...' : "I've paid"}
+                {confirming ? t('stake.checking') : t('pay.iHavePaid')}
               </button>
             )}
           </div>

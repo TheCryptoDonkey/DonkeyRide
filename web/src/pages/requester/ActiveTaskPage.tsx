@@ -11,6 +11,9 @@ import { Loading } from '../../components/common/Loading';
 import { ChatPanel } from '../../components/task/ChatPanel';
 import { PickupCode } from '../../components/task/PickupCode';
 import { PickupAdjuster } from '../../components/task/PickupAdjuster';
+import { DestinationChanger } from '../../components/task/DestinationChanger';
+import { CancelReasonPicker } from '../../components/task/CancelReasonPicker';
+import { CredentialsCard } from '../../components/common/CredentialsCard';
 import { WaitingTimer } from '../../components/task/WaitingTimer';
 import { SearchingPanel } from '../../components/task/SearchingPanel';
 import { NoProvidersScreen } from '../../components/task/NoProvidersScreen';
@@ -41,12 +44,16 @@ import { createRideCheck, type RideCheckMonitor, type RideCheckReason } from '..
 import { routePositions } from '../../utils/geo';
 import { useT } from '../../i18n';
 import { describeVehicle } from '../../utils/vehicle';
+import { arrivalClock, etaMinutes, remainingSeconds } from '../../utils/eta';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import type { WsMessage, Task, LatLng, OperatorPaymentInfo } from '../../types/api';
 
 export function ActiveTaskPage() {
   const navigate = useNavigate();
-  const { activeTask, setActiveTask, origin, setOrigin, destination, providerLocation, setProviderLocation, reset } = useTask();
+  const {
+    activeTask, setActiveTask, origin, setOrigin, destination, setDestination,
+    providerLocation, setProviderLocation, reset,
+  } = useTask();
   const { identity } = useIdentity();
   const { profile } = useDomain();
   const { t } = useT();
@@ -54,6 +61,7 @@ export function ActiveTaskPage() {
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [reportProviderNoShow, setReportProviderNoShow] = useState(false);
+  const [cancelReason, setCancelReason] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [payment, setPayment] = useState<OperatorPaymentInfo | null>(null);
 
@@ -146,6 +154,12 @@ export function ActiveTaskPage() {
         setOrigin(msg.pickup);
         void refreshTask();
         break;
+      case 'dropoff_updated':
+        // Usually this phone did it; a second device must not be left
+        // showing the old destination and the old fare
+        setDestination(msg.dropoff);
+        void refreshTask();
+        break;
       case 'status_change':
         if (activeTask) {
           const updated = { ...activeTask, status: msg.status };
@@ -163,11 +177,13 @@ export function ActiveTaskPage() {
         void refreshTask();
         break;
       case 'settlement_confirmed':
-        showToast('Payment confirmed');
+        showToast(t('active.paymentConfirmed'));
         void refreshTask();
         break;
       case 'scheduled_reminder':
-        showToast(`Your ${taskNoun} is coming up — ${formatScheduledTime(msg.scheduledFor)}`);
+        showToast(t('active.comingUp', {
+          noun: taskNoun, time: formatScheduledTime(msg.scheduledFor),
+        }));
         break;
       case 'searching':
         // The search is still live and reaching further out
@@ -185,7 +201,7 @@ export function ActiveTaskPage() {
         setCancelledBy({ late: msg.lateCancellation === true });
         break;
     }
-  }, [activeTask, setActiveTask, setProviderLocation, setOrigin, navigate, profile, terminalStates, routeTerminal, refreshTask, reset, taskNoun]);
+  }, [activeTask, setActiveTask, setProviderLocation, setOrigin, setDestination, navigate, profile, terminalStates, routeTerminal, refreshTask, reset, taskNoun]);
 
   const { connected } = useWebSocket(activeTask?.id || null, handleWsMessage);
 
@@ -200,7 +216,7 @@ export function ActiveTaskPage() {
     void autoShareTrip(identity.privKeyHex, activeTask, taskNoun)
       .then((count) => {
         if (count > 0) {
-          showToast(`Trip shared with ${count} trusted contact${count === 1 ? '' : 's'}`);
+          showToast(t('active.tripShared', { n: count }));
         }
       })
       .catch(() => {});
@@ -299,7 +315,7 @@ export function ActiveTaskPage() {
     if (identity && rideCheck) {
       void sendRideCheckAlert(identity.privKeyHex, activeTask, rideCheck, currentLocation)
         .catch(() => {});
-      showToast('Your contacts have been alerted');
+      showToast(t('active.contactsAlerted'));
     }
     dismissRideCheck();
   };
@@ -312,7 +328,8 @@ export function ActiveTaskPage() {
       const noShowTarget = reportProviderNoShow ? activeTask.providerPubkey : null;
       await cancelTask(activeTask.id, {
         cancelledBy: identity.pubKeyHex,
-        reason: noShowTarget ? 'no_show' : 'Requester cancelled',
+        reason: noShowTarget ? 'no_show' : undefined,
+        reasonCode: noShowTarget ? 'no_show' : cancelReason,
       });
       // Signed by the rider, published to public relays — the counterparty's
       // future matches see it. Fire-and-forget: cancel never blocks on relays.
@@ -322,7 +339,7 @@ export function ActiveTaskPage() {
           reporterRole: 'requester',
           domainId: profile?.id,
         }).catch(() => {});
-        showToast('No-show reported');
+        showToast(t('active.noShowReported'));
       }
       reset();
       navigate('/request');
@@ -370,8 +387,18 @@ export function ActiveTaskPage() {
 
   const sharedCount = getSharedGuardians(activeTask.id).length;
 
+  // How long until they are here, and — once moving — until you are there.
+  // The in-trip number used to be the whole-journey estimate made at
+  // booking time, which stops being true the moment the trip starts.
   const arrivingMinutes = pickupEtaSeconds != null && pickupEtaSeconds >= 0
-    ? Math.max(1, Math.round(pickupEtaSeconds / 60))
+    ? etaMinutes(pickupEtaSeconds)
+    : null;
+  const tripRemaining = activeTask.startedAt
+    ? remainingSeconds({
+        liveEtaSeconds: pickupEtaSeconds,
+        durationMin: activeTask.durationMin,
+        startedAt: activeTask.startedAt,
+      })
     : null;
 
   const centre = providerLocation || pickupPoint;
@@ -410,8 +437,13 @@ export function ActiveTaskPage() {
 
           {/* Connection indicator */}
           <div className="absolute top-3 right-3 z-10">
-            <div className={`status-dot-glow ${connected ? 'glow-green' : 'glow-orange'}`}
-                 title={connected ? 'Connected' : 'Reconnecting...'} />
+            <div
+              className={`status-dot-glow ${connected ? 'glow-green' : 'glow-orange'}`}
+              role="status"
+              aria-live="polite"
+              aria-label={connected ? t('common.connected') : t('common.reconnecting')}
+              title={connected ? t('common.connected') : t('common.reconnecting')}
+            />
           </div>
         </div>
       ) : (
@@ -422,8 +454,13 @@ export function ActiveTaskPage() {
               Your {providerRoleLabel.toLowerCase()} is on the way
             </p>
             <div className="mt-3">
-              <div className={`status-dot-glow inline-block ${connected ? 'glow-green' : 'glow-orange'}`}
-                   title={connected ? 'Connected' : 'Reconnecting...'} />
+              <div
+                className={`status-dot-glow inline-block ${connected ? 'glow-green' : 'glow-orange'}`}
+                role="status"
+                aria-live="polite"
+                aria-label={connected ? t('common.connected') : t('common.reconnecting')}
+                title={connected ? t('common.connected') : t('common.reconnecting')}
+              />
             </div>
           </div>
         </div>
@@ -489,6 +526,20 @@ export function ActiveTaskPage() {
                   <p className="text-lg font-black text-donkey-green mt-1">
                     {t('active.arrivingIn', { n: arrivingMinutes })}
                   </p>
+                  <p className="text-xs text-donkey-muted">
+                    {t('active.atTime', { time: arrivalClock(pickupEtaSeconds!) })}
+                  </p>
+                </>
+              ) : tripRemaining != null ? (
+                <>
+                  {/* Under way: the question is when you GET THERE */}
+                  <p className="meta-label">{t('active.gettingThere')}</p>
+                  <p className="text-lg font-black text-donkey-green mt-1">
+                    {t('active.arrivingIn', { n: etaMinutes(tripRemaining) })}
+                  </p>
+                  <p className="text-xs text-donkey-muted">
+                    {t('active.atTime', { time: arrivalClock(tripRemaining) })}
+                  </p>
                 </>
               ) : activeTask.durationMin != null ? (
                 <>
@@ -507,6 +558,10 @@ export function ActiveTaskPage() {
             )}
           </div>
         )}
+
+        {/* What they say they hold — a claim you can check yourself, which
+            is the only verification anybody here can honestly offer */}
+        {matched && <CredentialsCard credentials={activeTask.providerCredentials} />}
 
         {/* Waiting time — a running meter belongs in front of both parties */}
         <WaitingTimer task={activeTask} role="requester" />
@@ -573,6 +628,26 @@ export function ActiveTaskPage() {
           </SheetSection>
         )}
 
+        {/* Plans change mid-journey. Re-prices, and shows the new number
+            before anything is committed. */}
+        {requiresDestination && !terminalStates.includes(activeTask.status) && (
+          <SheetSection
+            title={t('destination.section', { label: destinationLabel.toLowerCase() })}
+            icon="🏁"
+            rememberAs="rider-destination"
+          >
+            <DestinationChanger
+              task={activeTask}
+              destinationLabel={destinationLabel}
+              providerLabel={providerRoleLabel}
+              onUpdated={(updated) => {
+                setActiveTask(updated);
+                if (updated.dropoff) setDestination(updated.dropoff);
+              }}
+            />
+          </SheetSection>
+        )}
+
         {/* Not yet matched but still able to walk to a better kerb */}
         {!matched && pickupMovable && !terminalStates.includes(activeTask.status) && (
           <SheetSection title={t('sheet.pickup')} icon="📍" rememberAs="rider-pickup">
@@ -595,6 +670,7 @@ export function ActiveTaskPage() {
               selfPubkey={identity.pubKeyHex}
               counterpartyPubkey={activeTask.providerPubkey}
               counterpartyLabel={providerRoleLabel}
+              role="requester"
             />
           </SheetSection>
         )}
@@ -664,6 +740,11 @@ export function ActiveTaskPage() {
                   ? t('active.cancelMatchedNote', { label: providerRoleLabel.toLowerCase() })
                   : t('active.cancelNote')}
               </p>
+              <CancelReasonPicker
+                side="requester"
+                value={cancelReason}
+                onChange={setCancelReason}
+              />
               {activeTask.providerPubkey && !activeTask.startedAt && (
                 <label className="flex items-center gap-2 cursor-pointer min-h-[44px]">
                   <input

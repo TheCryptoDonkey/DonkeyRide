@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useIdentity } from '../../context/IdentityContext';
 import {
   encodeNsec, importIdentity,
@@ -6,6 +7,7 @@ import {
 } from '../../services/nostr';
 import { PaymentMethodsEditor } from '../../components/payment/PaymentMethodsEditor';
 import { VehicleEditor } from '../../components/provider/VehicleEditor';
+import { CredentialsEditor } from '../../components/provider/CredentialsEditor';
 import { AccessNeedsPicker } from '../../components/task/AccessNeedsPicker';
 import { NameEditor } from '../../components/common/NameEditor';
 import {
@@ -63,7 +65,7 @@ export function ProfilePage({ role }: ProfilePageProps) {
       await importIdentity(role, importValue);
       window.location.reload();
     } catch (err) {
-      setImportError(err instanceof Error ? err.message : 'Import failed');
+      setImportError(err instanceof Error ? err.message : t('profile.importFailed'));
     }
   };
 
@@ -106,15 +108,11 @@ export function ProfilePage({ role }: ProfilePageProps) {
       {recoveryNotice && (
         <div className="bg-donkey-orange/20 border border-donkey-orange rounded-lg p-4 space-y-2">
           <p className="text-donkey-orange text-sm font-semibold">
-            Stored identity could not be read; a new one was created.
-            Restore from backup below if you have one.
+            {t('profile.recoveryTitle')}
           </p>
-          <p className="text-xs text-donkey-muted">
-            The unreadable value was preserved in this browser's storage for
-            manual recovery.
-          </p>
+          <p className="text-xs text-donkey-muted">{t('profile.recoveryBody')}</p>
           <button className="btn-secondary w-full" onClick={dismissRecovery}>
-            Dismiss
+            {t('common.dismiss')}
           </button>
         </div>
       )}
@@ -123,11 +121,9 @@ export function ProfilePage({ role }: ProfilePageProps) {
       {manualCopy && (
         <div className="card space-y-2">
           <p className="text-xs uppercase tracking-wider text-donkey-muted">
-            Copy {manualCopy.label} manually
+            {t('profile.manualCopyTitle', { label: manualCopy.label })}
           </p>
-          <p className="text-sm text-donkey-muted">
-            Clipboard access is unavailable. Select the text below and copy it.
-          </p>
+          <p className="text-sm text-donkey-muted">{t('profile.manualCopyBody')}</p>
           <textarea
             readOnly
             rows={3}
@@ -137,7 +133,7 @@ export function ProfilePage({ role }: ProfilePageProps) {
             autoFocus
           />
           <button className="btn-secondary w-full" onClick={() => setManualCopy(null)}>
-            Close
+            {t('common.close')}
           </button>
         </div>
       )}
@@ -244,6 +240,16 @@ export function ProfilePage({ role }: ProfilePageProps) {
 
       {/* Provider only: the car a matched requester should look for */}
       {role === 'provider' && <VehicleEditor />}
+
+      {/* Provider only: licences and cover, declared and shown as a claim */}
+      {role === 'provider' && <CredentialsEditor />}
+
+      <Link
+        className="btn-secondary w-full text-center block"
+        to={role === 'provider' ? '/provide/help' : '/request/help'}
+      >
+        {t('help.title')}
+      </Link>
     </div>
   );
 }

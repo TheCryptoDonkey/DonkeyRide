@@ -7,6 +7,7 @@ import { ActiveTaskPage } from '../pages/requester/ActiveTaskPage';
 import { CompletionPage } from '../pages/requester/CompletionPage';
 import { HistoryPage } from '../pages/requester/HistoryPage';
 import { ProfilePage } from '../pages/shared/ProfilePage';
+import { HelpPage } from '../pages/shared/HelpPage';
 import { ExternalRedirect } from './ExternalRedirect';
 
 export function RiderApp() {
@@ -22,6 +23,7 @@ export function RiderApp() {
         <Route path="/request/complete" element={<CompletionPage />} />
         <Route path="/request/history" element={<HistoryPage />} />
         <Route path="/request/profile" element={<ProfilePage role="requester" />} />
+        <Route path="/request/help" element={<HelpPage role="requester" />} />
 
         {/* Backward-compatible redirects */}
         <Route path="/ride" element={<Navigate to="/request" replace />} />

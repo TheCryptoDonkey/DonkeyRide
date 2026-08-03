@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { DualPrice } from '../common/DualPrice';
+import { useT } from '../../i18n';
 import type { TaskQuote } from '../../types/api';
 
 interface QuotePanelProviderProps {
@@ -30,6 +31,7 @@ export function QuotePanel(props: QuotePanelProps) {
 }
 
 function ProviderQuoteForm({ onSubmit, existingQuote }: QuotePanelProviderProps) {
+  const { t } = useT();
   const [amount, setAmount] = useState(existingQuote?.amountSats?.toString() || '');
   const [description, setDescription] = useState(existingQuote?.description || '');
   const [submitting, setSubmitting] = useState(false);
@@ -45,7 +47,7 @@ function ProviderQuoteForm({ onSubmit, existingQuote }: QuotePanelProviderProps)
       await onSubmit(sats, description.trim());
       setSubmitted(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to submit quote');
+      setError(err instanceof Error ? err.message : t('quote.submitFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -62,11 +64,11 @@ function ProviderQuoteForm({ onSubmit, existingQuote }: QuotePanelProviderProps)
 
   return (
     <div className="card">
-      <p className="meta-label mb-2">Submit quote</p>
+      <p className="meta-label mb-2">{t('quote.submitTitle')}</p>
 
       <div className="space-y-3">
         <div>
-          <label className="text-xs text-donkey-muted block mb-1">Amount (sats)</label>
+          <label className="text-xs text-donkey-muted block mb-1">{t('quote.amount')}</label>
           <input
             type="number"
             className="input-field w-full"
@@ -78,11 +80,11 @@ function ProviderQuoteForm({ onSubmit, existingQuote }: QuotePanelProviderProps)
         </div>
 
         <div>
-          <label className="text-xs text-donkey-muted block mb-1">Description of work</label>
+          <label className="text-xs text-donkey-muted block mb-1">{t('quote.description')}</label>
           <textarea
             className="input-field w-full text-sm"
             rows={2}
-            placeholder="Describe the work required..."
+            placeholder={t('quote.descriptionPlaceholder')}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
@@ -93,7 +95,7 @@ function ProviderQuoteForm({ onSubmit, existingQuote }: QuotePanelProviderProps)
           onClick={handleSubmit}
           disabled={submitting || !amount || !description.trim()}
         >
-          {submitting ? 'Submitting...' : 'Submit Quote'}
+          {submitting ? t('quote.submitting') : t('quote.submit')}
         </button>
       </div>
 
@@ -103,6 +105,7 @@ function ProviderQuoteForm({ onSubmit, existingQuote }: QuotePanelProviderProps)
 }
 
 function RequesterQuoteReview({ quote, onAccept, onDecline }: QuotePanelRequesterProps) {
+  const { t } = useT();
   const [responding, setResponding] = useState(false);
   const [responded, setResponded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -114,7 +117,7 @@ function RequesterQuoteReview({ quote, onAccept, onDecline }: QuotePanelRequeste
       await onAccept();
       setResponded(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to accept quote');
+      setError(err instanceof Error ? err.message : t('quote.acceptFailed'));
     } finally {
       setResponding(false);
     }
@@ -127,7 +130,7 @@ function RequesterQuoteReview({ quote, onAccept, onDecline }: QuotePanelRequeste
       await onDecline();
       setResponded(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to decline quote');
+      setError(err instanceof Error ? err.message : t('quote.declineFailed'));
     } finally {
       setResponding(false);
     }
@@ -143,7 +146,7 @@ function RequesterQuoteReview({ quote, onAccept, onDecline }: QuotePanelRequeste
 
   return (
     <div className="card">
-      <p className="meta-label mb-2">Quote received</p>
+      <p className="meta-label mb-2">{t('quote.received')}</p>
 
       <div className="text-center mb-3">
         <DualPrice sats={quote.amountSats} size="lg" />
@@ -161,14 +164,14 @@ function RequesterQuoteReview({ quote, onAccept, onDecline }: QuotePanelRequeste
           onClick={handleDecline}
           disabled={responding}
         >
-          Decline
+          {t('common.decline')}
         </button>
         <button
           className="btn-primary flex-1"
           onClick={handleAccept}
           disabled={responding}
         >
-          {responding ? 'Processing...' : 'Accept Quote'}
+          {responding ? t('quote.processing') : t('quote.accept')}
         </button>
       </div>
 

@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import { useT } from '../../i18n';
 
 interface PhotoProofProps {
   taskId: string;
@@ -11,6 +12,7 @@ interface PhotoProofProps {
  * Uses `capture="environment"` for mobile rear camera access.
  */
 export function PhotoProof({ label = 'Photo proof', onSubmit }: PhotoProofProps) {
+  const { t } = useT();
   const [preview, setPreview] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -37,7 +39,7 @@ export function PhotoProof({ label = 'Photo proof', onSubmit }: PhotoProofProps)
       await onSubmit(file);
       setSubmitted(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upload proof');
+      setError(err instanceof Error ? err.message : t('proof.uploadFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -66,20 +68,20 @@ export function PhotoProof({ label = 'Photo proof', onSubmit }: PhotoProofProps)
         <div className="mb-3">
           <img
             src={preview}
-            alt="Proof preview"
+            alt={t('proof.previewAlt')}
             className="w-full h-40 object-cover rounded-lg border border-donkey-border"
           />
           <button
             className="text-xs text-donkey-muted underline mt-1"
             onClick={handleReset}
           >
-            Retake
+            {t('proof.retake')}
           </button>
         </div>
       ) : (
         <label className="block cursor-pointer mb-3">
           <div className="border-2 border-dashed border-donkey-border rounded-lg p-6 text-center hover:border-donkey-purple transition-colors">
-            <p className="text-sm text-donkey-muted">Tap to take a photo or select from gallery</p>
+            <p className="text-sm text-donkey-muted">{t('proof.tapToCapture')}</p>
           </div>
           <input
             ref={inputRef}
@@ -98,7 +100,7 @@ export function PhotoProof({ label = 'Photo proof', onSubmit }: PhotoProofProps)
           onClick={handleSubmit}
           disabled={submitting}
         >
-          {submitting ? 'Uploading...' : `Submit ${label}`}
+          {submitting ? t('proof.uploading') : t('proof.submit', { label })}
         </button>
       )}
 

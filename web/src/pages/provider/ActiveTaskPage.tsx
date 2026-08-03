@@ -33,7 +33,9 @@ import { PickupCode } from '../../components/task/PickupCode';
 import { WaitingTimer } from '../../components/task/WaitingTimer';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import { CancelledScreen } from '../../components/task/CancelledScreen';
+import { CancelReasonPicker } from '../../components/task/CancelReasonPicker';
 import { Sheet, SheetSection } from '../../components/layout/Sheet';
+import { dispatchService } from '../../services/dispatch';
 import { useT } from '../../i18n';
 import type { WsMessage } from '../../types/api';
 
@@ -44,15 +46,28 @@ const KNOWN_ENDPOINTS: Record<string, string> = {
   COMPLETED: 'complete',
 };
 
-/** Labels for state keys that don't have obvious display names */
-const STATE_KEY_LABELS: Record<string, string> = {
-  PROVIDER_ARRIVED: 'Mark Arrived',
-  ACTIVE: 'Start',
-  COMPLETED: 'Complete',
-  METHOD_CONFIRMED: 'Confirm Method',
-  COLLECTED: 'Mark Collected',
-  ARRIVED_AT_DELIVERY: 'Arrived at Delivery',
-};
+/**
+ * What to call the next step.
+ *
+ * This used to be a hardcoded English map with a titlecased enum as the
+ * fallback, so a Swahili driver read "Mark Arrived" and any domain state
+ * outside the map rendered as "Arrived At Delivery". Translation first,
+ * then the DOMAIN PROFILE's own words (which is the whole point of having
+ * profiles), and the prettified value only as a last resort.
+ */
+function actionLabel(
+  stateKey: string,
+  stateValue: string,
+  profile: { labels?: { activeVerb?: string; completedLabel?: string } } | null | undefined,
+  t: (key: string) => string,
+): string {
+  const key = `pactive.action.${stateKey}`;
+  const translated = t(key);
+  if (translated !== key) return translated;
+  if (stateKey === 'ACTIVE' && profile?.labels?.activeVerb) return profile.labels.activeVerb;
+  if (stateKey === 'COMPLETED' && profile?.labels?.completedLabel) return profile.labels.completedLabel;
+  return stateValue.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+}
 
 export function ActiveTaskPage() {
   const navigate = useNavigate();
@@ -65,6 +80,9 @@ export function ActiveTaskPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [reportRequesterNoShow, setReportRequesterNoShow] = useState(false);
+  const [cancelReason, setCancelReason] = useState<string | null>(null);
+  // "One more and I'm done" — spent on completion, never sent early
+  const [endShiftAfter, setEndShiftAfter] = useState(dispatchService.isEndingShiftAfterJob());
   const [declaredRail, setDeclaredRail] = useState<string | null>(null);
   // The requester cancelled — its own screen, with the option to record it
   const [cancelledOn, setCancelledOn] = useState<{ late: boolean } | null>(null);
@@ -122,25 +140,41 @@ export function ActiveTaskPage() {
         // turning into the old street.
         showToast(
           msg.address
-            ? `${originLabel} moved: ${msg.address}`
-            : `${originLabel} moved${msg.movedMetres ? ` ${msg.movedMetres} m` : ''}`,
+            ? t('pactive.pickupMovedTo', { label: originLabel, address: msg.address })
+            : t('pactive.pickupMovedBy', {
+                label: originLabel,
+                distance: msg.movedMetres ? ` ${msg.movedMetres} m` : '',
+              }),
+          { type: 'error' },
+        );
+        void refreshTask();
+        break;
+      case 'dropoff_updated':
+        // The rider changed where this ends. Loud: the driver may be
+        // navigating to the old one right now, and the fare moved with it.
+        showToast(
+          msg.address
+            ? t('pactive.dropoffMoved', { address: msg.address })
+            : t('pactive.dropoffMovedPlain'),
           { type: 'error' },
         );
         void refreshTask();
         break;
       case 'tip_sent':
-        showToast('Tip received');
+        showToast(t('pactive.tipReceived'));
         break;
       case 'settlement_declared':
         setDeclaredRail(msg.rail || null);
-        showToast('Rider says they have paid');
+        showToast(t('pactive.saysPaid', { label: requesterLabel.toLowerCase() }));
         void refreshTask();
         break;
       case 'settlement_confirmed':
         void refreshTask();
         break;
       case 'scheduled_reminder':
-        showToast(`Upcoming ${taskNoun} — ${formatScheduledTime(msg.scheduledFor)}`);
+        showToast(t('pactive.upcoming', {
+          noun: taskNoun, time: formatScheduledTime(msg.scheduledFor),
+        }));
         break;
       case 'task_cancelled':
         // A driver who drove to a pickup deserves the same record the rider
@@ -200,7 +234,7 @@ export function ActiveTaskPage() {
     try {
       await fn();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Action failed';
+      const message = err instanceof Error ? err.message : t('pactive.actionFailed');
       setActionError(message);
       showToast(message, { type: 'error' });
     } finally {
@@ -230,6 +264,8 @@ export function ActiveTaskPage() {
     // Anyone this job was shared with hears that it ended safely —
     // fire-and-forget so finishing never waits on relays
     void sendAllClear(identity.privKeyHex, updated.id, taskNoun).catch(() => {});
+    // "Finish after this one" is spent here, not when it was ticked
+    dispatchService.finishJob();
     navigate('/provide/complete');
   });
 
@@ -249,7 +285,8 @@ export function ActiveTaskPage() {
     const noShowTarget = reportRequesterNoShow ? activeTask.requesterPubkey : null;
     await cancelTask(activeTask.id, {
       cancelledBy: identity.pubKeyHex,
-      reason: noShowTarget ? 'no_show' : 'Provider cancelled',
+      reason: noShowTarget ? 'no_show' : undefined,
+      reasonCode: noShowTarget ? 'no_show' : cancelReason,
     });
     // Signed by the driver, published to public relays. Fire-and-forget:
     // cancelling the job never blocks on relay reachability.
@@ -259,7 +296,7 @@ export function ActiveTaskPage() {
         reporterRole: 'provider',
         domainId: profile?.id,
       }).catch(() => {});
-      showToast('No-show reported');
+      showToast(t('active.noShowReported'));
     }
     reset();
     navigate('/provide');
@@ -292,8 +329,7 @@ export function ActiveTaskPage() {
       const stateKey = Object.entries(profile.states.values)
         .find(([, v]) => v === nextStateValue)?.[0] || '';
 
-      const label = STATE_KEY_LABELS[stateKey]
-        || nextStateValue.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase());
+      const label = actionLabel(stateKey, nextStateValue, profile, t);
 
       // Decide which handler to use
       const endpoint = KNOWN_ENDPOINTS[stateKey];
@@ -335,7 +371,12 @@ export function ActiveTaskPage() {
 
           {/* Connection indicator */}
           <div className="absolute top-3 right-3 z-10">
-            <div className={`status-dot-glow ${connected ? 'glow-green' : 'glow-orange'}`} />
+            <div
+              className={`status-dot-glow ${connected ? 'glow-green' : 'glow-orange'}`}
+              role="status"
+              aria-live="polite"
+              aria-label={connected ? t('common.connected') : t('common.reconnecting')}
+            />
           </div>
         </div>
       ) : (
@@ -345,7 +386,12 @@ export function ActiveTaskPage() {
             <p className="text-sm text-donkey-muted mt-1">Use the controls below to manage the {taskNoun}</p>
           </div>
           <div className="absolute top-3 right-3 z-10">
-            <div className={`status-dot-glow ${connected ? 'glow-green' : 'glow-orange'}`} />
+            <div
+              className={`status-dot-glow ${connected ? 'glow-green' : 'glow-orange'}`}
+              role="status"
+              aria-live="polite"
+              aria-label={connected ? t('common.connected') : t('common.reconnecting')}
+            />
           </div>
         </div>
       )}
@@ -393,11 +439,38 @@ export function ActiveTaskPage() {
           </div>
         )}
 
+        {/* Who you are actually collecting, when it is not the person who
+            booked — a name to call out at the kerb and nothing more */}
+        {activeTask.passenger && !activeTask.startedAt && (
+          <div className="meta-card border border-donkey-blue/40">
+            <p className="meta-label">{t('passenger.travelling')}</p>
+            <p className="text-sm font-bold text-donkey-text mt-1">
+              {activeTask.passenger.name || t('passenger.unnamed')}
+            </p>
+            {activeTask.passenger.note && (
+              <p className="text-sm text-donkey-text mt-1">{activeTask.passenger.note}</p>
+            )}
+          </div>
+        )}
+
         {/* Where exactly to pull in */}
         {activeTask.pickupAddress && !activeTask.startedAt && (
           <div className="meta-card">
             <p className="meta-label">{originLabel}</p>
             <p className="text-sm text-donkey-text mt-1">{activeTask.pickupAddress}</p>
+          </div>
+        )}
+
+        {/* Where this ends, in words. The driver could see the destination
+            only as a map pin and a nav button — fine until you decline the
+            hand-off, or the rider changes it mid-trip. */}
+        {requiresDestination && (activeTask.dropoffAddress || activeTask.dropoff) && (
+          <div className="meta-card">
+            <p className="meta-label">{destinationLabel}</p>
+            <p className="text-sm text-donkey-text mt-1">
+              {activeTask.dropoffAddress
+                || `${activeTask.dropoff!.lat.toFixed(4)}, ${activeTask.dropoff!.lng.toFixed(4)}`}
+            </p>
           </div>
         )}
 
@@ -504,6 +577,7 @@ export function ActiveTaskPage() {
               selfPubkey={identity.pubKeyHex}
               counterpartyPubkey={activeTask.requesterPubkey}
               counterpartyLabel={profile?.roles.requester || 'Requester'}
+              role="provider"
             />
           </SheetSection>
         )}
@@ -591,6 +665,23 @@ export function ActiveTaskPage() {
 
         {/* Actions */}
         <div className="pt-1 space-y-2">
+          {/* Finishing for the day used to mean choosing between abandoning
+              this job and remembering later */}
+          {!isTerminal && !showCancelConfirm && dispatchService.isOnline() && (
+            <label className="flex items-center gap-2 cursor-pointer min-h-[44px]">
+              <input
+                type="checkbox"
+                className="w-4 h-4 accent-donkey-blue"
+                checked={endShiftAfter}
+                onChange={(e) => {
+                  setEndShiftAfter(e.target.checked);
+                  dispatchService.setEndShiftAfterJob(e.target.checked);
+                }}
+              />
+              <span className="text-xs text-donkey-text">{t('pactive.endShiftAfter')}</span>
+            </label>
+          )}
+
           {profile?.features.safetyAlerts && !showCancelConfirm && (
             <PanicButton onPanic={handlePanic} />
           )}
@@ -611,6 +702,11 @@ export function ActiveTaskPage() {
               <p className="text-xs text-donkey-muted">
                 {t('pactive.cancelNote', { label: requesterLabel.toLowerCase() })}
               </p>
+              <CancelReasonPicker
+                side="provider"
+                value={cancelReason}
+                onChange={setCancelReason}
+              />
               {!activeTask.startedAt && (
                 <label className="flex items-center gap-2 cursor-pointer min-h-[44px]">
                   <input

@@ -179,7 +179,18 @@ export function normaliseTask(raw: any): Task {
     accessNeeds: Array.isArray(r.accessNeeds) ? r.accessNeeds
       : Array.isArray(r.access_needs) ? r.access_needs : undefined,
     pickupAddress: r.pickupAddress || r.pickup_address || undefined,
+    // Never normalised before, so the driver's active screen had nowhere to
+    // read the destination from and could only offer a nav hand-off
+    dropoffAddress: r.dropoffAddress || r.dropoff_address || undefined,
     pickupNote: r.pickupNote || r.pickup_note || undefined,
+    providerCredentials: Array.isArray(r.providerCredentials)
+      ? r.providerCredentials : undefined,
+    passenger: r.passenger && typeof r.passenger === 'object'
+      ? {
+          name: r.passenger.name || undefined,
+          note: r.passenger.note || undefined,
+        }
+      : undefined,
     option: r.option || undefined,
     waiting: r.waiting && typeof r.waiting.sats === 'number'
       ? { minutes: r.waiting.minutes ?? 0, sats: r.waiting.sats }
@@ -193,6 +204,8 @@ export function normaliseTask(raw: any): Task {
     routeGeometry: normaliseRoute(r.route ?? r.routeGeometry),
     scheduledFor: r.scheduledFor ?? r.scheduled_for ?? null,
     cancellationReason: r.cancelReason ?? r.cancellation_reason ?? undefined,
+    cancellationReasonCode: r.cancellationReasonCode ?? r.cancellation_reason_code ?? undefined,
+    cancelledSide: r.cancelledSide ?? r.cancelled_side ?? undefined,
     lateCancellation: r.lateCancellation === true,
     settlement: normaliseSettlement(r.settlementRecord ?? r.settlement),
     createdAt: r.timestamps?.requested
@@ -313,6 +326,12 @@ export async function requestTask(params: {
   surgeMultiplier?: number;
   /** Favourite providers this rider wants given a head start */
   preferredProviders?: string[];
+  /**
+   * Booking for somebody else: who is actually travelling. The provider
+   * needs a name to call out at the kerb; the operator keeps it in memory
+   * and it never reaches a relay.
+   */
+  passenger?: { name?: string; note?: string } | null;
 }): Promise<Task> {
   const body: Record<string, unknown> = {
     pickup_lat: params.pickup.lat,
@@ -346,6 +365,10 @@ export async function requestTask(params: {
 
   if (params.preferredProviders && params.preferredProviders.length > 0) {
     body.preferred_providers = params.preferredProviders;
+  }
+
+  if (params.passenger && (params.passenger.name || params.passenger.note)) {
+    body.passenger = params.passenger;
   }
 
   if (params.dropoff) {
@@ -391,6 +414,12 @@ export async function acceptTask(taskId: string, params: {
   serviceOptions?: string[];
   /** Access features this vehicle offers — required for a job that needs them */
   accessFeatures?: string[];
+  /**
+   * Licences and cover this provider declares they hold. Self-attested and
+   * shown to the requester; the operator never verifies it and never says
+   * it did. Expired claims are dropped operator-side.
+   */
+  credentials?: Array<{ id: string; expiresAt?: number; reference?: string }>;
 }, base?: string): Promise<Task> {
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/accept`, {
     method: 'POST',
@@ -408,6 +437,8 @@ export async function acceptTask(taskId: string, params: {
         ? { service_options: params.serviceOptions } : {}),
       ...(params.accessFeatures && params.accessFeatures.length > 0
         ? { access_features: params.accessFeatures } : {}),
+      ...(params.credentials && params.credentials.length > 0
+        ? { credentials: params.credentials } : {}),
     }),
   }, base);
   return stampOrigin(normaliseTask(raw), base);
@@ -510,10 +541,20 @@ export async function transitionTask(taskId: string, params: {
 export function cancelTask(taskId: string, params: {
   cancelledBy: string;
   reason?: string;
+  /**
+   * A code from the vocabulary this side may use. Free text told nobody
+   * anything: someone whose driver never moved and someone who changed
+   * their mind produced identical records.
+   */
+  reasonCode?: string | null;
 }, base?: string): Promise<{ success: boolean }> {
+  const { reasonCode, ...rest } = params;
   return request(`/api/tasks/${taskId}/cancel`, {
     method: 'POST',
-    body: JSON.stringify(params),
+    body: JSON.stringify({
+      ...rest,
+      ...(reasonCode ? { reason_code: reasonCode } : {}),
+    }),
   }, base);
 }
 
@@ -529,6 +570,12 @@ export async function submitRating(taskId: string, params: {
   raterRole: 'requester' | 'provider';
   targetPubkey?: string;
   domainId: string;
+  /**
+   * What was actually good or bad, as codes rather than prose. A star with
+   * a free-text box tells an aggregator nothing it can act on, and these
+   * events live on public relays where structure is worth far more.
+   */
+  feedback?: string[];
 }, base?: string): Promise<{ success: boolean }> {
   if (!_authPrivKey) {
     throw new Error('No identity available to sign the rating');
@@ -541,6 +588,9 @@ export async function submitRating(taskId: string, params: {
   ];
   if (params.targetPubkey) tags.push(['p', params.targetPubkey]);
   tags.push(['domain', params.domainId]);
+  for (const code of params.feedback || []) {
+    tags.push(['feedback', code]);
+  }
 
   const event = await signNostrEvent({
     kind: 30520,
@@ -1138,11 +1188,175 @@ export interface DriverEarnings {
     tips: number;
     currency: string;
     rating: number | null;
-    settlement: { method: string | null; status: string | null; trust_model: string | null } | null;
+    settlement: {
+      method: string | null;
+      /** Non-custodial rail id (lnaddress|tando|mpesa|cash) */
+      rail?: string | null;
+      status: string | null;
+      trust_model: string | null;
+    } | null;
   }>;
 }
 
 /** GET /api/drivers/:pubkey/earnings — driver earnings + completed rides */
 export function getDriverEarnings(pubkey: string): Promise<DriverEarnings> {
   return request(`/api/drivers/${pubkey}/earnings`);
+}
+
+// ── Changing the destination ────────────────────────
+
+export interface DropoffChange {
+  success: boolean;
+  preview?: boolean;
+  fare_sats: number;
+  previous_fare_sats: number;
+  fare_change_sats: number;
+  distance_km: number;
+  duration_minutes: number;
+  moved_m: number;
+}
+
+function toServerStop(stop: { lat: number; lng: number; address?: string }) {
+  return { lat: stop.lat, lon: stop.lng, ...(stop.address ? { address: stop.address } : {}) };
+}
+
+/**
+ * POST /api/tasks/:id/dropoff — change where the job ends.
+ *
+ * Unlike moving the pickup (a walk, so the agreed fare stands), a new
+ * destination is different work and re-prices on the terms already agreed.
+ * Preview first, so the requester sees the new number BEFORE committing.
+ */
+export function previewTaskDropoff(taskId: string, params: {
+  location?: LatLng | null;
+  stops?: Array<{ lat: number; lng: number; address?: string }>;
+}, base?: string): Promise<DropoffChange> {
+  return request(`/api/tasks/${taskId}/dropoff`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...(params.location ? { lat: params.location.lat, lon: params.location.lng } : {}),
+      ...(params.stops ? { stops: params.stops.map(toServerStop) } : {}),
+      preview: true,
+    }),
+  }, base);
+}
+
+export async function changeTaskDropoff(taskId: string, params: {
+  location?: LatLng | null;
+  address?: string | null;
+  stops?: Array<{ lat: number; lng: number; address?: string }>;
+}, base?: string): Promise<{ task: Task; change: DropoffChange }> {
+  const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/dropoff`, {
+    method: 'POST',
+    body: JSON.stringify({
+      ...(params.location ? { lat: params.location.lat, lon: params.location.lng } : {}),
+      ...(params.address ? { address: params.address } : {}),
+      ...(params.stops ? { stops: params.stops.map(toServerStop) } : {}),
+    }),
+  }, base);
+  return {
+    task: stampOrigin(normaliseTask((raw as { ride?: unknown }).ride ?? raw), base),
+    change: raw as unknown as DropoffChange,
+  };
+}
+
+// ── Where the work is ───────────────────────────────
+
+export interface DemandCell {
+  geohash: string;
+  lat: number;
+  lon: number;
+  waiting: number;
+  available: number;
+  multiplier: number;
+}
+
+/**
+ * GET /api/demand — aggregated waiting requests, ~5 km cells.
+ *
+ * Counts only: no pickup, no identity, and never a cell with a single
+ * person in it. A driver deciding where to wait has had nothing to go on
+ * but their own guess.
+ */
+export async function getDemand(): Promise<{ cells: DemandCell[]; surgeEnabled: boolean }> {
+  const raw = await request<{ cells?: DemandCell[]; surge_enabled?: boolean }>('/api/demand');
+  return { cells: raw.cells || [], surgeEnabled: raw.surge_enabled === true };
+}
+
+// ── Cancellation vocabulary ─────────────────────────
+
+/** GET /api/cancellation-reasons — the codes each side may give */
+export async function getCancellationReasons(): Promise<{
+  requester: string[];
+  provider: string[];
+}> {
+  const raw = await request<{ reasons?: { requester?: string[]; provider?: string[] } }>(
+    '/api/cancellation-reasons',
+  );
+  return {
+    requester: raw.reasons?.requester || [],
+    provider: raw.reasons?.provider || [],
+  };
+}
+
+// ── Disputes ────────────────────────────────────────
+
+export type DisputeType = 'payment' | 'conduct' | 'safety' | 'quality' | 'no_show';
+
+export interface DisputeRecord {
+  id: string;
+  taskId?: string;
+  disputeType?: string;
+  status?: string;
+  complainantPubkey?: string;
+  respondentPubkey?: string;
+  description?: string;
+  createdAt?: number;
+  resolution?: { outcome?: string; rationale?: string } | null;
+}
+
+/**
+ * POST /api/tasks/:id/dispute — raise a TROTT-05b dispute (kind 7543).
+ *
+ * Signed by the complainant, exactly like a rating: the operator records
+ * and arbitrates, it never authors the claim. The whole subsystem —
+ * evidence, assignment, resolution, appeals — has existed server-side with
+ * no way for a participant to reach it.
+ */
+export async function raiseDispute(taskId: string, params: {
+  disputeType: DisputeType;
+  description: string;
+  respondentPubkey?: string;
+  domainId?: string;
+}, base?: string): Promise<{ success: boolean; dispute_id?: string }> {
+  if (!_authPrivKey) {
+    throw new Error('No identity available to sign the dispute');
+  }
+  const tags: string[][] = [
+    ['ride', taskId],
+    ['task_id', taskId],
+    ['dispute_type', params.disputeType],
+  ];
+  if (params.respondentPubkey) tags.push(['p', params.respondentPubkey]);
+  if (params.domainId) tags.push(['domain', params.domainId]);
+
+  const event = await signNostrEvent({
+    kind: 7543,
+    created_at: Math.floor(Date.now() / 1000),
+    tags,
+    content: params.description,
+  }, _authPrivKey);
+
+  return request(`/api/tasks/${taskId}/dispute`, {
+    method: 'POST',
+    body: JSON.stringify({ event }),
+  }, base);
+}
+
+/** GET /api/tasks/:id/disputes — disputes raised on a task (participant-gated) */
+export async function getTaskDisputes(taskId: string, base?: string): Promise<DisputeRecord[]> {
+  const raw = await request<{ disputes?: DisputeRecord[] }>(
+    `/api/tasks/${taskId}/disputes`, undefined, base,
+  );
+  return raw.disputes || [];
 }

@@ -67,6 +67,10 @@ export function StatusBadge({ status, role = 'requester', className }: StatusBad
 
   return (
     <span
+      // The state changing IS the news on these screens, and a screen
+      // reader user has no map to glance at
+      role="status"
+      aria-live="polite"
       className={`inline-block px-3 py-1 rounded-full text-xs font-bold ${colourClass} ${className || ''}`}
     >
       {label}

@@ -166,9 +166,12 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
   if (confirmed) {
     return (
       <div className="card text-center space-y-2">
-        <p className="text-donkey-green font-bold">Payment confirmed</p>
+        <p className="text-donkey-green font-bold">{t('pay.confirmed')}</p>
         <p className="text-xs text-donkey-muted">
-          Your {providerLabel} confirmed they received {RAIL_LABELS[settledRail] || settledRail}.
+          {t('pay.confirmedBody', {
+            label: providerLabel,
+            rail: RAIL_LABELS[settledRail] || settledRail,
+          })}
         </p>
         <p className="text-[11px] text-donkey-muted">{t('pay.honest')}</p>
       </div>
@@ -179,13 +182,15 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
   if (declared) {
     return (
       <div className="card text-center space-y-2">
-        <p className="text-donkey-green font-bold">Payment recorded</p>
+        <p className="text-donkey-green font-bold">{t('pay.recorded')}</p>
         <p className="text-sm text-donkey-text">
-          Waiting for the {providerLabel} to confirm they received it
-          {settledRail ? ` (${RAIL_LABELS[settledRail] || settledRail})` : ''}.
+          {t('pay.waitingConfirm', {
+            label: providerLabel,
+            rail: settledRail ? ` (${RAIL_LABELS[settledRail] || settledRail})` : '',
+          })}
         </p>
         {settlement?.verified && (
-          <p className="text-xs text-donkey-green">Verified by preimage.</p>
+          <p className="text-xs text-donkey-green">{t('pay.verifiedPreimage')}</p>
         )}
         <p className="text-[11px] text-donkey-muted">{t('pay.honest')}</p>
       </div>
@@ -195,7 +200,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
   return (
     <div className="card space-y-4">
       <div>
-        <p className="section-title">Pay your {providerLabel}</p>
+        <p className="section-title">{t('pay.title', { label: providerLabel })}</p>
         <div className="mt-1"><DualPrice sats={amountSats} size="md" /></div>
         <p className="text-[11px] text-donkey-muted mt-1">{t('pay.honest')}</p>
       </div>
@@ -206,7 +211,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
       {!selectedRail && (
         <div className="space-y-2">
           {methods.length === 0 && !optionsError && (
-            <p className="text-sm text-donkey-muted">Loading payment options…</p>
+            <p className="text-sm text-donkey-muted">{t('pay.loadingOptions')}</p>
           )}
           {methods.map((m) => (
             <button
@@ -215,7 +220,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
               onClick={() => selectRail(m.rail)}
             >
               <span className="font-bold">{RAIL_LABELS[m.rail] || m.rail}</span>
-              <span className="text-xs text-donkey-muted">Pay direct</span>
+              <span className="text-xs text-donkey-muted">{t('pay.direct')}</span>
             </button>
           ))}
         </div>
@@ -232,7 +237,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
           </button>
 
           {busy === 'instruction' && (
-            <p className="text-sm text-donkey-muted">Preparing payment…</p>
+            <p className="text-sm text-donkey-muted">{t('pay.preparing')}</p>
           )}
 
           {/* Lightning / Tando */}
@@ -254,7 +259,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
                   className="btn-primary flex-1 text-center text-sm"
                   href={instruction.payLink || `lightning:${instruction.invoice}`}
                 >
-                  Open in wallet
+                  {t('pay.openInWallet')}
                 </a>
                 <button className="btn-secondary flex-1 text-sm" onClick={handleCopyInvoice}>
                   {copied ? t('profile.copied') : t('pay.copyInvoice')}
@@ -272,12 +277,12 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
                   onClick={handlePayWithNwc}
                   disabled={busy === 'nwc' || busy === 'settle'}
                 >
-                  {busy === 'nwc' ? 'Paying with wallet…' : 'Pay with connected wallet (NWC)'}
+                  {busy === 'nwc' ? t('pay.payingWallet') : t('pay.payWithWallet')}
                 </button>
               ) : (
                 <div className="space-y-2">
                   <p className="text-xs text-donkey-muted">
-                    Or connect a Lightning wallet to pay in one tap:
+                    {t('pay.connectPrompt')}
                   </p>
                   <input
                     type="text"
@@ -292,7 +297,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
                     onClick={handleConnectWallet}
                     disabled={!nwcUri.trim()}
                   >
-                    Connect wallet
+                    {t('pay.connectWallet')}
                   </button>
                 </div>
               )}
@@ -315,7 +320,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
                   onClick={() => doSettle(selectedRail, { preimage: preimage.trim() })}
                   disabled={busy === 'settle' || !preimage.trim()}
                 >
-                  {busy === 'settle' ? 'Recording…' : 'I have paid'}
+                  {busy === 'settle' ? t('pay.recording') : t('pay.iHavePaid')}
                 </button>
               </div>
             </div>
@@ -325,7 +330,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
           {instruction && selectedRail === 'mpesa' && (
             <div className="space-y-3">
               <div className="meta-card">
-                <p className="meta-label">Send Money to</p>
+                <p className="meta-label">{t('pay.sendMoneyTo')}</p>
                 <p className="text-lg font-black text-donkey-text mt-1">{instruction.mpesaNumber}</p>
                 <p className="text-sm text-donkey-text mt-1">
                   {instruction.amount} {instruction.currency}
@@ -353,7 +358,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
                 onClick={() => doSettle(selectedRail, { confirmationCode: confirmationCode.trim() })}
                 disabled={busy === 'settle' || !confirmationCode.trim()}
               >
-                {busy === 'settle' ? 'Recording…' : 'Submit confirmation code'}
+                {busy === 'settle' ? t('pay.recording') : t('pay.submitCode')}
               </button>
             </div>
           )}
@@ -362,7 +367,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
           {instruction && selectedRail === 'cashu' && (
             <div className="space-y-3">
               <div className="meta-card text-center">
-                <p className="meta-label">Send ecash in the chat</p>
+                <p className="meta-label">{t('pay.sendEcash')}</p>
                 <p className="text-lg font-black text-donkey-text mt-1">
                   {amountSats.toLocaleString()} sats
                 </p>
@@ -374,7 +379,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
               </ol>
               {instruction.paymentRequest && (
                 <div className="meta-card">
-                  <p className="meta-label">Their payment request</p>
+                  <p className="meta-label">{t('pay.theirRequest')}</p>
                   <p className="text-xs font-mono text-donkey-text mt-1 break-all">
                     {instruction.paymentRequest}
                   </p>
@@ -389,7 +394,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
                 onClick={() => doSettle('cashu', {})}
                 disabled={busy === 'settle'}
               >
-                {busy === 'settle' ? 'Recording…' : "I've sent the token in chat"}
+                {busy === 'settle' ? t('pay.recording') : t('pay.sentToken')}
               </button>
             </div>
           )}
@@ -398,7 +403,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
           {instruction && selectedRail === 'cash' && (
             <div className="space-y-3">
               <div className="meta-card text-center">
-                <p className="meta-label">Pay in cash</p>
+                <p className="meta-label">{t('pay.payCash')}</p>
                 <p className="text-lg font-black text-donkey-text mt-1">
                   {instruction.amount} {instruction.currency}
                 </p>
@@ -411,7 +416,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
                 onClick={() => doSettle('cash', {})}
                 disabled={busy === 'settle'}
               >
-                {busy === 'settle' ? 'Recording…' : 'Mark as paid'}
+                {busy === 'settle' ? t('pay.recording') : t('pay.markPaid')}
               </button>
             </div>
           )}

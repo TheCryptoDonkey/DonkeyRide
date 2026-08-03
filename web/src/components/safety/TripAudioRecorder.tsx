@@ -98,7 +98,7 @@ export function TripAudioRecorder({ taskId, counterpartyPubkey }: TripAudioRecor
     <div className="meta-card">
       {recording ? (
         <div className="flex items-center gap-3">
-          <span className="w-2.5 h-2.5 rounded-full bg-donkey-red animate-pulse" aria-hidden />
+          <span className="w-2.5 h-2.5 rounded-full bg-donkey-red animate-pulse motion-reduce:animate-none" aria-hidden />
           <span className="flex-1 text-sm text-donkey-text font-semibold">{t('audio.recording')}</span>
           <button className="btn-secondary text-xs px-3" onClick={stop}>
             {t('audio.stop')}

@@ -12,7 +12,7 @@ export function Loading({ message = 'Loading...', className }: LoadingProps) {
     >
       <div className="text-center">
         <div
-          className="animate-spin h-6 w-6 border-2 border-donkey-purple border-t-transparent rounded-full mx-auto mb-3"
+          className="animate-spin motion-reduce:animate-none h-6 w-6 border-2 border-donkey-purple border-t-transparent rounded-full mx-auto mb-3"
           aria-hidden="true"
         />
         <p className="text-donkey-muted text-sm">{message}</p>

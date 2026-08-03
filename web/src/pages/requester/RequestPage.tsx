@@ -5,6 +5,7 @@ import { LocationMarker } from '../../components/map/LocationMarker';
 import { RoutePolyline } from '../../components/map/RoutePolyline';
 import { DualPrice } from '../../components/common/DualPrice';
 import { Loading } from '../../components/common/Loading';
+import { Sheet, SheetSection } from '../../components/layout/Sheet';
 import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { useDomain } from '../../context/DomainContext';
@@ -18,6 +19,7 @@ import { loadGender } from '../../utils/gender';
 import { favouritePubkeys } from '../../utils/favourites';
 import { AccessNeedsPicker } from '../../components/task/AccessNeedsPicker';
 import { loadAccessNeeds, saveAccessNeeds } from '../../utils/access-needs';
+import { formatScheduledTime } from '../../utils/datetime';
 import type { TaskStop } from '../../types/api';
 
 const MAX_STOPS = 2;
@@ -31,6 +33,18 @@ function toLocalInputValue(date: Date): string {
 const MIN_SCHEDULE_AHEAD_MS = 20 * 60 * 1000;
 const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 3600 * 1000;
 
+/**
+ * Confirm the job.
+ *
+ * This screen used to stack eight always-open blocks under a map that
+ * `flex-1` then squeezed to nothing — price, breakdown, class picker,
+ * stops, note, access needs, timing, women-only — with the primary button
+ * somewhere past the bottom of the fold, and the CLASS PICKER BELOW THE
+ * BREAKDOWN IT DETERMINES. It now follows the shape the active screens
+ * already use: what you are buying stays visible, the choices that change
+ * it lead, everything optional is one tap away, and the action bar is
+ * pinned so the price you are agreeing to is on the button you press.
+ */
 export function RequestPage() {
   const navigate = useNavigate();
   const { t, td } = useT();
@@ -60,6 +74,11 @@ export function RequestPage() {
   const [womenOnly, setWomenOnly] = useState(false);
   // Meeting instructions a pin cannot express
   const [pickupNote, setPickupNote] = useState('');
+  // Booking for somebody else — a parent sending a child home, an office
+  // booking for a client. The provider needs a name to call out.
+  const [forSomeoneElse, setForSomeoneElse] = useState(false);
+  const [passengerName, setPassengerName] = useState('');
+  const [passengerNote, setPassengerNote] = useState('');
   // What this journey needs. Remembered on the device so a wheelchair user
   // is not re-declaring it every single time.
   const [accessNeeds, setAccessNeeds] = useState<string[]>(loadAccessNeeds);
@@ -91,6 +110,7 @@ export function RequestPage() {
   const originLabel = td(profile?.labels?.originLabel || 'Pickup');
   const destinationLabel = td(profile?.labels?.destinationLabel || 'Dropoff');
   const taskNoun = td(profile?.labels?.taskNoun || 'ride');
+  const providerLabel = td(profile?.roles.provider || 'Provider');
 
   // Back-navigation guard: an existing active task means no second request
   useEffect(() => {
@@ -159,6 +179,9 @@ export function RequestPage() {
         // The multiplier this screen showed — the server will not exceed it
         surgeMultiplier: estimate?.surge?.multiplier,
         preferredProviders: favourites,
+        passenger: forSomeoneElse && (passengerName.trim() || passengerNote.trim())
+          ? { name: passengerName.trim() || undefined, note: passengerNote.trim() || undefined }
+          : null,
       });
       setActiveTask(task);
       // Decentralised announcement — geohash-only, best-effort, relays only.
@@ -181,42 +204,69 @@ export function RequestPage() {
 
   if (!origin) return null;
 
-  const providerLabel = td(profile?.roles.provider || 'Provider');
+  const headlineSats = chosenOption?.fareSats ?? estimate?.fareEstimateSats ?? 0;
 
-  // Service classes — real prices, not a multiplier the rider must guess
+  // ── The choices, each one tap away ──────────────────────────────
+
+  /** Service classes — real prices, and ABOVE the breakdown they determine */
   const optionPicker = serviceOptions.length > 1 ? (
-    <div className="meta-card mb-4">
-      <p className="meta-label mb-2">{t('request.optionTitle')}</p>
-      <div className="space-y-2">
-        {serviceOptions.map((o) => (
-          <button
-            key={o.id}
-            className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg border text-left transition-colors ${
-              chosenOption?.id === o.id
-                ? 'border-donkey-blue bg-donkey-blue/10'
-                : 'border-donkey-border'
-            }`}
-            onClick={() => setOption(o.id)}
-          >
-            <span className="min-w-0">
-              <span className="block text-sm font-semibold text-donkey-text">{o.label}</span>
-              {o.description && (
-                <span className="block text-xs text-donkey-muted truncate">{o.description}</span>
-              )}
-            </span>
-            <span className="shrink-0">
-              <DualPrice sats={o.fareSats} size="md" compact />
-            </span>
-          </button>
-        ))}
-      </div>
+    <div className="space-y-2">
+      <p className="meta-label">{t('request.optionTitle')}</p>
+      {serviceOptions.map((o) => (
+        <button
+          key={o.id}
+          aria-pressed={chosenOption?.id === o.id}
+          className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg border text-left transition-colors min-h-[52px] ${
+            chosenOption?.id === o.id
+              ? 'border-donkey-blue bg-donkey-blue/10'
+              : 'border-donkey-border'
+          }`}
+          onClick={() => setOption(o.id)}
+        >
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-donkey-text">{o.label}</span>
+            {o.description && (
+              <span className="block text-xs text-donkey-muted truncate">{o.description}</span>
+            )}
+          </span>
+          <span className="shrink-0">
+            <DualPrice sats={o.fareSats} size="md" compact />
+          </span>
+        </button>
+      ))}
     </div>
   ) : null;
 
-  // Multi-stop: add up to MAX_STOPS calling points along the way
+  const fareBreakdown = (
+    <>
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <div>
+          <DualPrice sats={breakdown.baseFareSats} size="sm" compact />
+          <p className="text-donkey-muted">{t('request.base')}</p>
+        </div>
+        <div>
+          <DualPrice sats={breakdown.distanceFareSats} size="sm" compact />
+          <p className="text-donkey-muted">{t('request.distance')}</p>
+        </div>
+        <div>
+          <DualPrice sats={breakdown.timeFareSats} size="sm" compact />
+          <p className="text-donkey-muted">{t('request.time')}</p>
+        </div>
+      </div>
+      {breakdown.operatorFeeSats > 0 && (
+        <p className="text-donkey-muted text-xs mt-2">
+          {t('request.includesFee')}{' '}
+          <DualPrice sats={breakdown.operatorFeeSats} size="sm" compact />
+        </p>
+      )}
+      {estimate?.routed === false && (
+        <p className="text-donkey-muted text-xs mt-2">{t('request.straightLine')}</p>
+      )}
+    </>
+  );
+
   const stopsPicker = (
-    <div className="meta-card mb-4">
-      <p className="meta-label mb-2">{t('request.stopsTitle')}</p>
+    <>
       {stops.map((stop, i) => (
         <div key={`${stop.lat},${stop.lng},${i}`} className="flex items-center gap-2 mb-2">
           <span className="text-donkey-blue text-xs font-black w-5">{i + 1}.</span>
@@ -224,9 +274,9 @@ export function RequestPage() {
             {stop.address || `${stop.lat.toFixed(4)}, ${stop.lng.toFixed(4)}`}
           </p>
           <button
-            className="text-donkey-muted text-xs"
+            className="text-donkey-muted text-xs min-h-[44px] px-2"
             onClick={() => setStops(stops.filter((_, j) => j !== i))}
-            aria-label={`Remove stop ${i + 1}`}
+            aria-label={t('request.removeStop', { n: i + 1 })}
           >
             ✕
           </button>
@@ -244,7 +294,7 @@ export function RequestPage() {
         />
       ) : stops.length < MAX_STOPS ? (
         <button
-          className="text-donkey-blue text-sm font-semibold"
+          className="text-donkey-blue text-sm font-semibold min-h-[44px]"
           onClick={() => setAddingStop(true)}
         >
           {t('request.addStop')}
@@ -255,33 +305,72 @@ export function RequestPage() {
           {t('request.stopsNote', { label: providerLabel.toLowerCase() })}
         </p>
       )}
-    </div>
+    </>
   );
 
-  // "Black gate, side entrance" — the thing a dropped pin cannot say.
-  // Participant-gated: it reaches the matched provider and nobody else.
   const notePicker = (
-    <div className="meta-card mb-4">
-      <p className="meta-label mb-2">{t('request.noteTitle', { label: providerLabel.toLowerCase() })}</p>
+    <>
       <input
         type="text"
         className="w-full bg-donkey-bg border border-donkey-border rounded-lg px-3 py-2 text-donkey-text text-sm"
         value={pickupNote}
         maxLength={140}
+        aria-label={t('request.noteTitle', { label: providerLabel.toLowerCase() })}
         placeholder={t('request.notePlaceholder')}
         onChange={(e) => setPickupNote(e.target.value)}
       />
       <p className="text-donkey-muted text-xs mt-2">{t('request.noteHint')}</p>
-    </div>
+    </>
   );
 
-  // "Leave now" vs pre-booked pickup — shared by both pricing layouts
+  /** Booking for somebody else: who is actually travelling */
+  const passengerPicker = (
+    <>
+      <label className="flex items-center gap-3 min-h-[44px] cursor-pointer">
+        <input
+          type="checkbox"
+          className="w-5 h-5 accent-donkey-blue"
+          checked={forSomeoneElse}
+          onChange={(e) => setForSomeoneElse(e.target.checked)}
+        />
+        <span className="text-sm text-donkey-text font-semibold">
+          {t('passenger.toggle', { noun: taskNoun })}
+        </span>
+      </label>
+      {forSomeoneElse && (
+        <div className="space-y-2 mt-2">
+          <input
+            type="text"
+            className="w-full bg-donkey-bg border border-donkey-border rounded-lg px-3 py-2 text-donkey-text text-sm"
+            value={passengerName}
+            maxLength={60}
+            aria-label={t('passenger.name')}
+            placeholder={t('passenger.namePlaceholder')}
+            onChange={(e) => setPassengerName(e.target.value)}
+          />
+          <input
+            type="text"
+            className="w-full bg-donkey-bg border border-donkey-border rounded-lg px-3 py-2 text-donkey-text text-sm"
+            value={passengerNote}
+            maxLength={140}
+            aria-label={t('passenger.note')}
+            placeholder={t('passenger.notePlaceholder')}
+            onChange={(e) => setPassengerNote(e.target.value)}
+          />
+          <p className="text-donkey-muted text-xs">
+            {t('passenger.privacy', { label: providerLabel.toLowerCase() })}
+          </p>
+        </div>
+      )}
+    </>
+  );
+
   const whenPicker = (
-    <div className="meta-card mb-4">
-      <p className="meta-label mb-2">{t('request.whenTitle')}</p>
+    <>
       <div className="flex gap-2">
         <button
-          className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-colors ${
+          aria-pressed={when === 'now'}
+          className={`flex-1 min-h-[44px] rounded-lg border text-sm font-semibold transition-colors ${
             when === 'now'
               ? 'border-donkey-blue text-donkey-blue bg-donkey-blue/10'
               : 'border-donkey-border text-donkey-muted'
@@ -291,7 +380,8 @@ export function RequestPage() {
           {t('common.now')}
         </button>
         <button
-          className={`flex-1 py-2 rounded-lg border text-sm font-semibold transition-colors ${
+          aria-pressed={when === 'later'}
+          className={`flex-1 min-h-[44px] rounded-lg border text-sm font-semibold transition-colors ${
             when === 'later'
               ? 'border-donkey-blue text-donkey-blue bg-donkey-blue/10'
               : 'border-donkey-border text-donkey-muted'
@@ -318,9 +408,7 @@ export function RequestPage() {
             onChange={(e) => setWhenValue(e.target.value)}
           />
           {scheduleInvalid ? (
-            <p className="text-donkey-orange text-xs mt-2">
-              {t('request.scheduleInvalid')}
-            </p>
+            <p className="text-donkey-orange text-xs mt-2">{t('request.scheduleInvalid')}</p>
           ) : (
             <p className="text-donkey-muted text-xs mt-2">
               {t('request.scheduleNote', { label: providerLabel.toLowerCase() })}
@@ -328,13 +416,11 @@ export function RequestPage() {
           )}
         </div>
       )}
-    </div>
+    </>
   );
 
-  // Women-only toggle — shown only when the rider declared woman on the
-  // profile page. Self-attested matching; the note says so.
   const womenOnlyPicker = isWoman ? (
-    <div className="meta-card mb-4">
+    <div className="meta-card">
       <label className="flex items-center gap-3 min-h-[44px] cursor-pointer">
         <input
           type="checkbox"
@@ -358,6 +444,37 @@ export function RequestPage() {
     ? { lat: (origin.lat + destination.lat) / 2, lng: (origin.lng + destination.lng) / 2 }
     : origin;
 
+  // The one control that must never be below the fold
+  const actionBar = (
+    <div className="bg-donkey-surface border-t-2 border-donkey-border px-5 py-3 shadow-panel">
+      {error && <p className="text-donkey-red text-sm mb-2">{error}</p>}
+      <div className="flex gap-3">
+        <button className="btn-secondary px-5" onClick={() => navigate('/request')}>
+          {t('common.back')}
+        </button>
+        <button
+          className="btn-primary flex-1 flex items-center justify-center gap-2"
+          onClick={handleRequest}
+          disabled={loading || scheduleInvalid || (requiresDestination && estimating)}
+        >
+          <span>
+            {loading
+              ? t('request.requesting')
+              : when === 'later'
+                ? t('request.bookForLater', { label: providerLabel })
+                : t('request.request', { label: providerLabel })}
+          </span>
+          {/* The number you are agreeing to, on the button that agrees to it */}
+          {requiresDestination && !loading && headlineSats > 0 && (
+            <span className="opacity-90">
+              · <DualPrice sats={headlineSats} size="sm" compact />
+            </span>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="h-full flex flex-col">
       {/* Map */}
@@ -374,9 +491,7 @@ export function RequestPage() {
               />
             ))}
             {destination && <LocationMarker position={destination} label={destinationLabel} colour="red" />}
-            {estimate?.routeGeometry && (
-              <RoutePolyline geometry={estimate.routeGeometry} />
-            )}
+            {estimate?.routeGeometry && <RoutePolyline geometry={estimate.routeGeometry} />}
           </MapView>
         </div>
       ) : (
@@ -388,25 +503,32 @@ export function RequestPage() {
         </div>
       )}
 
-      {/* Estimate panel */}
-      <div className="bg-donkey-surface border-t-2 border-donkey-border p-6 shadow-panel">
-        {requiresDestination && estimating ? (
+      {requiresDestination && estimating ? (
+        <div className="bg-donkey-surface border-t-2 border-donkey-border p-6">
           <Loading message={t('request.estimating')} />
-        ) : requiresDestination && estimate ? (
-          <div>
-            <div className="flex items-center justify-between mb-4">
+        </div>
+      ) : requiresDestination && estimate ? (
+        <>
+          <Sheet maxHeightClass="max-h-[45vh]">
+            {/* What you are buying */}
+            <div className="flex items-baseline justify-between gap-3">
               <div>
-                <DualPrice sats={chosenOption?.fareSats ?? estimate.fareEstimateSats} size="lg" />
+                <DualPrice sats={headlineSats} size="lg" />
                 <p className="text-donkey-muted text-sm mt-1">
                   {formatDistance(estimate.distanceKm)} &middot; {formatDuration(estimate.durationMinutes)}
                 </p>
               </div>
+              {when === 'later' && scheduledFor && !scheduleInvalid && (
+                <p className="text-xs font-semibold text-donkey-blue text-right">
+                  {formatScheduledTime(scheduledFor)}
+                </p>
+              )}
             </div>
 
             {/* Demand pricing, said plainly and BEFORE the tap. A rider who
                 discovers a multiplier on the receipt has been ambushed. */}
             {estimate.surge?.active && (
-              <div className="meta-card mb-4 border border-donkey-orange/50">
+              <div className="meta-card border border-donkey-orange/50">
                 <p className="text-sm font-bold text-donkey-orange">
                   {t('surge.title', { x: estimate.surge.multiplier.toFixed(1) })}
                 </p>
@@ -416,162 +538,125 @@ export function RequestPage() {
               </div>
             )}
 
-            {/* Fare breakdown — the chosen class's own rows, in the same
-                money the headline is in, and they sum to it */}
-            <div className="meta-card mb-4">
-              <p className="meta-label mb-2">{t('request.fareBreakdown')}</p>
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                <div>
-                  <DualPrice sats={breakdown.baseFareSats} size="sm" compact />
-                  <p className="text-donkey-muted">{t('request.base')}</p>
-                </div>
-                <div>
-                  <DualPrice sats={breakdown.distanceFareSats} size="sm" compact />
-                  <p className="text-donkey-muted">{t('request.distance')}</p>
-                </div>
-                <div>
-                  <DualPrice sats={breakdown.timeFareSats} size="sm" compact />
-                  <p className="text-donkey-muted">{t('request.time')}</p>
-                </div>
-              </div>
-              {breakdown.operatorFeeSats > 0 && (
-                <p className="text-donkey-muted text-xs mt-2">
-                  {t('request.includesFee')}{' '}
-                  <DualPrice sats={breakdown.operatorFeeSats} size="sm" compact />
-                </p>
-              )}
-              {estimate.routed === false && (
-                <p className="text-donkey-muted text-xs mt-2">{t('request.straightLine')}</p>
-              )}
-            </div>
-
+            {/* The class decides the price, so it comes before the rows that
+                explain it — the other way round for the whole of this app's
+                life, which is exactly backwards */}
             {optionPicker}
 
-            {stopsPicker}
+            <SheetSection title={t('request.fareBreakdown')} icon="🧾" rememberAs="request-breakdown">
+              {fareBreakdown}
+            </SheetSection>
 
-            {notePicker}
+            <SheetSection
+              title={t('request.whenTitle')}
+              icon="🕒"
+              badge={when === 'later' && scheduledFor && !scheduleInvalid
+                ? formatScheduledTime(scheduledFor)
+                : t('common.now')}
+              rememberAs="request-when"
+            >
+              {whenPicker}
+            </SheetSection>
 
-            <AccessNeedsPicker
-              value={accessNeeds}
-              onChange={setAccessNeeds}
-              role="requester"
-            />
+            <SheetSection
+              title={t('request.stopsTitle')}
+              icon="📍"
+              badge={stops.length > 0 ? String(stops.length) : undefined}
+              rememberAs="request-stops"
+            >
+              {stopsPicker}
+            </SheetSection>
 
-            {whenPicker}
+            <SheetSection
+              title={t('request.noteTitle', { label: providerLabel.toLowerCase() })}
+              icon="💬"
+              badge={pickupNote.trim() ? t('common.set') : undefined}
+              rememberAs="request-note"
+            >
+              {notePicker}
+            </SheetSection>
 
+            <SheetSection
+              title={t('passenger.title')}
+              icon="👤"
+              badge={forSomeoneElse ? (passengerName.trim() || t('common.set')) : undefined}
+              rememberAs="request-passenger"
+            >
+              {passengerPicker}
+            </SheetSection>
+
+            <SheetSection
+              title={t('access.title')}
+              icon="♿"
+              badge={accessNeeds.length > 0 ? String(accessNeeds.length) : undefined}
+              rememberAs="request-access"
+            >
+              <AccessNeedsPicker
+                value={accessNeeds}
+                onChange={setAccessNeeds}
+                role="requester"
+                bare
+              />
+            </SheetSection>
+
+            {/* Safety, not an option — stays visible for a declared woman */}
             {womenOnlyPicker}
 
             {favourites.length > 0 && when === 'now' && (
-              <p className="text-donkey-muted text-xs mb-3">
+              <p className="text-donkey-muted text-xs">
                 {t('request.favouritesFirst', { n: favourites.length })}
               </p>
             )}
-
-            <div className="flex gap-3">
-              <button
-                className="btn-secondary flex-1"
-                onClick={() => navigate('/request')}
-              >
-                {t('common.back')}
-              </button>
-              <button
-                className="btn-primary flex-1"
-                onClick={handleRequest}
-                disabled={loading || scheduleInvalid}
-              >
-                {loading
-                  ? t('request.requesting')
-                  : when === 'later'
-                    ? t('request.bookForLater', { label: providerLabel })
-                    : t('request.request', { label: providerLabel })}
-              </button>
+          </Sheet>
+          {actionBar}
+        </>
+      ) : !requiresDestination ? (
+        <>
+          <Sheet maxHeightClass="max-h-[45vh]">
+            <div className="text-center">
+              <p className="text-lg font-bold text-donkey-text">
+                {t(`request.pricing.${profile?.pricingModel || 'assessed'}.title`)}
+              </p>
+              <p className="text-donkey-muted text-sm mt-1">
+                {t(`request.pricing.${profile?.pricingModel || 'assessed'}.body`, {
+                  label: providerLabel.toLowerCase(),
+                  noun: taskNoun,
+                })}
+              </p>
             </div>
 
-            {error && <p className="text-donkey-red text-sm mt-3">{error}</p>}
-          </div>
-        ) : !requiresDestination ? (
-          /* Non-distance pricing — display depends on the pricingModel */
-          <div>
-            <div className="mb-4 text-center">
-              {profile?.pricingModel === 'flatRate' && (
-                <>
-                  <p className="text-lg font-bold text-donkey-text">Flat rate pricing</p>
-                  <p className="text-donkey-muted text-sm mt-1">
-                    Price confirmed after {profile?.roles.provider || 'provider'} assessment
-                  </p>
-                </>
-              )}
-              {profile?.pricingModel === 'quote' && (
-                <>
-                  <p className="text-lg font-bold text-donkey-text">Quote-based pricing</p>
-                  <p className="text-donkey-muted text-sm mt-1">
-                    {profile?.roles.provider || 'Provider'} will submit a quote for your approval
-                  </p>
-                </>
-              )}
-              {profile?.pricingModel === 'hourly' && (
-                <>
-                  <p className="text-lg font-bold text-donkey-text">Hourly rate</p>
-                  <p className="text-donkey-muted text-sm mt-1">
-                    Billed by the hour. Final price based on time spent
-                  </p>
-                </>
-              )}
-              {profile?.pricingModel === 'milestone' && (
-                <>
-                  <p className="text-lg font-bold text-donkey-text">Milestone pricing</p>
-                  <p className="text-donkey-muted text-sm mt-1">
-                    Payment at agreed milestones throughout the {taskNoun}
-                  </p>
-                </>
-              )}
-              {(!profile?.pricingModel || profile?.pricingModel === 'distance_time_surge') && (
-                <>
-                  <p className="text-lg font-bold text-donkey-text">Service request</p>
-                  <p className="text-donkey-muted text-sm mt-1">
-                    Price confirmed after {profile?.roles.provider || 'provider'} assessment
-                  </p>
-                </>
-              )}
-            </div>
+            <SheetSection
+              title={t('request.noteTitle', { label: providerLabel.toLowerCase() })}
+              icon="💬"
+              badge={pickupNote.trim() ? t('common.set') : undefined}
+              rememberAs="request-note"
+            >
+              {notePicker}
+            </SheetSection>
 
-            {notePicker}
-
-            {whenPicker}
+            <SheetSection
+              title={t('request.whenTitle')}
+              icon="🕒"
+              badge={when === 'later' && scheduledFor && !scheduleInvalid
+                ? formatScheduledTime(scheduledFor)
+                : t('common.now')}
+              rememberAs="request-when"
+            >
+              {whenPicker}
+            </SheetSection>
 
             {womenOnlyPicker}
-
-            <div className="flex gap-3">
-              <button
-                className="btn-secondary flex-1"
-                onClick={() => navigate('/request')}
-              >
-                {t('common.back')}
-              </button>
-              <button
-                className="btn-primary flex-1"
-                onClick={handleRequest}
-                disabled={loading || scheduleInvalid}
-              >
-                {loading
-                  ? t('request.requesting')
-                  : when === 'later'
-                    ? t('request.bookLater')
-                    : profile?.labels?.requestVerb || 'Request'}
-              </button>
-            </div>
-
-            {error && <p className="text-donkey-red text-sm mt-3">{error}</p>}
-          </div>
-        ) : (
-          <div className="text-center">
-            <p className="text-donkey-red">{error || t('request.estimateFailed')}</p>
-            <button className="btn-secondary mt-3" onClick={() => navigate('/request')}>
-              {t('common.back')}
-            </button>
-          </div>
-        )}
-      </div>
+          </Sheet>
+          {actionBar}
+        </>
+      ) : (
+        <div className="bg-donkey-surface border-t-2 border-donkey-border p-6 text-center">
+          <p className="text-donkey-red">{error || t('request.estimateFailed')}</p>
+          <button className="btn-secondary mt-3" onClick={() => navigate('/request')}>
+            {t('common.back')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

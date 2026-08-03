@@ -20,6 +20,13 @@ export interface TripRecord {
   from?: string;
   to?: string;
   providerNpub?: string;
+  /**
+   * Hex pubkey of whoever did the job. Needed to reach them AFTER the
+   * trip: a phone left on the back seat is the commonest support case
+   * there is, and the chat rail is NIP-17 DMs that work perfectly well
+   * once the task is over — the app just never kept the key to use it.
+   */
+  providerPubkey?: string;
   distanceKm?: number;
   durationMin?: number;
   rail?: string;
@@ -83,6 +90,7 @@ export function recordTrip(task: Task, extra?: {
     from: place(task.pickup, task.pickupAddress),
     to: place(task.dropoff, task.dropoffAddress),
     providerNpub: task.providerNpub,
+    providerPubkey: task.providerPubkey,
     distanceKm: task.distanceKm,
     durationMin: task.durationMin,
     rail: task.settlement?.rail,

@@ -42,7 +42,7 @@ export function SearchingPanel({
           {[0, 1, 2].map((i) => (
             <span
               key={i}
-              className="w-2 h-2 rounded-full bg-donkey-blue animate-pulse"
+              className="w-2 h-2 rounded-full bg-donkey-blue animate-pulse motion-reduce:animate-none"
               style={{ animationDelay: `${i * 200}ms` }}
             />
           ))}

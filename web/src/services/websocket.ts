@@ -128,6 +128,32 @@ export function normaliseWsMessage(raw: any): WsMessage | null {
       };
     }
 
+    case 'dropoff_updated': {
+      const dropoff = normWsLocation(raw.dropoff);
+      if (!dropoff) return null;
+      return {
+        type: 'dropoff_updated',
+        taskId,
+        dropoff,
+        address: typeof raw.address === 'string' ? raw.address : undefined,
+        stops: Array.isArray(raw.stops)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ? raw.stops.flatMap((s: any) => {
+              const loc = normWsLocation(s);
+              return loc ? [{ ...loc, ...(s.address ? { address: s.address } : {}) }] : [];
+            })
+          : undefined,
+        movedMetres: typeof raw.moved_m === 'number' ? raw.moved_m : undefined,
+        // The whole point of announcing this frame: the fare moved with it
+        fareSats: typeof raw.fare_sats === 'number' ? raw.fare_sats : undefined,
+        previousFareSats: typeof raw.previous_fare_sats === 'number'
+          ? raw.previous_fare_sats : undefined,
+        distanceKm: typeof raw.distance_km === 'number' ? raw.distance_km : undefined,
+        durationMinutes: typeof raw.duration_minutes === 'number'
+          ? raw.duration_minutes : undefined,
+      };
+    }
+
     case 'panic_alert':
       return {
         type: 'panic_alert',
@@ -153,6 +179,8 @@ export function normaliseWsMessage(raw: any): WsMessage | null {
         taskId,
         cancelledBy: raw.cancelledBy ?? raw.cancelled_by,
         reason: raw.reason,
+        reasonCode: raw.reason_code ?? raw.reasonCode ?? null,
+        cancelledSide: raw.cancelled_side ?? raw.cancelledSide ?? null,
         lateCancellation: raw.late_cancellation === true,
       };
 

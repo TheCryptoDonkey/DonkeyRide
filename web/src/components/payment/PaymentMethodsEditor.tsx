@@ -3,6 +3,7 @@ import { getSettlementRails, setPaymentMethods } from '../../services/api';
 import { validateRailHandle } from '../../utils/payment-validation';
 import { getSavedPaymentMethods, savePaymentMethods } from '../../utils/payment-methods';
 import type { PaymentMethod, SettlementRail } from '../../types/api';
+import { useT } from '../../i18n';
 
 interface RailRow {
   enabled: boolean;
@@ -25,6 +26,7 @@ interface PaymentMethodsEditorProps {
  * with no platform in the middle. The copy here says so plainly.
  */
 export function PaymentMethodsEditor({ rideId, onSaved }: PaymentMethodsEditorProps) {
+  const { t } = useT();
   const [rails, setRails] = useState<SettlementRail[]>([]);
   const [rows, setRows] = useState<Record<string, RailRow>>({});
   const [loading, setLoading] = useState(true);
@@ -54,7 +56,7 @@ export function PaymentMethodsEditor({ rideId, onSaved }: PaymentMethodsEditorPr
       })
       .catch((err) => {
         if (!mounted) return;
-        setLoadError(err instanceof Error ? err.message : 'Failed to load payment rails');
+        setLoadError(err instanceof Error ? err.message : t('methods.loadFailed'));
         setLoading(false);
       });
     return () => { mounted = false; };
@@ -105,7 +107,7 @@ export function PaymentMethodsEditor({ rideId, onSaved }: PaymentMethodsEditorPr
       setSaved(true);
       onSaved?.(enabledMethods);
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : 'Failed to save payment methods');
+      setSaveError(err instanceof Error ? err.message : t('methods.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -171,7 +173,7 @@ export function PaymentMethodsEditor({ rideId, onSaved }: PaymentMethodsEditorPr
                     type="text"
                     inputMode={rail.id === 'mpesa' ? 'tel' : 'text'}
                     className="input-field w-full text-sm"
-                    placeholder={rail.handleHint || rail.handleLabel || 'Handle'}
+                    placeholder={rail.handleHint || rail.handleLabel || t('methods.handle')}
                     value={row.handle}
                     onChange={(e) => setRow(rail.id, { handle: e.target.value })}
                   />
@@ -196,7 +198,7 @@ export function PaymentMethodsEditor({ rideId, onSaved }: PaymentMethodsEditorPr
         onClick={handleSave}
         disabled={!canSave || saving}
       >
-        {saving ? 'Saving…' : saved ? 'Saved ✓' : rideId ? 'Save & use for this job' : 'Save payment methods'}
+        {saving ? t('methods.saving') : saved ? t('methods.saved') : rideId ? t('methods.saveForJob') : t('methods.save')}
       </button>
 
       {rideId && saved && (

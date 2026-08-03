@@ -11,6 +11,12 @@ interface AccessNeedsPickerProps {
    * Same catalogue, opposite question — so the copy differs.
    */
   role: 'requester' | 'provider';
+  /**
+   * Render without the card chrome and title — for a caller that already
+   * provides both (a sheet disclosure), where a card inside a card and a
+   * heading under a heading just add noise.
+   */
+  bare?: boolean;
 }
 
 /**
@@ -21,7 +27,7 @@ interface AccessNeedsPickerProps {
  * as one would charge disabled passengers a premium for being disabled.
  * The fare is identical; only the set of eligible providers narrows.
  */
-export function AccessNeedsPicker({ value, onChange, role }: AccessNeedsPickerProps) {
+export function AccessNeedsPicker({ value, onChange, role, bare }: AccessNeedsPickerProps) {
   const { profile } = useDomain();
   const { t } = useT();
   const options = profile?.accessOptions || [];
@@ -41,8 +47,8 @@ export function AccessNeedsPicker({ value, onChange, role }: AccessNeedsPickerPr
     : labels?.accessProviderHint || t('access.providerHint');
 
   return (
-    <div className="meta-card mb-4">
-      <p className="meta-label mb-1">{title}</p>
+    <div className={bare ? '' : 'meta-card mb-4'}>
+      {!bare && <p className="meta-label mb-1">{title}</p>}
       <p className="text-xs text-donkey-muted mb-2">{hint}</p>
       <div className="space-y-1">
         {options.map((option) => {

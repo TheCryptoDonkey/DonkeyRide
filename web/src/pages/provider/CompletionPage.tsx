@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DualPrice } from '../../components/common/DualPrice';
 import { StarRating } from '../../components/rating/StarRating';
+import { FeedbackTags } from '../../components/rating/FeedbackTags';
 import { ConfirmReceipt } from '../../components/payment/ConfirmReceipt';
 import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
@@ -17,6 +18,7 @@ export function CompletionPage() {
   const { profile } = useDomain();
   const { t, td } = useT();
   const [rating, setRating] = useState(0);
+  const [feedback, setFeedback] = useState<string[]>([]);
   const [comment, setComment] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +52,7 @@ export function CompletionPage() {
         raterRole: 'provider',
         targetPubkey: task.requesterPubkey,
         domainId: profile?.id || '',
+        feedback,
       }, task.operatorBase);
       setSubmitted(true);
     } catch (err) {
@@ -94,6 +97,12 @@ export function CompletionPage() {
             <div className="flex justify-center mb-3">
               <StarRating value={rating} onChange={setRating} size="lg" />
             </div>
+            <FeedbackTags
+              rating={rating}
+              role="provider"
+              value={feedback}
+              onChange={setFeedback}
+            />
             <textarea
               className="input-field w-full text-sm"
               rows={2}

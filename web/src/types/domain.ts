@@ -39,6 +39,22 @@ export interface DomainProfile {
     /** How the same feature is phrased to a provider declaring it */
     providerPrompt?: string;
   }[];
+  /**
+   * Licences, registrations and cover a provider may declare for this
+   * domain (private hire licence, SIA badge, goods in transit). Shown to
+   * the requester as a claim, never as an operator verification.
+   */
+  credentials?: {
+    id: string;
+    label: string;
+    description?: string;
+    /** Whether a date is part of the claim (nearly always yes) */
+    expires?: boolean;
+    /** This domain says the work needs it — gated only if the operator opts in */
+    required?: boolean;
+  }[];
+  /** True when this operator refuses accepts without the required credentials */
+  enforceCredentials?: boolean;
   states: {
     values: Record<string, string>;
     transitions: Record<string, string[]>;

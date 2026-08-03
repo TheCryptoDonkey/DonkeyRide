@@ -9,6 +9,7 @@ import { CompletionPage } from '../pages/provider/CompletionPage';
 import { EarningsPage } from '../pages/provider/EarningsPage';
 import { WorkingAreasPage } from '../pages/provider/WorkingAreasPage';
 import { ProfilePage } from '../pages/shared/ProfilePage';
+import { HelpPage } from '../pages/shared/HelpPage';
 import { ExternalRedirect } from './ExternalRedirect';
 import { useTask } from '../context/TaskContext';
 import { useDomain } from '../context/DomainContext';
@@ -101,6 +102,7 @@ export function DriverApp() {
           <Route path="/provide/earnings" element={<EarningsPage />} />
           <Route path="/provide/areas" element={<WorkingAreasPage />} />
           <Route path="/provide/profile" element={<ProfilePage role="provider" />} />
+          <Route path="/provide/help" element={<HelpPage role="provider" />} />
 
           {/* Backward-compatible redirects */}
           <Route path="/drive" element={<Navigate to="/provide" replace />} />

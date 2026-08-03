@@ -166,7 +166,7 @@ export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }
         }}
       />
       {loading && (
-        <div className="absolute right-3 top-3.5 animate-spin h-4 w-4 border-2 border-donkey-blue border-t-transparent rounded-full" />
+        <div className="absolute right-3 top-3.5 animate-spin motion-reduce:animate-none h-4 w-4 border-2 border-donkey-blue border-t-transparent rounded-full" />
       )}
       {open && results.length === 0 && (saved.length > 0 || recents.length > 0) && query.trim().length < 3 && (
         <ul className="absolute left-0 right-0 mt-1 bg-donkey-surface border border-donkey-border rounded-lg shadow-panel overflow-hidden max-h-72 overflow-y-auto">

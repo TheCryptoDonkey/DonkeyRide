@@ -85,6 +85,31 @@ class DispatchService {
     return localStorage.getItem(ONLINE_KEY) === '1';
   }
 
+  /**
+   * "One more and I'm done."
+   *
+   * A driver finishing their shift had two bad options: go offline now and
+   * abandon the job in hand, or finish the job and hope to remember. The
+   * intent is held here and spent on completion — nothing is sent to the
+   * operator until it actually happens.
+   */
+  private endShiftAfterJob = false;
+
+  setEndShiftAfterJob(flag: boolean): void {
+    this.endShiftAfterJob = flag;
+  }
+
+  isEndingShiftAfterJob(): boolean {
+    return this.endShiftAfterJob;
+  }
+
+  /** Called when a job finishes: honour a pending "finish after this one" */
+  finishJob(): void {
+    if (!this.endShiftAfterJob) return;
+    this.endShiftAfterJob = false;
+    this.goOffline();
+  }
+
   isOnline(): boolean { return this.online; }
   isConnected(): boolean { return this.connected; }
   getState(): DispatchState { return { online: this.online, connected: this.connected }; }

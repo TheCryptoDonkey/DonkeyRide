@@ -18,6 +18,7 @@ import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import { dispatchService } from '../../services/dispatch';
 import { loadVehicle, loadServiceOptions } from '../../utils/vehicle';
 import { loadAccessFeatures } from '../../utils/access-needs';
+import { validCredentials } from '../../utils/credentials';
 import { loadGender } from '../../utils/gender';
 import { reverseGeocode } from '../../utils/reverse-geocode';
 import { useT } from '../../i18n';
@@ -80,6 +81,10 @@ export function IncomingTaskPage() {
         // Fail-closed guard at accept: the server refuses if these do not
         // cover what the request needs
         accessFeatures: loadAccessFeatures(),
+        // Licences and cover, as declared on the profile page. Expired
+        // claims never leave this device — an operator running
+        // ENFORCE_CREDENTIALS refuses the accept, which is the point.
+        credentials: validCredentials(),
       }, activeTask.operatorBase);
       dispatchService.removeAvailable(activeTask.id);
       // The job stays theirs to coordinate — carry the origin forward so

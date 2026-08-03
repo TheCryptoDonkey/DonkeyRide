@@ -7,6 +7,7 @@ import {
   confirmRequesterStake, confirmProviderStake, type StakeResponse,
 } from '../../services/api';
 import type { Task, StakeInfo } from '../../types/api';
+import { useT } from '../../i18n';
 
 interface TaskStakePanelProps {
   task: Task;
@@ -19,6 +20,7 @@ interface TaskStakePanelProps {
  * shown when the operator runs on cash (record-only, no custody).
  */
 export function TaskStakePanel({ task, role }: TaskStakePanelProps) {
+  const { t } = useT();
   const { profile } = useDomain();
   const { identity } = useIdentity();
   const [supported, setSupported] = useState(false);
@@ -84,7 +86,7 @@ export function TaskStakePanel({ task, role }: TaskStakePanelProps) {
       ? await confirmRequesterStake(task.id, { requesterPubkey: identity.pubKeyHex })
       : await confirmProviderStake(task.id, { providerPubkey: identity.pubKeyHex });
     if (res.status === 'awaiting_payment') {
-      throw new Error('Payment not detected yet. Try again shortly.');
+      throw new Error(t('stake.notDetected'));
     }
     applyResponse(res);
   };

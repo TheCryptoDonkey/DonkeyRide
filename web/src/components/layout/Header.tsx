@@ -107,7 +107,7 @@ export function Header({ app }: HeaderProps) {
           to={profilePath}
           aria-label={t('header.yourProfile')}
           title={myName}
-          className="shrink-0 w-9 h-9 rounded-full overflow-hidden inline-flex items-center justify-center bg-black/25 border border-white/25 text-xs font-black"
+          className="shrink-0 w-11 h-11 rounded-full overflow-hidden inline-flex items-center justify-center bg-black/25 border border-white/25 text-xs font-black"
         >
           {me.picture ? (
             <img

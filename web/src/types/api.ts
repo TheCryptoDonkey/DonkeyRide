@@ -9,6 +9,21 @@ export interface TaskStop extends LatLng {
   address?: string;
 }
 
+/**
+ * A licence, registration or insurance a provider says they hold.
+ *
+ * Self-attested: the operator records the claim and shows it, exactly as
+ * it records a rating without asserting one. Expiry is part of the claim,
+ * because a licence that ran out in March is not a licence.
+ */
+export interface DeclaredCredential {
+  id: string;
+  /** Unix ms — an expired claim is dropped rather than displayed */
+  expiresAt?: number;
+  /** Licence or policy number, participant-gated */
+  reference?: string;
+}
+
 /** The provider's vehicle — participant-gated, set on accept */
 export interface TaskVehicle {
   make?: string;
@@ -57,6 +72,20 @@ export interface Task {
   settlement?: SettlementInfo;
   /** Why a cancelled task ended — 'no_providers' when the search found nobody */
   cancellationReason?: string;
+  /** The structured half of that: a code from the cancelling side's vocabulary */
+  cancellationReasonCode?: string;
+  /** Which side gave that reason */
+  cancelledSide?: 'requester' | 'provider';
+  /**
+   * Licences and cover the provider declared at accept. Self-attested and
+   * participant-gated — the operator verifies none of it and says so.
+   */
+  providerCredentials?: DeclaredCredential[];
+  /**
+   * Who is actually travelling, when the requester booked for someone else.
+   * Participant-gated free text; never broadcast, never snapshotted.
+   */
+  passenger?: { name?: string; note?: string };
   /** They committed then dropped it, past the grace window and pre-start */
   lateCancellation?: boolean;
   createdAt: string;
@@ -331,10 +360,32 @@ export type WsMessage =
   | { type: 'task_completed'; taskId?: string }
   | { type: 'location_update'; taskId?: string; location: LatLng; heading?: number; speed?: number; etaSeconds?: number | null }
   | { type: 'pickup_updated'; taskId?: string; pickup: LatLng; address?: string; movedMetres?: number }
+  | {
+      type: 'dropoff_updated';
+      taskId?: string;
+      dropoff: LatLng;
+      address?: string;
+      stops?: TaskStop[];
+      movedMetres?: number;
+      /** The re-priced fare, and what it was before — never a silent change */
+      fareSats?: number;
+      previousFareSats?: number;
+      distanceKm?: number;
+      durationMinutes?: number;
+    }
   | { type: 'panic_alert'; taskId?: string; triggeredBy?: string; location?: LatLng | null }
   | { type: 'rating_submitted'; taskId?: string; rating?: number }
   | { type: 'tip_sent'; taskId?: string; amountSats?: number }
-  | { type: 'task_cancelled'; taskId?: string; cancelledBy?: string; reason?: string; lateCancellation?: boolean }
+  | {
+      type: 'task_cancelled';
+      taskId?: string;
+      cancelledBy?: string;
+      reason?: string;
+      /** The structured half: a code from the cancelling side's vocabulary */
+      reasonCode?: string | null;
+      cancelledSide?: 'requester' | 'provider' | null;
+      lateCancellation?: boolean;
+    }
   | { type: 'task_broadcast'; task: Record<string, unknown>; distanceKm?: number }
   | { type: 'scheduled_reminder'; taskId?: string; scheduledFor: number }
   | { type: 'searching'; taskId?: string; attempt: number; radiusKm: number; providersNotified: number; expiresInMs: number }

@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
+import { useT } from '../../i18n';
 
 interface SignatureCaptureProps {
   onSubmit: (dataUrl: string) => Promise<void>;
@@ -10,6 +11,7 @@ interface SignatureCaptureProps {
  * No external dependencies — keeps the bundle small.
  */
 export function SignatureCapture({ onSubmit, label = 'Signature' }: SignatureCaptureProps) {
+  const { t } = useT();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [drawing, setDrawing] = useState(false);
   const [hasStrokes, setHasStrokes] = useState(false);
@@ -90,7 +92,7 @@ export function SignatureCapture({ onSubmit, label = 'Signature' }: SignatureCap
       await onSubmit(dataUrl);
       setSubmitted(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to submit signature');
+      setError(err instanceof Error ? err.message : t('proof.signatureFailed'));
     } finally {
       setSubmitting(false);
     }
@@ -133,7 +135,7 @@ export function SignatureCapture({ onSubmit, label = 'Signature' }: SignatureCap
           onClick={handleSubmit}
           disabled={!hasStrokes || submitting}
         >
-          {submitting ? 'Submitting...' : 'Confirm'}
+          {submitting ? t('quote.submitting') : t('proof.confirm')}
         </button>
       </div>
 

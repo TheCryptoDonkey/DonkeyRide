@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useIdentity } from '../../context/IdentityContext';
 import { getDriverEarnings, type DriverEarnings } from '../../services/api';
 import { DualPrice } from '../../components/common/DualPrice';
+import { downloadEarningsCsv } from '../../utils/earnings-csv';
 import { useT } from '../../i18n';
 
 /**
@@ -40,7 +41,7 @@ export function EarningsPage() {
           <h1 className="text-xl font-black tracking-tight">{t('earnings.title')}</h1>
           <p className="text-sm text-donkey-muted mt-1">{t('earnings.loading')}</p>
         </div>
-        <div className="grid grid-cols-3 gap-3 animate-pulse">
+        <div className="grid grid-cols-3 gap-3 animate-pulse motion-reduce:animate-none">
           {[0, 1, 2].map((i) => (
             <div key={i} className="stat-card space-y-2">
               <div className="h-5 bg-donkey-border rounded" />
@@ -48,7 +49,7 @@ export function EarningsPage() {
             </div>
           ))}
         </div>
-        <div className="space-y-2 animate-pulse">
+        <div className="space-y-2 animate-pulse motion-reduce:animate-none">
           <div className="h-3 bg-donkey-border rounded w-1/3" />
           {[0, 1, 2].map((i) => (
             <div key={i} className="card">
@@ -85,6 +86,17 @@ export function EarningsPage() {
         </div>
       </div>
 
+      {/* Self-employed drivers file their own returns, and an operator
+          that keeps no durable record cannot produce a statement later */}
+      {earnings.rides.length > 0 && (
+        <button
+          className="btn-secondary w-full text-sm"
+          onClick={() => downloadEarningsCsv(earnings)}
+        >
+          {t('earnings.export')}
+        </button>
+      )}
+
       <div className="space-y-2">
         <p className="text-xs uppercase tracking-wider text-donkey-muted">{t('earnings.completedJobs')}</p>
         {earnings.rides.length === 0 && (
@@ -94,22 +106,31 @@ export function EarningsPage() {
         )}
         {earnings.rides.map((ride) => (
           <div key={ride.id} className="card flex items-center justify-between">
-            <div>
+            <div className="min-w-0">
               <p className="text-sm font-semibold">
-                {ride.completedAt ? new Date(ride.completedAt).toLocaleString() : '—'}
-              </p>
-              <p className="text-xs text-donkey-muted font-mono">
-                {ride.id}
-                {ride.rating != null && <span className="ml-2 text-donkey-orange">★ {ride.rating}</span>}
+                {ride.completedAt
+                  ? new Date(ride.completedAt).toLocaleString(undefined, {
+                      day: 'numeric', month: 'short',
+                      hour: '2-digit', minute: '2-digit',
+                    })
+                  : '—'}
+                {ride.rating != null && (
+                  <span className="ml-2 text-donkey-orange">★ {ride.rating}</span>
+                )}
               </p>
               {ride.settlement && (
                 <p className="text-xs text-donkey-muted">
-                  {ride.settlement.method} · {ride.settlement.status}
+                  {ride.settlement.rail === 'lnaddress' ? 'Lightning' : ride.settlement.rail
+                    || ride.settlement.method}
+                  {ride.settlement.status ? ` · ${ride.settlement.status}` : ''}
                 </p>
               )}
+              <p className="text-[10px] text-donkey-muted font-mono truncate opacity-70">
+                {ride.id}
+              </p>
             </div>
-            <div className="text-right">
-              <DualPrice sats={ride.fare} size="sm" />
+            <div className="text-right shrink-0">
+              <DualPrice sats={ride.fare + (ride.tips || 0)} size="sm" />
               {ride.tips > 0 && (
                 <p className="text-xs text-donkey-green">
                   {t('earnings.tip', { n: ride.tips.toLocaleString() })}
