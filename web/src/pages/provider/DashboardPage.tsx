@@ -10,6 +10,7 @@ import { useIdentity } from '../../context/IdentityContext';
 import { useTask } from '../../context/TaskContext';
 import { useDomain } from '../../context/DomainContext';
 import { getOperatorInfo, getDriverEarnings, type DriverEarnings } from '../../services/api';
+import { mergeEarnings } from '../../services/job-history';
 import { taskPickupProximity, rankJobs } from '../../utils/pickup-distance';
 import { onlineMsToday, formatOnline, satsPerHour } from '../../utils/shift';
 import { dispatchService, type DispatchState } from '../../services/dispatch';
@@ -94,9 +95,12 @@ export function DashboardPage() {
   useEffect(() => {
     if (!identity?.pubKeyHex) return;
     let live = true;
+    // Merged with this device's own ledger. The operator forgets a completed
+    // job after six hours and never rehydrates one after a restart, so asking
+    // it alone showed a driver £0.00 for work they had actually done.
     const load = () => getDriverEarnings(identity.pubKeyHex)
-      .then((e) => { if (live) setEarnings(e); })
-      .catch(() => {});
+      .then((e) => { if (live) setEarnings(mergeEarnings(e)); })
+      .catch(() => { if (live) setEarnings(mergeEarnings(null)); });
     void load();
     const timer = setInterval(load, 60000);
     return () => { live = false; clearInterval(timer); };

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useIdentity } from '../../context/IdentityContext';
 import { getDriverEarnings, type DriverEarnings } from '../../services/api';
+import { mergeEarnings } from '../../services/job-history';
 import { DualPrice } from '../../components/common/DualPrice';
 import { downloadEarningsCsv } from '../../utils/earnings-csv';
 import { useT } from '../../i18n';
@@ -19,9 +20,19 @@ export function EarningsPage() {
   useEffect(() => {
     if (!identity?.pubKeyHex) return;
     setLoading(true);
+    // The device's own ledger fills in everything the operator has since
+    // forgotten — and stands alone if the operator cannot be reached, because
+    // a tax record must not depend on someone else's uptime.
     getDriverEarnings(identity.pubKeyHex)
-      .then(setEarnings)
-      .catch((err) => setError(err.message))
+      .then((e) => setEarnings(mergeEarnings(e)))
+      .catch((err) => {
+        // Only an error if the device has nothing of its own either —
+        // otherwise the local ledger IS the answer and there is nothing
+        // to apologise for.
+        const local = mergeEarnings(null);
+        if (local.rides.length > 0) setEarnings(local);
+        else setError(err.message);
+      })
       .finally(() => setLoading(false));
   }, [identity?.pubKeyHex]);
 
@@ -71,17 +82,19 @@ export function EarningsPage() {
         <p className="text-sm text-donkey-muted mt-1">{t('earnings.intro')}</p>
       </div>
 
+      {/* compact: three DualPrices with their sats spelled out do not fit
+          across a phone — they clipped and overlapped each other */}
       <div className="grid grid-cols-3 gap-3 text-center">
         <div className="stat-card">
-          <DualPrice sats={summary?.today.sats ?? 0} size="sm" />
+          <DualPrice sats={summary?.today.sats ?? 0} size="sm" compact />
           <p className="stat-label">{t('earnings.today', { n: summary?.today.rides ?? 0 })}</p>
         </div>
         <div className="stat-card">
-          <DualPrice sats={summary?.week.sats ?? 0} size="sm" />
+          <DualPrice sats={summary?.week.sats ?? 0} size="sm" compact />
           <p className="stat-label">{t('earnings.week', { n: summary?.week.rides ?? 0 })}</p>
         </div>
         <div className="stat-card">
-          <DualPrice sats={summary?.allTime.sats ?? 0} size="sm" />
+          <DualPrice sats={summary?.allTime.sats ?? 0} size="sm" compact />
           <p className="stat-label">{t('earnings.allTime', { n: summary?.allTime.rides ?? 0 })}</p>
         </div>
       </div>

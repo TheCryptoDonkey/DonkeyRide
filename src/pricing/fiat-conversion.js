@@ -21,6 +21,22 @@ let priceCache = {
 
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
+/** A price we are willing to quote a fare from */
+function isUsablePrice(value) {
+  return Number.isFinite(value) && value > 0;
+}
+
+/**
+ * Absolute last resort: no feed AND no cache. These are only ever better than
+ * refusing to quote at all, and an operator who cannot reach a price feed
+ * should override them rather than ship fares priced off a stale constant.
+ */
+const LAST_RESORT_PRICES = {
+  USD: Number(process.env.BTC_PRICE_FALLBACK_USD) || 45000,
+  EUR: Number(process.env.BTC_PRICE_FALLBACK_EUR) || 42000,
+  GBP: Number(process.env.BTC_PRICE_FALLBACK_GBP) || 36000
+};
+
 // =====================================================
 // Fetch Bitcoin Prices
 // =====================================================
@@ -28,18 +44,54 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 async function fetchBitcoinPrices() {
   // 1. BTC in the CoinGecko-supported majors (no auth). Keep working even if
   //    the request fails, by reusing the cache or a hardcoded fallback.
-  let base;
+  let base = null;
   try {
     const response = await fetch(
       'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,eur,gbp'
     );
+    // A rate-limited CoinGecko answers 429 with a perfectly valid JSON body,
+    // so "it parsed" is not "it worked". Without this the first sign of
+    // trouble was a TypeError on data.bitcoin.usd.
+    if (!response.ok) {
+      throw new Error(`CoinGecko HTTP ${response.status}`);
+    }
     const data = await response.json();
-    base = { USD: data.bitcoin.usd, EUR: data.bitcoin.eur, GBP: data.bitcoin.gbp };
+    const quoted = data && data.bitcoin;
+    const candidate = quoted
+      ? { USD: quoted.usd, EUR: quoted.eur, GBP: quoted.gbp }
+      : null;
+    // EVERY currency must be a real number. A partial answer used to sail
+    // through untouched — no throw, so no fallback — and poisoned the cache
+    // with undefined, after which every fare in that currency came out NaN.
+    // GBP is the default, so a response missing one key broke the rate card
+    // silently.
+    if (!candidate || !Object.values(candidate).every(isUsablePrice)) {
+      throw new Error('CoinGecko returned no usable price for USD/EUR/GBP');
+    }
+    base = candidate;
   } catch (error) {
     console.error('Failed to fetch Bitcoin prices:', error.message);
-    base = priceCache.USD
-      ? { USD: priceCache.USD, EUR: priceCache.EUR, GBP: priceCache.GBP }
-      : { USD: 45000, EUR: 42000, GBP: 36000 };
+  }
+
+  let usingFallback = false;
+  if (!base) {
+    if (isUsablePrice(priceCache.USD)) {
+      // Stale but REAL — much safer than a made-up number
+      base = { USD: priceCache.USD, EUR: priceCache.EUR, GBP: priceCache.GBP };
+    } else {
+      base = { ...LAST_RESORT_PRICES };
+      usingFallback = true;
+      // Loudly: the operator is about to quote fares off a hardcoded rate.
+      // The upfront-price guarantee still holds — the rider approves exactly
+      // what gets recorded — but both numbers are wrong against the market,
+      // and nothing downstream can tell. Set BTC_PRICE_FALLBACK_USD/EUR/GBP
+      // to something current if this box cannot reach a price feed.
+      console.warn(
+        `⚠️  No BTC price available and no cache — pricing every fare from the `
+        + `FALLBACK rate (USD ${base.USD}). Fares will be wrong until a feed `
+        + `responds. Set BTC_PRICE_FALLBACK_USD/EUR/GBP for a sane figure.`
+      );
+    }
   }
 
   // 2. KES is NOT a CoinGecko vs_currency, so derive BTC/KES = BTC/USD × USD/KES
@@ -59,7 +111,10 @@ async function fetchBitcoinPrices() {
   priceCache = {
     ...base,
     KES: Math.round(base.USD * usdToKes),
-    lastUpdate: Date.now()
+    lastUpdate: Date.now(),
+    // Whether these numbers came off a hardcoded constant rather than a feed.
+    // Callers that care (a quote about to be committed to) can refuse.
+    fallback: usingFallback
   };
 
   return priceCache;
@@ -86,6 +141,11 @@ async function getBitcoinPrice(currency = 'USD') {
 
 async function satsToFiat(sats, currency = 'USD') {
   const btcPrice = await getBitcoinPrice(currency);
+  // Refuse rather than hand back NaN. A NaN fare renders as "£NaN" on a
+  // confirm screen, or worse gets rounded into a number nobody chose.
+  if (!isUsablePrice(btcPrice)) {
+    throw new Error(`No BTC price available for ${currency}`);
+  }
   const btc = sats / 100000000; // Convert sats to BTC
   const fiatAmount = btc * btcPrice;
 
@@ -100,6 +160,9 @@ async function satsToFiat(sats, currency = 'USD') {
 
 async function fiatToSats(amount, currency = 'USD') {
   const btcPrice = await getBitcoinPrice(currency);
+  if (!isUsablePrice(btcPrice)) {
+    throw new Error(`No BTC price available for ${currency}`);
+  }
   const btc = amount / btcPrice;
   const sats = Math.round(btc * 100000000);
 

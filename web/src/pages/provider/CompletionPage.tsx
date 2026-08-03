@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DualPrice } from '../../components/common/DualPrice';
 import { StarRating } from '../../components/rating/StarRating';
@@ -8,6 +8,7 @@ import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { useDomain } from '../../context/DomainContext';
 import { submitRating } from '../../services/api';
+import { recordJob } from '../../services/job-history';
 import { formatDistance, formatDuration } from '../../services/pricing';
 import { useT } from '../../i18n';
 
@@ -29,6 +30,17 @@ export function CompletionPage() {
 
   // Survive a refresh: fall back to the stored terminal task until Done
   const task = activeTask ?? completedTask;
+
+  // Write the job into the device's OWN ledger. The operator drops a completed
+  // task from memory after six hours and never restores one on restart, so
+  // this is the only copy that survives a full shift — and it is what the
+  // earnings CSV a self-employed driver files their return from is built on.
+  const ledgered = useRef<string | null>(null);
+  useEffect(() => {
+    if (!task || ledgered.current === task.id) return;
+    ledgered.current = task.id;
+    recordJob(task, { domain: profile?.id });
+  }, [task, profile?.id]);
 
   if (!task) {
     return (
