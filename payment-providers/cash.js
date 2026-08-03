@@ -145,7 +145,7 @@ class CashProvider extends PaymentProvider {
             declaredAt: Date.now()
         };
         this.records.set(`settlement_${rideId}`, record);
-        console.log(`💷 CASH: settlement declared for ${rideId} (${amount} ${currency})`);
+        console.log(`💷 CASH: settlement declared for ${rideId} (${amount} ${currency})`); // amount is the smallest unit of `currency` — see recordSettlement
         return record;
     }
 

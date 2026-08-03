@@ -7228,17 +7228,34 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
         const currency = ride.currency || 'GBP';
         const custodyModel = typeof paymentProvider?.getCustodyModel === 'function'
             ? paymentProvider.getCustodyModel() : 'custodial';
+
+        // ride.fare is ALWAYS sats. Reporting it under the ride's fiat currency
+        // claimed "8914 GBP" for what was 8,914 sats — roughly a thousandfold
+        // overstatement in the record, and a straight contradiction of the rule
+        // that an amount is the smallest unit of the currency beside it. Report
+        // the sats honestly, and carry the fiat figure alongside for the humans
+        // who settled in pounds (derived on demand, so it survives rehydration).
+        const fareSats = Number(ride.fare) || 0;
+        let fareFiat = null;
+        try {
+            const converted = await satsToFiat(fareSats, currency);
+            fareFiat = { amount: converted.amount, currency };
+        } catch (_err) {
+            fareFiat = null; // no price available — omit rather than invent one
+        }
+
         let payment;
         if (paymentProvider && typeof paymentProvider.recordSettlement === 'function') {
             // Record-only rails (cash): the fare changes hands face-to-face.
             // The operator records that it happened; it moves no money itself.
-            const record = await paymentProvider.recordSettlement(rideId, ride.fare, currency);
+            const record = await paymentProvider.recordSettlement(rideId, fareSats, 'SAT');
             payment = {
                 success: true,
                 method: paymentProvider.providerName,
                 status: 'declared',
-                amount: ride.fare,
-                currency,
+                amount: fareSats,
+                currency: 'SAT',
+                fiat: fareFiat,
                 trust_model: paymentProvider.getTrustModel(),
                 custody: custodyModel,
                 operator_transmitted: 0,
@@ -7252,8 +7269,9 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
                 method: 'demo',
                 status: 'simulated',
                 payment_hash: `demo_${Date.now()}`,
-                amount: ride.fare,
-                currency,
+                amount: fareSats,
+                currency: 'SAT',
+                fiat: fareFiat,
                 trust_model: 'demo',
                 custody: 'none',
                 operator_transmitted: 0,
@@ -7267,8 +7285,9 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
                 success: true,
                 method: paymentProvider?.providerName || 'none',
                 status: 'settlement_pending',
-                amount: ride.fare,
-                currency,
+                amount: fareSats,
+                currency: 'SAT',
+                fiat: fareFiat,
                 trust_model: paymentProvider?.getTrustModel?.() || 'unknown',
                 custody: custodyModel,
                 operator_transmitted: 0,

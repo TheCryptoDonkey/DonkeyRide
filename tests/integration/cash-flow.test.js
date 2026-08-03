@@ -74,8 +74,22 @@ test('completion settles as a declared cash record, not a fake hash', async () =
   assert.equal(payment.method, 'cash');
   assert.equal(payment.status, 'declared');
   assert.equal(payment.trust_model, 'social');
-  assert.equal(payment.currency, 'GBP');
+  // ride.fare is sats, so the record must SAY sats. It used to report the
+  // sats figure under the ride's fiat currency — "8914 GBP" for what was
+  // 8,914 sats, contradicting the rule that an amount is the smallest unit
+  // of the currency printed beside it.
+  assert.equal(payment.currency, 'SAT');
   assert.ok(payment.amount > 0);
+  // The humans settled in pounds, so the fiat figure rides alongside —
+  // derived on demand, and omitted rather than invented if no price is known
+  if (payment.fiat) {
+    assert.equal(payment.fiat.currency, 'GBP');
+    assert.ok(payment.fiat.amount > 0);
+    assert.ok(
+      payment.fiat.amount < payment.amount,
+      'a fiat fare must not be reported as the sats figure'
+    );
+  }
   assert.equal(payment.payment_hash, undefined, 'cash settlement must not fabricate a payment hash');
   assert.equal(payment.record.method, 'cash');
 });
