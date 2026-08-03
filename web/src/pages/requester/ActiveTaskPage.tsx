@@ -24,6 +24,7 @@ import {
 } from '../../services/api';
 import { QuotePanel } from '../../components/task/QuotePanel';
 import { TripSharePanel } from '../../components/safety/TripSharePanel';
+import { TripAudioRecorder } from '../../components/safety/TripAudioRecorder';
 import { RideCheckPrompt } from '../../components/safety/RideCheckPrompt';
 import {
   sendAllClear, sendGuardianAlert, sendRideCheckAlert, getSharedGuardians,
@@ -396,6 +397,14 @@ export function ActiveTaskPage() {
             task={activeTask}
             privKeyHex={identity.privKeyHex}
             taskNoun={taskNoun}
+          />
+        )}
+
+        {/* Opt-in audio recording — device-local, counterparty notified */}
+        {activeTask.providerPubkey && !terminalStates.includes(activeTask.status) && (
+          <TripAudioRecorder
+            taskId={activeTask.id}
+            counterpartyPubkey={activeTask.providerPubkey}
           />
         )}
 

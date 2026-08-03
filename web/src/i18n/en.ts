@@ -159,6 +159,19 @@ export const en: Record<string, string> = {
   'women.badge': 'Women-only',
   'women.incomingNote': 'The {label} asked for a woman {provider}. Accepting declares that you are one.',
 
+  // Trip audio recording
+  'audio.record': 'Record audio',
+  'audio.recording': 'Recording audio…',
+  'audio.stop': 'Stop',
+  'audio.start': 'Start recording',
+  'audio.consent':
+    'Recorded on your phone only, encrypted to your account key, deleted after 72 hours unless you export it. The other participant is notified in chat. Recording-consent laws vary by place — you are responsible for complying with yours.',
+  'audio.chatNotice': '🎙 Audio recording is on for this trip (stored only on my phone).',
+  'audio.saved': 'Saved on this phone — deleted after 72 hours unless exported',
+  'audio.savedShort': 'Recording saved',
+  'audio.download': 'Download',
+  'audio.delete': 'Delete',
+
   // Address search
   'search.failed': 'Address search failed. Tap the map to set the location instead.',
   'search.saveFailed': 'Could not save — check the name, or remove an old place first.',

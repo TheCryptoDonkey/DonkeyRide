@@ -170,6 +170,19 @@ export const sw: Record<string, string> = {
   'women.badge': 'Wanawake pekee',
   'women.incomingNote': '{label} ameomba {provider} mwanamke. Ukikubali unajitangaza kuwa mmoja.',
 
+  // Trip audio recording
+  'audio.record': 'Rekodi sauti',
+  'audio.recording': 'Inarekodi sauti…',
+  'audio.stop': 'Simamisha',
+  'audio.start': 'Anza kurekodi',
+  'audio.consent':
+    'Inarekodiwa kwenye simu yako tu, imesimbwa kwa ufunguo wa akaunti yako, na kufutwa baada ya saa 72 usipoipakua. Mshiriki mwingine anaarifiwa kwenye mazungumzo. Sheria za kurekodi hutofautiana kulingana na mahali — ni jukumu lako kuzifuata.',
+  'audio.chatNotice': '🎙 Sauti inarekodiwa kwa safari hii (imehifadhiwa kwenye simu yangu tu).',
+  'audio.saved': 'Imehifadhiwa kwenye simu hii — itafutwa baada ya saa 72 usipoipakua',
+  'audio.savedShort': 'Rekodi imehifadhiwa',
+  'audio.download': 'Pakua',
+  'audio.delete': 'Futa',
+
   // Address search
   'search.failed': 'Utafutaji wa anwani umeshindikana. Gusa ramani kuweka mahali badala yake.',
   'search.saveFailed': 'Imeshindwa kuhifadhi — angalia jina, au futa mahali pa zamani kwanza.',

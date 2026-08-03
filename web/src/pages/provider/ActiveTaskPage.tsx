@@ -25,6 +25,7 @@ import { PhotoProof } from '../../components/task/PhotoProof';
 import { SignatureCapture } from '../../components/task/SignatureCapture';
 import { QuotePanel } from '../../components/task/QuotePanel';
 import { ChatPanel } from '../../components/task/ChatPanel';
+import { TripAudioRecorder } from '../../components/safety/TripAudioRecorder';
 import { PickupCode } from '../../components/task/PickupCode';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import type { WsMessage } from '../../types/api';
@@ -364,6 +365,14 @@ export function ActiveTaskPage() {
             selfPubkey={identity.pubKeyHex}
             counterpartyPubkey={activeTask.requesterPubkey}
             counterpartyLabel={profile?.roles.requester || 'Requester'}
+          />
+        )}
+
+        {/* Opt-in audio recording — device-local, counterparty notified */}
+        {activeTask.requesterPubkey && !isTerminal && (
+          <TripAudioRecorder
+            taskId={activeTask.id}
+            counterpartyPubkey={activeTask.requesterPubkey}
           />
         )}
 
