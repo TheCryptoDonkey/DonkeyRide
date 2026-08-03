@@ -19,6 +19,14 @@ export interface DomainProfile {
   description?: string;
   discoveryMethod: 'geohash' | 'skillTags' | 'availability';
   pricingModel: 'distance_time_surge' | 'distance_weight' | 'hourly' | 'milestone' | 'flatRate' | 'quote';
+  /** Service classes (Standard / Comfort / XL). Empty for single-class domains. */
+  serviceOptions?: {
+    id: string;
+    label: string;
+    description?: string;
+    fareMultiplier: number;
+    seats?: number;
+  }[];
   states: {
     values: Record<string, string>;
     transitions: Record<string, string[]>;

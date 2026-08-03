@@ -11,6 +11,7 @@ import { Loading } from '../../components/common/Loading';
 import { ChatPanel } from '../../components/task/ChatPanel';
 import { PickupCode } from '../../components/task/PickupCode';
 import { PickupAdjuster } from '../../components/task/PickupAdjuster';
+import { WaitingTimer } from '../../components/task/WaitingTimer';
 import { TaskStakePanel } from '../../components/payment/TaskStakePanel';
 import { PayDriver } from '../../components/payment/PayDriver';
 import { showToast } from '../../components/common/Toast';
@@ -431,6 +432,9 @@ export function ActiveTaskPage() {
             )}
           </div>
         )}
+
+        {/* Waiting time, visible to both sides as it runs */}
+        <WaitingTimer task={activeTask} role="requester" />
 
         {/* Riders walk: the meeting point stays editable until arrival */}
         {pickupMovable && (

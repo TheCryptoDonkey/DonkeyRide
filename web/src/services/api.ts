@@ -154,6 +154,14 @@ export function normaliseTask(raw: any): Task {
     } : undefined,
     womenOnly: r.womenOnly === true || r.women_only === true || undefined,
     pickupAddress: r.pickupAddress || r.pickup_address || undefined,
+    pickupNote: r.pickupNote || r.pickup_note || undefined,
+    option: r.option || undefined,
+    waiting: r.waiting && typeof r.waiting.sats === 'number'
+      ? { minutes: r.waiting.minutes ?? 0, sats: r.waiting.sats }
+      : undefined,
+    arrivedAt: r.timestamps?.providerArrived
+      ? new Date(r.timestamps.providerArrived).toISOString()
+      : r.arrivedAt,
     fareEstimateSats: r.fare ?? r.fareEstimateSats ?? r.estimated_fare ?? 0,
     distanceKm,
     durationMin: r.duration_minutes ?? r.durationMin,
@@ -264,6 +272,12 @@ export async function requestTask(params: {
   stops?: { lat: number; lng: number; address?: string }[];
   /** Match only with drivers who have declared they are women */
   womenOnly?: boolean;
+  /** Meeting instructions for the provider ("black gate, side entrance") */
+  pickupNote?: string | null;
+  /** Requested service class (domain ride options), e.g. 'xl' */
+  option?: string | null;
+  /** Favourite providers this rider wants given a head start */
+  preferredProviders?: string[];
 }): Promise<Task> {
   const body: Record<string, unknown> = {
     pickup_lat: params.pickup.lat,
@@ -282,6 +296,18 @@ export async function requestTask(params: {
 
   if (params.womenOnly) {
     body.women_only = true;
+  }
+
+  if (params.pickupNote) {
+    body.pickup_note = params.pickupNote;
+  }
+
+  if (params.option) {
+    body.option = params.option;
+  }
+
+  if (params.preferredProviders && params.preferredProviders.length > 0) {
+    body.preferred_providers = params.preferredProviders;
   }
 
   if (params.dropoff) {
@@ -323,6 +349,8 @@ export async function acceptTask(taskId: string, params: {
   vehicle?: { make?: string; model?: string; colour?: string; registration?: string } | null;
   /** Self-declared gender — required to accept a women-only task */
   gender?: 'woman' | 'man' | null;
+  /** Service classes this vehicle can serve — required for non-default classes */
+  serviceOptions?: string[];
 }): Promise<Task> {
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/accept`, {
     method: 'POST',
@@ -336,6 +364,8 @@ export async function acceptTask(taskId: string, params: {
       },
       ...(params.vehicle ? { vehicle: params.vehicle } : {}),
       ...(params.gender ? { gender: params.gender } : {}),
+      ...(params.serviceOptions && params.serviceOptions.length > 0
+        ? { service_options: params.serviceOptions } : {}),
     }),
   });
   return normaliseTask(raw);
@@ -367,15 +397,18 @@ export function updateLocation(taskId: string, params: {
  * is capped operator-side (a walk, not a new job).
  */
 export async function updateTaskPickup(taskId: string, params: {
-  location: LatLng;
+  /** Omit to edit only the note, leaving the point where it is */
+  location?: LatLng | null;
   address?: string | null;
+  /** '' clears the meeting note; undefined leaves it untouched */
+  note?: string | null;
 }): Promise<Task> {
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/pickup`, {
     method: 'POST',
     body: JSON.stringify({
-      lat: params.location.lat,
-      lon: params.location.lng,
+      ...(params.location ? { lat: params.location.lat, lon: params.location.lng } : {}),
       ...(params.address ? { address: params.address } : {}),
+      ...(params.note !== undefined ? { note: params.note ?? '' } : {}),
     }),
   });
   return normaliseTask(raw);
@@ -623,6 +656,10 @@ export async function getOpenTasks(params?: {
   areas?: string[];
   /** Self-declared — women-only tasks are only listed to declared women */
   gender?: 'woman' | 'man';
+  /** Service classes this provider can serve — narrows the list */
+  options?: string[];
+  /** Who is browsing — lets a favourite see a job inside its head start */
+  pubkey?: string;
 }): Promise<Task[]> {
   const query = new URLSearchParams();
   if (params?.areas && params.areas.length > 0) {
@@ -633,6 +670,12 @@ export async function getOpenTasks(params?: {
   }
   if (params?.gender) {
     query.set('gender', params.gender);
+  }
+  if (params?.options && params.options.length > 0) {
+    query.set('options', params.options.join(','));
+  }
+  if (params?.pubkey) {
+    query.set('pubkey', params.pubkey);
   }
   const qs = query.toString();
   const raw = await request<{ rides: Record<string, unknown>[] }>(
@@ -818,6 +861,7 @@ export async function getTripEstimate(params: {
       timeFareSats: raw.fareBreakdown?.timeFareSats ?? Math.round((raw.fare?.sats ?? 0) * 0.2),
       operatorFeeSats: raw.operatorFee?.sats ?? raw.fareBreakdown?.operatorFeeSats ?? 0,
     },
+    options: Array.isArray(raw.options) ? raw.options : undefined,
     fiatEstimate: raw.fare ? {
       amount: raw.fare.fiat,
       currency: raw.fare.currency || raw.currency || 'GBP',
@@ -890,6 +934,8 @@ export function subscribePush(params: {
   /** Self-declared, for women-only matching of pushed jobs */
   gender?: 'woman' | 'man' | null;
   women_only?: boolean;
+  /** 'requester' subscribes for their own task alerts, never for jobs */
+  role?: 'provider' | 'requester';
 }): Promise<{ success: boolean }> {
   return request(`/api/push/subscribe`, {
     method: 'POST',

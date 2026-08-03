@@ -61,6 +61,11 @@ export const sw: Record<string, string> = {
   'home.howItWorks': 'Jinsi inavyofanya kazi',
 
   // Request / estimate
+  'request.optionTitle': 'Chagua safari yako',
+  'request.noteTitle': 'Kuna jambo {label} anapaswa kujua?',
+  'request.notePlaceholder': 'mfano: geti jeusi, mlango wa pembeni',
+  'request.noteHint': 'Ni mtoa huduma aliyeunganishwa tu ndiye anayeona haya. Hayachapishwi popote.',
+  'request.favouritesFirst': 'Watoa huduma {n} uliowahifadhi watapewa nafasi ya kwanza kwa sekunde 45.',
   'request.stopsTitle': 'Vituo njiani',
   'request.addStop': '+ Ongeza kituo',
   'request.searchStop': 'Tafuta kituo...',
@@ -84,6 +89,10 @@ export const sw: Record<string, string> = {
 
 
   // Active task — rider
+  'active.noteTitle': 'Ujumbe kwa mtoa huduma wako',
+  'active.notePlaceholder': 'mfano: geti jeusi, mlango wa pembeni',
+  'active.saveNote': 'Tuma ujumbe kwa {label} wako',
+  'active.noteSaved': 'Ujumbe umetumwa',
   'active.arriving': 'Anawasili',
   'active.arrivingIn': 'dakika {n}',
   'active.tripTime': 'Muda wa safari',
@@ -98,6 +107,15 @@ export const sw: Record<string, string> = {
   'active.moveDrag': 'Pia unaweza kuvuta kibandiko kwenye ramani.',
   'active.pickupMoved': '{label} imesasishwa',
   'active.pickupMoveFailed': 'Imeshindwa kuhamisha pa kuanzia',
+
+  // Waiting time
+  'waiting.title': 'Kusubiri mahali pa kuanzia',
+  'waiting.freeRider': 'Umebakiza {time} ya kusubiri bila malipo, kisha nauli itaongezeka kwa dakika.',
+  'waiting.freeProvider': 'Kusubiri bila malipo kwa {time} zaidi, kisha muda wa kusubiri utaongezwa kwenye nauli.',
+  'waiting.chargingRider': 'Muda wa kusubiri sasa unaongezwa kwenye nauli yako, kwa dakika.',
+  'waiting.chargingProvider': 'Muda wa kusubiri sasa unaongezwa kwenye nauli.',
+  'waiting.chargedTitle': 'Muda wa kusubiri',
+  'waiting.charged': 'dakika {n} zimeongezwa kwenye nauli iliyokubaliwa:',
 
   // Driver dashboard
   'dash.title': 'Dashibodi ya {label}',

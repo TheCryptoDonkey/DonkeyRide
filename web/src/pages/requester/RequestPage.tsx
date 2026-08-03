@@ -10,10 +10,12 @@ import { useIdentity } from '../../context/IdentityContext';
 import { useDomain } from '../../context/DomainContext';
 import { getTripEstimate, requestTask, getOperatorInfoCached, getApiBase } from '../../services/api';
 import { publishTaskAnnouncement } from '../../services/events';
+import { enableTaskPush } from '../../services/push';
 import { formatDistance, formatDuration } from '../../services/pricing';
 import { AddressSearch } from '../../components/AddressSearch';
 import { useT } from '../../i18n';
 import { loadGender } from '../../utils/gender';
+import { favouritePubkeys } from '../../utils/favourites';
 import type { TaskStop } from '../../types/api';
 
 const MAX_STOPS = 2;
@@ -44,6 +46,16 @@ export function RequestPage() {
   // Women-only matching — the toggle only exists for a declared woman
   const isWoman = loadGender() === 'woman';
   const [womenOnly, setWomenOnly] = useState(false);
+  // Meeting instructions a pin cannot express
+  const [pickupNote, setPickupNote] = useState('');
+  // Service class (Standard / Comfort / XL) — domains without classes
+  // never show the picker
+  const [option, setOption] = useState<string | null>(null);
+  const serviceOptions = estimate?.options || [];
+  const chosenOption = serviceOptions.find((o) => o.id === option) || serviceOptions[0] || null;
+  // Saved providers get a short head start; the list never leaves the
+  // device except as part of this request
+  const favourites = favouritePubkeys();
 
   // Resolved pickup time (unix ms) when scheduling; null = leave now
   const scheduledFor = when === 'later' && whenValue
@@ -105,6 +117,10 @@ export function RequestPage() {
     if (scheduleInvalid) return;
     setLoading(true);
     setError(null);
+    // Lock-screen alerts for "on the way" and "I'm here". Fired from this
+    // tap so the permission prompt is gesture-driven (Safari insists), and
+    // never blocking: a refusal must not stop the request.
+    void enableTaskPush(identity.pubKeyHex).catch(() => {});
     try {
       const task = await requestTask({
         pickup: origin,
@@ -115,6 +131,9 @@ export function RequestPage() {
         scheduledFor,
         stops: stops.length > 0 ? stops : undefined,
         womenOnly: isWoman && womenOnly,
+        pickupNote: pickupNote.trim() || undefined,
+        option: chosenOption?.id,
+        preferredProviders: favourites,
       });
       setActiveTask(task);
       // Decentralised announcement — geohash-only, best-effort, relays only.
@@ -138,6 +157,36 @@ export function RequestPage() {
   if (!origin) return null;
 
   const providerLabel = td(profile?.roles.provider || 'Provider');
+
+  // Service classes — real prices, not a multiplier the rider must guess
+  const optionPicker = serviceOptions.length > 1 ? (
+    <div className="meta-card mb-4">
+      <p className="meta-label mb-2">{t('request.optionTitle')}</p>
+      <div className="space-y-2">
+        {serviceOptions.map((o) => (
+          <button
+            key={o.id}
+            className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-lg border text-left transition-colors ${
+              chosenOption?.id === o.id
+                ? 'border-donkey-blue bg-donkey-blue/10'
+                : 'border-donkey-border'
+            }`}
+            onClick={() => setOption(o.id)}
+          >
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-donkey-text">{o.label}</span>
+              {o.description && (
+                <span className="block text-xs text-donkey-muted truncate">{o.description}</span>
+              )}
+            </span>
+            <span className="shrink-0">
+              <DualPrice sats={o.fareSats} size="sm" />
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  ) : null;
 
   // Multi-stop: add up to MAX_STOPS calling points along the way
   const stopsPicker = (
@@ -181,6 +230,23 @@ export function RequestPage() {
           {t('request.stopsNote', { label: providerLabel.toLowerCase() })}
         </p>
       )}
+    </div>
+  );
+
+  // "Black gate, side entrance" — the thing a dropped pin cannot say.
+  // Participant-gated: it reaches the matched provider and nobody else.
+  const notePicker = (
+    <div className="meta-card mb-4">
+      <p className="meta-label mb-2">{t('request.noteTitle', { label: providerLabel.toLowerCase() })}</p>
+      <input
+        type="text"
+        className="w-full bg-donkey-bg border border-donkey-border rounded-lg px-3 py-2 text-donkey-text text-sm"
+        value={pickupNote}
+        maxLength={140}
+        placeholder={t('request.notePlaceholder')}
+        onChange={(e) => setPickupNote(e.target.value)}
+      />
+      <p className="text-donkey-muted text-xs mt-2">{t('request.noteHint')}</p>
     </div>
   );
 
@@ -304,7 +370,7 @@ export function RequestPage() {
           <div>
             <div className="flex items-center justify-between mb-4">
               <div>
-                <DualPrice sats={estimate.fareEstimateSats} size="lg" />
+                <DualPrice sats={chosenOption?.fareSats ?? estimate.fareEstimateSats} size="lg" />
                 <p className="text-donkey-muted text-sm mt-1">
                   {formatDistance(estimate.distanceKm)} &middot; {formatDuration(estimate.durationMinutes)}
                 </p>
@@ -330,11 +396,21 @@ export function RequestPage() {
               </div>
             </div>
 
+            {optionPicker}
+
             {stopsPicker}
+
+            {notePicker}
 
             {whenPicker}
 
             {womenOnlyPicker}
+
+            {favourites.length > 0 && when === 'now' && (
+              <p className="text-donkey-muted text-xs mb-3">
+                {t('request.favouritesFirst', { n: favourites.length })}
+              </p>
+            )}
 
             <div className="flex gap-3">
               <button
@@ -403,6 +479,8 @@ export function RequestPage() {
                 </>
               )}
             </div>
+
+            {notePicker}
 
             {whenPicker}
 

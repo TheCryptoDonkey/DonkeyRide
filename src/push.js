@@ -57,17 +57,25 @@ function isValidSubscription(sub) {
         && typeof sub.keys.auth === 'string');
 }
 
-function subscribe(pubkey, subscription, { areas = null, location = null, gender = null, womenOnly = false } = {}) {
+function subscribe(pubkey, subscription, {
+    areas = null, location = null, gender = null, womenOnly = false, role = 'provider',
+    serviceOptions = null
+} = {}) {
     if (!pubkey || !isValidSubscription(subscription)) {
         return false;
     }
     subscriptions.set(pubkey.toLowerCase(), {
         subscription,
+        // Riders subscribe too (matched / arrived / cancelled alerts) and
+        // must never be swept up in job dispatch — hence the role.
+        role: role === 'requester' ? 'requester' : 'provider',
         areas: Array.isArray(areas) && areas.length > 0 ? areas : null,
         location: location || null,
         // Self-declared, for women-only matching of pushed jobs
         gender: gender || null,
         womenOnly: womenOnly === true,
+        // Vehicle classes this driver can serve (null = default class only)
+        serviceOptions: Array.isArray(serviceOptions) ? serviceOptions : null,
         subscribedAt: Date.now()
     });
     return true;
@@ -78,7 +86,7 @@ function unsubscribe(pubkey) {
 }
 
 /** Refresh dispatch targeting (working areas / last location / gender prefs) */
-function updateTargeting(pubkey, { areas, location, gender, womenOnly } = {}) {
+function updateTargeting(pubkey, { areas, location, gender, womenOnly, serviceOptions } = {}) {
     const entry = subscriptions.get((pubkey || '').toLowerCase());
     if (!entry) {
         return;
@@ -94,6 +102,9 @@ function updateTargeting(pubkey, { areas, location, gender, womenOnly } = {}) {
     }
     if (womenOnly !== undefined) {
         entry.womenOnly = womenOnly === true;
+    }
+    if (Array.isArray(serviceOptions)) {
+        entry.serviceOptions = serviceOptions;
     }
 }
 

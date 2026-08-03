@@ -36,6 +36,12 @@ export interface Task {
   womenOnly?: boolean;
   pickupAddress?: string;
   dropoffAddress?: string;
+  /** Meeting instructions for the provider — participant-gated free text */
+  pickupNote?: string;
+  /** Requested service class (domain ride option), e.g. 'standard' | 'xl' */
+  option?: string;
+  /** Waiting charged after the free period, added to the agreed fare */
+  waiting?: { minutes: number; sats: number };
   fareEstimateSats: number;
   fareEstimateFiat?: FiatAmount;
   distanceKm?: number;
@@ -48,6 +54,8 @@ export interface Task {
   scheduledFor?: number | null;
   settlement?: SettlementInfo;
   createdAt: string;
+  /** When the provider marked arrival — waiting time counts from here */
+  arrivedAt?: string;
   startedAt?: string;
   completedAt?: string;
   rating?: number;
@@ -172,6 +180,16 @@ export interface StakeInfo {
 }
 
 /** Trip estimate response */
+/** A service class as priced for this trip */
+export interface ServiceOptionPrice {
+  id: string;
+  label: string;
+  description?: string | null;
+  seats?: number | null;
+  fareSats: number;
+  fareFormatted?: string;
+}
+
 export interface TripEstimate {
   distanceKm: number;
   durationMinutes: number;
@@ -184,6 +202,8 @@ export interface TripEstimate {
   };
   fiatEstimate?: FiatAmount;
   routeGeometry?: string;
+  /** Per-class prices when the domain defines service classes */
+  options?: ServiceOptionPrice[];
 }
 
 /** Available provider (driver, locksmith, courier, etc.) */

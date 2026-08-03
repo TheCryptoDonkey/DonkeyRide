@@ -401,6 +401,10 @@ class TaskManager {
     if (options.address !== undefined) {
       task.pickupAddress = options.address;
     }
+    // Meeting instructions — participant-gated free text, never snapshotted
+    if (options.note !== undefined) {
+      task.pickupNote = options.note;
+    }
     if (options.route !== undefined) {
       task.route = options.route;
     }

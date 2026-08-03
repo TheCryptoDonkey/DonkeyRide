@@ -14,7 +14,7 @@ import { getSavedPaymentMethods } from '../../utils/payment-methods';
 import { formatDistance, formatDuration } from '../../services/pricing';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import { dispatchService } from '../../services/dispatch';
-import { loadVehicle } from '../../utils/vehicle';
+import { loadVehicle, loadServiceOptions } from '../../utils/vehicle';
 import { loadGender } from '../../utils/gender';
 import { useT } from '../../i18n';
 
@@ -50,6 +50,8 @@ export function IncomingTaskPage() {
         vehicle: loadVehicle(),
         // Self-declared — required by the server for a women-only task
         gender: loadGender(),
+        // Vehicle classes declared on the profile page (XL, Comfort …)
+        serviceOptions: loadServiceOptions(),
       });
       dispatchService.removeAvailable(activeTask.id);
       setActiveTask(updated);

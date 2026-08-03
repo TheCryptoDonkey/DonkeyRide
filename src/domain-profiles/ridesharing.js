@@ -88,6 +88,34 @@ const profile = {
     requiresDestination: true
   },
 
+  // Service classes. The whole rate card is scaled by fareMultiplier, so
+  // the breakdown always sums to the quoted fare. `seats` is what a driver
+  // must be able to seat to serve the class — a driver only receives jobs
+  // for classes their vehicle can actually take.
+  serviceOptions: [
+    {
+      id: 'standard',
+      label: 'Standard',
+      description: 'Everyday car, up to 4 seats',
+      fareMultiplier: 1,
+      seats: 4
+    },
+    {
+      id: 'comfort',
+      label: 'Comfort',
+      description: 'Newer, roomier car',
+      fareMultiplier: 1.3,
+      seats: 4
+    },
+    {
+      id: 'xl',
+      label: 'XL',
+      description: 'Up to 6 seats — luggage or a group',
+      fareMultiplier: 1.6,
+      seats: 6
+    }
+  ],
+
   theme: {
     primary: '#b24cf3',
     primaryRgb: '178, 76, 243',

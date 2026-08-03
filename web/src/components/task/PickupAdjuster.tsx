@@ -32,6 +32,7 @@ export function PickupAdjuster({
   const { location, error: locationError, loading: locationLoading } = useLocation();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState(task.pickupNote || '');
 
   const hasFix = !locationLoading && !locationError;
 
@@ -43,6 +44,18 @@ export function PickupAdjuster({
       onUpdated(updated);
       setOpen(false);
       showToast(t('active.pickupMoved', { label: originLabel }));
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : t('active.pickupMoveFailed'), { type: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveNote = async () => {
+    setBusy(true);
+    try {
+      onUpdated(await updateTaskPickup(task.id, { note }));
+      showToast(t('active.noteSaved'));
     } catch (err) {
       showToast(err instanceof Error ? err.message : t('active.pickupMoveFailed'), { type: 'error' });
     } finally {
@@ -88,6 +101,29 @@ export function PickupAdjuster({
           : t('active.moveFree')}
       </p>
       <p className="text-xs text-donkey-muted mt-1">{t('active.moveDrag')}</p>
+
+      {/* Meeting instructions — the thing a pin cannot say */}
+      <div className="mt-3 pt-3 border-t border-donkey-border/50">
+        <p className="meta-label mb-1">{t('active.noteTitle')}</p>
+        <input
+          type="text"
+          className="w-full bg-donkey-bg border border-donkey-border rounded-lg px-3 py-2 text-donkey-text text-sm"
+          value={note}
+          maxLength={140}
+          placeholder={t('active.notePlaceholder')}
+          onChange={(e) => setNote(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') void saveNote(); }}
+        />
+        {note !== (task.pickupNote || '') && (
+          <button
+            className="btn-secondary w-full text-sm mt-2"
+            disabled={busy}
+            onClick={() => void saveNote()}
+          >
+            {t('active.saveNote', { label: providerLabel.toLowerCase() })}
+          </button>
+        )}
+      </div>
 
       <button
         className="text-xs text-donkey-muted underline mt-2 min-h-[44px]"

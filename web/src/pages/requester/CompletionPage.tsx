@@ -11,6 +11,7 @@ import { submitRating, sendTip, getOperatorInfoCached, getTask } from '../../ser
 import { GuaranteeBanner } from '../../components/task/GuaranteeBanner';
 import { formatDistance, formatDuration } from '../../services/pricing';
 import { recordTrip } from '../../services/trip-history';
+import { isFavourite, toggleFavourite } from '../../utils/favourites';
 import type { OperatorPaymentInfo, SettlementInfo } from '../../types/api';
 
 export function CompletionPage() {
@@ -26,6 +27,8 @@ export function CompletionPage() {
   const [tipError, setTipError] = useState<string | null>(null);
   const [payment, setPayment] = useState<OperatorPaymentInfo | null>(null);
   const [liveSettlement, setLiveSettlement] = useState<SettlementInfo | null>(null);
+  // "That one again" — device-local, gives them a head start next time
+  const [favourite, setFavourite] = useState(false);
 
   const taskNoun = profile?.labels?.taskNoun || 'task';
   const completedLabel = profile?.labels?.completedLabel || 'Complete';
@@ -55,6 +58,11 @@ export function CompletionPage() {
     }, 5000);
     return () => clearInterval(timer);
   }, [task?.id, settlementConfirmed]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reflect what is already saved when the page opens
+  useEffect(() => {
+    if (task?.providerPubkey) setFavourite(isFavourite(task.providerPubkey));
+  }, [task?.providerPubkey]);
 
   // Your copy of the trip — device-local history (the operator keeps none).
   // Re-records when settlement confirms so the paid-by rail lands too.
@@ -169,6 +177,32 @@ export function CompletionPage() {
 
         {/* Pay the driver directly (non-custodial) */}
         <PayDriver task={task} settlement={settlement} />
+
+        {/* Keep this provider — a head start on the rider's next request */}
+        {task.providerPubkey && (
+          <button
+            className={`card w-full text-left flex items-center gap-3 min-h-[44px] ${
+              favourite ? 'border border-donkey-orange/50' : ''
+            }`}
+            onClick={() => setFavourite(toggleFavourite({
+              pubkey: task.providerPubkey!,
+              npub: task.providerNpub,
+            }))}
+          >
+            <span className="text-xl">{favourite ? '⭐' : '☆'}</span>
+            <span className="min-w-0">
+              <span className="block text-sm font-semibold text-donkey-text">
+                {favourite
+                  ? `Saved — this ${providerLabel.toLowerCase()} gets your next ${taskNoun} first`
+                  : `Save this ${providerLabel.toLowerCase()}`}
+              </span>
+              <span className="block text-xs text-donkey-muted">
+                Stays on this device. Saved {providerLabel.toLowerCase()}s get a
+                short head start before a request opens to everyone.
+              </span>
+            </span>
+          </button>
+        )}
 
         {/* Rating */}
         {!submitted ? (

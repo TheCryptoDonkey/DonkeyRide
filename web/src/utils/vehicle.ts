@@ -12,6 +12,12 @@ export interface Vehicle {
   model?: string;
   colour?: string;
   registration?: string;
+  /**
+   * Service classes this car can serve (domain ids, e.g. ['xl']).
+   * The default class needs no declaration; anything above it does, so
+   * an XL request can never land with a hatchback.
+   */
+  serviceOptions?: string[];
 }
 
 function clean(v: unknown): string | undefined {
@@ -28,11 +34,25 @@ export function loadVehicle(): Vehicle | null {
       model: clean(parsed?.model),
       colour: clean(parsed?.colour),
       registration: clean(parsed?.registration),
+      serviceOptions: cleanOptions(parsed?.serviceOptions),
     };
     return hasAnyField(vehicle) ? vehicle : null;
   } catch {
     return null;
   }
+}
+
+function cleanOptions(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const ids = raw
+    .filter((v): v is string => typeof v === 'string' && /^[a-z0-9_-]{1,32}$/i.test(v.trim()))
+    .map((v) => v.trim().toLowerCase());
+  return ids.length > 0 ? Array.from(new Set(ids)) : undefined;
+}
+
+/** Classes this driver has declared — [] when they serve the default only */
+export function loadServiceOptions(): string[] {
+  return loadVehicle()?.serviceOptions || [];
 }
 
 export function saveVehicle(vehicle: Vehicle): void {
@@ -41,6 +61,7 @@ export function saveVehicle(vehicle: Vehicle): void {
     model: clean(vehicle.model),
     colour: clean(vehicle.colour),
     registration: clean(vehicle.registration),
+    serviceOptions: cleanOptions(vehicle.serviceOptions),
   };
   if (hasAnyField(cleaned)) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(cleaned));
@@ -50,7 +71,10 @@ export function saveVehicle(vehicle: Vehicle): void {
 }
 
 export function hasAnyField(vehicle: Vehicle | null | undefined): boolean {
-  return Boolean(vehicle && (vehicle.make || vehicle.model || vehicle.colour || vehicle.registration));
+  return Boolean(vehicle && (
+    vehicle.make || vehicle.model || vehicle.colour || vehicle.registration
+    || (vehicle.serviceOptions && vehicle.serviceOptions.length > 0)
+  ));
 }
 
 /** "Blue Toyota Prius · MN65 XYZ" from whatever fields are present */

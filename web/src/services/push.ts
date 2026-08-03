@@ -70,6 +70,46 @@ export async function enableJobPush(
   }
 }
 
+/**
+ * Register a RIDER's device for their own task alerts: matched, arrived,
+ * cancelled. Same VAPID rail as job alerts, but the subscription is
+ * flagged `requester` so it can never be swept into job dispatch.
+ *
+ * Call from the gesture that requests the task — the permission prompt
+ * then rides a tap the rider already meant to make, and the alerts start
+ * exactly when they become useful. Best-effort: a refusal costs nothing
+ * but the lock-screen update.
+ */
+export async function enableTaskPush(pubkey: string): Promise<boolean> {
+  if (!pushSupported()) return false;
+  try {
+    let permission = Notification.permission;
+    if (permission === 'default') {
+      permission = await Notification.requestPermission();
+    }
+    if (permission !== 'granted') return false;
+
+    const registration = await navigator.serviceWorker.getRegistration();
+    if (!registration) return false;
+
+    const key = await getVapidKey();
+    if (!key) return false;
+
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key) as BufferSource,
+      });
+    }
+
+    await subscribePush({ subscription: subscription.toJSON(), pubkey, role: 'requester' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Going off shift — the operator stops pushing to this device.
  *  The browser subscription is kept for an instant re-enable. */
 export async function disableJobPush(pubkey: string): Promise<void> {

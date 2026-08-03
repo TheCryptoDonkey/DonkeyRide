@@ -7,6 +7,7 @@ import { enableJobPush, disableJobPush } from './push';
 import { subscribeFederatedTasks } from './federation';
 import { startShiftTracking, stopShiftTracking } from './native-location';
 import { loadWorkingAreas, combinedCells } from '../utils/working-areas';
+import { loadServiceOptions } from '../utils/vehicle';
 import { loadDestinationMode, jobMovesToward } from '../utils/destination-mode';
 import { loadGender, loadWomenOnlyDriver, type Gender } from '../utils/gender';
 import type { DestinationMode } from '../utils/destination-mode';
@@ -192,6 +193,8 @@ class DispatchService {
           ? { areas: this.areas }
           : { location: this.location ?? undefined }),
         gender: this.gender ?? undefined,
+        options: loadServiceOptions(),
+        pubkey: this.identity?.pubKeyHex,
       });
     } catch {
       return; // transient — the next poll reconciles
@@ -388,6 +391,8 @@ class DispatchService {
       // Self-declared, for women-only matching (null clears a declaration)
       gender: this.gender,
       women_only: this.womenOnlyPref,
+      // Vehicle classes this driver can serve beyond the default
+      service_options: loadServiceOptions(),
     };
   }
 

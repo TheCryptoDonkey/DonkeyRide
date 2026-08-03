@@ -50,6 +50,11 @@ export const en: Record<string, string> = {
   'home.howItWorks': 'How it works',
 
   // Request / estimate
+  'request.optionTitle': 'Choose your ride',
+  'request.noteTitle': 'Anything your {label} should know?',
+  'request.notePlaceholder': 'e.g. black gate, side entrance',
+  'request.noteHint': 'Only the matched provider sees this. Never published.',
+  'request.favouritesFirst': 'Your {n} saved provider(s) get first refusal for 45 seconds.',
   'request.stopsTitle': 'Stops along the way',
   'request.addStop': '+ Add a stop',
   'request.searchStop': 'Search for a stop...',
@@ -73,6 +78,10 @@ export const en: Record<string, string> = {
 
 
   // Active task — rider
+  'active.noteTitle': 'Note for your provider',
+  'active.notePlaceholder': 'e.g. black gate, side entrance',
+  'active.saveNote': 'Send note to your {label}',
+  'active.noteSaved': 'Note sent',
   'active.arriving': 'Arriving',
   'active.arrivingIn': '{n} min',
   'active.tripTime': 'Trip time',
@@ -87,6 +96,15 @@ export const en: Record<string, string> = {
   'active.moveDrag': 'You can also drag the pin on the map.',
   'active.pickupMoved': '{label} updated',
   'active.pickupMoveFailed': 'Could not move the pickup',
+
+  // Waiting time
+  'waiting.title': 'Waiting at the pickup',
+  'waiting.freeRider': '{time} of free waiting left, then the fare grows by the minute.',
+  'waiting.freeProvider': 'Free waiting for another {time}, then waiting is added to the fare.',
+  'waiting.chargingRider': 'Waiting is now being added to your fare, by the minute.',
+  'waiting.chargingProvider': 'Waiting is now being added to the fare.',
+  'waiting.chargedTitle': 'Waiting time',
+  'waiting.charged': '{n} min added to the agreed fare:',
 
   // Driver dashboard
   'dash.title': '{label} Dashboard',

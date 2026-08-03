@@ -362,12 +362,17 @@ const RATE_CARD_CURRENCY = (() => {
 })();
 
 /** Rate-card options passed to every estimateTripCost() call. */
-function rateCardOptions(currency) {
+function rateCardOptions(currency, multiplier = 1) {
+    // A service class (XL, Comfort) scales the whole rate card, so every
+    // derived figure — fare, breakdown rows, formatted string — stays
+    // internally consistent instead of a multiplied total that no longer
+    // matches its own breakdown.
+    const m = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
     return {
         currency,
-        baseFare: config.fareBase,
-        perKm: config.farePerKm,
-        perMinute: config.farePerMinute,
+        baseFare: config.fareBase * m,
+        perKm: config.farePerKm * m,
+        perMinute: config.farePerMinute * m,
         rateCardCurrency: RATE_CARD_CURRENCY,
         operatorFeePct: config.operatorFeePercent
     };
@@ -1099,7 +1104,9 @@ if (wss) {
                             areas: sanitiseWorkingAreas(data.areas),
                             // Self-declared, for women-only matching
                             gender: data.gender,
-                            womenOnly: data.women_only
+                            womenOnly: data.women_only,
+                            // Vehicle classes this driver can serve
+                            serviceOptions: sanitiseServiceOptions(data.service_options)
                         });
                         sendPendingRideRequests(ws);
                         break;
@@ -1185,6 +1192,18 @@ const DRIVER_PRESENCE_TTL_MS = 2 * 60 * 1000; // location older than this is sta
 // How far a rider may move the pickup after a provider has committed —
 // a walk to a legal kerb, not a different job.
 const PICKUP_ADJUST_MAX_KM = parseFloat(process.env.PICKUP_ADJUST_MAX_KM) || 1;
+// "Black gate, side entrance" — meeting instructions, not an essay
+const PICKUP_NOTE_MAX_CHARS = 140;
+// Favourite providers: how long they get the job to themselves before it
+// opens to everyone, and how many a rider may name.
+const FAVOURITE_HEAD_START_MS = parseInt(process.env.FAVOURITE_HEAD_START_MS || '45000', 10);
+const MAX_PREFERRED_PROVIDERS = 10;
+// Free waiting after the provider arrives; beyond it, the agreed fare
+// grows by the rate card's per-minute rate. Set 0 to charge from arrival,
+// or a huge number to disable waiting time entirely.
+const FREE_WAITING_MINUTES = process.env.FREE_WAITING_MINUTES != null
+    ? parseFloat(process.env.FREE_WAITING_MINUTES)
+    : 3;
 // STRICT_DISPATCH=true excludes drivers with no known location from dispatch
 const strictDispatch = (process.env.STRICT_DISPATCH || '').toLowerCase() === 'true';
 
@@ -1252,6 +1271,90 @@ function originInAreas(origin, areas) {
 }
 
 /**
+ * Service classes a provider can actually serve. A driver who declares
+ * nothing serves the default class only — so an XL request never lands
+ * with a hatchback (fail closed for the request side, as with
+ * women-only). Unknown ids are dropped rather than trusted.
+ */
+function sanitiseServiceOptions(raw, profile = domainProfile) {
+    if (!Array.isArray(raw)) {
+        return null;
+    }
+    const known = new Set((profile.serviceOptions || []).map((o) => o.id));
+    const ids = [];
+    for (const value of raw) {
+        if (typeof value !== 'string') {
+            continue;
+        }
+        const id = value.trim().toLowerCase();
+        if (known.has(id) && !ids.includes(id)) {
+            ids.push(id);
+        }
+    }
+    return ids;
+}
+
+/** The class a task is asking for; null when the domain has no classes */
+function resolveServiceOption(requested, profile) {
+    const options = profile.serviceOptions || [];
+    if (options.length === 0) {
+        return null;
+    }
+    const found = typeof requested === 'string'
+        ? options.find((o) => o.id === requested.trim().toLowerCase())
+        : null;
+    return found || options[0];
+}
+
+/** Can this provider serve the class this task asked for? */
+function optionEligible(entry, ride) {
+    const wanted = ride?.option;
+    if (!wanted) {
+        return true;
+    }
+    const profile = rideManager.getProfileForRide(ride.id) || domainProfile;
+    const options = profile.serviceOptions || [];
+    const defaultId = options.length > 0 ? options[0].id : null;
+    if (wanted === defaultId) {
+        return true;
+    }
+    // Anything beyond the default class must be explicitly declared
+    const declared = entry?.serviceOptions;
+    return Array.isArray(declared) && declared.includes(wanted);
+}
+
+/**
+ * Favourite providers get a head start.
+ *
+ * The rider's list lives on their device; it reaches the operator only
+ * as part of a request they chose to make, stays in memory for that
+ * request alone, and is never snapshotted to relays. During the window
+ * the job is invisible and unacceptable to everyone else — a head start
+ * that other drivers can simply out-tap is not a head start.
+ */
+function inFavouriteWindow(ride) {
+    return Boolean(
+        ride?.preferredProviders?.length
+        && ride.preferredUntil
+        && Date.now() < ride.preferredUntil
+        && !(ride.driver || ride.provider)
+    );
+}
+
+function isPreferredProvider(ride, pubkey) {
+    const key = (pubkey || '').toLowerCase();
+    return Boolean(key && ride?.preferredProviders?.includes(key));
+}
+
+/** May this provider see/take this job right now? */
+function favouriteEligible(entry, ride) {
+    if (!inFavouriteWindow(ride)) {
+        return true;
+    }
+    return isPreferredProvider(ride, entry?.pubkey || entry?.driverPubkey);
+}
+
+/**
  * Self-declared gender for women-only matching. TROTT is pseudonymous:
  * this is attestation, not verification, and the UI says so honestly.
  * Only 'woman' has matching semantics; anything else normalises to null.
@@ -1290,7 +1393,7 @@ const presenceSweep = setInterval(() => {
 }, 60000);
 presenceSweep.unref();
 
-function updateDriverPresence({ npub, pubkey, location, areas, gender, womenOnly }) {
+function updateDriverPresence({ npub, pubkey, location, areas, gender, womenOnly, serviceOptions }) {
     const key = (npub || pubkey || '').toLowerCase();
     if (!key) {
         return null;
@@ -1299,6 +1402,11 @@ function updateDriverPresence({ npub, pubkey, location, areas, gender, womenOnly
     const entry = {
         npub: npub || existing.npub || null,
         pubkey: (pubkey || existing.pubkey || null),
+        // Service classes this vehicle can serve; undefined keeps the
+        // stored list, [] means default class only
+        serviceOptions: Array.isArray(serviceOptions)
+            ? serviceOptions
+            : existing.serviceOptions || null,
         location: location && Number.isFinite(location.lat) && Number.isFinite(location.lon)
             ? { lat: location.lat, lon: location.lon }
             : existing.location || null,
@@ -1406,6 +1514,11 @@ function pushRideRequestToOfflineDrivers(ride, estimate) {
     };
     let count = 0;
     for (const entry of pushService.listSubscriptions()) {
+        // Riders subscribe to the same service for their own alerts —
+        // they must never be offered a job
+        if (entry.role === 'requester') {
+            continue;
+        }
         if (connected.has(entry.pubkey)) {
             continue;
         }
@@ -1415,10 +1528,64 @@ function pushRideRequestToOfflineDrivers(ride, estimate) {
         if (!genderEligible(entry, ride)) {
             continue;
         }
+        if (!optionEligible(entry, ride)) {
+            continue;
+        }
+        if (!favouriteEligible(entry, ride)) {
+            continue;
+        }
         void pushService.sendTo(entry.pubkey, payload);
         count++;
     }
     return count;
+}
+
+/** "Blue Toyota Corolla (AB12 CDE)" — for alerts, never for relays */
+function describeVehicleText(vehicle) {
+    if (!vehicle || typeof vehicle !== 'object') {
+        return null;
+    }
+    const car = [vehicle.colour, vehicle.make, vehicle.model].filter(Boolean).join(' ');
+    const reg = vehicle.registration ? ` (${vehicle.registration})` : '';
+    return car ? `${car}${reg}` : (vehicle.registration || null);
+}
+
+/** Is this participant watching the ride right now (socket open)? */
+function participantSocketOpen(rideId, pubkey) {
+    if (!wss || !pubkey) {
+        return false;
+    }
+    for (const client of wss.clients) {
+        if (client.readyState === WebSocket.OPEN
+            && client.rideId === rideId
+            && client.authedPubkey === pubkey.toLowerCase()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Alert a participant whose app is not on screen.
+ *
+ * The WS frame only reaches an open socket, so without this the rider
+ * learns their car arrived by unlocking the phone and looking — the one
+ * thing every commercial app gets right. Payload is E2E encrypted to the
+ * device (RFC 8291) and carries no counterparty identity or exact
+ * coordinates.
+ */
+function pushToParticipant(ride, identity, { title, body, url, tag }) {
+    const pubkey = (identity?.pubkey || '').toLowerCase();
+    if (!pubkey || participantSocketOpen(ride.id, pubkey)) {
+        return false;
+    }
+    void pushService.sendTo(pubkey, {
+        title,
+        body,
+        tag: tag || `ride-${ride.id}`,
+        url: url || '/request/active'
+    });
+    return true;
 }
 
 // Broadcast to drivers, geo-filtered by origin when provided. `constraints`
@@ -1430,12 +1597,23 @@ function broadcastToDrivers(message, origin = null, constraints = null) {
     let count = 0;
     wss.clients.forEach(client => {
         if (client.clientType === 'driver' && client.readyState === WebSocket.OPEN) {
-            if (!driverInRange(client.driverNpub || client.driverPubkey, origin)) {
+            const identifier = client.driverNpub || client.driverPubkey;
+            if (!driverInRange(identifier, origin)) {
                 return;
             }
-            if (constraints
-                && !genderEligible(getDriverPresence(client.driverNpub || client.driverPubkey), constraints)) {
-                return;
+            if (constraints) {
+                const presence = getDriverPresence(identifier);
+                if (!genderEligible(presence, constraints)) {
+                    return;
+                }
+                if (!optionEligible(presence, constraints)) {
+                    return;
+                }
+                if (!favouriteEligible(
+                    presence || { pubkey: client.driverPubkey }, constraints
+                )) {
+                    return;
+                }
             }
             client.send(JSON.stringify(message));
             count++;
@@ -1472,7 +1650,14 @@ function sendPendingRideRequests(ws) {
         if (!driverInRange(ws.driverNpub || ws.driverPubkey, ride.pickup)) {
             return;
         }
-        if (!genderEligible(getDriverPresence(ws.driverNpub || ws.driverPubkey), ride)) {
+        const presence = getDriverPresence(ws.driverNpub || ws.driverPubkey);
+        if (!genderEligible(presence, ride)) {
+            return;
+        }
+        if (!optionEligible(presence, ride)) {
+            return;
+        }
+        if (!favouriteEligible(presence || { pubkey: ws.driverPubkey }, ride)) {
             return;
         }
         // Pre-booked rides outside the lead window are browsable on the open
@@ -1498,7 +1683,8 @@ function sendPendingRideRequests(ws) {
                 estimatedFare: estimate,
                 currency: ride.currency || session.currency || 'GBP',
                 scheduledFor: ride.scheduledFor || null,
-                womenOnly: ride.womenOnly === true
+                womenOnly: ride.womenOnly === true,
+                option: ride.option || null
             }
         };
 
@@ -1531,6 +1717,7 @@ function dispatchScheduledRide(ride) {
             currency: ride.currency || session.currency || 'GBP',
             scheduledFor: ride.scheduledFor || null,
             womenOnly: ride.womenOnly === true,
+            option: ride.option || null,
             rider: ride.rider ? {
                 npub: ride.rider.npub,
                 pubkey: ride.rider.pubkey
@@ -1548,6 +1735,19 @@ function dispatchScheduledRide(ride) {
 const scheduleSweep = setInterval(() => {
     const now = Date.now();
     for (const ride of rideManager.getActiveRides()) {
+        // Favourite head start lapsed with nobody committed — open the job
+        // to every eligible provider rather than let it sit unseen
+        if (ride.preferredUntil && !ride.preferredExpanded
+            && now >= ride.preferredUntil
+            && !(ride.driver || ride.provider)) {
+            ride.preferredExpanded = true;
+            const profile = rideManager.getProfileForRide(ride.id);
+            if (ride.status === profile.states.values.REQUESTED) {
+                const { driverCount, pushed } = dispatchScheduledRide(ride);
+                console.log(`⭐ Ride ${ride.id}: favourite window closed — opened to ${driverCount} live, ${pushed} pushed`);
+            }
+        }
+
         if (!ride.scheduledFor) {
             continue;
         }
@@ -2959,7 +3159,7 @@ app.get('/api/drivers/available', publicRateLimiter, async (req, res) => {
 // Driver reports presence + location (used by the driver app while online)
 app.post('/api/drivers/location', async (req, res) => {
     try {
-        const { npub, pubkey, lat, lon, areas, gender, women_only } = req.body || {};
+        const { npub, pubkey, lat, lon, areas, gender, women_only, service_options } = req.body || {};
         const signerPubkey = req.user?.pubkey || null;
 
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
@@ -2980,7 +3180,8 @@ app.post('/api/drivers/location', async (req, res) => {
             location: { lat, lon },
             areas: sanitiseWorkingAreas(areas),
             gender,
-            womenOnly: women_only
+            womenOnly: women_only,
+            serviceOptions: sanitiseServiceOptions(service_options)
         });
 
         if (!entry) {
@@ -2992,7 +3193,8 @@ app.post('/api/drivers/location', async (req, res) => {
             areas: sanitiseWorkingAreas(areas),
             location: { lat, lon },
             gender: gender !== undefined ? sanitiseGender(gender) : undefined,
-            womenOnly: women_only !== undefined ? women_only === true : undefined
+            womenOnly: women_only !== undefined ? women_only === true : undefined,
+            serviceOptions: sanitiseServiceOptions(service_options)
         });
 
         res.json({ success: true, lastSeen: entry.lastSeen });
@@ -3011,17 +3213,17 @@ app.get('/api/push/vapid-key', publicRateLimiter, (req, res) => {
 // The push endpoint URL is device-addressing PII: held in memory only.
 app.post('/api/push/subscribe', optionalNip98, (req, res) => {
     try {
-        const { subscription, pubkey, areas, location, gender, women_only } = req.body || {};
+        const { subscription, pubkey, areas, location, gender, women_only, role } = req.body || {};
         if (nip98Enabled && req.user && pubkey
             && !actorMatchesIdentity(req.user, { pubkey })) {
             return res.status(403).json({
                 error: 'Forbidden',
-                details: 'Signer does not match the subscribing driver identity'
+                details: 'Signer does not match the subscribing identity'
             });
         }
         const subscriber = ((nip98Enabled && req.user?.pubkey) || pubkey || '').toLowerCase();
         if (!subscriber) {
-            return res.status(400).json({ error: 'Missing driver pubkey' });
+            return res.status(400).json({ error: 'Missing pubkey' });
         }
         if (!pushService.isValidSubscription(subscription)) {
             return res.status(400).json({ error: 'Invalid push subscription' });
@@ -3030,10 +3232,14 @@ app.post('/api/push/subscribe', optionalNip98, (req, res) => {
             ? { lat: location.lat, lon: location.lon }
             : null;
         pushService.subscribe(subscriber, subscription, {
+            // Riders subscribe for "your driver is on the way / is here";
+            // only providers are ever swept into job dispatch.
+            role: role === 'requester' ? 'requester' : 'provider',
             areas: sanitiseWorkingAreas(areas),
             location: loc,
             gender: sanitiseGender(gender),
-            womenOnly: women_only === true
+            womenOnly: women_only === true,
+            serviceOptions: sanitiseServiceOptions(req.body.service_options)
         });
         res.json({ success: true });
     } catch (error) {
@@ -3176,8 +3382,28 @@ app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
         // Get detailed cost estimate with dual pricing
         const estimate = await estimateTripCost(distance, duration, rateCardOptions(fiatCurrency));
 
+        // Per-class prices so the picker shows real numbers, not a
+        // multiplier the client had to guess at
+        const classes = [];
+        for (const option of (domainProfile.serviceOptions || [])) {
+            const priced = option.fareMultiplier === 1
+                ? estimate
+                : await estimateTripCost(
+                    distance, duration, rateCardOptions(fiatCurrency, option.fareMultiplier)
+                );
+            classes.push({
+                id: option.id,
+                label: option.label,
+                description: option.description || null,
+                seats: option.seats || null,
+                fareSats: priced.fare.sats,
+                fareFormatted: priced.fare.formatted
+            });
+        }
+
         res.json({
             ...estimate,
+            options: classes,
             pickup: { lat: pickup_lat, lon: pickup_lon },
             dropoff: { lat: dropoff_lat, lon: dropoff_lon },
             timestamp: Date.now()
@@ -3297,7 +3523,10 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 domain,
                 scheduled_for,
                 stops,
-                women_only
+                women_only,
+                pickup_note,
+                option,
+                preferred_providers
             } = req.body;
 
             // Intermediate stops (multi-stop trips) — visited in order
@@ -3435,7 +3664,12 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 console.log(`📍 Single-location task — no route needed`);
             }
 
-            const estimate = await estimateTripCost(distance, duration, rateCardOptions(fiatCurrency));
+            // Service class (Standard / Comfort / XL): scales the rate card
+            const serviceOption = resolveServiceOption(option, requestProfile);
+            const estimate = await estimateTripCost(
+                distance, duration,
+                rateCardOptions(fiatCurrency, serviceOption?.fareMultiplier || 1)
+            );
 
             const estimatedFareSats = fare_sats
                 ? parseInt(fare_sats, 10)
@@ -3482,6 +3716,31 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 ride.womenOnly = true;
             }
 
+            // Meeting instructions for the provider ("black gate, side
+            // entrance"). Participant-gated: in memory, never in a
+            // pre-accept payload, never in the Nostr snapshot.
+            if (typeof pickup_note === 'string' && pickup_note.trim()) {
+                ride.pickupNote = pickup_note.trim().slice(0, PICKUP_NOTE_MAX_CHARS);
+            }
+
+            if (serviceOption) {
+                ride.option = serviceOption.id;
+            }
+
+            // Favourite providers get a short exclusive window. The list is
+            // the rider's own, held in memory for this request only and
+            // never snapshotted to relays.
+            const preferred = Array.isArray(preferred_providers)
+                ? preferred_providers
+                    .filter((p) => typeof p === 'string' && /^[0-9a-f]{64}$/i.test(p.trim()))
+                    .map((p) => p.trim().toLowerCase())
+                    .slice(0, MAX_PREFERRED_PROVIDERS)
+                : [];
+            if (preferred.length > 0 && !scheduledFor) {
+                ride.preferredProviders = preferred;
+                ride.preferredUntil = Date.now() + FAVOURITE_HEAD_START_MS;
+            }
+
             // Broadcast to drivers within DISPATCH_RADIUS_KM of the pickup
             // Approximate location + no route pre-accept (progressive
             // disclosure); the accepting driver gets exact coordinates.
@@ -3509,6 +3768,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                         currency: fiatCurrency,
                         scheduledFor: ride.scheduledFor || null,
                         womenOnly: ride.womenOnly === true,
+                        option: ride.option || null,
                         rider: ride.rider ? {
                             npub: ride.rider.npub,
                             pubkey: ride.rider.pubkey
@@ -3537,6 +3797,8 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 scheduled_for: scheduledFor,
                 stops: ride.stops || null,
                 women_only: ride.womenOnly === true,
+                option: ride.option || null,
+                favourites_first: inFavouriteWindow(ride),
                 route: routeCoordinates,
                 currency: fiatCurrency,
                 estimate
@@ -3612,6 +3874,33 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
             }
         }
 
+        // A head start other drivers can out-tap is not a head start
+        if (inFavouriteWindow(pendingRide) && !isPreferredProvider(pendingRide, driver_pubkey)) {
+            return res.status(403).json({
+                error: 'Reserved for the requester\'s saved providers',
+                details: 'This job opens to everyone shortly — it is held for the requester\'s favourites first.',
+                opens_in_seconds: Math.max(0, Math.ceil((pendingRide.preferredUntil - Date.now()) / 1000))
+            });
+        }
+
+        // Service class: an XL request must not land with a hatchback
+        if (pendingRide?.option) {
+            const declared = sanitiseServiceOptions(
+                req.body.service_options,
+                rideManager.getProfileForRide(rideId)
+            );
+            const presence = getDriverPresence(driver_npub || driver_pubkey);
+            const entry = declared && declared.length > 0
+                ? { serviceOptions: declared }
+                : presence;
+            if (!optionEligible(entry, pendingRide)) {
+                return res.status(403).json({
+                    error: 'Vehicle class not declared',
+                    details: `This request asked for '${pendingRide.option}'. Declare that class on your vehicle to take it.`
+                });
+            }
+        }
+
         // Note: any driver_rating in the body is deliberately ignored — a
         // rating is never self-reported. Clients read the counterparty's
         // aggregated signed ratings from GET /api/reputation/:npub.
@@ -3679,6 +3968,16 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
         };
         broadcastToRide(rideId, { type: 'ride_matched', ride: matchPayload });
         broadcastToRide(rideId, { type: 'task_matched', task: matchPayload });
+
+        // …and reach the rider's lock screen, not just an open socket
+        const acceptProfile = rideManager.getProfileForRide(rideId);
+        const providerNoun = acceptProfile.roles.provider;
+        pushToParticipant(ride, ride.requester || ride.rider, {
+            title: `Your ${providerNoun} is on the way`,
+            body: [describeVehicleText(ride.vehicle), eta ? `about ${Math.max(1, Math.round(eta / 60))} min away` : null]
+                .filter(Boolean).join(' · ') || 'Open DonkeyRide for details',
+            url: '/request/active'
+        });
 
         res.json({
             success: true,
@@ -3782,8 +4081,10 @@ app.post('/api/rides/:rideId/pickup', async (req, res) => {
         const { rideId } = req.params;
         const lat = req.body.lat;
         const lon = req.body.lon != null ? req.body.lon : req.body.lng;
+        // A note alone is a valid update ("black gate, side entrance")
+        const noteOnly = lat == null && lon == null && req.body.note !== undefined;
 
-        if (!isValidLat(lat) || !isValidLon(lon)) {
+        if (!noteOnly && (!isValidLat(lat) || !isValidLon(lon))) {
             return res.status(400).json({ error: 'lat and lon/lng must be valid coordinates' });
         }
 
@@ -3812,9 +4113,21 @@ app.post('/api/rides/:rideId/pickup', async (req, res) => {
             });
         }
 
-        const newPickup = { lat: Number(lat), lon: Number(lon) };
+        const newPickup = noteOnly
+            ? { lat: ride.pickup.lat, lon: ride.pickup.lon }
+            : { lat: Number(lat), lon: Number(lon) };
         const movedKm = calculateDistance(ride.pickup.lat, ride.pickup.lon, newPickup.lat, newPickup.lon);
         const matched = Boolean(ride.driver || ride.provider);
+
+        // Meeting instructions ("black gate, side entrance, blue coat").
+        // Participant-gated free text: in memory only, never broadcast
+        // pre-accept and never snapshotted to relays. '' clears it.
+        let note;
+        if (req.body.note !== undefined) {
+            note = typeof req.body.note === 'string' && req.body.note.trim()
+                ? req.body.note.trim().slice(0, PICKUP_NOTE_MAX_CHARS)
+                : null;
+        }
 
         if (matched && movedKm > PICKUP_ADJUST_MAX_KM) {
             return res.status(400).json({
@@ -3837,7 +4150,7 @@ app.post('/api/rides/:rideId/pickup', async (req, res) => {
         let duration = 0;
         let routeCoordinates = null;
 
-        if (ride.dropoff) {
+        if (ride.dropoff && !noteOnly) {
             const routeVia = Array.isArray(ride.stops) ? ride.stops : [];
             const osrmRoute = await getRoute(
                 newPickup.lat, newPickup.lon, ride.dropoff.lat, ride.dropoff.lon, routeVia
@@ -3855,20 +4168,25 @@ app.post('/api/rides/:rideId/pickup', async (req, res) => {
             }
         }
 
-        const estimate = await estimateTripCost(distance, duration, rateCardOptions(fiatCurrency));
+        // A note-only edit touches neither the route nor the price
+        const estimate = noteOnly
+            ? (ride.estimate || null)
+            : await estimateTripCost(distance, duration, rateCardOptions(fiatCurrency));
 
         const updated = rideManager.updatePickup(rideId, newPickup, {
             ...(address !== undefined ? { address } : {}),
+            ...(note !== undefined ? { note } : {}),
             ...(routeCoordinates ? { route: routeCoordinates } : {}),
-            distanceKm: distance,
-            durationMin: Math.round(duration),
+            ...(noteOnly ? {} : { distanceKm: distance, durationMin: Math.round(duration) }),
             // Never re-price a committed job
-            ...(matched ? {} : { fare: estimate.fare.sats })
+            ...(matched || noteOnly ? {} : { fare: estimate.fare.sats })
         });
-        updated.estimate = estimate;
+        if (estimate) {
+            updated.estimate = estimate;
+        }
 
         const session = activeRides.get(rideId);
-        if (session) {
+        if (session && !noteOnly) {
             session.pickup = updated.pickup;
             session.estimate = estimate;
             session.route = routeCoordinates;
@@ -3882,18 +4200,31 @@ app.post('/api/rides/:rideId/pickup', async (req, res) => {
                 ride_id: rideId,
                 pickup: updated.pickup,
                 ...(address ? { address } : {}),
+                ...(note !== undefined ? { note: updated.pickupNote || null } : {}),
                 moved_m: Math.round(movedKm * 1000),
+                note_only: noteOnly,
                 route: routeCoordinates
+            });
+            // A driver already turning into the old street needs this even
+            // with the app in their pocket
+            pushToParticipant(updated, updated.provider || updated.driver, {
+                title: noteOnly
+                    ? `${rideProfile.roles.requester} added a note`
+                    : `${rideProfile.labels?.originLabel || 'Pickup'} moved`,
+                body: noteOnly
+                    ? (updated.pickupNote || 'Open DonkeyRide for details')
+                    : (address || `The ${rideProfile.roles.requester} moved it ${Math.round(movedKm * 1000)} m`),
+                url: '/provide/active'
             });
         }
 
-        console.log(`📍 Ride ${rideId}: rider moved pickup ${Math.round(movedKm * 1000)}m${matched ? ' (provider notified)' : ''}`);
+        console.log(`📍 Ride ${rideId}: ${noteOnly ? 'note updated' : `rider moved pickup ${Math.round(movedKm * 1000)}m`}${matched ? ' (provider notified)' : ''}`);
 
         res.json({
             success: true,
             ride: updated,
             moved_m: Math.round(movedKm * 1000),
-            repriced: !matched,
+            repriced: !matched && !noteOnly,
             estimate
         });
 
@@ -3929,6 +4260,13 @@ app.post('/api/rides/:rideId/arrive', async (req, res) => {
             ride
         });
 
+        const arriveProfile = rideManager.getProfileForRide(rideId);
+        pushToParticipant(ride, ride.requester || ride.rider, {
+            title: `Your ${arriveProfile.roles.provider} is here`,
+            body: describeVehicleText(ride.vehicle) || 'Head out to your pickup point',
+            url: '/request/active'
+        });
+
         res.json({
             success: true,
             ride
@@ -3957,7 +4295,44 @@ app.post('/api/rides/:rideId/start', async (req, res) => {
             return res.status(authErr.status).json(authErr);
         }
 
+        // Transition first: an illegal start must never reach the pricing
+        // below (a second /start would otherwise stack another charge).
         const ride = rideManager.startTrip(rideId);
+
+        // Waiting time — Mode A, no custody involved.
+        //
+        // A provider who sat at the kerb for twelve minutes did real work.
+        // The operator holds no money, so this is not a "charge" it can
+        // levy: it simply recalculates the number BOTH parties see and
+        // settle peer-to-peer, using the same per-minute rate as the fare
+        // and only past the free waiting period. Transparent by design —
+        // the rider sees the timer running before it costs anything.
+        const arrivedAt = ride.timestamps?.providerArrived
+            || ride.timestamps?.driverArrived
+            || null;
+        if (arrivedAt && !ride.waiting && FREE_WAITING_MINUTES >= 0) {
+            const waitedMinutes = (Date.now() - arrivedAt) / 60000;
+            const chargeable = Math.max(0, waitedMinutes - FREE_WAITING_MINUTES);
+            if (chargeable >= 1) {
+                const currency = resolveFiatCurrency(ride.currency);
+                const card = rateCardOptions(currency);
+                // Time component only: no base fare, no distance
+                const waitingCost = await estimateTripCost(0, chargeable, {
+                    ...card, baseFare: 0, perKm: 0
+                });
+                const waitingSats = waitingCost.fare.sats;
+                if (waitingSats > 0) {
+                    ride.waiting = {
+                        minutes: Math.round(chargeable),
+                        sats: waitingSats,
+                        freeMinutes: FREE_WAITING_MINUTES
+                    };
+                    ride.fare = (ride.fare || 0) + waitingSats;
+                    rideManager.persistRide(rideId);
+                    console.log(`⏱️  Ride ${rideId}: ${Math.round(chargeable)} min waiting added (${waitingSats} sats)`);
+                }
+            }
+        }
 
         // Notify rider
         broadcastToRide(rideId, {
@@ -4062,6 +4437,26 @@ app.post('/api/rides/:rideId/cancel', async (req, res) => {
         };
         broadcastToRide(rideId, { type: 'ride_cancelled', ...cancelPayload });
         broadcastToRide(rideId, { type: 'task_cancelled', ...cancelPayload });
+
+        // The party who did NOT cancel needs to hear about it even with
+        // the app shut — they may be walking to a kerb right now
+        const cancelProfile = rideManager.getProfileForRide(rideId);
+        const requesterId = ride.requester || ride.rider;
+        const providerId = ride.provider || ride.driver;
+        const cancelledByRequester = actualCancelledBy === (requesterId?.pubkey || '').toLowerCase();
+        if (cancelledByRequester) {
+            pushToParticipant(cancelled, providerId, {
+                title: `${cancelProfile.labels?.taskNoun || 'Job'} cancelled`,
+                body: `The ${cancelProfile.roles.requester} cancelled — you are free for the next one`,
+                url: '/provide'
+            });
+        } else {
+            pushToParticipant(cancelled, requesterId, {
+                title: `Your ${cancelProfile.labels?.taskNoun || 'task'} was cancelled`,
+                body: `The ${cancelProfile.roles.provider} cancelled. Request another when you're ready.`,
+                url: '/request'
+            });
+        }
 
         res.json({ success: true, ride: cancelled });
 
@@ -5821,6 +6216,15 @@ app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
                 : null
         );
 
+        // Service classes this browser can serve, and who is browsing —
+        // both only ever narrow what comes back
+        const browsingOptions = sanitiseServiceOptions(
+            typeof req.query.options === 'string' && req.query.options.length > 0
+                ? req.query.options.split(',')
+                : null
+        ) || [];
+        const browsingPubkey = ((nip98Enabled && req.user?.pubkey) || req.query.pubkey || '').toLowerCase();
+
         const rides = rideManager.getActiveRides()
             .filter((ride) => {
                 const p = rideManager.getProfileForRide(ride.id);
@@ -5842,6 +6246,12 @@ app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
             // Women-only requests are only listed to browsers declaring
             // ?gender=woman (self-attested — accept enforces the same claim)
             .filter((ride) => !ride.womenOnly || req.query.gender === 'woman')
+            // Service classes: a job is listed only to providers who
+            // declared the class it asked for (?options=xl,comfort)
+            .filter((ride) => optionEligible({ serviceOptions: browsingOptions }, ride))
+            // A favourite's head start also hides the job from the list —
+            // otherwise the window would leak straight through it
+            .filter((ride) => favouriteEligible({ pubkey: browsingPubkey }, ride))
             .map((ride) => {
                 const session = activeRides.get(ride.id) || {};
                 const estimate = session.estimate || ride.estimate || null;
@@ -5862,6 +6272,7 @@ app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
                     // ahead of the dispatch window
                     scheduledFor: ride.scheduledFor || null,
                     womenOnly: ride.womenOnly === true,
+                    option: ride.option || null,
                     requestedAt: ride.timestamps?.requested || null
                 };
             });
@@ -5981,6 +6392,7 @@ app.get('/api/domains/current', publicRateLimiter, (req, res) => {
         labels: domainProfile.labels,
         discoveryMethod: domainProfile.discoveryMethod,
         pricingModel: domainProfile.pricingModel,
+        serviceOptions: domainProfile.serviceOptions || [],
         stakingModel: domainProfile.stakingModel,
         completionProofTypes: domainProfile.completionProofTypes,
         ratingCriteria: domainProfile.ratingCriteria,
@@ -6004,6 +6416,7 @@ app.get('/api/domains/:id', publicRateLimiter, (req, res) => {
             labels: profile.labels,
             discoveryMethod: profile.discoveryMethod,
             pricingModel: profile.pricingModel,
+            serviceOptions: profile.serviceOptions || [],
             stakingModel: profile.stakingModel,
             completionProofTypes: profile.completionProofTypes,
             ratingCriteria: profile.ratingCriteria,

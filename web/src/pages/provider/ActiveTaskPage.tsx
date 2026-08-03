@@ -27,6 +27,7 @@ import { QuotePanel } from '../../components/task/QuotePanel';
 import { ChatPanel } from '../../components/task/ChatPanel';
 import { TripAudioRecorder } from '../../components/safety/TripAudioRecorder';
 import { PickupCode } from '../../components/task/PickupCode';
+import { WaitingTimer } from '../../components/task/WaitingTimer';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import type { WsMessage } from '../../types/api';
 
@@ -339,6 +340,25 @@ export function ActiveTaskPage() {
             {activeTask.durationMin != null && (
               <span>~{Math.round(activeTask.durationMin)} min</span>
             )}
+          </div>
+        )}
+
+        {/* Waiting time, visible to both sides as it runs */}
+        <WaitingTimer task={activeTask} role="provider" />
+
+        {/* What the pin cannot say — the requester's meeting instructions */}
+        {activeTask.pickupNote && !activeTask.startedAt && (
+          <div className="meta-card border border-donkey-orange/40">
+            <p className="meta-label">Note from the {requesterLabel.toLowerCase()}</p>
+            <p className="text-sm text-donkey-text mt-1">{activeTask.pickupNote}</p>
+          </div>
+        )}
+
+        {/* Where exactly to pull in */}
+        {activeTask.pickupAddress && !activeTask.startedAt && (
+          <div className="meta-card">
+            <p className="meta-label">{originLabel}</p>
+            <p className="text-sm text-donkey-text mt-1">{activeTask.pickupAddress}</p>
           </div>
         )}
 

@@ -83,9 +83,29 @@ function validateProfile(profile) {
     throw new Error('Domain profile roles must have a \'provider\' string');
   }
 
+  // Service classes (Standard / XL / Comfort …). Optional: a domain with
+  // none simply has one implicit class and no picker.
+  if (profile.serviceOptions !== undefined) {
+    if (!Array.isArray(profile.serviceOptions)) {
+      throw new Error('Domain profile \'serviceOptions\' must be an array');
+    }
+    for (const option of profile.serviceOptions) {
+      if (!option || typeof option.id !== 'string' || !option.id) {
+        throw new Error('Each service option requires a string \'id\'');
+      }
+      if (typeof option.label !== 'string' || !option.label) {
+        throw new Error(`Service option '${option.id}' requires a 'label'`);
+      }
+      if (typeof option.fareMultiplier !== 'number' || !(option.fareMultiplier > 0)) {
+        throw new Error(`Service option '${option.id}' requires a positive 'fareMultiplier'`);
+      }
+    }
+  }
+
   // Apply defaults for optional fields
   const validated = {
     ...profile,
+    serviceOptions: profile.serviceOptions || [],
     stakingModel: profile.stakingModel || {
       requesterStakePercent: 0.10,
       providerStakePercent: 0.15,
