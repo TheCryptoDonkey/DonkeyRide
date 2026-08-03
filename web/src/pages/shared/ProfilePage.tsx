@@ -8,6 +8,7 @@ import { PaymentMethodsEditor } from '../../components/payment/PaymentMethodsEdi
 import { VehicleEditor } from '../../components/provider/VehicleEditor';
 import { useT, LOCALES } from '../../i18n';
 import { WomenSafetyCard } from '../../components/safety/WomenSafetyCard';
+import { ReputationBadge } from '../../components/common/ReputationBadge';
 
 interface ProfilePageProps {
   role: 'requester' | 'provider';
@@ -188,6 +189,22 @@ export function ProfilePage({ role }: ProfilePageProps) {
           {t('profile.replace')}
         </button>
       </div>
+
+      {/* Your own standing. Drivers are judged on this and could not
+          see it; riders are judged on it too. Read from public relays
+          and signature-verified in this client, exactly as a stranger
+          would see it — never a number the operator asserts. */}
+      {identity?.npub && (
+        <div className="card">
+          <p className="font-bold text-donkey-text">{t('profile.standing')}</p>
+          <div className="mt-2">
+            <ReputationBadge subject={identity.npub} />
+          </div>
+          <p className="text-xs text-donkey-muted mt-2">
+            {t('profile.standingNote')}
+          </p>
+        </div>
+      )}
 
       {/* Women-only matching — device-local, self-declared */}
       <WomenSafetyCard role={role} />

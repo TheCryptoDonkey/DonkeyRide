@@ -2,6 +2,7 @@ import { useState } from 'react';
 import {
   getTrustedContacts, addTrustedContact, removeTrustedContact,
   getSharedGuardians, shareTrip, isAutoShare, setAutoShare,
+  type ShareRole,
 } from '../../services/trip-share';
 import type { Task } from '../../types/api';
 
@@ -9,6 +10,8 @@ interface TripSharePanelProps {
   task: Task;
   privKeyHex: string;
   taskNoun?: string;
+  /** Whose note this is — a driver shares too, naming the passenger */
+  role?: ShareRole;
 }
 
 /**
@@ -16,7 +19,7 @@ interface TripSharePanelProps {
  * Nostr DMs (flock's share → all-clear pattern). The all-clear and any
  * panic alert follow automatically to everyone the trip was shared with.
  */
-export function TripSharePanel({ task, privKeyHex, taskNoun = 'ride' }: TripSharePanelProps) {
+export function TripSharePanel({ task, privKeyHex, taskNoun = 'ride', role = 'requester' }: TripSharePanelProps) {
   const [open, setOpen] = useState(false);
   const [contacts, setContacts] = useState<string[]>(getTrustedContacts());
   const [shared, setShared] = useState<string[]>(getSharedGuardians(task.id));
@@ -40,7 +43,7 @@ export function TripSharePanel({ task, privKeyHex, taskNoun = 'ride' }: TripShar
     setBusy(npub);
     setError(null);
     try {
-      await shareTrip(privKeyHex, npub, task, taskNoun);
+      await shareTrip(privKeyHex, npub, task, taskNoun, role);
       setShared(getSharedGuardians(task.id));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not send — try again');

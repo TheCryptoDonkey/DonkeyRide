@@ -157,6 +157,8 @@ export const en: Record<string, string> = {
   'profile.restoreNote':
     'Moving from another phone? Paste your recovery key (starts nsec1…) to bring your account and ratings to this device.',
   'profile.replace': 'Replace account on this device',
+  'profile.standing': 'Your standing',
+  'profile.standingNote': 'What others see when they check you: ratings signed by the people you have worked with, read from public relays and verified on this device. No operator can raise or lower it.',
   'profile.language': 'Language',
   'profile.languageNote': 'Choose the language of the app on this device.',
 

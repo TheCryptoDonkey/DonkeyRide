@@ -168,6 +168,8 @@ export const sw: Record<string, string> = {
   'profile.restoreNote':
     'Unahama kutoka simu nyingine? Bandika ufunguo wako wa kurejesha (unaanza na nsec1…) kuleta akaunti na ukadiriaji wako kwenye kifaa hiki.',
   'profile.replace': 'Badilisha akaunti kwenye kifaa hiki',
+  'profile.standing': 'Hadhi yako',
+  'profile.standingNote': 'Kile wengine wanachokiona wakikuangalia: ukadiriaji uliotiwa saini na watu uliofanya nao kazi, unaosomwa kutoka relays za umma na kuthibitishwa kwenye kifaa hiki. Hakuna opereta anayeweza kuupandisha au kuushusha.',
   'profile.language': 'Lugha',
   'profile.languageNote': 'Chagua lugha ya programu kwenye kifaa hiki.',
 

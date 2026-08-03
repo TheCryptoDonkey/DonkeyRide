@@ -26,6 +26,8 @@ import { SignatureCapture } from '../../components/task/SignatureCapture';
 import { QuotePanel } from '../../components/task/QuotePanel';
 import { ChatPanel } from '../../components/task/ChatPanel';
 import { TripAudioRecorder } from '../../components/safety/TripAudioRecorder';
+import { TripSharePanel } from '../../components/safety/TripSharePanel';
+import { sendAllClear, sendGuardianAlert } from '../../services/trip-share';
 import { PickupCode } from '../../components/task/PickupCode';
 import { WaitingTimer } from '../../components/task/WaitingTimer';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
@@ -193,6 +195,9 @@ export function ActiveTaskPage() {
       providerPubkey: identity.pubKeyHex,
     });
     setActiveTask(updated);
+    // Anyone this job was shared with hears that it ended safely —
+    // fire-and-forget so finishing never waits on relays
+    void sendAllClear(identity.privKeyHex, updated.id, taskNoun).catch(() => {});
     navigate('/provide/complete');
   });
 
@@ -229,6 +234,9 @@ export function ActiveTaskPage() {
   });
 
   const handlePanic = async () => {
+    // The driver's own trusted contacts hear it directly, E2E encrypted —
+    // the operator carries the alert, not the message
+    void sendGuardianAlert(identity.privKeyHex, activeTask, location, 'provider').catch(() => {});
     await triggerPanic(activeTask.id, {
       role: 'provider',
       location,
@@ -396,6 +404,17 @@ export function ActiveTaskPage() {
             selfPubkey={identity.pubKeyHex}
             counterpartyPubkey={activeTask.requesterPubkey}
             counterpartyLabel={profile?.roles.requester || 'Requester'}
+          />
+        )}
+
+        {/* A driver alone with a stranger is exposed too — same rail,
+            same operator-blindness, passenger named instead of the car */}
+        {!isTerminal && (
+          <TripSharePanel
+            task={activeTask}
+            privKeyHex={identity.privKeyHex}
+            taskNoun={taskNoun}
+            role="provider"
           />
         )}
 

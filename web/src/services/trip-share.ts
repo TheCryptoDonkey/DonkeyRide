@@ -111,14 +111,32 @@ function area(loc?: { lat: number; lng: number } | null): string {
   return `${loc.lat.toFixed(2)}, ${loc.lng.toFixed(2)}`;
 }
 
-export function buildTripShareText(task: Task, taskNoun = 'ride'): string {
-  const driver = task.providerNpub
-    ? `${task.providerNpub.slice(0, 20)}…`
-    : 'not yet assigned';
+/**
+ * Whose safety note this is. A driver alone in a car with a stranger is
+ * exposed too, so the same rail carries their share — the counterparty
+ * named is simply the other person.
+ */
+export type ShareRole = 'requester' | 'provider';
+
+function counterparty(task: Task, role: ShareRole): string {
+  const npub = role === 'provider' ? task.requesterPubkey : task.providerNpub;
+  return npub ? `${npub.slice(0, 20)}…` : 'not yet assigned';
+}
+
+export function buildTripShareText(task: Task, taskNoun = 'ride', role: ShareRole = 'requester'): string {
+  const other = counterparty(task, role);
   const car = describeVehicle(task.vehicle);
+  if (role === 'provider') {
+    return [
+      `🫏 I'm driving a DonkeyRide ${taskNoun} and I'm sharing it with you.`,
+      `Passenger: ${other}`,
+      `From around ${area(task.pickup)} to around ${area(task.dropoff)}.`,
+      `I'll send an all-clear here when it's done — if you don't hear from me, please check in.`,
+    ].join('\n');
+  }
   return [
     `🫏 I'm taking a DonkeyRide ${taskNoun} and I'm sharing it with you.`,
-    `Driver: ${driver}`,
+    `Driver: ${other}`,
     ...(car ? [`Vehicle: ${car}`] : []),
     `From around ${area(task.pickup)} to around ${area(task.dropoff)}.`,
     `I'll send an all-clear here when I arrive — if you don't hear from me, please check in.`,
@@ -129,12 +147,16 @@ export function buildAllClearText(taskNoun = 'ride'): string {
   return `✅ All clear — my DonkeyRide ${taskNoun} is complete and I've arrived safely.`;
 }
 
-export function buildAlertText(task: Task, location?: { lat: number; lng: number } | null): string {
-  const driver = task.providerNpub ? `${task.providerNpub.slice(0, 20)}…` : 'unknown';
+export function buildAlertText(
+  task: Task,
+  location?: { lat: number; lng: number } | null,
+  role: ShareRole = 'requester',
+): string {
+  const other = counterparty(task, role);
   const lastKnown = location ? `Last known location: around ${area(location)}.` : '';
   return [
     `🆘 I've triggered the panic alarm on my DonkeyRide trip.`,
-    `Driver: ${driver}. ${lastKnown}`,
+    `${role === 'provider' ? 'Passenger' : 'Driver'}: ${other}. ${lastKnown}`,
     `Please contact me NOW — and if I don't answer, raise help.`,
   ].join('\n').trim();
 }
@@ -197,13 +219,14 @@ export async function autoShareTrip(
   privKeyHex: string,
   task: Task,
   taskNoun = 'ride',
+  role: ShareRole = 'requester',
 ): Promise<number> {
   const contacts = getTrustedContacts();
   const already = getSharedGuardians(task.id);
   const pending = getAutoShareContacts()
     .filter((npub) => contacts.includes(npub) && !already.includes(npub));
   const results = await Promise.allSettled(pending.map((npub) =>
-    shareTrip(privKeyHex, npub, task, taskNoun)));
+    shareTrip(privKeyHex, npub, task, taskNoun, role)));
   return results.filter((r) => r.status === 'fulfilled').length;
 }
 
@@ -213,8 +236,9 @@ export async function shareTrip(
   guardianNpub: string,
   task: Task,
   taskNoun = 'ride',
+  role: ShareRole = 'requester',
 ): Promise<void> {
-  await sendGuardianMessage(privKeyHex, guardianNpub, task.id, buildTripShareText(task, taskNoun));
+  await sendGuardianMessage(privKeyHex, guardianNpub, task.id, buildTripShareText(task, taskNoun, role));
   rememberShared(task.id, guardianNpub);
 }
 
@@ -247,8 +271,9 @@ export async function sendGuardianAlert(
   privKeyHex: string,
   task: Task,
   location?: { lat: number; lng: number } | null,
+  role: ShareRole = 'requester',
 ): Promise<void> {
   const guardians = getSharedGuardians(task.id);
   await Promise.allSettled(guardians.map((npub) =>
-    sendGuardianMessage(privKeyHex, npub, task.id, buildAlertText(task, location))));
+    sendGuardianMessage(privKeyHex, npub, task.id, buildAlertText(task, location, role))));
 }
