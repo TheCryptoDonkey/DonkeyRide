@@ -22,8 +22,7 @@ process.env.ENABLE_NIP98_AUTH = 'false';
 // snapshots — so a developer with a relay in their .env starts this test
 // with someone else's live jobs already in the aggregate (43 cells instead
 // of 3). Durability is not what is under test here.
-process.env.NOSTR_RELAY = '';
-process.env.PUBLIC_RELAY_URLS = '';
+require('../helpers/isolate-relays');
 process.env.REQUEST_RETRY_MS = '600000';
 const WS_PORT = 53000 + Math.floor(Math.random() * 400);
 process.env.WS_PORT = String(WS_PORT);

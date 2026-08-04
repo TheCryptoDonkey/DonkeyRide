@@ -35,7 +35,10 @@ const KINDS = {
   EARNINGS_SUMMARY: 30538,
 
   // TROTT-05: Safety
-  EMERGENCY_SIGNAL: 30540,        // panic (party-signed, append-only)
+  // Panic (party-signed). Addressable, so it MUST carry a `d` tag of the
+  // task id: without one every alert a person raises shares d="" and each
+  // new one replaces the last. One event per incident, not one per person.
+  EMERGENCY_SIGNAL: 30540,
   SAFETY_CHECKIN: 30541,
   SAFETY_CONTACT_SHARE: 30542,
 

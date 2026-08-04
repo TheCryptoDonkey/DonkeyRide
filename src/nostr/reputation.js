@@ -8,11 +8,23 @@ const { SimplePool, getEventHash, verifySignature, nip19 } = require('nostr-tool
 const { KINDS } = require('./kinds');
 
 const DEFAULT_RELAYS = (process.env.REPUTATION_RELAYS || process.env.NOSTR_RELAYS || '').split(',').map(r => r.trim()).filter(Boolean);
-const FALLBACK_RELAYS = ['wss://relay.damus.io', 'wss://relay.nostr.band'];
 const STRICT_RELAY_MODE = (process.env.REPUTATION_STRICT || '').toLowerCase() === 'true';
 
+// There is NO fallback relay list, deliberately.
+//
+// This used to fall back to ['wss://relay.damus.io', 'wss://relay.nostr.band']
+// whenever nothing was configured, which made an unset variable mean "publish
+// everything to two of the largest public relays" rather than "publish
+// nowhere". Operator-signed events carry other people's coordination state, so
+// the default destination for them cannot be a third party nobody chose — and
+// `NOSTR_RELAY=''`, the obvious way to express "no relays", selected the
+// fallback too. The reference test suite set exactly that, and duly published
+// signed task snapshots to relay.damus.io on every run.
+//
+// Unconfigured now means silent: nothing is published and nothing is queried.
+// An operator that wants relays names them.
 const pool = new SimplePool();
-const relaySet = new Set(DEFAULT_RELAYS.length ? DEFAULT_RELAYS : FALLBACK_RELAYS);
+const relaySet = new Set(DEFAULT_RELAYS);
 const profileCache = new Map();
 const CACHE_DURATION_MS = parseInt(process.env.REPUTATION_CACHE_MS || '30000', 10);
 const MAX_EVENT_AGE_SECONDS = parseInt(process.env.REPUTATION_EVENT_MAX_AGE || '86400', 10);
@@ -113,20 +125,13 @@ async function safeList(relays, filters) {
   }
 }
 
+/** Empty means empty. See the note on relaySet above. */
 function setRelays(relays = []) {
   relaySet.clear();
-  const cleaned = relays.map(r => (r || '').trim()).filter(Boolean);
-  if (cleaned.length) {
-    cleaned.forEach(r => relaySet.add(r));
-  } else {
-    FALLBACK_RELAYS.forEach(r => relaySet.add(r));
-  }
+  relays.map(r => (r || '').trim()).filter(Boolean).forEach(r => relaySet.add(r));
 }
 
 function getRelays() {
-  if (relaySet.size === 0) {
-    FALLBACK_RELAYS.forEach(r => relaySet.add(r));
-  }
   return Array.from(relaySet);
 }
 
@@ -545,13 +550,44 @@ function parsePanicEvent(event, ride) {
   return { role };
 }
 
+/**
+ * Does this event carry exact coordinates? A kind 30540 is public and
+ * permanent, so a `location` tag on one broadcasts precisely where a
+ * frightened person is standing, to everyone, for ever — including whoever
+ * they are frightened of. Coarse `g` geohash tags are fine and expected.
+ */
+function carriesExactLocation(event) {
+  return (event.tags || []).some((tag) => {
+    if (tag[0] !== 'location' || !tag[1]) {
+      return false;
+    }
+    try {
+      const parsed = JSON.parse(tag[1]);
+      return Number.isFinite(parsed?.lat) && Number.isFinite(parsed?.lng ?? parsed?.lon);
+    } catch (error) {
+      return true; // unparseable but present — treat as unsafe
+    }
+  });
+}
+
 async function publishPanic(event, ride) {
   const { role } = parsePanicEvent(event, ride);
-  const relayStatuses = await publishEvent(event);
+  // A panic must never fail because of this — the alert still reaches the
+  // counterparty and the rider's own guardians (over NIP-17, encrypted,
+  // where exact coordinates belong). What we decline to do is put those
+  // coordinates on a public relay on the client's behalf.
+  const exactLocation = carriesExactLocation(event);
+  const relayStatuses = exactLocation ? [] : await publishEvent(event);
+  if (exactLocation) {
+    console.warn(
+      '[Reputation] Panic event carried exact coordinates — recorded and '
+      + 'broadcast to participants, NOT published to relays. Update the client.'
+    );
+  }
   cacheLocalEvent('panic', event.pubkey, event);
   clearCacheFor(event.pubkey.toLowerCase());
   const cachedLocally = relayStatuses.length === 0 || !relayStatuses.some(status => status.ok);
-  return { role, relayStatuses, cachedLocally };
+  return { role, relayStatuses, cachedLocally, withheldForLocation: exactLocation };
 }
 
 async function publishGeneric(event, expectedPubkey) {

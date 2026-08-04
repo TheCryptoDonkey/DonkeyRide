@@ -9,9 +9,15 @@
 
 DonkeyRide's three-layer architecture is designed for GDPR compliance. This document explains what data goes where, who is the controller, and what operators must do to comply.
 
-**Key principle**: Data minimisation by design. Public Nostr events contain only pseudonymous identifiers and geohash-level locations. PII is either encrypted between parties (NIP-17) or held by the operator under standard GDPR controller obligations.
+**Key principle**: Data minimisation by design. PII is either encrypted between parties (NIP-17), sealed to the operator's own key, or held by the operator under standard GDPR controller obligations. What remains readable on a public relay is limited to what genuinely has to reach strangers.
 
-> **Implementation status (honest)**: in the current reference implementation, **no PII is published to Nostr at all** — addresses, exact coordinates and proofs stay in the operator's database and over authenticated HTTPS/WSS. The NIP-17/NIP-44 rows below describe the protocol design for P2P deployments; the gift-wrap code paths are **not yet implemented** in this server. Rely on the "no PII on relays" property, not on relay-side encryption, when assessing this implementation.
+> **Pseudonymous is not anonymous.** A stable pubkey is personal data under Article 4 as soon as anything can be attached to it, and a relay is append-only infrastructure with no delete — so nothing published there can be erased on request under Article 17. That makes *publishing less* the only workable erasure story, and it sets the bar higher than "contains no name or address":
+>
+> - **Coarse location still identifies.** A pubkey plus a ~1 km geohash cell plus a timestamp, repeated across a person's journeys, resolves to a home. The kind 30078 state snapshot therefore reduces location to a cell **and then seals the whole body** (NIP-44, to the operator's own key), leaving only the task id and a NIP-40 expiry visible. Its only reader is the operator rehydrating at boot.
+> - **Watch what joins.** Task events share the task id, so two innocuous events can compose into a travel history. Task announcements (kind 37500) are consequently signed by a **throwaway key**, never the requester's identity key.
+> - **`p` tags are a per-person index.** Reputation events need that; payment receipts (kind 30535) do not, and are off by default.
+>
+> **Implementation status (honest)**: NIP-17 gift wrap **is** implemented for in-app chat (`web/src/services/chat.ts`) and trip sharing (`web/src/services/trip-share.ts`) — both are genuinely end-to-end encrypted and operator-blind. Addresses, exact coordinates and proofs are never published to a relay: they stay in memory and travel over authenticated HTTPS/WSS. Exact coordinates are additionally kept out of panic events (kind 30540), which carry a geohash-5 cell only.
 
 ---
 

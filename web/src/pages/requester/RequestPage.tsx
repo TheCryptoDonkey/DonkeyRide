@@ -203,12 +203,12 @@ export function RequestPage() {
       // Operator tags let drivers on OTHER operators discover this job.
       if (profile?.id) {
         void getOperatorInfoCached()
-          .then((info) => publishTaskAnnouncement(task.id, origin, profile.id, identity.privKeyHex, {
+          .then((info) => publishTaskAnnouncement(task.id, origin, profile.id, {
             pubkey: info.pubkey || null,
             api: getApiBase(),
             scheduledFor,
           }))
-          .catch(() => publishTaskAnnouncement(task.id, origin, profile.id, identity.privKeyHex, { scheduledFor }));
+          .catch(() => publishTaskAnnouncement(task.id, origin, profile.id, { scheduledFor }));
       }
       navigate('/request/active');
     } catch (err) {

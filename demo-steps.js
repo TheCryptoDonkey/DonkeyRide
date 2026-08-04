@@ -11,8 +11,11 @@ const riderPubKey = getPublicKey(riderPrivKey);
 const driverPrivKey = generatePrivateKey(); 
 const driverPubKey = getPublicKey(driverPrivKey);
 
-// Connect to Nostr relay
-const relay = relayInit('wss://relay.damus.io');
+// Connect to Nostr relay.
+// OUR relay, not a public one. This file is read from during a live stage
+// demo, so whatever is here gets ride events published to it in front of an
+// audience — and a public relay has no delete.
+const relay = relayInit('wss://relay.trotters.cc');
 let isConnected = false;
 
 async function connectToNostr() {

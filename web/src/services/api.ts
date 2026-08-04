@@ -8,6 +8,7 @@ import type { DomainProfile } from '../types/domain';
 import { createNip98Auth, signNostrEvent } from './nostr';
 import { publishToRelays } from './relays';
 import { getCurrencySymbol } from './pricing';
+import { encodeGeohash } from '../utils/geohash';
 
 // Same-origin by default; native (Capacitor) builds bake in the operator URL
 const BASE = import.meta.env.VITE_API_BASE || '';
@@ -738,6 +739,18 @@ export function sendTip(taskId: string, params: {
  * POST /api/tasks/:id/panic — trigger panic alert.
  * Builds a user-signed kind 30540 event, posts it to the operator and
  * best-effort publishes it directly to public relays.
+ *
+ * The public event carries a geohash-5 cell (~5 km), never exact
+ * coordinates. It is a flag, not a fix: its job is to be permanently,
+ * publicly attached to the pubkey so aggregators price it in. Exact
+ * position is what an attacker most wants and what a relay can never
+ * unpublish, so it travels only where it helps — encrypted to the rider's
+ * guardians over NIP-17, and to the counterparty over the task socket.
+ *
+ * The `d` tag matters: kind 30540 is in the addressable range, so without
+ * one every panic a person ever raises collapses into a single replaceable
+ * event and each new alert silently erases the last. Keyed by task, each
+ * incident stands on its own.
  */
 export async function triggerPanic(taskId: string, params: {
   role: 'requester' | 'provider';
@@ -748,11 +761,12 @@ export async function triggerPanic(taskId: string, params: {
   }
 
   const tags: string[][] = [
+    ['d', taskId],
     ['ride', taskId],
     ['role', params.role === 'requester' ? 'rider' : 'driver'],
   ];
   if (params.location) {
-    tags.push(['location', JSON.stringify({ lat: params.location.lat, lng: params.location.lng })]);
+    tags.push(['g', encodeGeohash(params.location.lat, params.location.lng, 5)]);
   }
 
   const event = await signNostrEvent({
@@ -762,9 +776,16 @@ export async function triggerPanic(taskId: string, params: {
     content: 'panic',
   }, _authPrivKey);
 
+  // Exact position rides OUTSIDE the signed event, so the operator can
+  // pass it to the other participant without it ever reaching a relay.
   const res = await request<{ success: boolean }>(`/api/tasks/${taskId}/panic`, {
     method: 'POST',
-    body: JSON.stringify({ event }),
+    body: JSON.stringify({
+      event,
+      location: params.location
+        ? { lat: params.location.lat, lon: params.location.lng }
+        : null,
+    }),
   });
 
   void publishToRelays(event);

@@ -20,8 +20,7 @@ process.env.ENABLE_NIP98_AUTH = 'false';
 process.env.ENABLE_RATE_LIMITING = 'false';
 process.env.DISABLE_WS = 'true';
 // No relay: boot would otherwise rehydrate a developer's live jobs
-process.env.NOSTR_RELAY = '';
-process.env.PUBLIC_RELAY_URLS = '';
+require('../helpers/isolate-relays');
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');

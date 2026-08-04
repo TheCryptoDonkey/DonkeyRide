@@ -1,5 +1,5 @@
 import type { LatLng } from '../types/api';
-import { signNostrEvent } from './nostr';
+import { signNostrEvent, bytesToHex } from './nostr';
 import { publishToRelays } from './relays';
 import { encodeGeohash } from '../utils/geohash';
 
@@ -44,15 +44,27 @@ export async function publishAvailabilityBeacon(
  * The optional operator tags (`operator` pubkey + `api` base URL) let
  * drivers on OTHER operators discover and resolve this job — the
  * federation hook. Best-effort: returns the relay ack count, never throws.
+ *
+ * Signed by a THROWAWAY key, never the requester's identity key. The
+ * announcement's `d` tag is the task id, and a coordinating operator
+ * publishes state under that same id, so signing with a durable key made
+ * the author the join between "who I am" and every job they ever posted —
+ * one relay query for `authors:[me]` and you have somebody's travel
+ * history. Nothing reads the author: `parseTaskAnnouncement` takes the
+ * task id, cell, domain and api tags and ignores `event.pubkey`, and a
+ * driver resolves the job against the operator's API, which authenticates
+ * them properly. A fresh key per announcement costs one keygen and leaves
+ * discovery working exactly as before.
  */
 export async function publishTaskAnnouncement(
   taskId: string,
   pickup: LatLng,
   domainId: string,
-  privKeyHex: string,
   operator?: { pubkey?: string | null; api?: string | null; scheduledFor?: number | null },
 ): Promise<number> {
   try {
+    const { generateSecretKey } = await import('nostr-tools');
+    const ephemeralKey = bytesToHex(generateSecretKey());
     const now = Math.floor(Date.now() / 1000);
     // A pre-booked task stays discoverable until an hour past its pickup
     // time; an immediate one expires in 15 minutes (NIP-40)
@@ -74,7 +86,7 @@ export async function publishTaskAnnouncement(
       created_at: now,
       tags,
       content: '',
-    }, privKeyHex);
+    }, ephemeralKey);
     return await publishToRelays(event);
   } catch {
     return 0;

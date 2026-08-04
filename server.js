@@ -126,7 +126,22 @@ if (nip98Enabled) {
     });
     console.log('🔐 NIP-98 authentication enforced on mutating API routes');
 } else {
-    console.log('⚠️  NIP-98 authentication DISABLED (set ENABLE_NIP98_AUTH=true for production)');
+    // Without a signature there is no identity, so every participant-only
+    // check in this file — the ride detail with its exact coordinates,
+    // pickup notes, passenger names, panic records, and `subscribe_ride` on
+    // the task socket — degrades to "anyone who knows the task id". That id
+    // is not a secret: the requester's own kind 37500 announcement puts it
+    // on public relays for federated discovery. So auth-off is not a weaker
+    // deployment, it is an open one, and it must never be the posture a
+    // real operator reaches by forgetting a variable.
+    if (process.env.NODE_ENV === 'production'
+        && (process.env.ALLOW_UNAUTHENTICATED || '').toLowerCase() !== 'true') {
+        console.error('❌ Refusing to run with NIP-98 authentication disabled and NODE_ENV=production.');
+        console.error('   Task ids travel on public relays, so unauthenticated participant checks admit anyone.');
+        console.error('   Set ENABLE_NIP98_AUTH=true, or ALLOW_UNAUTHENTICATED=true for a throwaway public demo.');
+        process.exit(1);
+    }
+    console.log('⚠️  NIP-98 authentication DISABLED — participant checks are OPEN to anyone holding a task id');
 }
 
 // For sensitive GET endpoints: require NIP-98 only when auth is enabled
@@ -362,8 +377,12 @@ const config = {
     port: process.env.PORT || 3000,
     wsPort: process.env.WS_PORT || 3001,
 
-    // Nostr relay to publish events
-    nostrRelay: process.env.NOSTR_RELAY || 'wss://relay.damus.io',
+    // Nostr relay to publish events. NO default: this used to fall back to
+    // 'wss://relay.damus.io', so `NOSTR_RELAY=''` — the obvious way to say
+    // "publish nowhere", and what the test suite sets — resolved to a large
+    // public relay instead. That is how signed task snapshots ended up on
+    // relay.damus.io. An unnamed relay is not a relay.
+    nostrRelay: process.env.NOSTR_RELAY || '',
 
     // Relay URLs advertised to clients (public URLs, not Docker-internal ones)
     publicRelays: (process.env.PUBLIC_RELAY_URLS || '')
@@ -924,6 +943,16 @@ const relayConfig = (process.env.REPUTATION_RELAYS || `${process.env.NOSTR_RELAY
     .map(r => r.trim())
     .filter(Boolean);
 reputation.setRelays(relayConfig);
+if (relayConfig.length === 0) {
+    // Silence is the safe default (see src/nostr/reputation.js), but it is
+    // not a FREE default: no relay means no snapshot durability, so an
+    // in-flight task will not survive a restart. Say so rather than let an
+    // operator discover it the hard way.
+    console.log('📡 No relays configured — the operator publishes nothing and');
+    console.log('   active tasks will NOT survive a restart. Set NOSTR_RELAY to enable durability.');
+} else {
+    console.log(`📡 Relays: ${relayConfig.join(', ')}`);
+}
 
 /**
  * Outbox-aware publisher: an operator-signed event that reaches no relay is
@@ -977,16 +1006,28 @@ operatorAnnounce.configure({
 
 // ==========================================
 // NOSTR STATE SNAPSHOTS (durability without a database)
-// The operator publishes a PII-free kind 30078 snapshot on every task
-// mutation and rehydrates non-terminal tasks from these on boot. This
-// replaces operator-side database persistence for the default deployment.
-// Exact coordinates and addresses NEVER leave the operator's memory —
-// snapshots carry geohash-level location only.
+// The operator publishes a kind 30078 snapshot on every task mutation and
+// rehydrates non-terminal tasks from these on boot. This replaces
+// operator-side database persistence for the default deployment.
+//
+// Two layers of restraint, because one was not enough:
+//   1. Exact coordinates and addresses never enter a snapshot at all —
+//      location is reduced to a geohash cell before it leaves memory.
+//   2. The whole body is then SEALED to the operator's own key (NIP-44).
+//      Coarse location is not anonymous location: a pubkey plus a ~1 km
+//      cell plus a timestamp, repeated, is somebody's home. The snapshot
+//      has exactly one legitimate reader — this operator at boot — so it
+//      is written for that reader and no one else.
+// A relay stores it; a relay cannot read it.
 // ==========================================
 
 const { encodeGeohash, decodeGeohash } = require('./src/utils/geohash');
 const SNAPSHOT_GEOHASH_PRECISION = parseInt(process.env.SNAPSHOT_GEOHASH_PRECISION || '6', 10);
 const SNAPSHOT_TTL_SECONDS = parseInt(process.env.SNAPSHOT_TTL_SECONDS || String(24 * 3600), 10);
+// Snapshots ARE the durability layer for the default database-free operator,
+// so they stay on by default. An operator with DATABASE_URL set has a durable
+// store already and can switch them off entirely: NOSTR_SNAPSHOTS=false.
+const SNAPSHOTS_ENABLED = (process.env.NOSTR_SNAPSHOTS || '').toLowerCase() !== 'false';
 
 function buildTaskSnapshot(task) {
     const requester = task.requester || task.rider || null;
@@ -1007,14 +1048,12 @@ function buildTaskSnapshot(task) {
 
     return {
         taskId: task.id,
-        status: task.status,
-        domain: task.domain || domainProfile.id,
-        participants,
-        geohashPickup,
-        geohashDropoff,
         expirationSeconds: Math.floor(Date.now() / 1000) + SNAPSHOT_TTL_SECONDS,
-        // Content is intentionally PII-free coordination state only.
+        // Sealed to the operator's own key before it leaves the process.
+        // `participants` rides INSIDE the ciphertext — as public `p` tags it
+        // made every task queryable per person.
         content: {
+            participants,
             status: task.status,
             domain: task.domain || domainProfile.id,
             requester: requester ? { pubkey: requester.pubkey, npub: requester.npub } : null,
@@ -1031,7 +1070,7 @@ function buildTaskSnapshot(task) {
 }
 
 function publishTaskSnapshot(task) {
-    if (!operatorAnnounce.canPublish() || !task?.id) {
+    if (!SNAPSHOTS_ENABLED || !operatorAnnounce.canPublish() || !task?.id) {
         return;
     }
     operatorAnnounce.publishTaskSnapshot(buildTaskSnapshot(task))
@@ -1090,7 +1129,11 @@ async function rehydrateFromNostr() {
             try {
                 const taskId = (event.tags.find((t) => t[0] === 'd') || [])[1];
                 if (!taskId) continue;
-                const content = JSON.parse(event.content || '{}');
+                // Sealed to us. Anything we cannot open is not our state:
+                // a foreign event, a corrupt one, or a plaintext snapshot
+                // from before sealing — all are skipped rather than trusted.
+                const content = operatorAnnounce.openSnapshot(event.content);
+                if (!content) continue;
                 const manager = _getManagerForDomain(content.domain || domainProfile.id);
                 if (manager.isTerminal(content.status)) continue;
                 if (manager.getRide(taskId)) continue; // already in memory
@@ -1245,7 +1288,11 @@ if (wss) {
 
                     case 'subscribe_ride': {
                         if (!requireAuth()) break;
-                        if (nip98Enabled && !wsMayAccessRide(ws.authedPubkey, data.rideId)) {
+                        // Verify participation whenever there is an identity
+                        // to verify — a client that authenticated voluntarily
+                        // gets checked even if the global toggle is off.
+                        if ((nip98Enabled || ws.authedPubkey)
+                            && !wsMayAccessRide(ws.authedPubkey, data.rideId)) {
                             ws.send(JSON.stringify({ type: 'error', error: 'forbidden', details: 'Not a participant on this ride' }));
                             break;
                         }
@@ -3681,9 +3728,7 @@ app.post('/api/rides/:rideId/settle', async (req, res) => {
                 amount: ride.fare,
                 paymentRail: railId,
                 status: 'verified',
-                verified: true,
-                requesterPubkey: (ride.requester || ride.rider)?.pubkey,
-                providerPubkey: (ride.provider || ride.driver)?.pubkey
+                verified: true
             }).catch(() => {});
         }
         res.json({ success: true, settlement: ride.settlementRecord });
@@ -3731,9 +3776,7 @@ app.post('/api/rides/:rideId/confirm-received', async (req, res) => {
             amount: ride.fare,
             paymentRail: ride.settlementRecord.rail,
             status: 'confirmed',
-            verified: !!ride.settlementRecord.verified,
-            requesterPubkey: (ride.requester || ride.rider)?.pubkey,
-            providerPubkey: (ride.provider || ride.driver)?.pubkey
+            verified: !!ride.settlementRecord.verified
         }).catch(() => {});
         res.json({ success: true, settlement: ride.settlementRecord });
     } catch (error) {
@@ -5667,6 +5710,17 @@ app.post('/api/rides/:rideId/panic', async (req, res) => {
             return res.status(400).json({ error: 'Missing panic event payload' });
         }
 
+        // Exact position arrives OUTSIDE the signed event and stays out of
+        // it: the other participant needs to know where to go, a relay does
+        // not. Held in memory for the life of the task, like every other
+        // exact coordinate here.
+        const rawPanicLocation = req.body.location;
+        const panicLocation = rawPanicLocation
+            && isValidLat(rawPanicLocation.lat)
+            && isValidLon(rawPanicLocation.lon ?? rawPanicLocation.lng)
+            ? { lat: rawPanicLocation.lat, lon: rawPanicLocation.lon ?? rawPanicLocation.lng }
+            : null;
+
         const ride = rideManager.getRide(rideId);
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
@@ -5689,6 +5743,7 @@ app.post('/api/rides/:rideId/panic', async (req, res) => {
                 pubkey: event.pubkey,
                 note: event.content || '',
                 tags: event.tags || [],
+                location: panicLocation,
                 createdAt: (event.created_at || Math.floor(Date.now() / 1000)) * 1000,
                 cachedLocally: !!publishResult.cachedLocally,
                 relayStatuses: publishResult.relayStatuses || []
@@ -5697,13 +5752,18 @@ app.post('/api/rides/:rideId/panic', async (req, res) => {
             console.warn(`Failed to append panic event for ride ${rideId}:`, recordError.message);
         }
 
+        // Participant-gated: the ride socket, not a relay. `location` is the
+        // exact position the client sent out-of-band — the frontend has
+        // always read this field, and until now nothing ever filled it.
         broadcastToRide(rideId, {
             type: 'panic_alert',
             ride_id: rideId,
             initiated_by: event.pubkey,
+            triggered_by: event.pubkey,
             role: publishResult.role,
             content: event.content,
             tags: event.tags,
+            location: panicLocation,
             timestamp: event.created_at * 1000,
             relay_statuses: publishResult.relayStatuses || [],
             cached_locally: !!publishResult.cachedLocally
@@ -7858,7 +7918,11 @@ module.exports = {
     pushService,
     getHttpServer: () => httpServer,
     // Tests that exercise real WS dispatch need to close this to exit cleanly
-    getWss: () => wss
+    getWss: () => wss,
+    // Exposed so what the operator puts in a relay-bound snapshot can be
+    // asserted directly, rather than inferred from a response body that
+    // never carried it.
+    buildTaskSnapshot
 };
 
 // Graceful shutdown.

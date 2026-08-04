@@ -31,12 +31,12 @@ class RelayMesh {
     async discoverRelays() {
         console.log('🔍 Discovering nearby relays...');
         
-        // Query known discovery relays for announcements
-        const discoveryRelays = [
-            'wss://relay.damus.io',
-            'wss://relay.nostr.info',
-            'wss://nostr-pub.wellorder.net'
-        ];
+        // Query discovery relays for operator announcements. Defaults to OUR
+        // relay rather than a list of public ones: this prototype is run by
+        // hand, and a hardcoded public relay is how signed operator state
+        // ends up somewhere nobody chose. Override with MESH_DISCOVERY_RELAYS.
+        const discoveryRelays = (process.env.MESH_DISCOVERY_RELAYS || 'wss://relay.trotters.cc')
+            .split(',').map(r => r.trim()).filter(Boolean);
         
         const filter = {
             kinds: [30400], // Relay announcements

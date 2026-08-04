@@ -26,15 +26,14 @@ process.env.WS_PORT = String(WS_PORT);
 // No relay: boot rehydrates non-terminal tasks from Nostr snapshots, so a
 // developer with a relay in their .env would start this test with their own
 // live jobs already loaded. Durability is not what is under test here.
-process.env.NOSTR_RELAY = '';
-process.env.PUBLIC_RELAY_URLS = '';
+require('../helpers/isolate-relays');
 
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const { generatePrivateKey, getPublicKey, nip19 } = require('nostr-tools');
 
-const { app, startServer, getWss } = require('../../server.js');
+const { app, startServer, getWss, buildTaskSnapshot } = require('../../server.js');
 
 const rider = (() => {
   const priv = generatePrivateKey();
@@ -218,12 +217,36 @@ test('unknown access ids are dropped, not rejected', async () => {
 });
 
 test('access needs never reach the public Nostr snapshot', async () => {
-  const { body } = await createRide({ access_needs: ['wheelchair'] });
+  const { body } = await createRide({
+    access_needs: ['wheelchair'],
+    pickup_note: 'ramp at the side door',
+    passenger: { name: 'Miriam', note: 'uses a walking frame' }
+  });
   const detail = await get(`/api/rides/${body.ride_id}`);
-  const snapshot = JSON.stringify(detail.body.ride.snapshot || {});
 
-  assert.ok(
-    !snapshot.includes('wheelchair'),
-    'health-adjacent data must never be published to a relay'
-  );
+  // The participant CAN see it — the driver has to know to bring a ramp.
+  assert.deepEqual(detail.body.ride.accessNeeds, ['wheelchair']);
+
+  // The relay cannot. Assert against the snapshot the operator actually
+  // builds, not a response field: this test used to read `ride.snapshot`,
+  // which has never existed, so it stringified `{}` and passed regardless
+  // of what was being published.
+  const built = buildTaskSnapshot(detail.body.ride);
+  const snapshot = JSON.stringify(built);
+
+  // Guard against the assertions below going vacuous again: the snapshot
+  // must genuinely hold the coordination state it is there to preserve.
+  assert.ok(built.content.geohashPickup, 'the snapshot carries a pickup cell');
+  assert.ok(built.content.status, 'the snapshot carries a status');
+
+  for (const secret of ['wheelchair', 'ramp at the side door', 'Miriam', 'walking frame']) {
+    assert.ok(
+      !snapshot.includes(secret),
+      `health-adjacent and participant-only data must never be published to a relay (found "${secret}")`
+    );
+  }
+
+  // And exact coordinates are reduced to a cell before the seal goes on.
+  assert.ok(!snapshot.includes(String(PICKUP.lat)), 'no exact pickup coordinate');
+  assert.ok(!snapshot.includes(String(DROPOFF.lat)), 'no exact dropoff coordinate');
 });

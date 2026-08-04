@@ -68,14 +68,23 @@ secret or the funds.
 
 The default operator runs with **no PostgreSQL and no Redis**:
 
-- **Durability lives on Nostr.** The operator publishes a PII-free kind 30078
-  state snapshot on every task mutation and rehydrates active tasks from its
-  own snapshots on restart. No operator-side database is required.
+- **Durability lives on Nostr.** The operator publishes a kind 30078 state
+  snapshot on every task mutation and rehydrates active tasks from its own
+  snapshots on restart. No operator-side database is required.
+- **The snapshot is sealed, not merely coarse.** Location is reduced to a
+  geohash cell before anything leaves memory, and the whole body is then
+  encrypted (NIP-44) to the operator's own key; only the task id and a NIP-40
+  expiry are visible on the wire. This matters for GDPR because coarse
+  location is **not** anonymous location: a pseudonymous key plus a ~1 km cell
+  plus a timestamp, repeated across journeys, is personal data under Article 4
+  and identifies a home. A relay is append-only, so nothing published there
+  can be erased under Article 17 — which makes "publish less" the only
+  workable erasure story. The snapshot has one reader (this operator, at
+  boot), so it is written for that reader alone.
 - **PII is minimised and ephemeral.** Exact coordinates and addresses are held
   only in memory for the duration of a task and are never written to a database
-  or published to a relay. Public snapshots carry **geohash-level** location
-  only. A restart discards exact PII by design — a GDPR data-minimisation
-  benefit, not a loss.
+  or published to a relay. A restart discards exact PII by design — a GDPR
+  data-minimisation benefit, not a loss.
 - **Redis** was only ever an optional presence cache for demo bot fleets; real
   driver presence is in-memory. It is disabled by default.
 

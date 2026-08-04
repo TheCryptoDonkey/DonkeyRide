@@ -22,7 +22,7 @@ process.env.CANCEL_GRACE_MS = '150';
 // No relays: publishing a report would open sockets that outlive the run
 process.env.REPUTATION_RELAYS = 'ws://127.0.0.1:1';
 process.env.NOSTR_RELAYS = '';
-process.env.NOSTR_RELAY = '';
+require('../helpers/isolate-relays');
 const WS_PORT = 46800 + Math.floor(Math.random() * 400);
 process.env.WS_PORT = String(WS_PORT);
 

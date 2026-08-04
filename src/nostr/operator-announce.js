@@ -9,17 +9,22 @@
  * and pick one — no hardcoded HTTPS entry point required.
  */
 
-const { getPublicKey, getEventHash, getSignature } = require('nostr-tools');
+const { getPublicKey, getEventHash, getSignature, nip44 } = require('nostr-tools');
 const { KINDS } = require('./kinds');
 
 let operatorPrivkey = null;
 let operatorPubkey = null;
 let publisher = null;
+// NIP-44 conversation key with ourselves — the snapshot is written and read
+// by this operator alone, so encrypting to our own key costs one ECDH and
+// turns the relay into storage that cannot read what it stores.
+let selfKey = null;
 
 function configure({ operatorPrivkey: privkey, publishGeneric }) {
   operatorPrivkey = null;
   operatorPubkey = null;
   publisher = null;
+  selfKey = null;
 
   if (!privkey || typeof publishGeneric !== 'function') {
     console.warn('[OperatorAnnounce] Not configured — operator will not be discoverable via Nostr.');
@@ -30,8 +35,42 @@ function configure({ operatorPrivkey: privkey, publishGeneric }) {
     operatorPrivkey = privkey.toLowerCase();
     operatorPubkey = getPublicKey(operatorPrivkey);
     publisher = publishGeneric;
+    selfKey = nip44.utils.v2.getConversationKey(operatorPrivkey, operatorPubkey);
   } catch (error) {
     console.warn('[OperatorAnnounce] Failed to initialise:', error.message);
+  }
+}
+
+/**
+ * Encrypt a snapshot body to the operator's own key.
+ * Returns null if encryption is unavailable — the caller must then publish
+ * NOTHING rather than fall back to plaintext. A snapshot is a durability
+ * convenience; a plaintext one is a public record of who went where.
+ */
+function sealSnapshot(body) {
+  if (!selfKey) {
+    return null;
+  }
+  try {
+    return nip44.encrypt(selfKey, JSON.stringify(body || {}));
+  } catch (error) {
+    console.warn('[OperatorAnnounce] Snapshot encryption failed:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Decrypt one of our own snapshots. Returns null for anything we cannot
+ * open — a foreign, corrupt or legacy-plaintext event is not our state.
+ */
+function openSnapshot(content) {
+  if (!selfKey || !content) {
+    return null;
+  }
+  try {
+    return JSON.parse(nip44.decrypt(selfKey, content));
+  } catch (error) {
+    return null;
   }
 }
 
@@ -114,41 +153,30 @@ async function publishAnnouncement({
  * task. Addressable (one per d-tag = task id), so the relay keeps only the
  * latest. This is the operator's durability layer: no database required.
  *
- * The snapshot is deliberately PII-free — pubkeys, status, fare and
- * GEOHASH-level location only. Exact coordinates and addresses never leave
- * the operator's memory.
+ * The snapshot is SEALED to the operator's own key. It has exactly one
+ * reader — this operator, rehydrating at boot — so nothing is gained by
+ * leaving it readable, and a great deal is lost: published in the clear it
+ * was a public, permanent record of which pubkey travelled from which
+ * geohash cell to which, when, and for how much, queryable per person by
+ * `#p`. Coarse location is not anonymous location. The `d` tag stays
+ * (addressability) and NIP-40 expiration stays (relay hygiene); status,
+ * domain, participants and geohashes now live inside the ciphertext.
  *
- * @param {Object} snapshot - { taskId, status, domain, participants:[{pubkey,role}],
- *   geohashPickup, geohashDropoff, content:<object>, expirationSeconds }
+ * @param {Object} snapshot - { taskId, content:<object>, expirationSeconds }
+ *   (status/domain/participants/geohashes are carried within `content`)
  */
 async function publishTaskSnapshot(snapshot) {
   if (!snapshot?.taskId) {
     return null;
   }
-  const tags = [
-    ['d', snapshot.taskId],
-    ['status', snapshot.status || 'unknown'],
-    ['domain', snapshot.domain || 'unknown']
-  ];
-  for (const p of snapshot.participants || []) {
-    if (p?.pubkey) {
-      tags.push(['p', p.pubkey.toLowerCase(), '', p.role || '']);
-    }
+  const content = sealSnapshot(snapshot.content);
+  if (content === null) {
+    // No key, no snapshot. Never degrade to plaintext.
+    return null;
   }
-  if (snapshot.geohashPickup) {
-    tags.push(['g', snapshot.geohashPickup]);
-  }
-  if (snapshot.geohashDropoff) {
-    tags.push(['g', snapshot.geohashDropoff]);
-  }
+  const tags = [['d', snapshot.taskId]];
   if (snapshot.expirationSeconds) {
     tags.push(['expiration', String(snapshot.expirationSeconds)]);
-  }
-  let content = '';
-  try {
-    content = JSON.stringify(snapshot.content || {});
-  } catch (error) {
-    content = '';
   }
   return publishEvent(30078, tags, content);
 }
@@ -177,6 +205,7 @@ module.exports = {
   canPublish,
   publishAnnouncement,
   publishTaskSnapshot,
+  openSnapshot,
   publishHeartbeat,
   getOperatorPubkey
 };

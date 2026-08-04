@@ -14,6 +14,7 @@ DonkeyRide is the **reference implementation** of the [TROTT Protocol](https://g
 npm start              # Run operator server (Express on PORT=3000, WebSocket on WS_PORT=3001)
 npm run dev            # Development mode with nodemon auto-reload
 npm test               # Run all tests (Node.js built-in test runner)
+npm run test:live      # Live relay tests — opt-in, hits wss://relay.trotters.cc
 npm run web:dev        # React frontend dev server (Vite, in web/)
 npm run web:build      # Build React frontend (tsc + vite build)
 npm run web:test       # Run frontend tests (vitest)
@@ -26,6 +27,15 @@ npm run docker:run     # Run Docker container with .env
 node --test tests/integration/reputation-flow.test.js
 node --test tests/integration/domain-profiles.test.js
 ```
+
+`npm test` selects files with `find tests -name '*.test.js' -not -path 'tests/live/*'`
+rather than a shell glob. `tests/**/*.test.js` looks recursive but npm runs
+scripts under `sh`, where `**` is just `*` — it matched exactly one directory
+deep, so a test at `tests/unit/nested/x.test.js` would have been silently
+skipped rather than failing loudly. `find` is also version-independent: bare
+`node --test` does discover recursively, but its naming conventions have
+shifted across releases and CI runs Node 18 and 20. Live tests are excluded
+here and run via `npm run test:live`, so `npm test` never touches the network.
 
 **Frontend dependencies are separate** — run `npm install` in `web/` before using `web:*` commands.
 
@@ -271,17 +281,82 @@ The default production operator runs with **no database and no Redis** and is
   never holds. Custodial Lightning rails (lnd/btcpay/alby/cln) exist for
   licensed Mode-B operators only.
 - **No database.** `DATABASE_URL` is optional. Durability comes from Nostr: the
-  operator publishes a PII-free kind 30078 state snapshot (geohash-level
-  location only, never exact coordinates or addresses) on every task mutation
-  via `setSnapshotPublisher`, and rehydrates non-terminal tasks from its own
+  operator publishes a kind 30078 state snapshot on every task mutation via
+  `setSnapshotPublisher`, and rehydrates non-terminal tasks from its own
   snapshots on boot (`rehydrateFromNostr`). Exact PII is in-memory and
   ephemeral — lost on restart by design (a GDPR feature, not a bug). The
   Nostr outbox falls back to an in-memory buffer when there is no DB.
+  **The snapshot is SEALED** (NIP-44, to the operator's own key) and its tags
+  reduced to `d` + `expiration`. Reducing location to a geohash was not
+  enough on its own: a pubkey plus a ~1 km cell plus a timestamp, `p`-tagged
+  and repeated across a person's journeys, is a public travel history and
+  somebody's home address — coarse location is not anonymous location. The
+  snapshot has exactly one legitimate reader (this operator, at boot), so it
+  is written for that reader alone; a relay stores it without being able to
+  read it. Never degrade to plaintext: with no key, `publishTaskSnapshot`
+  publishes nothing. `NOSTR_SNAPSHOTS=false` switches them off entirely for
+  an operator that has a database. Pinned by
+  `tests/integration/snapshot-privacy.test.js`.
 - **No Redis.** Driver presence is in-memory and ephemeral. Redis only ever fed
   demo bot fleets and is off by default (`DISABLE_REDIS=true`).
 - Operators who legitimately need durable PII (a licensed Mode-B firm under
   GDPR controller obligations) opt in by setting `DATABASE_URL`; the store is
   then used automatically. It is never in OUR loop.
+
+### What may be left on a public relay
+
+A relay is append-only infrastructure nobody controls: there is no delete, no
+retention policy and no access log. So the test for anything published is not
+"does this look identifying" but **"who reads this, and what can be joined to
+it?"** Two rules follow, and both have been broken here before:
+
+1. **Only DISCOVERY is public.** Discovery has to reach strangers, so it is
+   coarse and disposable: the availability beacon (20500, geohash-5, ephemeral
+   kind so relays do not store it) and the task announcement (37500,
+   geohash-5, NIP-40 expiry). Everything else on a relay is either DURABILITY
+   (write for yourself → seal it: the 30078 snapshot) or ACCOUNTABILITY (must
+   be publicly attributable → ratings 30520, panic 30540). Nothing else earns
+   a place.
+2. **Watch the join key, not just the fields.** Every task event shares the
+   task id in its `d` tag, so any two of them compose. This is how the 30078
+   snapshot became a public travel history: the requester was not even
+   `p`-tagged, but they signed their own 37500 announcement under the same
+   task id with their identity key, and one relay query for
+   `authors:[them]` linked a person to every pickup cell, dropoff cell, fare
+   and driver they had ever had. **Task announcements are therefore signed by
+   a throwaway key** (`publishTaskAnnouncement` generates one per
+   announcement; `parseTaskAnnouncement` never reads the author, and drivers
+   resolve jobs against the operator's authenticated API). Pinned by
+   `web/src/services/events.test.ts`.
+
+Applications of the same reasoning:
+
+- **`p` tags are a per-person index.** A tag makes an event queryable by
+  subject for ever. Ratings need that (reputation is the point). A payment
+  receipt does not: kind 30535 is **off by default**
+  (`PUBLISH_PAYMENT_RECEIPTS`) and carries no `p` tags when enabled, so it
+  stays verifiable to whoever holds the task id without becoming a public
+  bank statement. Nothing in this repo reads it back — both parties keep
+  device-local history.
+- **A panic is a flag, not a fix.** Kind 30540 must stay public and attached
+  to the pubkey so aggregators price it in, so it carries geohash-5 and
+  **never exact coordinates** — a permanent public record of precisely where
+  a frightened person stood helps whoever they are frightened of. Exact
+  position goes where it acts: NIP-17 to the rider's guardians, and the
+  participant-gated task socket for the counterparty (out-of-band on the
+  `/panic` body, never inside the signed event). The operator refuses to
+  relay an event carrying a `location` tag but still processes the alert —
+  a privacy rule must never break the safety path. 30540 is ADDRESSABLE, so
+  it needs a `d` tag of the task id: without one every alert a person raises
+  shares `d=""` and each new one silently replaces the last. Pinned by
+  `tests/integration/panic-privacy.test.js`.
+- **Auth-off is an open deployment, not a weaker one.** `authoriseRideActor`
+  and `subscribe_ride` can only check participation when there is a signature
+  to check; without one they admit anyone holding a task id, and task ids are
+  on public relays. The server therefore **refuses to boot** with
+  `NODE_ENV=production` and `ENABLE_NIP98_AUTH` unset
+  (`ALLOW_UNAUTHENTICATED=true` for a throwaway demo), and the socket
+  verifies participation whenever it has an identity, toggle or not.
 
 ### Settlement rails (`settlement/`) — how riders actually pay
 
@@ -336,6 +411,26 @@ The three-layer architecture supports GDPR compliance: public Nostr events use o
 
 **Backend:** Uses Node.js built-in `node:test` module with `node:assert/strict`. Tests are in `tests/integration/`. Tests construct signed Nostr events manually for NIP-98 auth validation.
 
+**Relay isolation is mandatory.** Any test that boots the server must
+`require('../helpers/isolate-relays')` BEFORE `require('../../server.js')`.
+The operator rehydrates non-terminal tasks from its own kind 30078 snapshots
+at boot, so a test that can reach a relay starts with whatever is on it
+already loaded — a developer's live jobs, or the last run's residue. That is
+not hypothetical: it turned a demand-cell assertion from 3 into 12. Clearing
+`NOSTR_RELAY` alone is not enough; `server.js` also reads `NOSTR_RELAYS` and
+`REPUTATION_RELAYS`, and dotenv has loaded the developer's `.env` by then.
+The helper clears all of them.
+
+**Live relay tests** (`tests/live/`, `npm run test:live`) run against a REAL
+relay — `wss://relay.trotters.cc`, which we control. They cover what mocking
+by absence cannot: that a relay accepts a sealed snapshot, hands it back
+byte-intact, that the operator can still rehydrate from the round trip, and
+that a relay holding the event learns nothing from it. Skipped unless
+`LIVE_RELAY_URL` is set, so they stay inert in CI and in `npm test`. They
+leave no residue — a throwaway operator key per run, a unique task id, a
+120-second NIP-40 expiry and an explicit tombstone in `after`. Never point
+them at a relay you do not control.
+
 Key test files:
 - `reputation-flow.test.js` — NIP-98 auth validation, rating event publishing, reputation caching
 - `domain-profiles.test.js` — Schema validation, profile loading, TaskManager lifecycle across all domains, RideManager backward compatibility
@@ -351,6 +446,11 @@ Key test files:
 - `pickup-change.test.js` — Moving the pickup: re-priced pre-commitment, fare-preserving and provider-notified post-commitment, distance cap, requester-only, frozen after arrival
 - `women-only.test.js` — Women-only pairing over broadcast/replay/open list, fail-closed for undeclared drivers, accept 403 without the declaration
 - `quote-integrity.test.js` — The upfront-price guarantee: quote fare == recorded fare (plain, multi-stop and per-class), breakdown rows sum exactly and track the rate card rather than fixed percentages
+- `snapshot-privacy.test.js` — What the operator leaves on a relay: the 30078 snapshot names nobody and locates nothing, the operator can read back what it sealed, nobody else can, legacy plaintext is skipped rather than trusted, and no key means no snapshot at all
+- `panic-privacy.test.js` — A coarse panic reaches relays; one carrying exact coordinates is withheld from relays but STILL processed (a privacy rule must never break the safety path); anything unparseable fails closed
+- `payment-receipt.test.js` — No kind 30535 receipt by default; when opted in it is spec-shaped and carries no `p` tags
+- `relay-defaults.test.js` — An unset relay list means NOWHERE. Two hardcoded fallbacks to `wss://relay.damus.io` (one in `reputation.js`, one in the `config` object) meant `NOSTR_RELAY=''` published to a large public relay instead; this pins that no third-party host is ever reachable unless named
+- `live/relay-live.test.js` — Opt-in, against a real relay. See "Live relay tests" above
 - `request-expiry.test.js` — Widening retry, capped radius, honest `no_providers` close-out, pre-booked rides unaffected, matched rides no longer retried
 - `cancellation.test.js` — Grace window, late-cancellation flagging, wronged-party `late_cancel` report accepted, ordinary ratings still refused on a cancelled ride
 - `access-needs.test.js` — Access needs never change the fare, fail closed on list and accept, every need must be met, absent from the Nostr snapshot

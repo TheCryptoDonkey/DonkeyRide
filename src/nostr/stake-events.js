@@ -243,17 +243,34 @@ async function publishStakePenalty({
  * status=confirmed) the provider confirmed receipt. The operator
  * transmitted nothing; the receipt is the coordination record.
  * d tag: `{taskId}:receipt` (addressable — confirm supersedes verify).
+ *
+ * OFF by default (PUBLISH_PAYMENT_RECEIPTS=true to enable). Published, this
+ * is a permanent public record that one pubkey paid another a named sum at
+ * a named time — a bank statement for a pseudonymous person, on infra with
+ * no delete. Nothing in this implementation reads it back: rider and driver
+ * both keep their own device-local history, and the settlement the pair
+ * care about is already confirmed to both over the task socket.
+ *
+ * When an operator does opt in, the receipt carries NO `p` tags. Tagged, it
+ * is indexed per person and one relay query returns everything somebody
+ * ever earned or spent; untagged it is still fully verifiable to anyone
+ * holding the task id — which is to say, to the people it concerns.
  */
+function receiptsEnabled() {
+  return (process.env.PUBLISH_PAYMENT_RECEIPTS || '').toLowerCase() === 'true';
+}
+
 async function publishPaymentReceipt({
   rideId,
   amount,
   currency = 'SAT',
   paymentRail,
   status = 'confirmed',
-  verified = false,
-  requesterPubkey,
-  providerPubkey
+  verified = false
 }) {
+  if (!receiptsEnabled()) {
+    return null;
+  }
   const tags = [
     ['d', `${rideId}:receipt`],
     ['domain', domainId],
@@ -268,12 +285,6 @@ async function publishPaymentReceipt({
   ];
   if (paymentRail) {
     tags.push(['payment_rail', paymentRail]);
-  }
-  if (requesterPubkey) {
-    tags.push(['p', requesterPubkey.toLowerCase()]);
-  }
-  if (providerPubkey) {
-    tags.push(['p', providerPubkey.toLowerCase()]);
   }
   return publishEvent(KINDS.PAYMENT_RECEIPT, tags, '');
 }

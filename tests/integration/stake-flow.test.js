@@ -16,8 +16,7 @@ process.env.ENABLE_RATE_LIMITING = 'false';
 // No relay: boot rehydrates non-terminal tasks from Nostr snapshots, so a
 // developer with a relay in their .env would start this test with their own
 // live jobs already loaded. Durability is not what is under test here.
-process.env.NOSTR_RELAY = '';
-process.env.PUBLIC_RELAY_URLS = '';
+require('../helpers/isolate-relays');
 
 
 const { test, before, after } = require('node:test');
