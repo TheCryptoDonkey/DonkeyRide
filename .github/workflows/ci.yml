@@ -28,22 +28,33 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
-      # The Node test runner has a flaky IPC crash on the GitHub runners
-      # ("Unable to deserialize cloned data", nodejs/node#48761): the parent
-      # fails to deserialise a message from a test child and kills the run.
-      # It is not ours and we cannot fix it, so we retry it — but ONLY it.
+      # Each test file runs as its OWN process, directly — `node <file>`,
+      # not `node --test <file>`.
       #
-      # Retrying the whole suite did not work and could not: one invocation
-      # covered ~40 files, so an attempt failed if ANY file flaked, and three
-      # attempts were three chances to hit at least one flake across forty
-      # files rather than three chances for one file to pass. Runs
-      # 30886992431 and 30891573418 both exhausted all three.
+      # `node --test` forks a child per file and collects results over an IPC
+      # channel, and on the GitHub runners that channel intermittently
+      # corrupts: "Unable to deserialize cloned data" (nodejs/node#48761).
+      # It is upstream and unfixable from here.
       #
-      # So each file gets its own `node --test` process and its own retries.
-      # That shrinks each IPC stream to one file's output (less to corrupt)
-      # and, when a file does flake, re-runs that file alone.
+      # Retrying it never worked. First the whole suite was retried, which
+      # could not help — one invocation covered ~34 files, so an attempt
+      # failed if ANY file flaked, making three attempts three chances to hit
+      # a flake somewhere rather than three chances for one file to pass
+      # (runs 30886992431, 30891573418). Then retries went per-file, which
+      # did absorb most of them — but http-api.test.js, the largest file and
+      # so the one with the most to serialise, still flaked three times out
+      # of three (run 30892080525).
+      #
+      # Executing the file directly deletes the problem instead of retrying
+      # it: node:test runs the tests in-process and sets the exit code, so
+      # there is no child, no IPC and nothing to corrupt. Verified locally —
+      # all 34 files pass this way in ~76s, a failing file exits 1, a passing
+      # file exits 0.
+      #
+      # `npm test` deliberately still uses the runner: it is faster for
+      # developers and the flake is specific to these runners. The FILE
+      # SELECTION is identical, which is the part that must not drift.
       - run: |
-          set -o pipefail  # default GH shell lacks it; without it tee masks the test exit code
           # Same selection as `npm test` — recursive, live tests excluded.
           # This used to hardcode tests/integration/*.test.js, so a test in any
           # other directory was silently never run in CI.
@@ -52,26 +63,14 @@ jobs:
           echo "$FILES" | sed 's/^/  /'
 
           FAILED=""
-          FLAKES=0
           for f in $FILES; do
             echo "::group::$f"
-            passed=0
-            for attempt in 1 2 3; do
-              if node --test --test-concurrency=1 "$f" 2>&1 | tee test-out.log; then
-                passed=1; break
-              fi
-              # A genuine failure must fail immediately, never be retried.
-              if ! grep -q "Unable to deserialize cloned data" test-out.log; then
-                break
-              fi
-              FLAKES=$((FLAKES + 1))
-              echo "::warning file=$f::Known Node test-runner IPC flake (nodejs/node#48761) on attempt $attempt — retrying $f"
-            done
+            # A test that leaks a handle would otherwise hang the job until
+            # the 6h GitHub limit. Fail it in 5 minutes instead.
+            timeout 300 node "$f" || FAILED="$FAILED $f"
             echo "::endgroup::"
-            [ "$passed" -eq 1 ] || FAILED="$FAILED $f"
           done
 
-          [ "$FLAKES" -eq 0 ] || echo "::notice::Absorbed $FLAKES upstream IPC flake(s) by re-running the affected file"
           if [ -n "$FAILED" ]; then
             echo "::error::Failing test files:$FAILED"
             exit 1
