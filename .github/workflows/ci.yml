@@ -29,11 +29,19 @@ jobs:
           cache: npm
       - run: npm ci
       # The Node test runner has a flaky IPC crash on the GitHub runners
-      # ("Unable to deserialize cloned data", nodejs/node#48761) that survives
-      # even serial execution. First seen on Node 18; it hit Node 20 too (run
-      # 30789091329), so both versions run serially and retry ONCE, and only
-      # when the output shows that exact upstream error — a genuine test
-      # failure still fails on the first pass.
+      # ("Unable to deserialize cloned data", nodejs/node#48761): the parent
+      # fails to deserialise a message from a test child and kills the run.
+      # It is not ours and we cannot fix it, so we retry it — but ONLY it.
+      #
+      # Retrying the whole suite did not work and could not: one invocation
+      # covered ~40 files, so an attempt failed if ANY file flaked, and three
+      # attempts were three chances to hit at least one flake across forty
+      # files rather than three chances for one file to pass. Runs
+      # 30886992431 and 30891573418 both exhausted all three.
+      #
+      # So each file gets its own `node --test` process and its own retries.
+      # That shrinks each IPC stream to one file's output (less to corrupt)
+      # and, when a file does flake, re-runs that file alone.
       - run: |
           set -o pipefail  # default GH shell lacks it; without it tee masks the test exit code
           # Same selection as `npm test` — recursive, live tests excluded.
@@ -42,20 +50,32 @@ jobs:
           FILES=$(find tests -name '*.test.js' -not -path 'tests/live/*' | sort)
           test -n "$FILES" || { echo "No test files found"; exit 1; }
           echo "$FILES" | sed 's/^/  /'
-          run_serial() { node --test --test-concurrency=1 $FILES 2>&1 | tee test-out.log; }
-          # Retry the known upstream IPC flake, but never a real failure.
-          # Two retries, not one: it hit both the first pass AND the retry on
-          # Node 18, leaving main red on a bug we cannot fix.
-          attempt=1
-          until run_serial; do
-            grep -q "Unable to deserialize cloned data" test-out.log || exit 1
-            if [ "$attempt" -ge 3 ]; then
-              echo "::error::Node test-runner IPC flake persisted across 3 attempts"
-              exit 1
-            fi
-            echo "::warning::Retrying after the known Node test-runner IPC flake (nodejs/node#48761), attempt $attempt"
-            attempt=$((attempt + 1))
+
+          FAILED=""
+          FLAKES=0
+          for f in $FILES; do
+            echo "::group::$f"
+            passed=0
+            for attempt in 1 2 3; do
+              if node --test --test-concurrency=1 "$f" 2>&1 | tee test-out.log; then
+                passed=1; break
+              fi
+              # A genuine failure must fail immediately, never be retried.
+              if ! grep -q "Unable to deserialize cloned data" test-out.log; then
+                break
+              fi
+              FLAKES=$((FLAKES + 1))
+              echo "::warning file=$f::Known Node test-runner IPC flake (nodejs/node#48761) on attempt $attempt — retrying $f"
+            done
+            echo "::endgroup::"
+            [ "$passed" -eq 1 ] || FAILED="$FAILED $f"
           done
+
+          [ "$FLAKES" -eq 0 ] || echo "::notice::Absorbed $FLAKES upstream IPC flake(s) by re-running the affected file"
+          if [ -n "$FAILED" ]; then
+            echo "::error::Failing test files:$FAILED"
+            exit 1
+          fi
 
   web:
     name: Web typecheck, tests and build
