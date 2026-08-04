@@ -2,6 +2,23 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <!--
+	  Export compliance. This is "true" because it is true: beyond HTTPS the
+	  app does NIP-44 gift-wrapped messaging between rider and driver, and
+	  AES-GCM on trip recordings held at rest. Apple's exemption covers
+	  authentication, digital signatures and DRM — end-to-end messaging is
+	  none of those, so declaring "false" to skip the questionnaire would be
+	  a false statement to Apple and to BIS.
+
+	  The authorisation relied on is License Exception TSU (EAR §740.13(e)),
+	  for publicly available encryption source code: this app is MIT and its
+	  source is public. That exception requires a one-time notification to
+	  BIS and the NSA naming the repository — see
+	  docs/IOS-EXPORT-COMPLIANCE.md.
+	-->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<true/>
+
   <key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
