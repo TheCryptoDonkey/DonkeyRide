@@ -7368,3 +7368,18 @@ result
 /web/node_modules/.package-lock.json
 /web/node_modules/
 /web/dist-native-driver/
+
+# Signing material, repo-wide. web/android/.gitignore already covers the
+# Capacitor project's own keystore.properties and *.jks; these patterns catch
+# a keystore parked anywhere else (repo root, web/, an ios/ export). The .jks
+# IS the driver app's update identity — whoever holds it and the store
+# password can sign a build Android installs straight over a driver's copy.
+*.jks
+*.keystore
+
+# Signed driver builds are per-operator and dropped in after deploy. They are
+# release artefacts, not source, and an 8 MB binary has no business in git.
+public/downloads/
+
+# Playwright MCP session artefacts (snapshots, console logs)
+.playwright-mcp/

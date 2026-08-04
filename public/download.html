@@ -35,34 +35,12 @@
     Riders pay you directly — cash, M-Pesa or Lightning.
   </p>
 
-  <a class="button" href="/downloads/donkeyride-driver-1.0.apk">Download the app (5&nbsp;MB)</a>
-
-  <h2 style="font-size:1.1rem">Installing</h2>
-  <ol>
-    <li>Open this page on your Android phone and tap Download.</li>
-    <li>When asked, allow your browser to install unknown apps — the app
-        comes straight from this operator, not an app store.</li>
-    <li>Open DonkeyRide Driver, add a payment method, and go online.</li>
-  </ol>
-
-  <h2 style="font-size:1.1rem">Verify your download</h2>
-  <p class="note">
-    The app is signed with the DonkeyRide certificate. Check the file's
-    SHA-256 before installing if you want proof it was not tampered with:
-  </p>
-  <code id="apk-hash">See /downloads/donkeyride-driver-1.0.apk.sha256</code>
-  <p class="note">
-    Certificate: <strong>CN=DonkeyRide, O=forgesworn</strong><br>
-    Certificate SHA-256:
-  </p>
-  <code>61ca13847eddb053bc25907780a066a672947b7700f96137a6470989930e4dfc</code>
-
-  <p class="note">
-    Prefer the browser? The driver app also runs as a web app at
-    <a href="/provide" style="color:#4fc3f7">/provide</a> — the Android
-    build adds background location so jobs keep arriving with the screen
-    off.
-  </p>
+  <!-- Filled in from /api/driver-app: this operator may not publish an
+       Android build at all, and the page must not claim one either way
+       until it has asked. -->
+  <div id="download-slot">
+    <p class="note">Checking what this operator publishes…</p>
+  </div>
 
   <p class="note">
     New to DonkeyRide? Read
@@ -70,5 +48,61 @@
     payments, safety features and why there's no sign-up.
   </p>
 </main>
+<script>
+  // The operator builds and signs its own APK, so whether one exists here is
+  // a question only the server can answer. Ask, then render — never assume.
+  (async function () {
+    const slot = document.getElementById('download-slot');
+    const escape = s => String(s).replace(/[&<>"']/g, c => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+
+    let android;
+    try {
+      const res = await fetch('/api/driver-app');
+      if (!res.ok) throw new Error(res.status);
+      ({ android } = await res.json());
+    } catch {
+      slot.innerHTML = '<p class="note">Could not check for an Android build. '
+        + 'The driver app runs in this browser at '
+        + '<a href="/provide" style="color:#4fc3f7">/provide</a>.</p>';
+      return;
+    }
+
+    if (!android || !android.available) {
+      // Honest empty state. The web app is a real answer, not a consolation.
+      slot.innerHTML = '<p class="note"><strong>This operator does not publish an '
+        + 'Android build.</strong> The driver app runs in your browser at '
+        + '<a href="/provide" style="color:#4fc3f7">/provide</a> — add it to your '
+        + 'home screen and it behaves like an app. The packaged Android build adds '
+        + 'background location so jobs keep arriving with the screen off; an '
+        + 'operator who wants it builds and signs it themselves '
+        + '(<code style="display:inline;padding:.15rem .3rem">npm run native:driver:android</code>).</p>';
+      return;
+    }
+
+    const mb = (android.bytes / (1024 * 1024)).toFixed(1);
+    let html = '<a class="button" href="' + escape(android.url) + '" download>'
+      + 'Download the app (' + mb + '&nbsp;MB)</a>'
+      + '<h2 style="font-size:1.1rem">Installing</h2>'
+      + '<ol><li>Open this page on your Android phone and tap Download.</li>'
+      + '<li>When asked, allow your browser to install unknown apps — the app '
+      + 'comes straight from this operator, not an app store.</li>'
+      + '<li>Open DonkeyRide Driver, add a payment method, and go online.</li></ol>';
+
+    // Only offered when the operator actually published a checksum beside the
+    // build. A hash we invented here would prove nothing about the file.
+    if (android.sha256) {
+      html += '<h2 style="font-size:1.1rem">Verify your download</h2>'
+        + '<p class="note">Check the file\'s SHA-256 before installing if you want '
+        + 'proof it was not tampered with:</p>'
+        + '<code>' + escape(android.sha256) + '</code>';
+    }
+    html += '<p class="note">Prefer the browser? The driver app also runs as a web '
+      + 'app at <a href="/provide" style="color:#4fc3f7">/provide</a> — the Android '
+      + 'build adds background location so jobs keep arriving with the screen off.</p>';
+    slot.innerHTML = html;
+  })();
+</script>
 </body>
 </html>

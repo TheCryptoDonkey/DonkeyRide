@@ -7679,12 +7679,73 @@ const driverShellPath = path.join(reactBuildPath, 'driver.html');
 const hasDriverShell = fs.existsSync(driverShellPath);
 const hasRiderShell = fs.existsSync(reactIndexPath);
 
+// Where an operator drops the signed driver APK. Absent from git: a release
+// build is per-operator and signed with a key only they hold.
+const DOWNLOADS_DIR = path.join(__dirname, 'public', 'downloads');
+
+/**
+ * What Android build, if any, this operator actually publishes.
+ *
+ * The download page used to hardcode a filename and a size. Nothing checked
+ * that the file was there, so an operator who had never built the app still
+ * served a confident "Download the app (5 MB)" button. A page may not
+ * advertise an artefact the operator does not have — the honest answer is
+ * "not published here", and the web app at /provide still works.
+ */
+function publishedDriverApk() {
+    let names;
+    try {
+        names = fs.readdirSync(DOWNLOADS_DIR).filter(n => n.endsWith('.apk'));
+    } catch {
+        return null; // no downloads dir at all — nothing published
+    }
+    // Newest first, so a v1.1 supersedes a v1.0 left in place.
+    const builds = names
+        .map(name => {
+            try {
+                return { name, mtime: fs.statSync(path.join(DOWNLOADS_DIR, name)).mtimeMs,
+                         bytes: fs.statSync(path.join(DOWNLOADS_DIR, name)).size };
+            } catch { return null; }
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.mtime - a.mtime);
+    if (!builds.length) return null;
+
+    const build = builds[0];
+    // The checksum is whatever the operator put beside the APK; we never
+    // invent one, because a hash the operator did not produce proves nothing.
+    let sha256 = null;
+    try {
+        sha256 = fs.readFileSync(path.join(DOWNLOADS_DIR, `${build.name}.sha256`), 'utf8')
+            .trim().split(/\s+/)[0] || null;
+    } catch { /* no sidecar — the page simply omits the verification block */ }
+
+    return { url: `/downloads/${build.name}`, filename: build.name, bytes: build.bytes, sha256 };
+}
+
+// Lets /download.html render what is really there instead of a fixed claim.
+app.get('/api/driver-app', publicRateLimiter, (req, res) => {
+    const apk = publishedDriverApk();
+    res.json({
+        android: apk ? { available: true, ...apk } : { available: false },
+        webApp: '/provide'
+    });
+});
+
 app.get('*', (req, res, next) => {
-    // Skip API routes, health checks, and legacy HTML files
+    // Skip API routes and health checks
     if (req.path.startsWith('/api/') || req.path.startsWith('/rides/') || req.path.startsWith('/tasks/') ||
-        req.path === '/info' || req.path === '/health' || req.path === '/health/live' ||
-        req.path.endsWith('.html') || req.path.endsWith('.js') ||
-        req.path.endsWith('.css') || req.path.endsWith('.map')) {
+        req.path === '/info' || req.path === '/health' || req.path === '/health/live') {
+        return next();
+    }
+    // A request for a FILE is never an SPA route. This was a denylist of four
+    // extensions, so every other missing asset — the driver APK, an icon, a
+    // webmanifest — fell through to the rider shell and was answered
+    // 200 text/html. A phone downloading `donkeyride-driver-1.0.apk` got a
+    // 1 KB HTML page wearing an .apk name, which fails to install with no
+    // clue as to why. Anything with an extension that express.static did not
+    // find is a genuine 404 and must say so.
+    if (path.extname(req.path)) {
         return next();
     }
     // Rider and driver are separate apps sharing one origin: driver paths
@@ -7696,6 +7757,14 @@ app.get('*', (req, res, next) => {
         return res.sendFile(reactIndexPath);
     }
     next();
+});
+
+// Terminal 404. Anything reaching here matched no route, no static file and
+// no SPA shell. Express's default answers it with an HTML "Cannot GET /x"
+// page, which is the wrong content type for an API this JSON throughout and
+// \u2014 worse \u2014 is indistinguishable in a browser from the app failing to load.
+app.use((req, res) => {
+    res.status(404).json({ error: 'Not found', path: req.path });
 });
 
 // Terminal error handler. Without one, malformed JSON and handler throws
