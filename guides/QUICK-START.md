@@ -224,7 +224,7 @@ OPERATOR_LIGHTNING=you@getalby.com
 OPERATOR_FEE_PERCENT=0.03
 PAYMENT_PROVIDER=cash
 DOMAIN=ridesharing
-NOSTR_RELAYS=wss://relay.damus.io,wss://nos.lol
+NOSTR_RELAYS=wss://relay.trotters.cc
 ENABLE_NIP98_AUTH=true
 ENABLE_RATE_LIMITING=true
 ```
@@ -255,7 +255,7 @@ LND_MACAROON_PATH=~/.lnd/data/chain/bitcoin/mainnet/admin.macaroon
 
 PORT=3000
 WS_PORT=3001
-NOSTR_RELAYS=wss://relay.damus.io,wss://nos.lol
+NOSTR_RELAYS=wss://relay.trotters.cc
 
 NAVIGATION_PROVIDER=osrm
 OSRM_URL=http://localhost:5000

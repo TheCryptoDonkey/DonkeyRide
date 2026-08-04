@@ -52,11 +52,22 @@ cat > .env <<ENV
 OPERATOR_PRIVKEY=$(openssl rand -hex 32)
 NODE_ENV=production
 ALLOW_DEMO_PAYMENTS=true
-NOSTR_RELAYS=wss://relay.damus.io,wss://nos.lol
-PUBLIC_RELAY_URLS=wss://donkeyride.example.com/relay,wss://relay.damus.io
+NOSTR_RELAYS=wss://relay.trotters.cc
+PUBLIC_RELAY_URLS=wss://relay.trotters.cc,wss://donkeyride.example.com/relay,wss://relay.damus.io
 PUBLIC_BASE_URL=https://donkeyride.example.com
 ENV
 ```
+
+`NOSTR_RELAYS` is where the OPERATOR publishes (snapshots, bond, heartbeat) —
+name a relay you control. There is no fallback: leave it empty and the
+operator publishes nowhere, which costs you snapshot durability.
+
+`PUBLIC_RELAY_URLS` is a different thing: it is advertised to CLIENTS, who use
+it for end-to-end encrypted chat, signed ratings and cross-operator discovery.
+Those are *meant* to be publicly readable and portable between operators, so
+keep a public relay or two in this list — narrowing it to your own relay makes
+a driver's reputation invisible to anyone not pointed at you, which defeats
+the point of portable reputation.
 
 Without `OPERATOR_PRIVKEY` (or `OPERATOR_NSEC`) the operator cannot sign
 any public events — stake locks, settlements, its service announcement —
