@@ -83,19 +83,63 @@ if [ ! -f "$ARCHIVE/Products/Applications/App.app/PrivacyInfo.xcprivacy" ]; then
 fi
 echo "==> privacy manifest present in the bundle"
 
-echo "==> exporting and uploading to App Store Connect"
+# Generated rather than committed: it carries the team identifier, and this
+# repo is the reference implementation — no operator's Apple team belongs in
+# it. manageAppVersionAndBuildNumber=false stops Xcode rewriting the build
+# number we just derived from the commit count.
+cat > "$BUILD_DIR/ExportOptions.plist" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>teamID</key>
+	<string>${APPLE_TEAM_ID}</string>
+	<key>stripSwiftSymbols</key>
+	<true/>
+	<key>uploadSymbols</key>
+	<true/>
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+	<key>testFlightInternalTestingOnly</key>
+	<true/>
+</dict>
+</plist>
+EOF
+
+echo "==> exporting"
 xcodebuild -exportArchive \
   -archivePath "$ARCHIVE" \
-  -exportOptionsPlist "$IOS_DIR/ExportOptions.plist" \
+  -exportOptionsPlist "$BUILD_DIR/ExportOptions.plist" \
   -exportPath "$BUILD_DIR/export" \
   -allowProvisioningUpdates \
   -authenticationKeyPath "$KEY_PATH" \
   -authenticationKeyID "$ASC_KEY_ID" \
-  -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-  DEVELOPMENT_TEAM="$APPLE_TEAM_ID"
+  -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+IPA="$(find "$BUILD_DIR/export" -name '*.ipa' -maxdepth 1 | head -1)"
+[ -n "$IPA" ] || fail "no IPA produced"
+
+echo "==> uploading to App Store Connect"
+API_PRIVATE_KEYS_DIR="$(dirname "$KEY_PATH")" xcrun altool \
+  --upload-app -f "$IPA" -t ios \
+  --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID" \
+  --output-format json --show-progress
+
+# An accepted upload is not a delivered build: it can still land in FAILED
+# minutes later. Wait for VALID before calling this shipped.
+echo "==> waiting for TestFlight to finish processing"
+APP_STORE_CONNECT_API_ISSUER_ID="$ASC_ISSUER_ID" \
+APP_STORE_CONNECT_API_KEY_ID="$ASC_KEY_ID" \
+APP_STORE_CONNECT_API_KEY_PATH="$KEY_PATH" \
+  node "$REPO_ROOT/scripts/wait-for-testflight-build.mjs" \
+    --bundle-id app.donkeyride.driver \
+    --marketing-version "$(grep -m1 'MARKETING_VERSION' "$APP_DIR/App.xcodeproj/project.pbxproj" | sed 's/.*= //;s/;//')" \
+    --build-number "$BUILD_NUMBER" \
+    --timeout-seconds 900
 
 echo
-echo "uploaded. App Store Connect processes the build for a few minutes before"
-echo "it appears in TestFlight."
-echo
-echo "Version $(grep -m1 'MARKETING_VERSION' "$APP_DIR/App.xcodeproj/project.pbxproj" | sed 's/.*= //;s/;//') build $BUILD_NUMBER"
+echo "delivered to TestFlight: version $(grep -m1 'MARKETING_VERSION' "$APP_DIR/App.xcodeproj/project.pbxproj" | sed 's/.*= //;s/;//') build $BUILD_NUMBER"
