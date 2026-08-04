@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  App Store / TestFlight export options.
+
+	  No teamID here on purpose: this repo is the reference implementation and
+	  any operator can ship their own driver app under their own account.
+	  scripts/publish-driver-ios.sh passes DEVELOPMENT_TEAM on the command
+	  line from APPLE_TEAM_ID, so nobody's team identifier is committed.
+
+	  "app-store-connect" is the Xcode 15.3+ name for what used to be
+	  "app-store". destination=upload makes xcodebuild -exportArchive hand the
+	  build straight to App Store Connect instead of leaving an .ipa to
+	  shuttle by hand.
+	-->
+	<key>method</key>
+	<string>app-store-connect</string>
+
+	<key>destination</key>
+	<string>upload</string>
+
+	<key>signingStyle</key>
+	<string>automatic</string>
+
+	<!-- dSYMs go up with the build, so a crash report from a tester is
+	     readable instead of a wall of hex. -->
+	<key>uploadSymbols</key>
+	<true/>
+
+	<!-- Bitcode has been dead since Xcode 14; stating it avoids a warning. -->
+	<key>stripSwiftSymbols</key>
+	<true/>
+
+	<!-- TestFlight builds should not be thinned per-device: one universal
+	     build for every tester's hardware. -->
+	<key>thinning</key>
+	<string>&lt;none&gt;</string>
+</dict>
+</plist>

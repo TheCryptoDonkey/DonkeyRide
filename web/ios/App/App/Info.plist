@@ -47,9 +47,13 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<!-- The Capacitor template ships armv7 here. armv7 is 32-bit, and no
+	     device that can run this app has had a 32-bit CPU since the iPhone 5;
+	     declaring it describes hardware the build does not even contain a
+	     slice for. -->
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>

@@ -11,3 +11,7 @@ capacitor-cordova-ios-plugins
 # Generated Config files
 App/App/capacitor.config.json
 App/App/config.xml
+
+# Archive + export output from scripts/publish-driver-ios.sh
+build/
+build-test/
