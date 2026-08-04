@@ -258,7 +258,11 @@ class TaskManager {
     identityKeys(requester).forEach((key) => this.requesterTasks.set(key, taskId));
     this._persist(task);
 
-    console.log(`\u2705 Task created: ${taskId} [${this.domainId}] (${requester.npub || requester.pubkey || 'unknown'})`);
+    // No npub. An identifier here is durable (Docker keeps stdout on disk
+    // across restarts), sits outside the erasure story, and resolves via
+    // kind 0 to a real name \u2014 so a log line said WHO asked for a journey
+    // and WHEN, next to a routing error that said from and to where.
+    console.log(`\u2705 Task created: ${taskId} [${this.domainId}]`);
 
     return task;
   }
@@ -312,7 +316,9 @@ class TaskManager {
     identityKeys(providerIdentity).forEach((key) => this.providerTasks.set(key, taskId));
     this._persist(task);
 
-    console.log(`\u2705 Task ${taskId} matched with ${this.roles.provider} ${providerIdentity.npub || providerIdentity.pubkey || 'unknown'}`);
+    // The provider's key is no safer to log than the requester's \u2014 it is the
+    // one carrying their name, their ratings and their working pattern.
+    console.log(`\u2705 Task ${taskId} matched with a ${this.roles.provider}`);
 
     return task;
   }

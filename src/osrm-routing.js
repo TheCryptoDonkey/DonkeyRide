@@ -5,6 +5,7 @@
  */
 
 const { fetchWithTimeout: fetch } = require('./utils/fetch-timeout');
+const { safeErrorMessage } = require('./log-redact');
 
 // Use local OSRM server for GDPR compliance
 // Local server running on port 5001 with central London map data
@@ -49,7 +50,9 @@ async function getRoute(fromLat, fromLon, toLat, toLon, via = []) {
     };
 
   } catch (error) {
-    console.error('OSRM routing error:', error.message);
+    // NEVER `error.message` raw: node-fetch embeds the whole request URL,
+    // and that URL is an exact pickup and an exact dropoff.
+    console.error('OSRM routing error:', safeErrorMessage(error));
     // Fallback to straight line
     return null;
   }

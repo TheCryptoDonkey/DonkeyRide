@@ -4,6 +4,7 @@
 // ==========================================
 
 const { NavigationProvider, Route, Instruction } = require('./base');
+const { safeErrorMessage } = require('../src/log-redact');
 const { fetchWithTimeout: fetch } = require('../src/utils/fetch-timeout');
 
 /**
@@ -71,7 +72,9 @@ class OSRMProvider extends NavigationProvider {
             return this.parseOSRMRoute(data.routes[0], origin, destination);
 
         } catch (error) {
-            console.error('OSRM routing error:', error);
+            // Message only, redacted — the raw object prints `cause` and the
+            // stack, and a failed fetch's cause carries the routed URL.
+            console.error('OSRM routing error:', safeErrorMessage(error));
             throw error;
         }
     }

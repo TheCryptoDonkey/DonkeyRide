@@ -5,6 +5,7 @@
 
 const { NavigationProvider, Route, Instruction } = require('./base');
 const { fetchWithTimeout: fetch } = require('../src/utils/fetch-timeout');
+const { safeErrorMessage } = require('../src/log-redact');
 
 /**
  * OpenRouteService Provider
@@ -123,7 +124,7 @@ class OpenRouteServiceProvider extends NavigationProvider {
             return this.parseORSRoute(data.routes[0], origin, destination);
 
         } catch (error) {
-            console.error('ORS routing error:', error);
+            console.error('ORS routing error:', safeErrorMessage(error));
             throw error;
         }
     }
@@ -146,7 +147,7 @@ class OpenRouteServiceProvider extends NavigationProvider {
                     route.metadata.strategy = strategy;
                     routes.push(route);
                 } catch (error) {
-                    console.warn(`Failed to get ${strategy} route:`, error.message);
+                    console.warn(`Failed to get ${strategy} route:`, safeErrorMessage(error));
                 }
             }
 
@@ -156,7 +157,7 @@ class OpenRouteServiceProvider extends NavigationProvider {
             );
 
         } catch (error) {
-            console.error('ORS alternatives error:', error);
+            console.error('ORS alternatives error:', safeErrorMessage(error));
             throw error;
         }
     }

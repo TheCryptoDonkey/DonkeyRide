@@ -63,6 +63,56 @@ DonkeyRide's three-layer architecture is designed for GDPR compliance. This docu
 - Right to erasure honoured for all data except where legal retention overrides (Art. 17(3)(b))
 - Data Processing Agreements (DPAs) with all sub-processors
 
+> The table above describes a **Mode-B operator that has chosen durable
+> storage** (`DATABASE_URL` set). The default operator has no database and
+> no Redis: task state is in-memory and lost on restart, which is the
+> strongest possible answer to Article 17 for that data. See "Non-custodial
+> + database-free" in `CLAUDE.md`.
+
+#### Logs are storage, and they were the weak point
+
+Everything the operator prints to stdout is **durable**. Docker's
+`json-file` driver writes it to disk and keeps it (3 x 10 MB by default on
+the reference deployment) across process restarts. It is therefore:
+
+- outside the "in-memory and ephemeral" claim the architecture rests on,
+- outside every `/api` privacy control and the erasure workflow below,
+- invisible — nobody reads stdout until something is already wrong.
+
+A production log was found holding both halves of a travel history:
+
+```
+✅ Task created: ride_a85b1178 [ridesharing] (npub1ht0jln4…)
+OSRM routing error: request to http://localhost:5001/route/v1/driving/
+  -0.1278,51.5074;-0.0922,51.5155?overview=full… failed
+```
+
+Who (an npub resolves via kind 0 to a name and face), from where, to
+where, when — joined by the ride id, in plaintext. Note that neither line
+was a deliberate log of anything sensitive: the identity came from a
+routine lifecycle message, and the coordinates came from an **error path**,
+where `node-fetch` puts the whole request URL into `error.message`. That
+is the shape to watch for. Error paths fire when the system is already
+degraded and nobody is looking.
+
+**Rules now enforced:**
+
+- The lifecycle logs a task id and never an identity. A task id names a
+  job, not a person, and it is what an operator needs to stay operable.
+- No error object or raw `error.message` from an HTTP call is ever logged.
+  `safeErrorMessage()` in `src/log-redact.js` strips URL paths and queries,
+  coordinate pairs, npub/nsec and 64-hex keys, while keeping the scheme and
+  host so you can still see *which* service failed. Logging the raw object
+  is worse than the message: `console.error('x:', error)` also prints
+  `cause` (the URL again) and, on axios-shaped errors, request headers —
+  which is how an `ORS_API_KEY` would reach disk.
+- Pinned by `tests/integration/log-privacy.test.js`, which asserts against
+  the verbatim production leak.
+
+**If you operate a deployment**, treat container logs as a data store: set
+retention deliberately, restrict who can `docker logs`, and include them in
+your ROPA. They are not exempt because they are "just logs".
+
 ### Layer 3: Payment Providers (Third Party)
 
 **What payment providers hold:**
@@ -136,6 +186,49 @@ Under GDPR Recital 26 and the CJEU *Breyer* ruling (C-582/14), **pseudonymous id
 Relay operators process personal data (pubkeys, timestamps) regardless of encryption. They should be treated as processors under GDPR.
 
 ---
+
+## Special Category Data (Article 9)
+
+**This system processes Article 9 data.** It is easy to miss because it
+never looks like health data in the code — it looks like a dispatch filter.
+
+`accessOptions` in a domain profile (`wheelchair`, `step-free`,
+`assistance dog`) are **data concerning health** under Article 4(15): they
+relate to a person's physical condition and reveal disability status.
+Article 9(1) prohibits processing them unless an Article 9(2) condition
+applies. In this context that is **Article 9(2)(a), explicit consent** —
+the requester volunteers the need in order to be matched with a vehicle
+that can carry them.
+
+Consequences, and how they are met:
+
+| Requirement | Status |
+|---|---|
+| Never published to a relay (no erasure possible there) | **Done** — `access_needs` is deliberately excluded from the kind 30078 snapshot; pinned by `tests/integration/access-needs.test.js` |
+| Never in a pre-accept payload (broadcast, replay, open list) | **Done** — disclosed only to the provider who has committed |
+| In-memory only, lost on restart | **Done** — no database in the default posture |
+| Never priced | **Done** — the profile schema *rejects* an `accessOptions` entry carrying a `fareMultiplier`; needing a ramp must not cost more |
+| Fails closed | **Done** — an undeclared provider cannot see or accept the job |
+| Not in logs | **Done** — see "Logs are storage" above |
+| **Explicit consent captured and recorded** | **Operator's responsibility** — the UI must state, at the point of asking, what the need is used for and that it is shared with the assigned provider. Ticking a box in a booking form is only *explicit* consent if it is informed. |
+| **DPIA covering Article 9 processing** | **Operator's responsibility** — Article 35(3)(b) makes a DPIA mandatory for processing special categories on a large scale |
+
+**Self-declared gender** (women-only matching) is *not* Article 9 data on
+the ordinary reading — Article 9(1) lists racial or ethnic origin,
+political opinions, religious or philosophical beliefs, trade union
+membership, genetic data, biometric data for unique identification, health,
+sex life and sexual orientation. Gender is ordinary personal data under
+Article 6. It is nonetheless handled to the same standard here (in-memory,
+excluded from the snapshot, fail-closed, absent from ordinary requests)
+because the harm from disclosure is comparable and the safety feature is
+worthless if people cannot trust it.
+
+**Third-party data**: booking for someone else (`passenger: {name, note}`)
+means processing a person who is not your user and cannot consent through
+your UI. It is capped, in-memory, excluded from every pre-accept payload
+and from the snapshot. The lawful basis is legitimate interest, and the
+Article 14 notice obligation is the requester's practical responsibility,
+not the operator's — but an operator scaling this up should take advice.
 
 ## Right to Erasure Implementation
 

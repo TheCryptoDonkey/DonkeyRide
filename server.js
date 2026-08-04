@@ -42,6 +42,7 @@ const { RideManager, RideStatus } = require('./src/ride-manager');
 const { TaskManager } = require('./src/task-manager');
 const { loadProfile, listProfiles } = require('./src/domain-profiles');
 const { getRoute } = require('./src/osrm-routing');
+const { safeErrorMessage } = require('./src/log-redact');
 const { createTaskStore } = require('./src/storage/task-store');
 
 const app = express();
@@ -4857,7 +4858,7 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
                     ride.pickup.lon
                 );
             } catch (routeError) {
-                console.warn(`Route calculation failed for ${rideId}:`, routeError.message);
+                console.warn(`Route calculation failed for ${rideId}:`, safeErrorMessage(routeError));
             }
         }
 
