@@ -10,15 +10,50 @@ import { encodeGeohash } from '../utils/geohash';
  */
 
 /**
+ * Is the TROTT-02 peer-to-peer availability beacon switched on?
+ *
+ * OFF unless `VITE_TROTT_P2P_BEACON=true`, and the default is the point.
+ *
+ * The beacon is the one public event a provider signs with their DURABLE
+ * IDENTITY key — necessarily so: in operator-free discovery the pubkey IS
+ * the contact address and the reputation anchor, so a throwaway key (the
+ * fix applied to task announcements) would make it useless. That key also
+ * carries their kind 0 name and avatar and is `p`-tagged by every kind
+ * 30520 rating. So a beacon every 60 seconds for a whole shift is a live,
+ * named, rated feed of where a working person is, published to relays
+ * anyone may subscribe to. The ephemeral kind range means relays do not
+ * STORE it — but nothing stops a subscriber storing it themselves, and
+ * `{kinds:[20500]}` is a free, passive, permanently-open subscription.
+ *
+ * That cost buys nothing while an operator coordinates: dispatch already
+ * has the provider's position over the authenticated task socket every 30
+ * seconds, and NOTHING in this codebase subscribes to kind 20500 — riders
+ * are matched by the operator, and federated jobs resolve through the
+ * coordinating operator's authenticated API. Providers were paying a
+ * public-location price for a reader that does not exist.
+ *
+ * It stays implemented, and spec-conformant, for the operator-free mode it
+ * was written for. It is simply not on by default in a deployment that has
+ * an operator — which is every deployment of this app today.
+ */
+export function p2pBeaconEnabled(): boolean {
+  return String(import.meta.env.VITE_TROTT_P2P_BEACON || '')
+    .trim().toLowerCase() === 'true';
+}
+
+/**
  * TROTT-02 availability beacon (kind 20500, ephemeral).
  * Announces that a provider is available near a geohash cell.
  * Best-effort: returns the relay ack count, never throws.
+ *
+ * No-op unless `p2pBeaconEnabled()` — see the note there for why.
  */
 export async function publishAvailabilityBeacon(
   location: LatLng,
   domainId: string,
   privKeyHex: string,
 ): Promise<number> {
+  if (!p2pBeaconEnabled()) return 0;
   try {
     const now = Math.floor(Date.now() / 1000);
     const event = await signNostrEvent({

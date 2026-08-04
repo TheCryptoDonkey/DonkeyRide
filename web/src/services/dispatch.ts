@@ -2,7 +2,7 @@ import type { Task, LatLng } from '../types/api';
 import { WS_PROTOCOL, getWsBaseUrl, normaliseWsMessage } from './websocket';
 import { getAuthPrivKey, getOpenTasks, normaliseTask } from './api';
 import { createNip98Event } from './nostr';
-import { publishAvailabilityBeacon } from './events';
+import { publishAvailabilityBeacon, p2pBeaconEnabled } from './events';
 import { enableJobPush, disableJobPush } from './push';
 import { subscribeFederatedTasks } from './federation';
 import { startShiftTracking, stopShiftTracking, type ShiftWatcher } from './native-location';
@@ -558,9 +558,16 @@ class DispatchService {
   /**
    * TROTT-02 availability beacon — signed kind 20500 published direct to
    * public relays only, immediately on going online and every 60 seconds.
+   *
+   * OFF by default (`p2pBeaconEnabled`): it publishes the driver's coarse
+   * whereabouts under their identity key for a whole shift, and while an
+   * operator coordinates, dispatch runs off the authenticated socket
+   * instead. `publishAvailabilityBeacon` refuses independently — this only
+   * saves running a timer that would do nothing.
    */
   private startBeacon(): void {
     this.stopBeacon();
+    if (!p2pBeaconEnabled()) return;
     void this.sendBeacon();
     this.beaconTimer = setInterval(() => void this.sendBeacon(), BEACON_INTERVAL_MS);
   }

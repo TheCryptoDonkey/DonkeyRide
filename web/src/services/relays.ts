@@ -1,7 +1,32 @@
 import type { NostrEvent } from '../types/nostr';
 import { getOperatorInfoCached } from './api';
 
-/** Last-resort public relays when neither env nor operator supply any */
+/**
+ * Last-resort public relays when neither env nor operator supply any.
+ *
+ * These are large third-party hosts and they stay, deliberately — the
+ * opposite call to the OPERATOR's relay list, which now defaults to
+ * nowhere. The two are not the same question.
+ *
+ * The operator publishes on behalf of OTHER PEOPLE (task snapshots), so
+ * silently defaulting it to a stranger's relay leaked riders' journeys.
+ * This list is what a client publishes about ITSELF, and every event that
+ * reaches it is one whose whole value is being publicly readable:
+ *
+ *   kind 0      profile     how a stranger sees your name and face
+ *   kind 30520  ratings     portable reputation — the point of TROTT-03
+ *   kind 30540  panic       accountability; coarse by construction
+ *   kind 1059   NIP-17      gift wraps; a guardian or counterparty may
+ *                           read them in ANY DM client, on their relays
+ *   kind 37500  task ann.   cross-operator discovery, throwaway-signed
+ *
+ * Narrow this to one operator's relay and a driver's reputation becomes
+ * invisible to anyone not already pointed at that operator, which is
+ * precisely the lock-in the protocol exists to avoid. The kind 20500
+ * beacon was the one member of this list that did NOT need public reach;
+ * it is off by default now (see `p2pBeaconEnabled`), which is why this
+ * list can stay wide with a clear conscience.
+ */
 const FALLBACK_RELAYS = ['wss://relay.damus.io', 'wss://nos.lol'];
 
 const PUBLISH_TIMEOUT_MS = 5000;

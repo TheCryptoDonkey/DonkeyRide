@@ -308,7 +308,7 @@ The default production operator runs with **no database and no Redis** and is
 A relay is append-only infrastructure nobody controls: there is no delete, no
 retention policy and no access log. So the test for anything published is not
 "does this look identifying" but **"who reads this, and what can be joined to
-it?"** Two rules follow, and both have been broken here before:
+it?"** Three rules follow, and all three have been broken here before:
 
 1. **Only DISCOVERY is public.** Discovery has to reach strangers, so it is
    coarse and disposable: the availability beacon (20500, geohash-5, ephemeral
@@ -328,6 +328,23 @@ it?"** Two rules follow, and both have been broken here before:
    announcement; `parseTaskAnnouncement` never reads the author, and drivers
    resolve jobs against the operator's authenticated API). Pinned by
    `web/src/services/events.test.ts`.
+3. **A publish with no reader is pure cost.** Rule 1 asks whether a kind
+   MAY be public; ask also whether anything actually READS it here. The
+   **kind 20500 availability beacon is therefore OFF by default**
+   (`VITE_TROTT_P2P_BEACON`, `p2pBeaconEnabled` in `web/src/services/events.ts`).
+   A provider on shift was signing one every 60 seconds under their
+   **durable identity key** — the key carrying their kind 0 name and every
+   30520 rating — so `{kinds:[20500]}` was a live, named, rated feed of a
+   working person's whereabouts. Ephemeral means relays do not *store* it;
+   it does not stop a subscriber storing it. And nothing in this codebase
+   has ever subscribed to 20500: while an operator coordinates, dispatch
+   runs off the authenticated task socket (`driver_location`, 30 s), riders
+   are matched by the operator, and federated jobs resolve through the
+   coordinating operator's API. Unlike the announcement in rule 2, the
+   beacon may NOT be moved to a throwaway key — with no operator to resolve
+   through, its author IS the contact address and the reputation anchor.
+   Default-off is the fix; the code stays for the operator-free mode it was
+   written for.
 
 Applications of the same reasoning:
 
@@ -357,6 +374,18 @@ Applications of the same reasoning:
   `NODE_ENV=production` and `ENABLE_NIP98_AUTH` unset
   (`ALLOW_UNAUTHENTICATED=true` for a throwaway demo), and the socket
   verifies participation whenever it has an identity, toggle or not.
+- **The two relay lists are opposite calls, on purpose.** `NOSTR_RELAYS` (the
+  OPERATOR's) defaults to **nowhere**: it publishes on behalf of other people,
+  so a default pointing at a stranger's relay is how riders' journeys leaked
+  (`tests/integration/relay-defaults.test.js`). `PUBLIC_RELAY_URLS` and
+  `web/src/services/relays.ts`'s `FALLBACK_RELAYS` keep large third-party
+  relays **deliberately**: they carry what a client publishes about ITSELF,
+  and every kind on them is one whose value IS public readability — kind 0
+  profiles, 30520 ratings, 30540 panic, NIP-17 wraps a counterparty reads in
+  any DM client, throwaway-signed 37500 announcements. Narrowing them to one
+  operator makes a driver's reputation invisible to anyone not already
+  pointed at that operator, which is the lock-in the protocol exists to
+  avoid. Do not "tidy" these into one list.
 
 ### Settlement rails (`settlement/`) — how riders actually pay
 

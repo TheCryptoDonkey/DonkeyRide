@@ -5,7 +5,7 @@
 ### Technical Checklist
 - [ ] Open WebStorm with project loaded
 - [ ] Test internet connection (primary + backup hotspot)
-- [ ] Verify relay connectivity: `wss://relay.damus.io`
+- [ ] Verify relay connectivity: `wss://relay.trotters.cc` (ours — always the default)
 - [ ] Clear browser cache and console
 - [ ] Have `demo-start.html` and `demo-steps.js` in split panes
 - [ ] Test Lightning wallet connectivity
@@ -274,8 +274,8 @@ const acceptEvent = {
 ## 💡 Alternative Flows (If Things Go Wrong)
 
 ### If relay connection fails:
-> "Looks like that relay is having issues. Let me switch to relay.trotters.cc..."
-> [Have backup relay ready in code]
+> "Looks like our relay is having issues. Let me switch to a public one..."
+> [Have relay.damus.io ready in code as the fallback — never the default]
 
 ### If Lightning demo fails:
 > "In production, this would open your Lightning wallet. For demo purposes, let's simulate the payment..."

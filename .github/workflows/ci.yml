@@ -1,6 +1,8 @@
 # Release discipline: nothing merges with failing tests or a broken build.
-# Backend runs on Node 18 AND 20 because production (Nix shell) is Node 18 —
-# an API that only exists on newer Node must fail here, not in production.
+# Backend runs on Node 20 AND 22 because the Dockerfile ships 22 and the Nix
+# shell is 22 — an API that only exists on newer Node must fail here, not in
+# production. Keep this matrix in step with the Dockerfile: it drifted to
+# Node 18 on both and shipped an EOL runtime for months.
 name: CI
 
 on:

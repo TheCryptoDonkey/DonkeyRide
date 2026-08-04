@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getPublicKey, verifyEvent } from 'nostr-tools';
 import { hexToBytes } from './nostr';
 import type { NostrEvent } from '../types/nostr';
@@ -69,8 +69,32 @@ describe('task announcements are unlinkable to the requester', () => {
   });
 });
 
-describe('availability beacons stay coarse', () => {
-  it('announces a ~5km cell and nothing else', async () => {
+describe('the P2P availability beacon is off unless asked for', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('publishes NOTHING by default', async () => {
+    // A provider going on shift used to sign a kind 20500 under their
+    // identity key every 60 seconds for the whole shift. Nothing in this
+    // app reads kind 20500 — dispatch runs off the authenticated socket —
+    // so that was a public location feed with no reader.
+    const acks = await publishAvailabilityBeacon(PICKUP, 'ridesharing', RIDER_PRIV);
+
+    expect(acks).toBe(0);
+    expect(published).toHaveLength(0);
+  });
+
+  it('publishes when an operator-free deployment opts in', async () => {
+    vi.stubEnv('VITE_TROTT_P2P_BEACON', 'true');
+
+    await publishAvailabilityBeacon(PICKUP, 'ridesharing', RIDER_PRIV);
+
+    expect(published).toHaveLength(1);
+  });
+
+  it('stays coarse and ephemeral when it does publish', async () => {
+    vi.stubEnv('VITE_TROTT_P2P_BEACON', 'true');
     await publishAvailabilityBeacon(PICKUP, 'ridesharing', RIDER_PRIV);
 
     const [event] = published;
@@ -80,5 +104,17 @@ describe('availability beacons stay coarse', () => {
     // Ephemeral kind range — relays do not store these.
     expect(event.kind).toBeGreaterThanOrEqual(20000);
     expect(event.kind).toBeLessThan(30000);
+  });
+
+  it('is signed by the provider IDENTITY key, deliberately', async () => {
+    // Unlike a task announcement, this one may NOT be moved to a throwaway
+    // key. With no operator to resolve through, the beacon's author IS the
+    // contact address and the reputation anchor — a fresh key per beacon
+    // would announce an unreachable stranger with no history. The privacy
+    // answer for the beacon is the default-off switch above, not anonymity.
+    vi.stubEnv('VITE_TROTT_P2P_BEACON', 'true');
+    await publishAvailabilityBeacon(PICKUP, 'ridesharing', RIDER_PRIV);
+
+    expect(published[0].pubkey).toBe(RIDER_PUB);
   });
 });
