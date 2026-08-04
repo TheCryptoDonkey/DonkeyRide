@@ -22,9 +22,18 @@ tags:
   - lightning
   - trott
 
-# Local signed release build (assembleRelease output). The APK signing
-# certificate (SHA-256 61ca1384…) is linked to the publisher's Nostr
-# identity on first publish (NIP-C1).
+# Local signed release build (assembleRelease output). Produce it with
+# scripts/publish-driver-apk.sh, which also verifies the signature and drops
+# the APK where the operator serves it.
+#
+# The APK signing certificate is linked to the publisher's Nostr identity on
+# first publish (NIP-C1), so it is as permanent as the publisher key:
+#   CN=DonkeyRide, O=forgesworn, C=GB
+#   SHA-256 040dcaa92cabdc6cad349a8c08fd0ef7b2c21fc7d4bb66198539160e47f574b8
+# (An earlier 61ca1384… was recorded here for a keystore that no longer
+# exists anywhere in this repo. Nothing was ever published under it, so
+# replacing it breaks no installed app — but once a build IS published,
+# changing this certificate strands every driver who installed the old one.)
 release_source: ./web/android/app/build/outputs/apk/release/app-release.apk
 
 # Publisher Nostr public key — REPLACE with the chosen publisher npub

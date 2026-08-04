@@ -60,8 +60,11 @@ after(() => {
 });
 
 test('a file the operator does not have 404s instead of returning the app', async () => {
-  // The exact URL the download page used to advertise.
-  const res = await fetch(`${baseUrl}/downloads/donkeyride-driver-1.0.apk`);
+  // A build this operator does not publish. Deliberately NOT the filename the
+  // page used to hardcode (donkeyride-driver-1.0.apk): an operator who has
+  // run scripts/publish-driver-apk.sh really does serve that one, and this
+  // test is about the absent case.
+  const res = await fetch(`${baseUrl}/downloads/donkeyride-driver-0.0-nonexistent.apk`);
 
   assert.equal(res.status, 404, 'a missing APK must 404');
   const body = await res.text();
@@ -112,6 +115,30 @@ test('real SPA routes still get their shell, rider and driver kept apart', async
       'the driver path must get the driver shell, not the rider one'
     );
   }
+});
+
+test('/driver.html serves the React driver shell, not the retired console', async (t) => {
+  if (!fs.existsSync(path.join(REACT_BUILD, 'driver.html'))) {
+    t.skip('web/dist not built — run npm run web:build');
+    return;
+  }
+  // express.static('public') is mounted before the React build, so a legacy
+  // public/driver.html shadowed the driver app's own shell: /driver.html
+  // served a retired vanilla console instead. Nothing linked to it, but it is
+  // a plausible URL to type and the page it returned still spoke to APIs that
+  // have since moved. The legacy pair now lives under legacy-*.html.
+  const res = await fetch(`${baseUrl}/driver.html`);
+  assert.equal(res.status, 200);
+  const body = await res.text();
+
+  assert.ok(
+    body.includes('<div id="root">'),
+    '/driver.html must serve the React shell'
+  );
+  assert.ok(
+    !/DonkeyRide Driver Console/.test(body),
+    'the retired vanilla console must not be served at /driver.html'
+  );
 });
 
 test('/api/driver-app tells the truth about what is published', async () => {
