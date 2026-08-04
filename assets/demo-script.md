@@ -274,7 +274,7 @@ const acceptEvent = {
 ## 💡 Alternative Flows (If Things Go Wrong)
 
 ### If relay connection fails:
-> "Looks like Damus is having issues. Let me switch to relay.nostr.band..."
+> "Looks like that relay is having issues. Let me switch to relay.trotters.cc..."
 > [Have backup relay ready in code]
 
 ### If Lightning demo fails:

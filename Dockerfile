@@ -1,7 +1,7 @@
 # ==========================================
 # Stage 1: build the React frontend
 # ==========================================
-FROM node:18-alpine AS web-build
+FROM node:22-alpine AS web-build
 
 WORKDIR /usr/src/web
 
@@ -14,7 +14,7 @@ RUN npm run build
 # ==========================================
 # Stage 2: operator server
 # ==========================================
-FROM node:18-alpine
+FROM node:22-alpine
 
 WORKDIR /usr/src/app
 

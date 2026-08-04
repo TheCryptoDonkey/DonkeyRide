@@ -15,7 +15,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['18', '20']
+        # Must include whatever the Dockerfile ships, or CI is not testing
+        # production. Node 18 went EOL in April 2025 and was dropped from
+        # both — it also carried the IPC flake below almost every run.
+        node: ['20', '22']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -38,11 +41,19 @@ jobs:
           test -n "$FILES" || { echo "No test files found"; exit 1; }
           echo "$FILES" | sed 's/^/  /'
           run_serial() { node --test --test-concurrency=1 $FILES 2>&1 | tee test-out.log; }
-          if ! run_serial; then
+          # Retry the known upstream IPC flake, but never a real failure.
+          # Two retries, not one: it hit both the first pass AND the retry on
+          # Node 18, leaving main red on a bug we cannot fix.
+          attempt=1
+          until run_serial; do
             grep -q "Unable to deserialize cloned data" test-out.log || exit 1
-            echo "::warning::Retrying after the known Node test-runner IPC flake (nodejs/node#48761)"
-            run_serial
-          fi
+            if [ "$attempt" -ge 3 ]; then
+              echo "::error::Node test-runner IPC flake persisted across 3 attempts"
+              exit 1
+            fi
+            echo "::warning::Retrying after the known Node test-runner IPC flake (nodejs/node#48761), attempt $attempt"
+            attempt=$((attempt + 1))
+          done
 
   web:
     name: Web typecheck, tests and build

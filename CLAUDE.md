@@ -34,14 +34,14 @@ scripts under `sh`, where `**` is just `*` — it matched exactly one directory
 deep, so a test at `tests/unit/nested/x.test.js` would have been silently
 skipped rather than failing loudly. `find` is also version-independent: bare
 `node --test` does discover recursively, but its naming conventions have
-shifted across releases and CI runs Node 18 and 20. Live tests are excluded
+shifted across releases and CI runs Node 20 and 22. Live tests are excluded
 here and run via `npm run test:live`, so `npm test` never touches the network.
 
 **Frontend dependencies are separate** — run `npm install` in `web/` before using `web:*` commands.
 
 **Nix development environment** (recommended):
 ```bash
-nix develop                # Enter dev shell with Node.js 18, psql, redis-cli, etc.
+nix develop                # Enter dev shell with Node.js 22, psql, redis-cli, etc.
 nix run .#services         # Start all services (PostgreSQL, Redis, strfry, mock-lightning, OSRM)
 npm run dev                # Start operator server with auto-reload
 npm run dev:nix            # Shortcut: starts services + operator together
@@ -203,7 +203,7 @@ Two frontends exist:
 
   The provider app's dispatch singleton (`web/src/services/dispatch.ts`) keeps an **available-jobs list**: every broadcast lands in it (nothing dropped while another job is on screen) and it reconciles against `GET /api/tasks/open` every 30 s, rendered on the dashboard. `/provide/areas` (`WorkingAreasPage`) lets the driver draw polygon working areas on the map; `geohash-kit`'s `polygonToGeohashes` covers each polygon with ≤64 multi-precision cells (`web/src/utils/working-areas.ts`, persisted in localStorage) which register with the dispatcher and filter both broadcasts and the open-jobs list. **Destination mode** (`web/src/utils/destination-mode.ts`, dashboard control) is a purely client-side corridor filter: only jobs whose approximate dropoff makes ≥1 km progress toward (or ends within 2 km of) the driver's chosen destination are shown — the destination never leaves the device; jobs are stored unfiltered so clearing the mode instantly restores them.
 
-  Prices render **fiat-first** (`DualPrice`: the local currency leads, sats secondary) and the account page speaks plain English ("Account ID", "recovery key") with npub/nsec visible but secondary — normie adoption is the goal. CI (`.github/workflows/ci.yml`) runs backend tests on Node 18 and 20 plus web typecheck/tests/build on every push and PR.
+  Prices render **fiat-first** (`DualPrice`: the local currency leads, sats secondary) and the account page speaks plain English ("Account ID", "recovery key") with npub/nsec visible but secondary — normie adoption is the goal. CI (`.github/workflows/ci.yml`) runs backend tests on Node 20 and 22 (matching the Dockerfile; Node 18 is EOL) plus web typecheck/tests/build on every push and PR.
 
   **i18n** (`web/src/i18n/`): a framework-free `t()`/`td()` runtime — flat en/sw dictionaries, `{param}` interpolation, per-key English fallback, `useT()` re-renders on switch. Locale auto-detects Swahili from the browser (KES market) with a manual toggle on the profile page (`donkeyride.locale`). `td()` translates server-sent domain labels (`dyn.*` keys — driver→dereva, ride→safari) and passes unknown domains through. First-pass Kiswahili needs native review before a Kenyan pilot. The i18n test suite enforces placeholder parity and no orphan sw keys. **Saved places** (`web/src/utils/places.ts`): pinned Home/Work plus recents in `AddressSearch`, device-local like everything else.
 

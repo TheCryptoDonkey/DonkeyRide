@@ -41,8 +41,11 @@ const PURGE_ALL = args.includes('--all');
 const RELAYS = (() => {
   const i = args.indexOf('--relay');
   if (i !== -1 && args[i + 1]) return [args[i + 1]];
-  // The two the old FALLBACK_RELAYS list published to when nothing was set
-  return ['wss://relay.damus.io', 'wss://relay.nostr.band'];
+  // Where the old hardcoded defaults actually published. relay.nostr.band was
+  // in the old fallback list but was never reached: the config default filled
+  // the relay list with damus first, so the fallback branch never ran — and
+  // the host has been unreachable from two independent networks since.
+  return ['wss://relay.damus.io'];
 })();
 
 function operatorKey() {
