@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DonkeyRide — the fare is the driver's</title>
+<meta name="description" content="Open-source ride and task coordination on Nostr. No sign-up, no commission, no company in the middle — riders pay drivers directly in cash, M-Pesa or Lightning.">
+<meta name="theme-color" content="#0b0a10">
+<meta property="og:title" content="DonkeyRide — the fare is the driver's">
+<meta property="og:description" content="No sign-up, no commission, no company in the middle. Open-source ride and task coordination on Nostr.">
+<meta property="og:type" content="website">
+<link rel="icon" href="/assets/donkeyride-logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     DonkeyRide landing page.
+
+     The signature is the receipt: this product's whole argument is a
+     line item that reads £0.00, so the hero is the artefact where that
+     is proven rather than a headline claiming it. Every figure on this
+     page is computed from the rate card the server actually ships
+     (FARE_BASE 2.50, FARE_PER_KM 1.50, FARE_PER_MINUTE 0.30).
+
+     Type carries the personality on the width axis: Archivo expanded
+     for display (the flat, wide cut of a number plate or a fare board),
+     Archivo normal for reading, JetBrains Mono for anything that is a
+     number in a column.
+     ============================================================ */
+
+  :root {
+    --ink:        #0b0a10;
+    --ink-raised: #141220;
+    --paper:      #f7f4ee;
+    --paper-line: #d8d2c6;
+    --paper-ink:  #1c1a17;
+    --kerb:       #8b8798;
+    --chalk:      #ece9f2;
+    --purple:     #b24cf3;
+    --pink:       #ff6ec7;
+    --paid:       #34d399;
+    --rule:       #262233;
+
+    --brand: linear-gradient(135deg, var(--purple) 0%, var(--pink) 100%);
+
+    --display: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+    --body:    'Archivo', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --mono:    'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+    --shell: 1120px;
+    --gap:   clamp(4.5rem, 11vh, 8rem);
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--ink);
+    color: var(--chalk);
+    font-family: var(--body);
+    font-size: clamp(1rem, 0.97rem + 0.15vw, 1.075rem);
+    line-height: 1.6;
+    font-variant-ligatures: none;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3 {
+    font-family: var(--display);
+    font-variation-settings: 'wdth' 112;
+    font-weight: 800;
+    line-height: 0.98;
+    letter-spacing: -0.022em;
+    margin: 0;
+    text-wrap: balance;
+  }
+
+  a { color: inherit; }
+
+  .shell {
+    width: min(100% - 2.5rem, var(--shell));
+    margin-inline: auto;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    font-weight: 500;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--kerb);
+    margin: 0 0 1.25rem;
+  }
+
+  /* ---------- top bar ---------- */
+  .bar {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--ink) 88%, transparent);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--rule);
+  }
+  .bar-in {
+    display: flex; align-items: center; gap: 1.5rem;
+    padding: 0.85rem 0;
+  }
+  .word {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-family: var(--display);
+    font-variation-settings: 'wdth' 118;
+    font-weight: 800;
+    font-size: 1.05rem;
+    letter-spacing: -0.01em;
+    text-decoration: none;
+    margin-right: auto;
+  }
+  .word span[aria-hidden] { font-size: 1.25rem; }
+  .bar nav { display: flex; gap: 1.4rem; align-items: center; }
+  .bar nav a {
+    font-size: 0.9rem; color: var(--kerb); text-decoration: none;
+    transition: color 0.15s;
+  }
+  .bar nav a:hover { color: var(--chalk); }
+  @media (max-width: 620px) { .bar nav a.tuck { display: none; } }
+
+  /* ---------- buttons ---------- */
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 0.5rem;
+    font-family: var(--body); font-size: 0.95rem; font-weight: 600;
+    padding: 0.8rem 1.4rem;
+    border-radius: 999px;
+    text-decoration: none;
+    border: 1px solid transparent;
+    transition: transform 0.15s, border-color 0.15s, background 0.15s;
+  }
+  .btn-primary { background: var(--brand); color: #fff; }
+  .btn-ghost   { border-color: var(--rule); color: var(--chalk); }
+  .btn-ghost:hover { border-color: var(--kerb); }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:focus-visible, .bar nav a:focus-visible, .word:focus-visible, a:focus-visible {
+    outline: 2px solid var(--pink); outline-offset: 3px; border-radius: 4px;
+  }
+
+  /* ---------- hero ---------- */
+  .hero { padding: clamp(3.5rem, 9vh, 6.5rem) 0 var(--gap); }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 25rem);
+    gap: clamp(2.5rem, 6vw, 4.5rem);
+    align-items: center;
+  }
+  .hero h1 {
+    font-size: clamp(2.9rem, 7.4vw, 5.4rem);
+    font-variation-settings: 'wdth' 118;
+  }
+  .hero h1 em {
+    font-style: normal;
+    background: var(--brand);
+    -webkit-background-clip: text; background-clip: text;
+    color: transparent;
+  }
+  .hero p.lede {
+    color: var(--kerb);
+    font-size: clamp(1.05rem, 1rem + 0.35vw, 1.25rem);
+    max-width: 34ch;
+    margin: 1.5rem 0 2rem;
+  }
+  .hero-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+  .hero-note {
+    margin: 1.5rem 0 0; font-size: 0.85rem; color: var(--kerb);
+  }
+  @media (max-width: 880px) {
+    .hero-grid { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  /* ---------- the receipt (signature) ---------- */
+  .receipt {
+    background: var(--paper);
+    color: var(--paper-ink);
+    font-family: var(--mono);
+    font-size: 0.88rem;
+    padding: 1.8rem 1.7rem 1.4rem;
+    border-radius: 3px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+    rotate: -1.1deg;
+    /* torn-off bottom edge, the way a printed fare slip actually leaves the roll */
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 9px),
+      95% 100%, 90% calc(100% - 9px), 85% 100%, 80% calc(100% - 9px),
+      75% 100%, 70% calc(100% - 9px), 65% 100%, 60% calc(100% - 9px),
+      55% 100%, 50% calc(100% - 9px), 45% 100%, 40% calc(100% - 9px),
+      35% 100%, 30% calc(100% - 9px), 25% 100%, 20% calc(100% - 9px),
+      15% 100%, 10% calc(100% - 9px), 5% 100%, 0 calc(100% - 9px));
+    padding-bottom: 2.1rem;
+  }
+  .receipt-head {
+    text-align: center; border-bottom: 1px dashed var(--paper-line);
+    padding-bottom: 0.9rem; margin-bottom: 0.9rem;
+  }
+  .receipt-head strong {
+    display: block;
+    font-family: var(--display);
+    font-variation-settings: 'wdth' 118;
+    font-weight: 800; font-size: 0.95rem; letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  .receipt-head span {
+    display: block; font-size: 0.68rem; color: #6d6659; margin-top: 0.3rem;
+  }
+  .row {
+    display: flex; align-items: baseline; gap: 0.4rem;
+    padding: 0.28rem 0;
+  }
+  .row .what { white-space: nowrap; }
+  .row .dots {
+    flex: 1; border-bottom: 1px dotted var(--paper-line);
+    transform: translateY(-0.22em);
+  }
+  .row .amt { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .row.total {
+    border-top: 1px solid var(--paper-ink);
+    margin-top: 0.7rem; padding-top: 0.6rem;
+    font-weight: 700;
+  }
+  .row.fee .amt, .row.takes .amt { color: #0f8a5f; font-weight: 700; }
+  .row.fee .what { font-weight: 700; }
+  .receipt-foot {
+    margin-top: 0.9rem; padding-top: 0.75rem;
+    border-top: 1px dashed var(--paper-line);
+    font-size: 0.66rem; line-height: 1.5; color: #6d6659; text-align: center;
+  }
+
+  /* the tally-in: rows land one after another, then the zero */
+  .receipt .row, .receipt .receipt-foot { animation: land 0.4s ease-out backwards; }
+  .receipt .row:nth-child(1) { animation-delay: 0.15s; }
+  .receipt .row:nth-child(2) { animation-delay: 0.28s; }
+  .receipt .row:nth-child(3) { animation-delay: 0.41s; }
+  .receipt .row:nth-child(4) { animation-delay: 0.58s; }
+  .receipt .row:nth-child(5) { animation-delay: 0.78s; }
+  .receipt .row:nth-child(6) { animation-delay: 0.92s; }
+  .receipt .receipt-foot     { animation-delay: 1.05s; }
+  @keyframes land { from { opacity: 0; transform: translateY(6px); } }
+
+  /* ---------- sections ---------- */
+  section { padding-block: var(--gap); }
+  .section-head { max-width: 46ch; margin-bottom: 3rem; }
+  .section-head h2 { font-size: clamp(1.9rem, 4vw, 2.9rem); }
+  .section-head p { color: var(--kerb); margin: 1rem 0 0; }
+
+  .ruled { border-top: 1px solid var(--rule); }
+
+  /* ---------- the difference ---------- */
+  .bars { display: grid; gap: 1.4rem; max-width: 46rem; }
+  .bar-row .bar-label {
+    display: flex; justify-content: space-between; align-items: baseline;
+    gap: 1rem; margin-bottom: 0.5rem;
+  }
+  .bar-row .bar-label .who { font-weight: 600; }
+  .bar-row .bar-label .val {
+    font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: 1.05rem; font-weight: 700;
+  }
+  .track { height: 34px; background: var(--ink-raised); border-radius: 3px; overflow: hidden; }
+  .fill { height: 100%; border-radius: 3px; }
+  .fill.ours   { width: 100%; background: var(--brand); }
+  .fill.theirs { width: 75%;  background: #35304a; }
+  .bar-row .caption { margin: 0.5rem 0 0; font-size: 0.85rem; color: var(--kerb); }
+  .verdict {
+    margin-top: 2.5rem; padding: 1.4rem 1.5rem;
+    border: 1px solid var(--rule); border-left: 3px solid var(--pink);
+    border-radius: 0 8px 8px 0; background: var(--ink-raised);
+    max-width: 46rem;
+  }
+  .verdict p { margin: 0; }
+  .verdict .big {
+    font-family: var(--mono); font-size: clamp(1.6rem, 4vw, 2.2rem);
+    font-weight: 700; color: var(--chalk); display: block; margin-bottom: 0.3rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .verdict .small { color: var(--kerb); font-size: 0.9rem; }
+
+  /* ---------- steps ---------- */
+  .steps { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 2rem; }
+  .step .n {
+    font-family: var(--mono); font-size: 0.72rem; font-weight: 700;
+    color: var(--purple); letter-spacing: 0.12em;
+    padding-bottom: 0.75rem; margin-bottom: 0.9rem;
+    border-bottom: 1px solid var(--rule); display: block;
+  }
+  .step h3 { font-size: 1.15rem; font-variation-settings: 'wdth' 105; margin-bottom: 0.5rem; }
+  .step p { color: var(--kerb); margin: 0; font-size: 0.94rem; }
+  @media (max-width: 780px) { .steps { grid-template-columns: 1fr; gap: 2.2rem; } }
+
+  /* ---------- domains ---------- */
+  .chips { display: flex; flex-wrap: wrap; gap: 0.6rem; max-width: 52rem; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    padding: 0.55rem 1rem; border: 1px solid var(--rule);
+    border-radius: 999px; font-size: 0.9rem; background: var(--ink-raised);
+  }
+  .chip span[aria-hidden] { font-size: 1rem; }
+
+  /* ---------- honesty ---------- */
+  .honesty { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 2.5rem; }
+  .honesty h3 {
+    font-size: 1rem; font-variation-settings: 'wdth' 100;
+    letter-spacing: 0.02em; margin-bottom: 1rem;
+  }
+  .honesty ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.8rem; }
+  .honesty li {
+    padding-left: 1.5rem; position: relative;
+    color: var(--kerb); font-size: 0.94rem; line-height: 1.55;
+  }
+  .honesty li::before {
+    position: absolute; left: 0; top: 0;
+    font-family: var(--mono); font-size: 0.85rem;
+  }
+  .can li::before    { content: '✓'; color: var(--paid); }
+  .cannot li::before { content: '—'; color: #6b6478; }
+  .honesty li b { color: var(--chalk); font-weight: 600; }
+  @media (max-width: 780px) { .honesty { grid-template-columns: 1fr; gap: 2rem; } }
+
+  /* ---------- close ---------- */
+  .close { text-align: center; }
+  .close h2 { font-size: clamp(2rem, 5vw, 3.2rem); max-width: 18ch; margin-inline: auto; }
+  .close p { color: var(--kerb); max-width: 44ch; margin: 1.2rem auto 2rem; }
+  .close .hero-actions { justify-content: center; }
+
+  footer {
+    border-top: 1px solid var(--rule); padding: 2.5rem 0 3.5rem;
+    font-size: 0.85rem; color: var(--kerb);
+  }
+  .foot-in { display: flex; flex-wrap: wrap; gap: 1rem 2rem; align-items: center; }
+  .foot-in .spacer { margin-left: auto; }
+  footer a { text-decoration: none; }
+  footer a:hover { color: var(--chalk); }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: 0.001ms !important;
+      animation-delay: 0ms !important;
+      transition-duration: 0.001ms !important;
+    }
+    .btn:hover { transform: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="shell bar-in">
+    <a class="word" href="/about.html"><span aria-hidden="true">🫏</span> DonkeyRide</a>
+    <nav>
+      <a class="tuck" href="#difference">The difference</a>
+      <a class="tuck" href="#work">The work</a>
+      <a href="#honest">What it is</a>
+      <a href="https://github.com/TheCryptoDonkey/donkeyride">Code</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<!-- ===================== HERO ===================== -->
+<section class="hero">
+  <div class="shell hero-grid">
+    <div>
+      <p class="eyebrow">Open protocol · run by anyone · MIT</p>
+      <h1>The whole fare is <em>the driver&rsquo;s.</em></h1>
+      <p class="lede">
+        No sign-up, no commission, no company in the middle. The rider pays
+        the driver directly — cash, M-Pesa or Lightning — and the software
+        that put them together never touches the money.
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="https://donkeyride.95.217.39.110.sslip.io/">Open the live demo</a>
+        <a class="btn btn-ghost" href="https://donkeyride.95.217.39.110.sslip.io/download.html">Get the driver app</a>
+      </div>
+      <p class="hero-note">
+        Android app is a signed direct download. The rider app runs in any
+        browser — nothing to install.
+      </p>
+    </div>
+
+    <!-- The signature: the fare slip, priced from the rate card the server ships -->
+    <div class="receipt">
+      <div class="receipt-head">
+        <strong>Fare receipt</strong>
+        <span>6.2 km · 18 min · Standard</span>
+      </div>
+      <div class="row"><span class="what">Base</span><span class="dots"></span><span class="amt">£2.50</span></div>
+      <div class="row"><span class="what">Distance · 6.2 km</span><span class="dots"></span><span class="amt">£9.30</span></div>
+      <div class="row"><span class="what">Time · 18 min</span><span class="dots"></span><span class="amt">£5.40</span></div>
+      <div class="row total"><span class="what">Fare</span><span class="dots"></span><span class="amt">£17.20</span></div>
+      <div class="row fee"><span class="what">Operator fee</span><span class="dots"></span><span class="amt">£0.00</span></div>
+      <div class="row takes"><span class="what">Driver receives</span><span class="dots"></span><span class="amt">£17.20</span></div>
+      <div class="receipt-foot">
+        Quoted before the trip and unchanged after it.<br>
+        Settled in person. Nothing passed through an operator.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== THE DIFFERENCE ===================== -->
+<section id="difference" class="ruled">
+  <div class="shell">
+    <div class="section-head">
+      <p class="eyebrow">The difference</p>
+      <h2>Same journey. Same driver. Same 18 minutes.</h2>
+      <p>
+        The only thing that changes is who else gets paid. Both bars below
+        are the £17.20 fare on the receipt.
+      </p>
+    </div>
+
+    <div class="bars">
+      <div class="bar-row">
+        <div class="bar-label"><span class="who">Driving on DonkeyRide</span><span class="val">£17.20</span></div>
+        <div class="track"><div class="fill ours"></div></div>
+        <p class="caption">The operator takes no cut of a fare it never holds.</p>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label"><span class="who">Driving on a 25% platform</span><span class="val">£12.90</span></div>
+        <div class="track"><div class="fill theirs"></div></div>
+        <p class="caption">£4.30 of this fare goes to the company.</p>
+      </div>
+    </div>
+
+    <div class="verdict">
+      <p>
+        <span class="big">£8,944 a year</span>
+        <span class="small">
+          At 40 fares a week, that 25% is £172 a week out of a driver's pocket —
+          for work they did, in a car they own, on a phone they pay for.
+        </span>
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== HOW ===================== -->
+<section class="ruled">
+  <div class="shell">
+    <div class="section-head">
+      <p class="eyebrow">How a job runs</p>
+      <h2>Three steps, and no account at any of them.</h2>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <span class="n">STEP 01</span>
+        <h3>Ask</h3>
+        <p>
+          Open the app and set where you're going. You see the price before
+          you request it, broken down to the penny. Your phone makes its own
+          key — there is no sign-up, no phone number and no card on file.
+        </p>
+      </div>
+      <div class="step">
+        <span class="n">STEP 02</span>
+        <h3>Match</h3>
+        <p>
+          Nearby drivers see the job and choose it — nothing is assigned to
+          anyone. You each see who the other is, and the rating they've
+          earned, signed by the people who actually rode with them.
+        </p>
+      </div>
+      <div class="step">
+        <span class="n">STEP 03</span>
+        <h3>Pay the driver</h3>
+        <p>
+          At the end you pay the driver, not a platform. Cash in hand, M-Pesa,
+          or Lightning straight to their wallet. The price is the one you were
+          quoted at the start.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== DOMAINS ===================== -->
+<section id="work" class="ruled">
+  <div class="shell">
+    <div class="section-head">
+      <p class="eyebrow">Not only cars</p>
+      <h2>The same engine dispatches nine kinds of work.</h2>
+      <p>
+        Anything where somebody has to turn up somewhere and do a job is the
+        same problem: agree a price, find each other, prove it happened, get
+        paid. Each of these is a profile — its own states, wording and rules —
+        over one codebase.
+      </p>
+    </div>
+    <div class="chips">
+      <span class="chip"><span aria-hidden="true">🚗</span> Ridesharing</span>
+      <span class="chip"><span aria-hidden="true">🔑</span> Locksmiths</span>
+      <span class="chip"><span aria-hidden="true">📦</span> Parcel delivery</span>
+      <span class="chip"><span aria-hidden="true">🚛</span> Vehicle recovery</span>
+      <span class="chip"><span aria-hidden="true">🔧</span> Emergency trades</span>
+      <span class="chip"><span aria-hidden="true">🐕</span> Pet services</span>
+      <span class="chip"><span aria-hidden="true">🛡️</span> Security officers</span>
+      <span class="chip"><span aria-hidden="true">🧽</span> Cleaning</span>
+      <span class="chip"><span aria-hidden="true">🛋️</span> House moves</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== HONESTY ===================== -->
+<section id="honest" class="ruled">
+  <div class="shell">
+    <div class="section-head">
+      <p class="eyebrow">Straight answers</p>
+      <h2>What this is, and what it isn't yet.</h2>
+      <p>
+        Drivers have been promised a lot by companies that meant none of it.
+        So here is the boundary, in the same place as the pitch.
+      </p>
+    </div>
+    <div class="honesty">
+      <div class="can">
+        <h3>What works today</h3>
+        <ul>
+          <li><b>A live demo you can use now</b> — request a ride, drive one, get paid, rate each other.</li>
+          <li><b>A signed Android driver app</b>, downloaded straight from the operator, with background location so jobs arrive with the screen off.</li>
+          <li><b>The rider app in any browser.</b> Add it to your home screen and it behaves like an app.</li>
+          <li><b>The price you're quoted is the price recorded.</b> One routing and pricing path serves both.</li>
+          <li><b>Ratings you carry with you.</b> They're signed by the rider on a public network, so they're yours — not an operator's to hold hostage.</li>
+        </ul>
+      </div>
+      <div class="cannot">
+        <h3>What it isn't</h3>
+        <ul>
+          <li><b>Not a company.</b> There's no head office and no support desk. Somebody runs an operator; the code is the product.</li>
+          <li><b>No iPhone driver app yet.</b> It builds, but it hasn't been proven on real hardware and can't alert you when you're off shift.</li>
+          <li><b>The operator forgets you.</b> Exact addresses live in memory and are gone on restart — deliberate, but it means no operator can produce your history later.</li>
+          <li><b>It holds no money</b>, so it can't refund you either. A fare is settled between two people who met.</li>
+          <li><b>Licensing is yours.</b> Private hire rules don't go away because the software is open — an operator has to meet them.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== CLOSE ===================== -->
+<section class="ruled close">
+  <div class="shell">
+    <h2>Drive without asking permission.</h2>
+    <p>
+      Try the demo, take the driver app for a shift, or run the whole thing
+      yourself — it's one Node process and it needs no database.
+    </p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="https://donkeyride.95.217.39.110.sslip.io/">Open the live demo</a>
+      <a class="btn btn-ghost" href="https://github.com/TheCryptoDonkey/donkeyride">Run your own operator</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="shell foot-in">
+    <span>🫏 DonkeyRide — reference implementation of the TROTT protocol.</span>
+    <span class="spacer"></span>
+    <a href="https://github.com/TheCryptoDonkey/donkeyride">GitHub</a>
+    <a href="https://github.com/TheCryptoDonkey/trott">The protocol</a>
+    <a href="https://forgesworn.dev">ForgeSworn</a>
+  </div>
+</footer>
+
+</body>
+</html>

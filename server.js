@@ -7723,6 +7723,15 @@ function publishedDriverApk() {
     return { url: `/downloads/${build.name}`, filename: build.name, bytes: build.bytes, sha256 };
 }
 
+// The landing page explaining what this operator is, on a clean URL. It has
+// to be an explicit route: '/about' carries no extension, so the SPA
+// catch-all below would otherwise hand it the rider shell.
+app.get('/about', (req, res, next) => {
+    res.sendFile(path.join(__dirname, 'public', 'about.html'), (err) => {
+        if (err) next();
+    });
+});
+
 // Lets /download.html render what is really there instead of a fixed claim.
 app.get('/api/driver-app', publicRateLimiter, (req, res) => {
     const apk = publishedDriverApk();
