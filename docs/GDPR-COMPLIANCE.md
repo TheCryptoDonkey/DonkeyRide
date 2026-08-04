@@ -210,8 +210,8 @@ Consequences, and how they are met:
 | Never priced | **Done** — the profile schema *rejects* an `accessOptions` entry carrying a `fareMultiplier`; needing a ramp must not cost more |
 | Fails closed | **Done** — an undeclared provider cannot see or accept the job |
 | Not in logs | **Done** — see "Logs are storage" above |
-| **Explicit consent captured and recorded** | **Operator's responsibility** — the UI must state, at the point of asking, what the need is used for and that it is shared with the assigned provider. Ticking a box in a booking form is only *explicit* consent if it is informed. |
-| **DPIA covering Article 9 processing** | **Operator's responsibility** — Article 35(3)(b) makes a DPIA mandatory for processing special categories on a large scale |
+| **Explicit consent captured and recorded** | **Done** — `AccessNeedsPicker` states, before the checkbox, what the data says, what it is used for, that only the assigned provider sees it, that it is never published and that it is deleted when the job ends. Pinned by `AccessNeedsPicker.test.tsx`. **Operator must still be able to evidence consent (Art. 7(1)) and make withdrawal as easy as giving (Art. 7(3)).** |
+| **DPIA covering Article 9 processing** | **Drafted** — [`DPIA.md`](DPIA.md) §5.4. Article 35(3)(b) makes one mandatory at scale; the operator completes the deployment-specific rows |
 
 **Self-declared gender** (women-only matching) is *not* Article 9 data on
 the ordinary reading — Article 9(1) lists racial or ethnic origin,
@@ -292,8 +292,8 @@ Retain for 7 years per tax law (Art. 17(3)(b) override). These are the operator'
 
 ### Before Deployment
 
-- [ ] **Data Protection Impact Assessment (DPIA)** — required under Article 35 for processing at scale
-- [ ] **Record of Processing Activities (ROPA)** — required under Article 30
+- [x] **Data Protection Impact Assessment (DPIA)** — [`DPIA.md`](DPIA.md) is pre-filled for the reference implementation; complete every row marked **OPERATOR** and have it reviewed. Mandatory under Art. 35(3)(b) — this service processes Article 9 data.
+- [x] **Record of Processing Activities (ROPA)** — [`ROPA.md`](ROPA.md) is pre-filled; complete the controller details and the transfer decisions in §4. Art. 30(5)'s small-organisation exemption does **not** apply here.
 - [ ] **Data Protection Officer (DPO)** — appoint if processing personal data at scale
 - [ ] **Privacy notice** — explain the three-layer architecture and what data goes where
 - [ ] **Lawful basis documented** — for every category of personal data processed
@@ -332,6 +332,8 @@ The UK GDPR is substantively aligned with EU GDPR. Key differences and clarifica
 
 ## See Also
 
+- **[DPIA.md](DPIA.md)** — Article 35 impact assessment, pre-filled
+- **[ROPA.md](ROPA.md)** — Article 30 record of processing activities, pre-filled
 - **[Architecture](https://github.com/TheCryptoDonkey/trott/blob/main/docs/architecture.md)** — Three-layer federated architecture
 - **[TROTT-01: Core](https://github.com/TheCryptoDonkey/trott/blob/main/specs/TROTT-01-core.md)** — Core protocol (NIP-40 expiration, NIP-44 encryption)
 - **[TROTT-05: Safety](https://github.com/TheCryptoDonkey/trott/blob/main/specs/TROTT-05-safety.md)** — Safety events (NIP-17 trip sharing)

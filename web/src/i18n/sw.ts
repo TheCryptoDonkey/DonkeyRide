@@ -246,6 +246,7 @@ export const sw: Record<string, string> = {
   // Mahitaji ya upatikanaji — masharti, si bei
   'access.riderTitle': 'Unahitaji kitu chochote kwa safari hii?',
   'access.riderHint': 'Haya hayabadilishi bei kamwe. Yanakuunganisha na anayeweza kuyatimiza.',
+  'access.riderConsent': 'Baadhi ya haya yanaeleza kuhusu afya yako. Kuweka alama kunamaanisha unakubali yatumike kutafuta mtu anayeweza kuyatimiza. Ni mtoa huduma atakayechukua kazi tu ndiye atayaona, hayachapishwi kamwe, na yanafutwa kazi ikiisha.',
   'access.riderNote': 'Ni watoa huduma waliosema wanaweza kuyatimiza tu ndio wataona ombi lako.',
   'access.providerTitle': 'Unaweza kutoa nini?',
   'access.providerHint': 'Weka alama kwa kile kilicho kweli tu — kuna mtu atategemea hilo.',

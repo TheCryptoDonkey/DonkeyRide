@@ -434,7 +434,11 @@ The protocol supports both **P2P** (no operator) and **operator-coordinated** mo
 
 ### GDPR Compliance
 
-The three-layer architecture supports GDPR compliance: public Nostr events use only pseudonymous identifiers, encrypted events use NIP-17 gift wrap for PII (erasable via crypto-shredding), and the operator database follows standard controller obligations. See `docs/GDPR-COMPLIANCE.md` for the full compliance guide.
+The three-layer architecture supports GDPR compliance: public Nostr events use only pseudonymous identifiers, encrypted events use NIP-17 gift wrap for PII (erasable via crypto-shredding), and the operator database follows standard controller obligations. See `docs/GDPR-COMPLIANCE.md` for the full compliance guide, `docs/DPIA.md` (Article 35) and `docs/ROPA.md` (Article 30) — both pre-filled for the reference implementation, with deployment-specific rows marked **OPERATOR**.
+
+**This service processes Article 9 special-category data, and it does not look like it in the code — it looks like a dispatch filter.** `accessOptions` (wheelchair, step-free, assistance dog) are *data concerning health* under Article 4(15): ticking one discloses a disability. Article 9(1) prohibits processing them without an Article 9(2) condition, here **explicit consent** — so `AccessNeedsPicker` states, BEFORE the checkbox, what the data says, what it is for, that only the assigned provider sees it, that it is never published and that it is deleted when the job ends. Consent that arrives after the affirmative act is not consent. The engineering side was already right (excluded from the snapshot, absent from every pre-accept payload, fails closed, and the profile schema *rejects* an access option carrying a `fareMultiplier` — needing a ramp must never cost more); what was missing was the lawful basis and the notice. Pinned by `web/src/components/task/AccessNeedsPicker.test.tsx`. Self-declared gender is **not** Article 9 on the ordinary reading — do not claim otherwise — but is handled to the same standard.
+
+**Logs are storage.** Anything printed to stdout is durable: Docker keeps it on disk across restarts, outside the erasure story and outside every `/api` control. Production logs were found holding an npub plus, from a routing ERROR path, exact pickup and dropoff coordinates under one ride id — the travel history the sealed snapshot exists to prevent, one layer down. Never log a raw error from an HTTP call (`error.message` carries the URL; the error *object* also carries `cause` and, on axios-shaped errors, request headers). Use `safeErrorMessage()` from `src/log-redact.js`, and never log an identity in the lifecycle. Pinned by `tests/integration/log-privacy.test.js`.
 
 ## Testing
 
@@ -534,6 +538,8 @@ The TROTT Protocol (**T**rusted **R**eal-world **O**rchestration of **T**asks & 
 **Implementation-specific docs in this repo:**
 - `docs/PAYMENT-PROVIDERS.md` — Payment provider integration guide
 - `docs/GDPR-COMPLIANCE.md` — GDPR compliance guide
+- `docs/DPIA.md` — Article 35 data protection impact assessment (pre-filled)
+- `docs/ROPA.md` — Article 30 record of processing activities (pre-filled)
 - `docs/API-STRESS-TEST.md` — API stress test results
 
 **Protocol docs in the trott repo:**

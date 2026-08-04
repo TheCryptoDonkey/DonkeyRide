@@ -50,6 +50,23 @@ export function AccessNeedsPicker({ value, onChange, role, bare }: AccessNeedsPi
     <div className={bare ? '' : 'meta-card mb-4'}>
       {!bare && <p className="meta-label mb-1">{title}</p>}
       <p className="text-xs text-donkey-muted mb-2">{hint}</p>
+      {/*
+        Article 9(2)(a) explicit consent, and it has to be BEFORE the tick.
+        Wheelchair, step-free and assistance-dog needs are data concerning
+        health under Article 4(15) — ticking one discloses a disability. The
+        prohibition in Article 9(1) lifts on explicit consent, and consent is
+        only explicit if it is informed: what it is, what it is for, who
+        receives it, how long it is kept. A checkbox with no notice is an
+        affirmative act about something the person was never told.
+
+        Requester side only. A provider ticking "assistance dog" is stating a
+        vehicle policy, not their own health, so no Article 9 issue arises.
+      */}
+      {role === 'requester' && (
+        <p className="text-xs text-donkey-muted mb-3 leading-relaxed">
+          {t('access.riderConsent')}
+        </p>
+      )}
       <div className="space-y-1">
         {options.map((option) => {
           const checked = value.includes(option.id);

@@ -235,6 +235,7 @@ export const en: Record<string, string> = {
   // Access needs — requirements, never a price band
   'access.riderTitle': 'Do you need anything for this journey?',
   'access.riderHint': 'These never change the price. They match you with someone who can meet them.',
+  'access.riderConsent': 'Some of these say something about your health. Ticking one means you agree to it being used to find someone who can meet it. Only the provider who takes the job sees it, it is never published, and it is deleted when the job ends.',
   'access.riderNote': 'Only providers who have said they can meet these will see your request.',
   'access.providerTitle': 'What can you offer?',
   'access.providerHint': 'Only tick what is genuinely true — someone will be relying on it.',
