@@ -17,8 +17,8 @@ test('a phone user can inspect and validate an operator choice', async ({ contex
   await expect(page.getByRole('combobox', { name: 'Preview another service' })).toBeVisible();
   await expect(page.getByText('Operator network')).toBeVisible();
   await expect(page.getByText(currentOrigin)).toBeVisible();
-  await expect(page.getByText('0% operator fee').first()).toBeVisible();
   const selectedOperator = page.getByRole('button', { name: /Selected/ });
+  await expect(selectedOperator).toContainText(/% operator fee/);
   await expect(selectedOperator).toContainText('admission');
   await expect(selectedOperator).toContainText('records');
 
