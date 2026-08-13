@@ -167,6 +167,12 @@ test('/api/driver-app tells the truth about what is published', async () => {
   } else {
     assert.ok(body.android.url.startsWith('/downloads/'));
     assert.ok(body.android.bytes > 0, 'a published build reports its real size');
+    if (/^[0-9a-f]{64}$/i.test(body.android.sha256 || '')) {
+      assert.ok(
+        body.android.url.includes(`?sha256=${body.android.sha256.slice(0, 16).toLowerCase()}`),
+        'a checksummed build uses a content-derived CDN cache key'
+      );
+    }
     // The link it advertises must actually be fetchable.
     const dl = await fetch(`${baseUrl}${body.android.url}`);
     assert.equal(dl.status, 200, 'the advertised build must download');

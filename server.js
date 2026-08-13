@@ -7774,7 +7774,19 @@ function publishedDriverApk() {
             .trim().split(/\s+/)[0] || null;
     } catch { /* no sidecar — the page simply omits the verification block */ }
 
-    return { url: `/downloads/${build.name}`, filename: build.name, bytes: build.bytes, sha256 };
+    // CDNs may cache a brief 404 when a new versioned filename is requested
+    // before the image containing it reaches the origin. Tie the advertised
+    // URL to the signed artefact's checksum so each published binary has a
+    // fresh cache key, without granting the deploy process cache-purge access.
+    const cacheKey = /^[0-9a-f]{64}$/i.test(sha256 || '')
+        ? `?sha256=${sha256.slice(0, 16).toLowerCase()}`
+        : '';
+    return {
+        url: `/downloads/${encodeURIComponent(build.name)}${cacheKey}`,
+        filename: build.name,
+        bytes: build.bytes,
+        sha256
+    };
 }
 
 // The landing page explaining what this operator is, on a clean URL. It has
