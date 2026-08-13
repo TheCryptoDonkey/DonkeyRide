@@ -4,7 +4,6 @@ import { useDomain } from '../../context/DomainContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { getIdentityRecoveryNotice } from '../../services/nostr';
 import { getProfile, initials, fallbackName } from '../../services/profiles';
-import { DomainSwitcher } from './DomainSwitcher';
 import { useT } from '../../i18n';
 
 interface HeaderProps {
@@ -57,6 +56,9 @@ export function Header({ app }: HeaderProps) {
   const switchLabel = isDriver
     ? `${profile?.roles.requester || 'Rider'} app`
     : `${providerNoun} app`;
+  const switchText = isDriver
+    ? profile?.roles.requester || 'Rider'
+    : providerNoun;
 
   const myName = me.name || fallbackName(identity?.npub);
   const profilePath = isDriver ? '/provide/profile' : '/request/profile';
@@ -87,19 +89,15 @@ export function Header({ app }: HeaderProps) {
 
         <div className="flex-1" />
 
-        {/* Domain picker renders nothing unless there is a choice to make */}
-        <DomainSwitcher />
-
-        {/* Cross-app link */}
+        {/* Cross-app link. A word is clearer than the old suitcase/person
+            glyphs, which looked like unexplained toolbar icons. */}
         <a
           href={switchHref}
           aria-label={switchLabel}
           title={switchLabel}
-          className="shrink-0 w-11 h-11 -mr-1 rounded-full inline-flex items-center justify-center text-lg transition-all hover:bg-white/10"
+          className="shrink-0 min-w-11 h-11 px-2 rounded-lg inline-flex items-center justify-center text-xs font-bold transition-all hover:bg-white/10"
         >
-          {/* Not a car: the domain switcher beside it is already a car for
-              ridesharing, and two identical glyphs read as one control */}
-          <span aria-hidden="true">{isDriver ? '🧍' : '💼'}</span>
+          {switchText}
         </a>
 
         {/* Identity → profile (key backup/restore), as a person */}

@@ -9,7 +9,6 @@ import { showToast } from '../../components/common/Toast';
 import { taskPickupProximity } from '../../utils/pickup-distance';
 import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
-import { useLocation } from '../../hooks/useLocation';
 import { useDomain } from '../../context/DomainContext';
 import { acceptTask, setPaymentMethods, ApiError } from '../../services/api';
 import { getSavedPaymentMethods } from '../../utils/payment-methods';
@@ -33,9 +32,12 @@ export function IncomingTaskPage() {
   const { t, td } = useT();
   const { activeTask, setActiveTask } = useTask();
   const { identity } = useIdentity();
-  const { location } = useLocation();
   const { profile } = useDomain();
   const [accepting, setAccepting] = useState(false);
+  // The app-level dispatch listener survives route changes and retains the
+  // last genuine fix. A newly mounted location hook starts at the London map
+  // placeholder, which must never be sent as the driver's position.
+  const location = dispatchService.getLocation();
 
   const originLabel = td(profile?.labels?.originLabel || 'Pickup');
   const destinationLabel = td(profile?.labels?.destinationLabel || 'Dropoff');
@@ -68,6 +70,10 @@ export function IncomingTaskPage() {
 
   const handleAccept = async () => {
     if (!identity || accepting) return;
+    if (!location) {
+      showToast(t('incoming.waitingForLocation'), { type: 'error' });
+      return;
+    }
     setAccepting(true);
     try {
       const updated = await acceptTask(activeTask.id, {
@@ -162,7 +168,9 @@ export function IncomingTaskPage() {
             {requiresDestination && activeTask.dropoff && (
               <LocationMarker position={activeTask.dropoff} label={destinationLabel} colour="red" />
             )}
-            <LocationMarker position={location} label={t('common.you')} colour="blue" />
+            {location && (
+              <LocationMarker position={location} label={t('common.you')} colour="blue" />
+            )}
           </MapView>
         </div>
       ) : (
@@ -294,8 +302,10 @@ export function IncomingTaskPage() {
           <button className="btn-secondary flex-1" onClick={handleDecline} disabled={accepting}>
             {t('common.decline')}
           </button>
-          <button className="btn-primary flex-1" onClick={handleAccept} disabled={accepting}>
-            {accepting ? t('common.accepting') : t('common.accept')}
+          <button className="btn-primary flex-1" onClick={handleAccept} disabled={accepting || !location}>
+            {accepting
+              ? t('common.accepting')
+              : location ? t('common.accept') : t('incoming.findingLocation')}
           </button>
         </div>
       </div>

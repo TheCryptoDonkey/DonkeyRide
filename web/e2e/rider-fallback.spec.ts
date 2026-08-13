@@ -6,13 +6,13 @@ import {
   expectNoSeriousA11yViolations,
   expectNoViewportOverflow,
   installMapMocks,
+  phoneViewport,
   skipOnboarding,
 } from './helpers';
 
 test('location denial never turns the London map fallback into the rider', async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name !== 'mobile-chromium', 'the denied-location path is a mobile gate');
   const context = await browser.newContext({
-    viewport: { width: 390, height: 844 },
+    viewport: phoneViewport(testInfo.project.name),
     locale: 'en-GB',
     colorScheme: 'light',
   });
@@ -40,7 +40,10 @@ test('location denial never turns the London map fallback into the rider', async
   try {
     await page.goto('/request');
     await expectNoFirstInstallUpdateToast(page);
-    await expect(page.getByText('Search or tap the map to set your pickup')).toBeVisible();
+    await expect(page.getByText('Set your pickup')).toBeVisible();
+    await expect(page.getByText('Your past rides')).toHaveCount(0);
+    await expect(page.getByText('How it works')).toHaveCount(0);
+    await expect(page.getByRole('combobox', { name: 'Preview another service' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'You', exact: true })).toHaveCount(0);
     await page.waitForTimeout(500);
     expect(availabilityRequests).toEqual([]);

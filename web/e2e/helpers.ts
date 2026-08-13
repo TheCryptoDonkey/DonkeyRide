@@ -4,6 +4,12 @@ import { expect, type BrowserContext, type Page } from '@playwright/test';
 export const MANCHESTER = { latitude: 53.4808, longitude: -2.2426 };
 export const OLD_TRAFFORD = { latitude: 53.4631, longitude: -2.2913 };
 
+export function phoneViewport(projectName: string): { width: number; height: number } {
+  return projectName === 'small-mobile-chromium'
+    ? { width: 360, height: 640 }
+    : { width: 390, height: 844 };
+}
+
 const json = (body: unknown) => ({
   status: 200,
   contentType: 'application/json',
@@ -113,4 +119,11 @@ export async function expectFullyInViewport(page: Page, locator: ReturnType<Page
   expect(box!.y).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width + 1);
   expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height + 1);
+}
+
+export async function expectEasyTap(page: Page, locator: ReturnType<Page['locator']>): Promise<void> {
+  await expectFullyInViewport(page, locator);
+  const box = await locator.boundingBox();
+  expect(box!.width, 'essential action should be easy to tap').toBeGreaterThanOrEqual(44);
+  expect(box!.height, 'essential action should be easy to tap').toBeGreaterThanOrEqual(44);
 }

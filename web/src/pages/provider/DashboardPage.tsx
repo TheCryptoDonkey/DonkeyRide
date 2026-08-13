@@ -9,7 +9,7 @@ import { useLocation } from '../../hooks/useLocation';
 import { useIdentity } from '../../context/IdentityContext';
 import { useTask } from '../../context/TaskContext';
 import { useDomain } from '../../context/DomainContext';
-import { getOperatorInfo, getDriverEarnings, type DriverEarnings } from '../../services/api';
+import { getDriverEarnings, type DriverEarnings } from '../../services/api';
 import { mergeEarnings } from '../../services/job-history';
 import { taskPickupProximity, rankJobs } from '../../utils/pickup-distance';
 import { onlineMsToday, formatOnline, satsPerHour } from '../../utils/shift';
@@ -49,9 +49,6 @@ export function DashboardPage() {
   // The driver's OWN figures. The dashboard used to headline platform-wide
   // ride counts, which tell a driver nothing about their own day.
   const [earnings, setEarnings] = useState<DriverEarnings | null>(null);
-  // No guessed default: showing "0.5%" on an operator that takes 0% is a
-  // fee that does not exist, and it flashes on every load
-  const [operatorFee, setOperatorFee] = useState<string | null>(null);
   const [dispatchState, setDispatchState] = useState<DispatchState>(dispatchService.getState());
   const [availableJobs, setAvailableJobs] = useState<Task[]>(dispatchService.getAvailableTasks());
   const [declined, setDeclined] = useState(dispatchService.declinedCount());
@@ -83,13 +80,6 @@ export function DashboardPage() {
       navigate('/provide/active');
     }
   }, [activeTask, identity, profile, navigate]);
-
-  // Fetch operator info
-  useEffect(() => {
-    getOperatorInfo()
-      .then(info => setOperatorFee(info.fee))
-      .catch(() => {});
-  }, []);
 
   // The driver's own earnings, refreshed when a job completes
   useEffect(() => {
@@ -217,21 +207,21 @@ export function DashboardPage() {
       <Sheet maxHeightClass="max-h-[48vh]">
         {/* Your day. Not the platform's — a driver deciding whether to keep
             working needs their own earnings, trips and hours, in that order. */}
-        <div className="grid grid-cols-3 gap-3 text-center">
-          <div className="stat-card">
+        <div className="grid grid-cols-3 divide-x divide-donkey-border rounded-lg border border-donkey-border bg-donkey-bg text-center py-2">
+          <div className="px-2 min-w-0">
             {/* compact: at a third of a phone's width the sats line runs out
                 of the card and over the one beside it */}
             <DualPrice sats={earnings?.summary?.today.sats ?? 0} size="sm" compact />
             <p className="stat-label">{t('dash.todayEarned')}</p>
           </div>
-          <div className="stat-card">
-            <p className="text-2xl font-black text-donkey-text">
+          <div className="px-2 min-w-0">
+            <p className="text-lg font-black text-donkey-text">
               {earnings?.summary?.today.rides ?? 0}
             </p>
             <p className="stat-label">{t('dash.todayTrips')}</p>
           </div>
-          <div className="stat-card">
-            <p className="text-2xl font-black text-donkey-text">{formatOnline(onlineMs)}</p>
+          <div className="px-2 min-w-0">
+            <p className="text-lg font-black text-donkey-text">{formatOnline(onlineMs)}</p>
             <p className="stat-label">{t('dash.online')}</p>
           </div>
         </div>
@@ -388,7 +378,7 @@ export function DashboardPage() {
 
         {/* Destination mode — only jobs that move you toward it.
             Client-side: the destination never leaves this device. */}
-        <SheetSection
+        {online && <SheetSection
           title={t('dash.headingSection')}
           icon="🧭"
           badge={destMode ? destMode.label : undefined}
@@ -434,7 +424,7 @@ export function DashboardPage() {
               {t('dash.headingCta', { noun: taskNoun })}
             </button>
           )}
-        </SheetSection>
+        </SheetSection>}
 
         {/* The app is online but nothing can reach it once backgrounded. Say
             so — silence looks identical to a quiet night.
@@ -469,7 +459,7 @@ export function DashboardPage() {
         )}
 
         {/* Web only: the Android build keeps the shift alive screen-off */}
-        {!isNative && (
+        {online && !isNative && (
           <p className="text-xs text-donkey-muted text-center">
             {t('dash.androidNote')}{' '}
             <a href="/download.html" className="text-donkey-blue font-semibold">
@@ -479,11 +469,6 @@ export function DashboardPage() {
           </p>
         )}
 
-        {operatorFee && (
-          <p className="text-xs text-donkey-muted text-center font-mono uppercase tracking-wider">
-            {t('dash.fee', { fee: operatorFee })}
-          </p>
-        )}
       </Sheet>
 
       {/* The shift control, where a thumb lands — not fifth down a column */}

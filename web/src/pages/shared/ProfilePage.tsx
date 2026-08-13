@@ -19,6 +19,7 @@ import { ThemeToggle } from '../../components/common/ThemeToggle';
 import { WomenSafetyCard } from '../../components/safety/WomenSafetyCard';
 import { ReputationBadge } from '../../components/common/ReputationBadge';
 import { OperatorPicker } from '../../components/operator/OperatorPicker';
+import { DomainSwitcher } from '../../components/layout/DomainSwitcher';
 
 interface ProfilePageProps {
   role: 'requester' | 'provider';
@@ -108,6 +109,10 @@ export function ProfilePage({ role }: ProfilePageProps) {
           ))}
         </div>
       </div>
+
+      {/* Service choice is an account-level setting, not an unexplained icon
+          competing with the main action in every phone header. */}
+      <DomainSwitcher />
 
       {/* The app is portable: pick any compatible operator at runtime. */}
       <OperatorPicker role={role} />

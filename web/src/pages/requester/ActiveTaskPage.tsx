@@ -560,7 +560,7 @@ export function ActiveTaskPage() {
               {arrivingMinutes != null && pickupMovable ? (
                 <>
                   <p className="meta-label">{t('active.arriving')}</p>
-                  <p className="text-lg font-black text-donkey-green mt-1">
+                  <p className="text-lg font-black text-donkey-green mt-1" data-testid="pickup-eta">
                     {t('active.arrivingIn', { n: arrivingMinutes })}
                   </p>
                   <p className="text-xs text-donkey-muted">

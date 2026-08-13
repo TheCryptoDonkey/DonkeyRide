@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { ReputationBadge } from './ReputationBadge';
 import {
-  getProfile, displayName, initials, fallbackName, type UserProfile,
+  getProfile, initials, fallbackName, type UserProfile,
 } from '../../services/profiles';
+import { useT } from '../../i18n';
 
 interface PersonCardProps {
   /** npub or hex pubkey of the person to show */
@@ -27,6 +28,7 @@ interface PersonCardProps {
 export function PersonCard({
   subject, roleLabel, showReputation = true, children, size = 'md',
 }: PersonCardProps) {
+  const { t } = useT();
   const [profile, setProfile] = useState<UserProfile | null>(null);
 
   useEffect(() => {
@@ -45,8 +47,8 @@ export function PersonCard({
   if (!subject) return null;
 
   const npub = profile?.npub || subject;
-  const name = displayName(profile, npub);
   const named = Boolean(profile?.name);
+  const name = profile?.name || t('person.noDisplayName');
   const avatarSize = size === 'sm' ? 'w-9 h-9 text-xs' : 'w-12 h-12 text-sm';
 
   return (
@@ -65,14 +67,14 @@ export function PersonCard({
           className={`${avatarSize} rounded-full shrink-0 bg-donkey-blue/20 text-donkey-blue font-black flex items-center justify-center`}
           aria-hidden="true"
         >
-          {initials(name)}
+          {initials(profile?.name || roleLabel)}
         </div>
       )}
 
       <div className="min-w-0 flex-1">
         <p className="meta-label">{roleLabel}</p>
         <p
-          className={`font-bold text-donkey-text truncate ${size === 'sm' ? 'text-sm' : 'text-base'} ${named ? '' : 'font-mono text-sm'}`}
+          className={`font-bold truncate ${size === 'sm' ? 'text-sm' : 'text-base'} ${named ? 'text-donkey-text' : 'text-donkey-muted'}`}
           title={npub}
         >
           {name}

@@ -7,15 +7,20 @@ import {
   skipOnboarding,
 } from './helpers';
 
-test('a desktop user can inspect and validate an operator choice', async ({ context, page }, testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop-chromium', 'desktop-specific operator check');
+test('a phone user can inspect and validate an operator choice', async ({ context, page }) => {
   await installMapMocks(context);
   await skipOnboarding(context);
 
   await page.goto('/request/profile');
+  const currentOrigin = await page.evaluate(() => window.location.origin);
   await expect(page.getByRole('heading', { name: 'Your account' })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Preview another service' })).toBeVisible();
   await expect(page.getByText('Operator network')).toBeVisible();
-  await expect(page.getByText('http://127.0.0.1:4178')).toBeVisible();
+  await expect(page.getByText(currentOrigin)).toBeVisible();
+  await expect(page.getByText('0% operator fee').first()).toBeVisible();
+  const selectedOperator = page.getByRole('button', { name: /Selected/ });
+  await expect(selectedOperator).toContainText('admission');
+  await expect(selectedOperator).toContainText('records');
 
   const manual = page.getByRole('textbox', { name: 'Operator URL' });
   await manual.fill('http://rides.example');

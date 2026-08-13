@@ -2,7 +2,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 const HTTP_PORT = 4178;
 const WS_PORT = 4179;
-const baseURL = `http://127.0.0.1:${HTTP_PORT}`;
+const baseURL = process.env.PLAYWRIGHT_BASE_URL || `http://127.0.0.1:${HTTP_PORT}`;
+const useLocalServer = !process.env.PLAYWRIGHT_SKIP_WEBSERVER;
 
 export default defineConfig({
   testDir: './e2e',
@@ -27,21 +28,21 @@ export default defineConfig({
   },
   projects: [
     {
+      name: 'small-mobile-chromium',
+      use: {
+        ...devices['Pixel 7'],
+        viewport: { width: 360, height: 640 },
+      },
+    },
+    {
       name: 'mobile-chromium',
       use: {
         ...devices['Pixel 7'],
         viewport: { width: 390, height: 844 },
       },
     },
-    {
-      name: 'desktop-chromium',
-      use: {
-        ...devices['Desktop Chrome'],
-        viewport: { width: 1280, height: 800 },
-      },
-    },
   ],
-  webServer: {
+  webServer: useLocalServer ? {
     command: `VITE_WS_URL=ws://127.0.0.1:${WS_PORT} npm run build && cd .. && `
       + `PORT=${HTTP_PORT} WS_PORT=${WS_PORT} NODE_ENV=test PAYMENT_PROVIDER=cash `
       + 'DISABLE_REDIS=true ENABLE_NIP98_AUTH=true ENABLE_RATE_LIMITING=false '
@@ -51,5 +52,5 @@ export default defineConfig({
     reuseExistingServer: false,
     stdout: 'pipe',
     stderr: 'pipe',
-  },
+  } : undefined,
 });

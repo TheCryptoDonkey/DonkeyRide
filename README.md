@@ -78,7 +78,7 @@ npm test               # Run backend tests (Node.js built-in test runner)
 npm run web:dev        # React frontend dev server (Vite, in web/)
 npm run web:build      # Build React frontend (tsc + vite build)
 npm run web:test       # Run frontend tests (vitest)
-npm run test:ui        # Real Chromium rider/driver journeys, mobile + desktop
+npm run test:ui        # Real Chromium rider/driver journeys on small + standard phones
 npm run docker:build   # Build Docker image
 npm run docker:run     # Run Docker container with .env
 ```

@@ -134,6 +134,15 @@ class DispatchService {
   }
 
   /**
+   * Keep the last real fix across route changes. Individual screens mount
+   * their own hooks, whose initial value is only a map-framing placeholder;
+   * accepting a job from that initial value produced a wildly wrong ETA.
+   */
+  getLocation(): LatLng | null {
+    return this.location ? { ...this.location } : null;
+  }
+
+  /**
    * Set the driver's working-area geohash cells. An empty array reverts to
    * radius dispatch. Re-registers immediately so the operator applies the
    * new areas and replays any open jobs inside them.

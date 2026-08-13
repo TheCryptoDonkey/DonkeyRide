@@ -87,6 +87,11 @@ export function OperatorPicker({ role }: { role: 'requester' | 'provider' }) {
               </span>
             </span>
             <span className="block text-xs text-donkey-muted break-all mt-1">{operator.origin}</span>
+            {operator.feePercent != null && (
+              <span className="block text-xs text-donkey-muted mt-1">
+                {t('operator.fee', { fee: operator.feePercent })}
+              </span>
+            )}
             {operator.policy && (
               <span className="block text-xs text-donkey-muted mt-1">
                 {t('operator.policySummary', {

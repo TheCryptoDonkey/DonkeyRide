@@ -368,6 +368,19 @@ test('a passenger name reaches the matched provider and nobody else', async () =
   assert.equal(detail.body.ride.passenger.note, 'she uses a stick');
 });
 
+test('a driver already at the pickup gets a one-minute ETA, not a router loop', async () => {
+  const created = await requestRide();
+  const accepted = await post(`/api/rides/${created.ride_id}/accept`, {
+    driver_npub: driver.npub,
+    driver_pubkey: driver.pub,
+    driver_location: { lat: PICKUP.lat, lon: PICKUP.lon }
+  }, driver.priv);
+
+  assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
+  assert.equal(accepted.body.eta_seconds, 60);
+  assert.equal(accepted.body.driver_route, null);
+});
+
 test('a passenger name is capped and an empty one is not recorded', async () => {
   const long = await requestRide({ passenger: { name: 'x'.repeat(200) } });
   const ride = rideManager.getRide(long.ride_id);

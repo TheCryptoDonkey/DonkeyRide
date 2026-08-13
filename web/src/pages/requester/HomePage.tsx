@@ -266,9 +266,7 @@ export function HomePage() {
               biasLocation={pickup || location}
               onSelect={(loc, label) => chooseDestination(loc, label)}
             />
-            <p className="text-xs text-donkey-muted mt-2">
-              {t('home.selectDestination')}
-            </p>
+            <p className="text-xs text-donkey-muted mt-2">{t('home.selectDestination')}</p>
           </>
         ) : (
           pickup && (
@@ -293,20 +291,6 @@ export function HomePage() {
           </p>
         )}
 
-        <div className="flex items-center justify-center gap-4 mt-2">
-          <button
-            className="text-xs text-donkey-muted underline min-h-[44px]"
-            onClick={() => navigate('/request/history')}
-          >
-            {t('home.pastTasks', { noun: taskNoun })}
-          </button>
-          <a
-            className="text-xs text-donkey-muted underline min-h-[44px] inline-flex items-center"
-            href="/manual.html"
-          >
-            {t('home.howItWorks')}
-          </a>
-        </div>
       </div>
     </div>
   );

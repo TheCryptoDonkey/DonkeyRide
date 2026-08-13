@@ -4909,7 +4909,17 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
         // already happened.
         let driverRoute = null;
         let driverToPickupRoute = null;
-        if (driver_location) {
+        const driverPickupDistanceKm = driver_location
+            ? calculateDistance(
+                driver_location.lat, driver_location.lon,
+                ride.pickup.lat, ride.pickup.lon
+            )
+            : null;
+        // Routers can snap two nearly identical points to opposite road
+        // segments and return an absurd multi-hour loop. At the kerb the
+        // honest ETA is simply "about a minute" and no route is needed.
+        const alreadyAtPickup = driverPickupDistanceKm != null && driverPickupDistanceKm <= 0.1;
+        if (driver_location && !alreadyAtPickup) {
             try {
                 driverToPickupRoute = await getRoute(
                     driver_location.lat,
@@ -4927,9 +4937,11 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
         }
 
         // Calculate ETA
-        const eta = driverToPickupRoute
-            ? driverToPickupRoute.duration  // Use OSRM duration in seconds
-            : (driver_location ? rideManager.calculateETA(driver_location, ride.pickup) : null);
+        const eta = alreadyAtPickup
+            ? 60
+            : driverToPickupRoute
+                ? driverToPickupRoute.duration  // Use OSRM duration in seconds
+                : (driver_location ? rideManager.calculateETA(driver_location, ride.pickup) : null);
 
         // Notify rider with driver route (emit both legacy and generic event types)
         const matchPayload = {

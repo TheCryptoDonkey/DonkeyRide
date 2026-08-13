@@ -76,7 +76,11 @@ export function ActiveTaskPage() {
   const { identity } = useIdentity();
   const { profile } = useDomain();
   const { t } = useT();
-  const { location } = useLocation(true);
+  const { location, hasFix } = useLocation(true);
+  // Keep using the app-level listener's last genuine fix while this freshly
+  // mounted watcher starts. Its initial London value is map framing only and
+  // must never become a live-tracking update or panic location.
+  const safeLocation = hasFix ? location : dispatchService.getLocation();
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
@@ -105,9 +109,9 @@ export function ActiveTaskPage() {
   useLiveTracking({
     taskId: activeTask?.id || null,
     providerPubkey: identity?.pubKeyHex || null,
-    lat: location.lat,
-    lng: location.lng,
-    enabled: !!(profile?.features.liveTracking && activeTask && identity),
+    lat: safeLocation?.lat ?? 0,
+    lng: safeLocation?.lng ?? 0,
+    enabled: !!(profile?.features.liveTracking && activeTask && identity && safeLocation),
     operatorBase: activeTask?.operatorBase,
   });
 
@@ -312,10 +316,10 @@ export function ActiveTaskPage() {
   const handlePanic = async () => {
     // The driver's own trusted contacts hear it directly, E2E encrypted —
     // the operator carries the alert, not the message
-    void sendGuardianAlert(identity.privKeyHex, activeTask, location, 'provider').catch(() => {});
+    void sendGuardianAlert(identity.privKeyHex, activeTask, safeLocation, 'provider').catch(() => {});
     await triggerPanic(activeTask.id, {
       role: 'provider',
-      location,
+      location: safeLocation,
     }, activeTask.operatorBase);
   };
 
@@ -357,8 +361,10 @@ export function ActiveTaskPage() {
       {/* Map */}
       {profile?.features.navigation !== false ? (
         <div className="flex-1 relative">
-          <MapView centre={location} zoom={15}>
-            <LocationMarker position={location} label="You" colour="blue" />
+          <MapView centre={safeLocation || activeTask.pickup} zoom={15}>
+            {safeLocation && (
+              <LocationMarker position={safeLocation} label="You" colour="blue" />
+            )}
             <LocationMarker position={activeTask.pickup} label={originLabel} colour="green" />
             {(activeTask.stops || []).map((stop, i) => (
               <LocationMarker
@@ -489,22 +495,6 @@ export function ActiveTaskPage() {
 
         {/* Waiting time — a running meter belongs in front of both parties */}
         <WaitingTimer task={activeTask} role="provider" />
-
-        {/* The step itself. Primary and first, not below ten panels. */}
-        {buttons.length > 0 && !showCancelConfirm && (
-          <div className="flex gap-3">
-            {buttons.map(({ label, handler, stateKey }) => (
-              <button
-                key={stateKey}
-                className="btn-primary flex-1"
-                onClick={handler}
-                disabled={busyAction !== null}
-              >
-                {busyAction !== null ? t('pactive.working') : label}
-              </button>
-            ))}
-          </div>
-        )}
 
         {/* Navigation hand-off — drivers trust their own nav app */}
         {(() => {
@@ -766,6 +756,25 @@ export function ActiveTaskPage() {
           {actionError && <p className="text-donkey-red text-sm">{actionError}</p>}
         </div>
       </Sheet>
+
+      {/* The next job transition never scrolls. A driver approaching a kerb
+          should not hunt through addresses, timers or safety panels for it. */}
+      {buttons.length > 0 && !showCancelConfirm && (
+        <div className="bg-donkey-surface border-t-2 border-donkey-border px-5 py-3 shadow-panel shrink-0">
+          <div className="flex gap-3">
+            {buttons.map(({ label, handler, stateKey }) => (
+              <button
+                key={stateKey}
+                className="btn-primary flex-1"
+                onClick={handler}
+                disabled={busyAction !== null}
+              >
+                {busyAction !== null ? t('pactive.working') : label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -11,32 +11,25 @@ export function DomainSwitcher() {
 
   const locked = !!activeTask;
 
-  // Emoji-width in the header. A full-width pill repeating the domain name
-  // next to the wordmark pushed the app-switch link off the right edge of a
-  // phone, and a narrow <select> still renders its clipped label — so show
-  // the emoji and lay a transparent select over it.
-  const current = availableDomains.find((d) => d.id === profile?.id);
-
   return (
-    <span className={`relative shrink-0 w-11 h-11 inline-flex items-center justify-center rounded-full hover:bg-white/10 ${locked ? 'opacity-50' : ''}`}>
-      <span className="text-lg pointer-events-none" aria-hidden="true">
-        {current?.emoji || '🌐'}
-      </span>
-      <select
-        name="domain"
-        value={profile?.id || ''}
-        onChange={e => switchDomain(e.target.value)}
-        disabled={locked}
-        aria-label="Switch domain"
-        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
-        title={locked ? t('domain.locked') : t('domain.switch')}
-      >
-        {availableDomains.map(d => (
-          <option key={d.id} value={d.id} style={{ color: '#333', background: '#fff' }}>
-            {d.emoji} {d.name}
-          </option>
-        ))}
-      </select>
-    </span>
+    <div className="card space-y-2">
+      <label className="block">
+        <span className="meta-label">{t('domain.switch')}</span>
+        <select
+          name="domain"
+          value={profile?.id || ''}
+          onChange={e => switchDomain(e.target.value)}
+          disabled={locked}
+          className="input-field w-full mt-1"
+        >
+          {availableDomains.map(d => (
+            <option key={d.id} value={d.id}>
+              {d.emoji} {d.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {locked && <p className="text-xs text-donkey-orange">{t('domain.locked')}</p>}
+    </div>
   );
 }

@@ -1,10 +1,11 @@
 import { expect, test, type BrowserContext, type BrowserContextOptions } from '@playwright/test';
 import {
   MANCHESTER,
-  expectFullyInViewport,
+  expectEasyTap,
   expectNoFirstInstallUpdateToast,
   expectNoViewportOverflow,
   installMapMocks,
+  phoneViewport,
   skipOnboarding,
 } from './helpers';
 
@@ -14,10 +15,8 @@ async function prepare(context: BrowserContext): Promise<void> {
 }
 
 test('a rider and driver can complete a real mobile journey', async ({ browser }, testInfo) => {
-  test.skip(testInfo.project.name !== 'mobile-chromium', 'the complete two-person journey is the mobile gate');
-
   const options: BrowserContextOptions = {
-    viewport: { width: 390, height: 844 },
+    viewport: phoneViewport(testInfo.project.name),
     geolocation: MANCHESTER,
     permissions: ['geolocation', 'notifications'],
     locale: 'en-GB',
@@ -28,13 +27,33 @@ test('a rider and driver can complete a real mobile journey', async ({ browser }
   await Promise.all([prepare(riderContext), prepare(driverContext)]);
   const rider = await riderContext.newPage();
   const driver = await driverContext.newPage();
+  let acceptedLocation: { lat: number; lon: number } | null = null;
+  let requestedPickup: { lat: number; lon: number } | null = null;
+  const liveLocations: Array<{ lat: number; lon?: number; lng?: number }> = [];
+  driver.on('request', (request) => {
+    if (request.method() !== 'POST') return;
+    if (request.url().includes('/accept')) {
+      const body = request.postDataJSON() as { driver_location?: { lat: number; lon: number } };
+      acceptedLocation = body.driver_location || null;
+    } else if (request.url().endsWith('/location')) {
+      const body = request.postDataJSON() as { lat: number; lon?: number; lng?: number };
+      liveLocations.push(body);
+    }
+  });
+  rider.on('request', (request) => {
+    if (request.method() !== 'POST' || !request.url().endsWith('/api/tasks/request')) return;
+    const body = request.postDataJSON() as { pickup_lat?: number; pickup_lon?: number };
+    requestedPickup = body.pickup_lat != null && body.pickup_lon != null
+      ? { lat: body.pickup_lat, lon: body.pickup_lon }
+      : null;
+  });
 
   try {
     await driver.goto('/provide');
     await expectNoFirstInstallUpdateToast(driver);
     const goOnline = driver.getByRole('button', { name: 'Go Online' });
     await expect(goOnline).toBeEnabled();
-    await expectFullyInViewport(driver, goOnline);
+    await expectEasyTap(driver, goOnline);
     await goOnline.click();
     await expect(driver.getByRole('button', { name: 'Go Offline' })).toBeVisible();
     await expect(driver.getByText('Listening for ride requests...')).toBeVisible({ timeout: 15_000 });
@@ -48,20 +67,36 @@ test('a rider and driver can complete a real mobile journey', async ({ browser }
 
     const requestRide = rider.getByRole('button', { name: /Request driver/ });
     await expect(requestRide).toBeEnabled();
-    await expectFullyInViewport(rider, requestRide);
+    await expectEasyTap(rider, requestRide);
     await requestRide.click();
     await expect(rider).toHaveURL(/\/request\/active$/);
 
     await expect(driver).toHaveURL(/\/provide\/incoming$/, { timeout: 15_000 });
     await expect(driver.getByText(/New rider ride/)).toBeVisible();
-    await driver.getByRole('button', { name: 'Accept' }).click();
+    const accept = driver.getByRole('button', { name: 'Accept' });
+    await expectEasyTap(driver, accept);
+    await accept.click();
     await expect(driver).toHaveURL(/\/provide\/active$/);
+    expect(acceptedLocation).toEqual({ lat: MANCHESTER.latitude, lon: MANCHESTER.longitude });
+    expect(requestedPickup).toEqual({ lat: MANCHESTER.latitude, lon: MANCHESTER.longitude });
+    const pickupEta = rider.getByTestId('pickup-eta');
+    await expect(pickupEta).toBeVisible();
+    const etaMinutes = Number.parseInt(await pickupEta.innerText(), 10);
+    expect(etaMinutes).toBeGreaterThan(0);
+    expect(etaMinutes).toBeLessThan(60);
+    expect(liveLocations.every((fix) =>
+      fix.lat === MANCHESTER.latitude
+      && (fix.lon ?? fix.lng) === MANCHESTER.longitude)).toBe(true);
 
-    await driver.getByRole('button', { name: "I'm here" }).click();
-    await expect(driver.getByRole('button', { name: 'Start' })).toBeVisible();
-    await driver.getByRole('button', { name: 'Start' }).click();
-    await expect(driver.getByRole('button', { name: 'Finish' })).toBeVisible();
-    await driver.getByRole('button', { name: 'Finish' }).click();
+    const arrived = driver.getByRole('button', { name: "I'm here" });
+    await expectEasyTap(driver, arrived);
+    await arrived.click();
+    const start = driver.getByRole('button', { name: 'Start' });
+    await expectEasyTap(driver, start);
+    await start.click();
+    const finish = driver.getByRole('button', { name: 'Finish' });
+    await expectEasyTap(driver, finish);
+    await finish.click();
 
     await expect(driver).toHaveURL(/\/provide\/complete$/);
     await expect(driver.getByText('Ride Complete')).toBeVisible();
