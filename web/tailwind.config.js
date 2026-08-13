@@ -25,9 +25,12 @@ export default {
           purple: themed('primary'),
           pink: themed('secondary'),
           green: themed('accent'),
-          orange: '#f5a623',
-          red: '#ff4444',
-          blue: '#4fc3f7',
+          // Foreground/action variants that remain readable on the light
+          // theme's white and tinted cards. Brighter neon values still power
+          // non-text glows in index.css, where contrast is not carrying words.
+          orange: '#995100',
+          red: '#c62828',
+          blue: '#006f9e',
         },
       },
       fontFamily: {

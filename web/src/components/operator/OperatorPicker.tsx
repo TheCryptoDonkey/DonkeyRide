@@ -109,6 +109,7 @@ export function OperatorPicker({ role }: { role: 'requester' | 'provider' }) {
           className="min-w-0 flex-1 bg-donkey-bg border border-donkey-border rounded-lg px-3 py-2 text-sm"
           type="url"
           inputMode="url"
+          aria-label={t('operator.manualUrl')}
           placeholder="https://rides.example"
           value={manual}
           onChange={(event) => setManual(event.target.value)}

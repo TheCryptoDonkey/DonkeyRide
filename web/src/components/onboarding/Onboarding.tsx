@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useT } from '../../i18n';
 
 const STORAGE_PREFIX = 'donkeyride.onboarded.';
@@ -42,7 +42,13 @@ function slidesFor(role: 'requester' | 'provider', t: (key: string) => string): 
  * First-run intro — three slides, shown once per role per device.
  * Skippable at any point; never shown again after finishing or skipping.
  */
-export function Onboarding({ role }: { role: 'requester' | 'provider' }) {
+export function Onboarding({
+  role,
+  children,
+}: {
+  role: 'requester' | 'provider';
+  children: ReactNode;
+}) {
   const { t } = useT();
   const storageKey = `${STORAGE_PREFIX}${role}`;
   const [seen, setSeen] = useState<boolean>(() => {
@@ -53,8 +59,17 @@ export function Onboarding({ role }: { role: 'requester' | 'provider' }) {
     }
   });
   const [index, setIndex] = useState(0);
+  const primaryRef = useRef<HTMLButtonElement>(null);
 
-  if (seen) return null;
+  // The app shell is deliberately not mounted until this gate is dismissed,
+  // so keyboard and screen-reader users cannot tab into controls hidden
+  // behind the first-run screen. Move focus back to the primary action when
+  // the slide changes so the new title is encountered in a predictable place.
+  useEffect(() => {
+    if (!seen) primaryRef.current?.focus();
+  }, [seen, index]);
+
+  if (seen) return <>{children}</>;
 
   const slides = slidesFor(role, t);
   const slide = slides[index];
@@ -70,11 +85,17 @@ export function Onboarding({ role }: { role: 'requester' | 'provider' }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-donkey-bg flex flex-col items-center justify-center p-8 text-center">
+    <div
+      className="fixed inset-0 z-50 bg-donkey-bg flex flex-col items-center justify-center p-8 text-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="onboarding-title"
+      aria-describedby="onboarding-description onboarding-progress"
+    >
       <div className="max-w-sm space-y-4">
         <div className="text-6xl" aria-hidden>{slide.emoji}</div>
-        <h2 className="text-2xl font-black tracking-tight text-donkey-text">{slide.title}</h2>
-        <p className="text-donkey-muted">{slide.body}</p>
+        <h2 id="onboarding-title" className="text-2xl font-black tracking-tight text-donkey-text">{slide.title}</h2>
+        <p id="onboarding-description" className="text-donkey-muted">{slide.body}</p>
         {slide.hint && (
           <p className="text-sm text-donkey-orange bg-donkey-orange/10 border border-donkey-orange/40 rounded-lg p-3">
             {slide.hint}
@@ -90,9 +111,13 @@ export function Onboarding({ role }: { role: 'requester' | 'provider' }) {
           />
         ))}
       </div>
+      <p id="onboarding-progress" className="sr-only">
+        Step {index + 1} of {slides.length}
+      </p>
 
       <div className="w-full max-w-sm space-y-3">
         <button
+          ref={primaryRef}
           className="btn-primary w-full"
           onClick={() => (last ? finish() : setIndex(index + 1))}
         >

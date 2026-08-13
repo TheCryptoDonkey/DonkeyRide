@@ -27,10 +27,10 @@ const pushService = require('./src/push');
 const { validateNIP98Auth } = require('./middleware/nip98-auth');
 const { getPublicKey: nostrGetPublicKey, nip19 } = require('nostr-tools');
 const {
-    publicRateLimiter,
-    authenticatedRateLimiter,
-    rideCreationLimiter,
-    stakeLimiter
+    publicRateLimiter: enforcePublicRateLimit,
+    authenticatedRateLimiter: enforceAuthenticatedRateLimit,
+    rideCreationLimiter: enforceRideCreationLimit,
+    stakeLimiter: enforceStakeLimit
 } = require('./middleware/rate-limit');
 const {
     getBitcoinPrice,
@@ -95,6 +95,16 @@ app.use((req, res, next) => {
 app.use(express.static('public')); // Serve demo.html and other static files (legacy)
 
 const rateLimitingEnabled = (process.env.ENABLE_RATE_LIMITING || 'true').toLowerCase() !== 'false';
+const noRateLimit = (req, res, next) => next();
+// ENABLE_RATE_LIMITING=false is used by local/test operators and must mean
+// every limiter. Previously it disabled only the catch-all authenticated
+// gate while route-level public, creation and stake limiters kept returning
+// 429s — a browser suite could exhaust the shared IP bucket before a rider
+// even reached the fare screen.
+const publicRateLimiter = rateLimitingEnabled ? enforcePublicRateLimit : noRateLimit;
+const authenticatedRateLimiter = rateLimitingEnabled ? enforceAuthenticatedRateLimit : noRateLimit;
+const rideCreationLimiter = rateLimitingEnabled ? enforceRideCreationLimit : noRateLimit;
+const stakeLimiter = rateLimitingEnabled ? enforceStakeLimit : noRateLimit;
 if (!rateLimitingEnabled) {
     console.warn('\u26A0\uFE0F  Rate limiting DISABLED via ENABLE_RATE_LIMITING=false');
 }
@@ -8028,7 +8038,7 @@ async function startServer(options = {}) {
 
     \uD83C\uDF10 Domain: ${domainProfile.name}
     \uD83D\uDD10 NIP-98 authentication enabled
-    \uD83D\uDEE1\uFE0F  Rate limiting active
+    \uD83D\uDEE1\uFE0F  Rate limiting ${rateLimitingEnabled ? 'active' : 'disabled'}
     \u26A1 Multiple payment providers supported
     \uD83D\uDCB0 Dual pricing (sats + fiat) enabled
     \uD83D\uDDFA\uFE0F  ${domainProfile.features.liveTracking ? 'Live tracking enabled' : 'Live tracking disabled'}

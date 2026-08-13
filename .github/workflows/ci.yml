@@ -93,3 +93,34 @@ jobs:
       - run: npx vitest run
       # tsc --noEmit runs inside the build script (tsc && vite build)
       - run: npm run build
+
+  ui:
+    name: Human journeys in Chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+      # The browser drives the real Express operator, so both dependency
+      # trees are required: root for the backend, web for the two PWAs.
+      - run: npm ci
+      - run: npm ci --prefix web
+      - run: npx playwright install --with-deps chromium
+        working-directory: web
+      - run: npm run test:ui
+        working-directory: web
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-ui-report
+          path: |
+            web/playwright-report/
+            web/test-results/
+          if-no-files-found: ignore
+          retention-days: 14

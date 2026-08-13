@@ -192,6 +192,7 @@ export const sw: Record<string, string> = {
   'operator.search': 'Tafuta waendeshaji',
   'operator.searching': 'Inatafuta kwenye relay za umma…',
   'operator.connect': 'Unganisha',
+  'operator.manualUrl': 'Anwani ya mwendeshaji',
   'operator.invalidUrl': 'Weka anwani ya HTTPS ya mwendeshaji.',
   'operator.unreachable': 'Mwendeshaji huyo hakutoa taarifa inayotumika.',
   'operator.discoveryFailed': 'Utafutaji wa waendeshaji haupatikani kwa sasa.',

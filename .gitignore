@@ -7383,3 +7383,7 @@ public/downloads/
 
 # Playwright MCP session artefacts (snapshots, console logs)
 .playwright-mcp/
+
+# Repeatable browser-test output (CI uploads these only when a run fails)
+/web/playwright-report/
+/web/test-results/

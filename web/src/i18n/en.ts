@@ -181,6 +181,7 @@ export const en: Record<string, string> = {
   'operator.search': 'Discover operators',
   'operator.searching': 'Searching public relays…',
   'operator.connect': 'Connect',
+  'operator.manualUrl': 'Operator URL',
   'operator.invalidUrl': 'Enter an HTTPS operator URL.',
   'operator.unreachable': 'That operator did not return compatible operator information.',
   'operator.discoveryFailed': 'Operator discovery is temporarily unavailable.',

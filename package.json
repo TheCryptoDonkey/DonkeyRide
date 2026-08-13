@@ -10,6 +10,7 @@
     "test": "node --test --test-force-exit $(find tests -name '*.test.js' -not -path 'tests/live/*' | sort)",
     "test:live": "LIVE_RELAY_URL=${LIVE_RELAY_URL:-wss://relay.trotters.cc} node --test --test-force-exit tests/live/*.test.js",
     "test:e2e": "node scripts/e2e-lifecycle.js",
+    "test:ui": "npm --prefix web run test:ui",
     "test:regtest": "tests/regtest/run.sh",
     "dev:nix": "nix run .#services & npm run dev",
     "web:dev": "npm --prefix web run dev",

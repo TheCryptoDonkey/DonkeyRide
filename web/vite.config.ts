@@ -65,5 +65,9 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // Browser journeys have their own Playwright runner and real operator.
+    // Keeping Vitest scoped to source tests prevents it from importing
+    // Playwright's test() globals as ordinary unit-test modules.
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
   },
 });

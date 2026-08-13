@@ -43,7 +43,8 @@ describe('readableOnLight', () => {
     // #00ff88 scores about 1.4:1 on white — invisible
     expect(contrastOnWhite('0 255 136')).toBeLessThan(2);
     const fixed = readableOnLight('0, 255, 136')!;
-    expect(contrastOnWhite(fixed)).toBeGreaterThanOrEqual(4.5);
+    // Leave headroom for the pale tinted cards brand text also appears on.
+    expect(contrastOnWhite(fixed)).toBeGreaterThanOrEqual(5.5);
   });
 
   it('keeps the hue — it is still the operator’s brand', () => {
@@ -60,7 +61,7 @@ describe('readableOnLight', () => {
 
   it('handles every built-in brand colour', () => {
     for (const brand of ['178, 76, 243', '255, 110, 199', '0, 255, 136']) {
-      expect(contrastOnWhite(readableOnLight(brand)!)).toBeGreaterThanOrEqual(4.5);
+      expect(contrastOnWhite(readableOnLight(brand)!)).toBeGreaterThanOrEqual(5.5);
     }
   });
 

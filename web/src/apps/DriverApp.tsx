@@ -92,8 +92,7 @@ function DispatchTaskListener() {
 
 export function DriverApp() {
   return (
-    <>
-      <Onboarding role="provider" />
+    <Onboarding role="provider">
       <DispatchTaskListener />
       <Routes>
         <Route element={<Layout app="driver" />}>
@@ -119,6 +118,6 @@ export function DriverApp() {
           <Route path="*" element={<Navigate to="/provide" replace />} />
         </Route>
       </Routes>
-    </>
+    </Onboarding>
   );
 }

@@ -15,7 +15,12 @@ import type { LatLng } from '../../types/api';
 export function HomePage() {
   const navigate = useNavigate();
   const { t, td } = useT();
-  const { location, error: locationError, loading: locationLoading, refresh } = useLocation();
+  const {
+    location,
+    loading: locationLoading,
+    hasFix,
+    refresh,
+  } = useLocation();
   const { setOrigin, setDestination, activeTask } = useTask();
   const { profile } = useDomain();
   const [providers, setProviders] = useState<AvailableProvider[]>([]);
@@ -27,9 +32,11 @@ export function HomePage() {
   const [editingPickup, setEditingPickup] = useState(false);
 
   const requiresDestination = profile?.features.requiresDestination !== false;
-  // A GPS fix we can trust — useLocation falls back to London, which must
-  // never become somebody's pickup by default
-  const hasFix = !locationLoading && !locationError;
+  // Search from a real device fix, or from the pickup the rider deliberately
+  // chose. The useLocation fallback exists only to frame the map — asking the
+  // network for drivers around London after location was denied both leaks a
+  // meaningless query and tells the rider about supply in the wrong city.
+  const providerSearchLocation = pickup || (hasFix ? location : null);
 
   // A live task (including one rehydrated after a restart) resumes here
   useEffect(() => {
@@ -40,9 +47,16 @@ export function HomePage() {
 
   // Fetch available providers
   useEffect(() => {
+    if (!providerSearchLocation) {
+      setProviders([]);
+      setProviderOperators(0);
+      return;
+    }
+    let live = true;
     const fetchProviders = async () => {
       try {
-        const result = await discoverNetworkProviders(location, 10);
+        const result = await discoverNetworkProviders(providerSearchLocation, 10);
+        if (!live) return;
         setProviders(result.providers);
         setProviderOperators(new Set(result.providers.map((provider) => provider.operatorBase)).size);
       } catch {
@@ -51,8 +65,11 @@ export function HomePage() {
     };
     fetchProviders();
     const timer = setInterval(fetchProviders, 15000);
-    return () => clearInterval(timer);
-  }, [location.lat, location.lng]); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [providerSearchLocation?.lat, providerSearchLocation?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Set when the rider named a destination before we had a pickup (GPS
   // denied or still resolving) — the moment they set one, we continue.
@@ -145,8 +162,10 @@ export function HomePage() {
               />
             ))}
 
-            {/* User location */}
-            <LocationMarker position={location} label={t('common.you')} colour="green" />
+            {/* Never label the map-framing fallback as the person's location. */}
+            {hasFix && (
+              <LocationMarker position={location} label={t('common.you')} colour="green" />
+            )}
 
             {/* Pickup pin — drag it to nudge the meeting point */}
             {pickup && (

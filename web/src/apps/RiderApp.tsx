@@ -12,32 +12,31 @@ import { ExternalRedirect } from './ExternalRedirect';
 
 export function RiderApp() {
   return (
-    <>
-    <Onboarding role="requester" />
-    <Routes>
-      <Route element={<Layout app="rider" />}>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/request" element={<HomePage />} />
-        <Route path="/request/new" element={<RequestPage />} />
-        <Route path="/request/active" element={<ActiveTaskPage />} />
-        <Route path="/request/complete" element={<CompletionPage />} />
-        <Route path="/request/history" element={<HistoryPage />} />
-        <Route path="/request/profile" element={<ProfilePage role="requester" />} />
-        <Route path="/request/help" element={<HelpPage role="requester" />} />
+    <Onboarding role="requester">
+      <Routes>
+        <Route element={<Layout app="rider" />}>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/request" element={<HomePage />} />
+          <Route path="/request/new" element={<RequestPage />} />
+          <Route path="/request/active" element={<ActiveTaskPage />} />
+          <Route path="/request/complete" element={<CompletionPage />} />
+          <Route path="/request/history" element={<HistoryPage />} />
+          <Route path="/request/profile" element={<ProfilePage role="requester" />} />
+          <Route path="/request/help" element={<HelpPage role="requester" />} />
 
-        {/* Backward-compatible redirects */}
-        <Route path="/ride" element={<Navigate to="/request" replace />} />
-        <Route path="/ride/request" element={<Navigate to="/request/new" replace />} />
-        <Route path="/ride/active" element={<Navigate to="/request/active" replace />} />
-        <Route path="/ride/complete" element={<Navigate to="/request/complete" replace />} />
+          {/* Backward-compatible redirects */}
+          <Route path="/ride" element={<Navigate to="/request" replace />} />
+          <Route path="/ride/request" element={<Navigate to="/request/new" replace />} />
+          <Route path="/ride/active" element={<Navigate to="/request/active" replace />} />
+          <Route path="/ride/complete" element={<Navigate to="/request/complete" replace />} />
 
-        {/* Driver paths belong to the driver app — full navigation */}
-        <Route path="/provide/*" element={<ExternalRedirect to="/provide" />} />
-        <Route path="/drive/*" element={<ExternalRedirect to="/provide" />} />
+          {/* Driver paths belong to the driver app — full navigation */}
+          <Route path="/provide/*" element={<ExternalRedirect to="/provide" />} />
+          <Route path="/drive/*" element={<ExternalRedirect to="/provide" />} />
 
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Route>
-    </Routes>
-    </>
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </Onboarding>
   );
 }

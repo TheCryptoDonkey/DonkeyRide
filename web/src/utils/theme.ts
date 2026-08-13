@@ -70,7 +70,7 @@ function contrastOnWhite(rgb: number[]): number {
  * darken theirs until it clears 4.5:1, preserving hue. Luminance rises
  * monotonically as the channels scale, so a bisection always converges.
  */
-export function readableOnLight(triplet: string | null | undefined, target = 4.5): string | null {
+export function readableOnLight(triplet: string | null | undefined, target = 5.5): string | null {
   const normalised = normaliseRgbTriplet(triplet);
   if (!normalised) return null;
   const rgb = normalised.split(' ').map(Number);

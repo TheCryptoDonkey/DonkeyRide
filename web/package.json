@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:ui": "playwright test",
+    "test:ui:headed": "playwright test --headed",
     "native:driver:prepare": "npm run build && rm -rf dist-native-driver && cp -r dist dist-native-driver && cp dist-native-driver/driver.html dist-native-driver/index.html",
     "native:driver:android": "npm run native:driver:prepare && npx cap sync android",
     "native:driver:ios": "npm run native:driver:prepare && npx cap sync ios"
@@ -27,7 +29,9 @@
     "react-router-dom": "^7.18.2"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@capacitor/cli": "^8.5.0",
+    "@playwright/test": "^1.62.1",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@types/leaflet": "^1.9.22",

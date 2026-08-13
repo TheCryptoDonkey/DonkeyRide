@@ -74,15 +74,17 @@ DOMAIN=ridesharing npm start         # Default (ridesharing)
 ```bash
 npm start              # Run operator server (Express on PORT=3000, WebSocket on WS_PORT=3001)
 npm run dev            # Development mode with nodemon auto-reload
-npm test               # Run all tests (Node.js built-in test runner)
+npm test               # Run backend tests (Node.js built-in test runner)
 npm run web:dev        # React frontend dev server (Vite, in web/)
 npm run web:build      # Build React frontend (tsc + vite build)
 npm run web:test       # Run frontend tests (vitest)
+npm run test:ui        # Real Chromium rider/driver journeys, mobile + desktop
 npm run docker:build   # Build Docker image
 npm run docker:run     # Run Docker container with .env
 ```
 
 **Frontend dependencies are separate** — run `npm install` in `web/` before using `web:*` commands.
+The UI gate also needs Chromium once per machine: `cd web && npx playwright install chromium`.
 
 ---
 
@@ -184,7 +186,7 @@ We welcome contributions to the reference implementation.
 1. Use **British English** spelling throughout
 2. Maintain **backward compatibility** with the `RideManager` interface
 3. Keep core code **domain-agnostic** — domain-specific logic belongs in the profile
-4. Run `npm test` before submitting
+4. Run `npm test`, `npm run web:test`, and `npm run test:ui` before submitting UI changes
 
 ---
 
