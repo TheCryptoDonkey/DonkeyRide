@@ -87,6 +87,15 @@ export async function expectNoViewportOverflow(page: Page): Promise<void> {
   expect(dimensions.page).toBeLessThanOrEqual(dimensions.viewport + 1);
 }
 
+export async function expectNamedFormControls(page: Page): Promise<void> {
+  const unnamed = await page.locator('input, select, textarea').evaluateAll((controls) =>
+    controls
+      .filter((control) => !control.getAttribute('id') && !control.getAttribute('name'))
+      .map((control) => control.outerHTML)
+  );
+  expect(unnamed).toEqual([]);
+}
+
 /** A first install is not an update and must not cover the app with a toast. */
 export async function expectNoFirstInstallUpdateToast(page: Page): Promise<void> {
   await page.evaluate(async () => {

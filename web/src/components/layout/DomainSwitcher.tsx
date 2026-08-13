@@ -23,6 +23,7 @@ export function DomainSwitcher() {
         {current?.emoji || '🌐'}
       </span>
       <select
+        name="domain"
         value={profile?.id || ''}
         onChange={e => switchDomain(e.target.value)}
         disabled={locked}

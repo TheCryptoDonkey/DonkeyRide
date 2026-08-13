@@ -187,6 +187,7 @@ export function HomePage() {
           {editingPickup && (
             <div className="absolute top-3 left-3 right-3 z-[1100]">
               <AddressSearch
+                name="pickup-address"
                 placeholder={t('home.searchOrigin', { label: originLabel })}
                 biasLocation={pickup || location}
                 autoFocus
@@ -260,6 +261,7 @@ export function HomePage() {
         {requiresDestination ? (
           <>
             <AddressSearch
+              name="destination-address"
               placeholder={t('home.whereTo')}
               biasLocation={pickup || location}
               onSelect={(loc, label) => chooseDestination(loc, label)}

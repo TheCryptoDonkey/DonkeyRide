@@ -92,6 +92,7 @@ export function PickupAdjuster({
       </button>
 
       <AddressSearch
+        name="adjusted-pickup-address"
         placeholder={t('active.searchPickup', { label: originLabel.toLowerCase() })}
         biasLocation={task.pickup}
         onSelect={(loc, label) => move(loc, label)}

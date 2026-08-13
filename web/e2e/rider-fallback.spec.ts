@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   expectFullyInViewport,
+  expectNamedFormControls,
   expectNoFirstInstallUpdateToast,
   expectNoSeriousA11yViolations,
   expectNoViewportOverflow,
@@ -60,6 +61,7 @@ test('location denial never turns the London map fallback into the rider', async
     const requestButton = page.getByRole('button', { name: /Request driver/ });
     await expect(requestButton).toBeEnabled();
     await expectFullyInViewport(page, requestButton);
+    await expectNamedFormControls(page);
     await expectNoViewportOverflow(page);
     await expectNoSeriousA11yViolations(page);
   } finally {

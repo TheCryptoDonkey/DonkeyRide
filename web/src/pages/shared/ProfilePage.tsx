@@ -133,6 +133,7 @@ export function ProfilePage({ role }: ProfilePageProps) {
           </p>
           <p className="text-sm text-donkey-muted">{t('profile.manualCopyBody')}</p>
           <textarea
+            name="manual-copy"
             readOnly
             rows={3}
             className="w-full bg-donkey-bg border border-donkey-border rounded p-3 font-mono text-xs"
@@ -188,6 +189,7 @@ export function ProfilePage({ role }: ProfilePageProps) {
           {t('profile.restoreNote')}
         </p>
         <textarea
+          name="recovery-key-import"
           className="w-full bg-donkey-bg border border-donkey-border rounded p-3 font-mono text-xs"
           rows={2}
           placeholder="nsec1…"

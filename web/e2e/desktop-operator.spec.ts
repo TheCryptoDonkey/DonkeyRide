@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import {
+  expectNamedFormControls,
   expectNoSeriousA11yViolations,
   expectNoViewportOverflow,
   installMapMocks,
@@ -21,6 +22,7 @@ test('a desktop user can inspect and validate an operator choice', async ({ cont
   await page.getByRole('button', { name: 'Connect' }).click();
   await expect(page.getByText('Enter an HTTPS operator URL.')).toBeVisible();
 
+  await expectNamedFormControls(page);
   await expectNoViewportOverflow(page);
   await expectNoSeriousA11yViolations(page);
 });

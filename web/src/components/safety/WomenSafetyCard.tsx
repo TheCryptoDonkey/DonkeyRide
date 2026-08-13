@@ -36,6 +36,7 @@ export function WomenSafetyCard({ role }: { role: 'requester' | 'provider' }) {
       <label className="flex items-center gap-3 min-h-[44px] cursor-pointer">
         <input
           type="checkbox"
+          name="declare-woman"
           className="w-5 h-5 accent-donkey-purple"
           checked={isWoman}
           onChange={(e) => applyGender(e.target.checked)}
@@ -46,6 +47,7 @@ export function WomenSafetyCard({ role }: { role: 'requester' | 'provider' }) {
         <label className="flex items-center gap-3 min-h-[44px] cursor-pointer">
           <input
             type="checkbox"
+            name="women-only-requests"
             className="w-5 h-5 accent-donkey-purple"
             checked={womenOnly}
             onChange={(e) => applyWomenOnly(e.target.checked)}

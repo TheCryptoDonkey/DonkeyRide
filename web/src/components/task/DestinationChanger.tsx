@@ -141,6 +141,7 @@ export function DestinationChanger({
     <div className="meta-card border border-donkey-blue/40">
       <p className="meta-label mb-2">{t('destination.searchTitle', { label: destinationLabel })}</p>
       <AddressSearch
+        name="changed-destination-address"
         placeholder={t('destination.searchPlaceholder', { label: destinationLabel.toLowerCase() })}
         biasLocation={task.dropoff || task.pickup}
         autoFocus

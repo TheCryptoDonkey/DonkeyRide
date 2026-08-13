@@ -299,6 +299,7 @@ export function RequestPage() {
       ))}
       {addingStop ? (
         <AddressSearch
+          name="additional-stop-address"
           placeholder={t('request.searchStop')}
           biasLocation={origin}
           autoFocus

@@ -413,6 +413,7 @@ export function DashboardPage() {
             <div>
               <p className="meta-label mb-2">{t('dash.headingPrompt')}</p>
               <AddressSearch
+                name="driver-destination-address"
                 placeholder={t('dash.searchDestination')}
                 biasLocation={location}
                 autoFocus

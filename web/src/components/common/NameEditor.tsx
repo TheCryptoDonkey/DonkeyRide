@@ -70,6 +70,7 @@ export function NameEditor() {
         <span className="meta-label">{t('name.nameLabel')}</span>
         <input
           type="text"
+          name="display-name"
           className="input-field w-full mt-1"
           value={name}
           maxLength={40}
@@ -83,6 +84,7 @@ export function NameEditor() {
         <span className="meta-label">{t('name.pictureLabel')}</span>
         <input
           type="url"
+          name="profile-picture-url"
           inputMode="url"
           className="input-field w-full mt-1"
           value={picture}

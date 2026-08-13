@@ -77,6 +77,7 @@ export function AccessNeedsPicker({ value, onChange, role, bare }: AccessNeedsPi
             >
               <input
                 type="checkbox"
+                name={`access-${role}-${option.id}`}
                 className="w-5 h-5 mt-0.5 shrink-0 accent-donkey-blue"
                 checked={checked}
                 onChange={() => onChange(toggle(value, option.id))}

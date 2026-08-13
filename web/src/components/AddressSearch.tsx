@@ -26,6 +26,7 @@ interface PhotonFeature {
 }
 
 interface AddressSearchProps {
+  name: string;
   placeholder: string;
   biasLocation?: LatLng | null;
   onSelect: (location: LatLng, label: string) => void;
@@ -43,7 +44,7 @@ function formatLabel(p: PhotonFeature['properties']): string {
  * Debounced address search backed by Photon (komoot) — free, no API key,
  * OpenStreetMap data. Falls back gracefully: tapping the map still works.
  */
-export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }: AddressSearchProps) {
+export function AddressSearch({ name, placeholder, biasLocation, onSelect, autoFocus }: AddressSearchProps) {
   const { t } = useT();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PhotonFeature[]>([]);
@@ -147,6 +148,7 @@ export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }
     <div className="relative" ref={containerRef}>
       <input
         type="text"
+        name={name}
         className="w-full bg-donkey-surface/95 backdrop-blur border border-donkey-border rounded-lg px-4 py-3 text-sm shadow-panel focus:outline-none focus:border-donkey-blue"
         placeholder={placeholder}
         value={query}
@@ -200,6 +202,7 @@ export function AddressSearch({ placeholder, biasLocation, onSelect, autoFocus }
                 <div className="flex items-center gap-2 px-4 py-2">
                   <input
                     type="text"
+                    name="saved-place-name"
                     className="flex-1 bg-donkey-card border border-donkey-border rounded px-2 py-1.5 text-sm min-w-0"
                     value={pinName}
                     autoFocus
