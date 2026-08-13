@@ -199,14 +199,6 @@ export function normaliseWsMessage(raw: any): WsMessage | null {
     case 'settlement_confirmed':
       return { type: 'settlement_confirmed', taskId, rail: raw.rail };
 
-    case 'handoff_updated':
-      return {
-        type: 'handoff_updated',
-        taskId,
-        passengerId: raw.passenger?.id,
-        status: raw.passenger?.handoffStatus,
-      };
-
     case WS_PROTOCOL.taskBroadcast:
     case 'task_request':
       return {

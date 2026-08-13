@@ -17,11 +17,8 @@ export interface DomainProfile {
   id: string;
   name: string;
   description?: string;
-  /** Whether this operator has the runtime dependencies needed to accept this domain. */
-  operational?: boolean;
-  unavailableReason?: string | null;
   discoveryMethod: 'geohash' | 'skillTags' | 'availability';
-  pricingModel: 'none' | 'distance_time_surge' | 'distance_weight' | 'hourly' | 'milestone' | 'flatRate' | 'quote';
+  pricingModel: 'distance_time_surge' | 'distance_weight' | 'hourly' | 'milestone' | 'flatRate' | 'quote';
   /** Service classes (Standard / Comfort / XL). Empty for single-class domains. */
   serviceOptions?: {
     id: string;
@@ -126,9 +123,4 @@ export interface DomainFeatures {
   quoteNegotiation: boolean;
   guaranteePeriod: boolean;
   requiresDestination: boolean;
-  settlementRequired: boolean;
-  multiPassengerHandoffs: boolean;
-  routeRequired: boolean;
-  durableTaskDataRequired: boolean;
-  redactSensitiveDataOnTerminal: boolean;
 }

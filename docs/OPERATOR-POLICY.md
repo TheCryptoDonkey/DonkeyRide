@@ -61,14 +61,6 @@ but the configured database cannot start, the server also refuses to start.
 It will never advertise those controls while silently running open or in
 memory.
 
-Community Lift is available to either an open or regulated operator, but its
-active task data includes passenger names, exact ordered drop-offs and
-guardian-code HMACs. In production it therefore fails closed unless the
-operator has PostgreSQL plus a stable `TASK_DATA_ENCRYPTION_KEY` of at least
-32 characters. Payloads are AES-256-GCM encrypted while active. At completion
-or cancellation, the durable copy automatically drops exact locations,
-addresses, child and guardian names, route geometry and handoff digests.
-
 ## Public contract
 
 `GET /info` publishes `policy.schema = org.donkeyride.operator-policy/v1`:
@@ -105,9 +97,7 @@ arbitrary network PWAs.
 Operators can use a local OSRM (`OSRM_URL`) or Valhalla
 (`NAVIGATION_PROVIDER=valhalla`, `VALHALLA_URL`). Neither mode needs a third
 party to receive exact journey endpoints. If the configured router is down,
-ordinary priced domains fall back to straight-line distance and say
-`routed: false`. Community Lift fails closed instead: it cannot be arranged
-until a real multi-stop road route exists.
+the quote falls back to straight-line distance and says `routed: false`.
 
 When Valhalla already runs on a private Docker network, attach only the
 operator container with the supplied overlay:

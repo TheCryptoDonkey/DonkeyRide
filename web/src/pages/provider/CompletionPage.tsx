@@ -28,7 +28,6 @@ export function CompletionPage() {
   const taskNoun = td(profile?.labels?.taskNoun || 'task');
   const completedLabel = td(profile?.labels?.completedLabel || 'Complete');
   const requesterLabel = td(profile?.roles.requester || 'requester');
-  const settlementRequired = profile?.features.settlementRequired !== false;
 
   // Survive a refresh: fall back to the stored terminal task until Done
   const task = activeTask ?? completedTask;
@@ -39,10 +38,10 @@ export function CompletionPage() {
   // earnings CSV a self-employed driver files their return from is built on.
   const ledgered = useRef<string | null>(null);
   useEffect(() => {
-    if (!task || !settlementRequired || ledgered.current === task.id) return;
+    if (!task || ledgered.current === task.id) return;
     ledgered.current = task.id;
     recordJob(task, { domain: profile?.id });
-  }, [task, profile?.id, settlementRequired]);
+  }, [task, profile?.id]);
 
   if (!task) {
     return (
@@ -89,14 +88,8 @@ export function CompletionPage() {
         {/* Summary */}
         <div className="earnings-card text-center">
           <p className="text-donkey-green text-lg font-bold mb-2">{completedLabel}</p>
-          {settlementRequired ? (
-            <>
-              <p className="meta-label mb-1">{t('complete.earned')}</p>
-              <DualPrice sats={earned} size="lg" ratesOverride={getAgreedRate(task.id)} />
-            </>
-          ) : (
-            <p className="text-base font-bold text-donkey-text">{t('lift.noPaymentCompleted')}</p>
-          )}
+          <p className="meta-label mb-1">{t('complete.earned')}</p>
+          <DualPrice sats={earned} size="lg" ratesOverride={getAgreedRate(task.id)} />
 
           {(task.distanceKm || task.durationMin) && (
             <p className="text-donkey-muted text-sm mt-2">
@@ -108,7 +101,7 @@ export function CompletionPage() {
         </div>
 
         {/* Non-custodial settlement: confirm the rider's direct payment */}
-        {settlementRequired && <ConfirmReceipt task={task} settlement={task.settlement} />}
+        <ConfirmReceipt task={task} settlement={task.settlement} />
 
         {/* Rating */}
         {!submitted ? (

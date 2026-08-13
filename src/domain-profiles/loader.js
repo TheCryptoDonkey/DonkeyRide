@@ -12,7 +12,6 @@ const { validateProfile } = require('./schema');
 // Built-in profiles shipped with the codebase
 const BUILTIN_PROFILES = {
   ridesharing: () => require('./ridesharing'),
-  'community-lift': () => require('./community-lift'),
   locksmith: () => require('./locksmith'),
   delivery: () => require('./delivery'),
   towing: () => require('./towing'),

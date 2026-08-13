@@ -146,10 +146,10 @@ async function waitFor(frames, predicate, label, timeoutMs = 4000) {
 
 // ── Validation ──────────────────────────────────────
 
-test('more than 5 stops is rejected', async () => {
-  const res = await createRide({ stops: [STOP_A, STOP_B, STOP_A, STOP_B, STOP_A, STOP_B] });
+test('more than 3 stops is rejected', async () => {
+  const res = await createRide({ stops: [STOP_A, STOP_B, STOP_A, STOP_B] });
   assert.equal(res.status, 400);
-  assert.match(res.body.error, /at most 5/);
+  assert.match(res.body.error, /at most 3/);
 });
 
 test('a stop with invalid coordinates is rejected', async () => {

@@ -93,7 +93,6 @@ export function IncomingTaskPage() {
         // claims never leave this device — an operator running
         // ENFORCE_CREDENTIALS refuses the accept, which is the point.
         credentials: validCredentials(),
-        domain: profile?.id,
       }, activeTask.operatorBase);
       // The rate behind the fare this driver just agreed to work for. Accept
       // is their moment of agreement, exactly as the request tap is the
@@ -110,7 +109,7 @@ export function IncomingTaskPage() {
       // Best-effort: advertise the driver's saved payment methods on this ride
       // so the rider can pay directly. Never blocks accepting the job.
       const savedMethods = getSavedPaymentMethods();
-      if (profile?.features.settlementRequired !== false && savedMethods.length > 0) {
+      if (savedMethods.length > 0) {
         void setPaymentMethods(
           updated.id, { methods: savedMethods }, activeTask.operatorBase,
         ).catch(() => {});
@@ -195,11 +194,7 @@ export function IncomingTaskPage() {
               <p className="section-title mb-1">
                 {t('incoming.new', { label: requesterLabel, noun: taskNoun })}
               </p>
-              {profile?.features.settlementRequired !== false ? (
-                <DualPrice sats={activeTask.fareEstimateSats} size="lg" />
-              ) : (
-                <p className="text-base font-bold text-donkey-green">{t('lift.noPayment')}</p>
-              )}
+              <DualPrice sats={activeTask.fareEstimateSats} size="lg" />
               {proximity && (
                 <p className="text-sm font-bold text-donkey-blue mt-1">
                   {t('incoming.away', {
@@ -277,9 +272,6 @@ export function IncomingTaskPage() {
               )}
               {(activeTask.stopCount ?? 0) > 0 && (
                 <span>+{activeTask.stopCount} {activeTask.stopCount === 1 ? t('common.stop') : t('common.stops')}</span>
-              )}
-              {(activeTask.passengerCount ?? 0) > 0 && (
-                <span>{t('lift.passengerCount', { n: activeTask.passengerCount! })}</span>
               )}
             </div>
           )}

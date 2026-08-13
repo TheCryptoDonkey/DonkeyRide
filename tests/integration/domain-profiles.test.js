@@ -33,7 +33,6 @@ test('loadProfile loads ridesharing profile by default', () => {
   assert.equal(profile.name, 'DonkeyRide');
   assert.equal(profile.roles.requester, 'rider');
   assert.equal(profile.roles.provider, 'driver');
-  assert.equal(profile.features.redactSensitiveDataOnTerminal, true);
 });
 
 test('loadProfile loads locksmith profile', () => {
@@ -55,17 +54,6 @@ test('loadProfile loads delivery profile', () => {
   assert.ok(profile.states.values.ARRIVED_AT_DELIVERY);
   assert.equal(profile.features.signatures, true);
   assert.equal(profile.features.photos, true);
-});
-
-test('community lift is free, routed and restart-safe by policy', () => {
-  const profile = loadProfile('community-lift');
-  assert.equal(profile.pricingModel, 'none');
-  assert.equal(profile.features.settlementRequired, false);
-  assert.equal(profile.features.multiPassengerHandoffs, true);
-  assert.equal(profile.features.routeRequired, true);
-  assert.equal(profile.features.durableTaskDataRequired, true);
-  assert.equal(profile.features.redactSensitiveDataOnTerminal, true);
-  assert.equal(profile.serviceOptions.find((option) => option.id === 'xl').seats, 6);
 });
 
 test('loadProfile throws for unknown profiles', () => {

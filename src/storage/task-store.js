@@ -7,54 +7,10 @@
  * otherwise (tests and quick demos). Both backends share one contract:
  *
  *   await store.init()
- *   await store.saveTask(task, { terminal, redactSensitiveData })
+ *   await store.saveTask(task, { terminal })
  *   await store.loadActiveTasks()  → array of task payloads
  *   await store.close()
  */
-
-const crypto = require('crypto');
-
-/**
- * Produce the durable record. Some domains handle especially sensitive live
- * data (for example children's names and exact drop-offs). They need that data
- * while active and after a restart, but not once every handoff is complete.
- * Redact only the stored clone: both participants can still see the completed
- * task returned by the final API call and submit ratings from it.
- */
-function durableTaskPayload(task, { terminal = false, redactSensitiveData = false } = {}) {
-  const payload = JSON.parse(JSON.stringify(task));
-  if (!terminal || !redactSensitiveData) return payload;
-
-  payload.pickup = null;
-  payload.dropoff = null;
-  payload.destination = null;
-  payload.stops = null;
-  payload.route = null;
-  delete payload.pickupAddress;
-  delete payload.dropoffAddress;
-  delete payload.pickupNote;
-  delete payload.passenger;
-  delete payload.proof;
-
-  for (const partyKey of ['requester', 'rider', 'provider', 'driver']) {
-    if (payload[partyKey] && typeof payload[partyKey] === 'object') {
-      delete payload[partyKey].location;
-      delete payload[partyKey].eta;
-    }
-  }
-
-  if (Array.isArray(payload.passengers)) {
-    payload.passengerCount = payload.passengers.length;
-    payload.passengers = payload.passengers.map((passenger) => ({
-      id: passenger.id,
-      handoffStatus: passenger.handoffStatus,
-      ...(passenger.arrivedAt ? { arrivedAt: passenger.arrivedAt } : {}),
-      ...(passenger.handedOffAt ? { handedOffAt: passenger.handedOffAt } : {})
-    }));
-  }
-  payload.sensitiveDataRedactedAt = new Date().toISOString();
-  return payload;
-}
 
 class MemoryTaskStore {
   constructor() {
@@ -64,12 +20,12 @@ class MemoryTaskStore {
 
   async init() {}
 
-  async saveTask(task, { terminal = false, redactSensitiveData = false } = {}) {
+  async saveTask(task, { terminal = false } = {}) {
     this.rows.set(task.id, {
       id: task.id,
       domain: task.domain,
       terminal,
-      payload: durableTaskPayload(task, { terminal, redactSensitiveData })
+      payload: JSON.parse(JSON.stringify(task))
     });
   }
 
@@ -124,47 +80,10 @@ class MemoryTaskStore {
 }
 
 class PgTaskStore {
-  constructor(databaseUrl, { encryptionKey } = {}) {
+  constructor(databaseUrl) {
     this.databaseUrl = databaseUrl;
     this.pool = null;
     this.backend = 'postgres';
-    this.encrypted = Boolean(encryptionKey);
-    this.encryptionKey = encryptionKey
-      ? crypto.createHash('sha256').update(String(encryptionKey)).digest()
-      : null;
-  }
-
-  _encodePayload(payload) {
-    if (!this.encryptionKey) return payload;
-    const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv('aes-256-gcm', this.encryptionKey, iv);
-    const ciphertext = Buffer.concat([
-      cipher.update(JSON.stringify(payload), 'utf8'),
-      cipher.final()
-    ]);
-    return {
-      schema: 'org.donkeyride.encrypted-task/v1',
-      algorithm: 'aes-256-gcm',
-      iv: iv.toString('base64'),
-      tag: cipher.getAuthTag().toString('base64'),
-      ciphertext: ciphertext.toString('base64')
-    };
-  }
-
-  _decodePayload(payload) {
-    if (payload?.schema !== 'org.donkeyride.encrypted-task/v1') return payload;
-    if (!this.encryptionKey) {
-      throw new Error('TASK_DATA_ENCRYPTION_KEY is required to read encrypted task records');
-    }
-    const decipher = crypto.createDecipheriv(
-      'aes-256-gcm', this.encryptionKey, Buffer.from(payload.iv, 'base64')
-    );
-    decipher.setAuthTag(Buffer.from(payload.tag, 'base64'));
-    const plaintext = Buffer.concat([
-      decipher.update(Buffer.from(payload.ciphertext, 'base64')),
-      decipher.final()
-    ]);
-    return JSON.parse(plaintext.toString('utf8'));
   }
 
   async init() {
@@ -213,9 +132,8 @@ class PgTaskStore {
     `);
   }
 
-  async saveTask(task, { terminal = false, redactSensitiveData = false } = {}) {
+  async saveTask(task, { terminal = false } = {}) {
     const provider = task.provider || task.driver || null;
-    const payload = durableTaskPayload(task, { terminal, redactSensitiveData });
     await this.pool.query(
       `INSERT INTO tasks (id, domain, status, requester_pubkey, provider_pubkey, terminal, payload, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, now())
@@ -233,14 +151,14 @@ class PgTaskStore {
         task.requester?.pubkey || null,
         provider?.pubkey || null,
         terminal,
-        JSON.stringify(this._encodePayload(payload))
+        JSON.stringify(task)
       ]
     );
   }
 
   async loadActiveTasks() {
     const result = await this.pool.query('SELECT payload FROM tasks WHERE NOT terminal');
-    return result.rows.map((row) => this._decodePayload(row.payload));
+    return result.rows.map((row) => row.payload);
   }
 
   async loadTasksByParticipant(pubkey) {
@@ -252,7 +170,7 @@ class PgTaskStore {
        LIMIT 500`,
       [key]
     );
-    return result.rows.map((row) => this._decodePayload(row.payload));
+    return result.rows.map((row) => row.payload);
   }
 
   async saveStake(stake) {
@@ -312,13 +230,12 @@ class PgTaskStore {
  * @param {string|undefined} databaseUrl - PostgreSQL connection string
  * @returns {MemoryTaskStore|PgTaskStore}
  */
-function createTaskStore(databaseUrl, options = {}) {
-  return databaseUrl ? new PgTaskStore(databaseUrl, options) : new MemoryTaskStore();
+function createTaskStore(databaseUrl) {
+  return databaseUrl ? new PgTaskStore(databaseUrl) : new MemoryTaskStore();
 }
 
 module.exports = {
   createTaskStore,
   MemoryTaskStore,
-  PgTaskStore,
-  durableTaskPayload
+  PgTaskStore
 };

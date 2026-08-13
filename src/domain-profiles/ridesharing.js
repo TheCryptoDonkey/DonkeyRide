@@ -121,12 +121,7 @@ const profile = {
     signatures: false,
     quoteNegotiation: false,
     guaranteePeriod: false,
-    requiresDestination: true,
-    // A durable operator may need the fare/timestamps for records, but not a
-    // permanent copy of where somebody lives or travelled. The task store
-    // strips exact locations, route geometry, notes and passenger names when
-    // a ride completes or is cancelled.
-    redactSensitiveDataOnTerminal: true
+    requiresDestination: true
   },
 
   // Service classes. The whole rate card is scaled by fareMultiplier, so

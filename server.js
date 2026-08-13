@@ -10,7 +10,6 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const WebSocket = require('ws');
-const crypto = require('crypto');
 
 // nostr-tools' SimplePool references a global WebSocket. Node < 21 has none,
 // so without this every relay read and write silently fails and the whole
@@ -92,18 +91,6 @@ const defaultBodyParser = express.json({ limit: '100kb', verify: captureRawBody 
 app.use((req, res, next) => {
     const parser = /\/proof$/.test(req.path) ? proofBodyParser : defaultBodyParser;
     parser(req, res, next);
-});
-// Internal handoff-code HMACs are persisted for restart safety but must never
-// be returned to either participant (or a pre-accept browser).
-app.use((req, res, next) => {
-    const originalJson = res.json.bind(res);
-    res.json = (body) => {
-        if (!body || typeof body !== 'object') return originalJson(body);
-        const safe = JSON.parse(JSON.stringify(body, (key, value) =>
-            key === 'handoffCodeDigest' ? undefined : value));
-        return originalJson(safe);
-    };
-    next();
 });
 app.use(express.static('public')); // Serve demo.html and other static files (legacy)
 
@@ -265,106 +252,7 @@ function isPositiveInt(value, max = Number.MAX_SAFE_INTEGER) {
 }
 
 /** Intermediate calling points a request or a destination change may carry */
-const MAX_TASK_STOPS = 5;
-const MAX_JOURNEY_PASSENGERS = MAX_TASK_STOPS + 1;
-
-// Stable when the operator supplies a secret (or its signing key), ephemeral
-// otherwise. HMAC means even an accidentally exposed digest cannot be brute
-// forced like a plain hash of a four-digit handoff code.
-const HANDOFF_HMAC_IS_STABLE = Boolean(
-    process.env.HANDOFF_HMAC_SECRET || process.env.TASK_DATA_ENCRYPTION_KEY
-    || process.env.OPERATOR_PRIVKEY || process.env.OPERATOR_NSEC
-);
-const HANDOFF_HMAC_KEY = process.env.HANDOFF_HMAC_SECRET
-    || process.env.TASK_DATA_ENCRYPTION_KEY
-    || process.env.OPERATOR_PRIVKEY
-    || process.env.OPERATOR_NSEC
-    || crypto.randomBytes(32).toString('hex');
-
-// A four-digit code has only 10,000 possibilities. The general authenticated
-// API limiter prevents floods, but it is deliberately generous enough for a
-// working driver app. Give handoffs their own much smaller, per-passenger
-// budget so a legitimate driver can mistype without making online brute force
-// practical. The organiser can replace the code to clear the lockout.
-const HANDOFF_MAX_ATTEMPTS = 5;
-const HANDOFF_ATTEMPT_WINDOW_MS = 5 * 60 * 1000;
-const handoffAttempts = new Map();
-
-function handoffAttemptKey(rideId, passengerId) {
-    return `${rideId}:${passengerId}`;
-}
-
-function getHandoffAttemptState(rideId, passengerId) {
-    const key = handoffAttemptKey(rideId, passengerId);
-    const existing = handoffAttempts.get(key);
-    if (!existing || existing.resetAt <= Date.now()) {
-        const fresh = { attempts: 0, resetAt: Date.now() + HANDOFF_ATTEMPT_WINDOW_MS };
-        handoffAttempts.set(key, fresh);
-        return fresh;
-    }
-    return existing;
-}
-
-function clearHandoffAttempts(rideId, passengerId) {
-    handoffAttempts.delete(handoffAttemptKey(rideId, passengerId));
-}
-
-const handoffAttemptSweep = setInterval(() => {
-    const now = Date.now();
-    for (const [key, state] of handoffAttempts) {
-        if (state.resetAt <= now) handoffAttempts.delete(key);
-    }
-}, HANDOFF_ATTEMPT_WINDOW_MS);
-handoffAttemptSweep.unref();
-
-function handoffDigest(rideId, passengerId, code) {
-    return crypto.createHmac('sha256', HANDOFF_HMAC_KEY)
-        .update(`${rideId}:${passengerId}:${code}`)
-        .digest('hex');
-}
-
-function parseJourneyPassengers(value, rideId) {
-    if (!Array.isArray(value) || value.length < 1 || value.length > MAX_JOURNEY_PASSENGERS) {
-        return { error: `passengers must contain 1 to ${MAX_JOURNEY_PASSENGERS} entries` };
-    }
-    const ids = new Set();
-    const passengers = [];
-    for (let index = 0; index < value.length; index++) {
-        const raw = value[index] || {};
-        const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, 60) : '';
-        const guardianName = typeof raw.guardianName === 'string'
-            ? raw.guardianName.trim().slice(0, 60) : '';
-        const note = typeof raw.note === 'string' ? raw.note.trim().slice(0, 140) : '';
-        const code = typeof raw.handoffCode === 'string' ? raw.handoffCode.trim() : '';
-        const lon = raw.dropoff?.lon != null ? raw.dropoff.lon : raw.dropoff?.lng;
-        if (!name) return { error: `passenger ${index + 1} requires a name` };
-        if (!isValidLat(raw.dropoff?.lat) || !isValidLon(lon)) {
-            return { error: `passenger ${index + 1} requires a valid dropoff` };
-        }
-        if (!/^\d{4}$/.test(code)) {
-            return { error: `passenger ${index + 1} requires a four-digit handoff code` };
-        }
-        let id = typeof raw.id === 'string' && /^[a-zA-Z0-9_-]{1,40}$/.test(raw.id)
-            ? raw.id : `passenger-${index + 1}`;
-        if (ids.has(id)) id = `passenger-${index + 1}`;
-        ids.add(id);
-        passengers.push({
-            id,
-            name,
-            ...(guardianName ? { guardianName } : {}),
-            ...(note ? { note } : {}),
-            dropoff: {
-                lat: Number(raw.dropoff.lat),
-                lon: Number(lon),
-                ...(typeof raw.dropoff.address === 'string' && raw.dropoff.address.trim()
-                    ? { address: raw.dropoff.address.trim().slice(0, 200) } : {})
-            },
-            handoffStatus: 'pending',
-            handoffCodeDigest: handoffDigest(rideId, id, code)
-        });
-    }
-    return { passengers };
-}
+const MAX_TASK_STOPS = 3;
 
 /**
  * Validate and normalise intermediate stops. Shared by the request handler
@@ -426,18 +314,6 @@ function authoriseSessionActor(req, ...allowedHexKeys) {
         error: 'Forbidden',
         details: 'Signer does not hold the required role on this ride session'
     };
-}
-
-function settlementRequiredFor(ride) {
-    if (!ride) return true;
-    if (ride.settlementRequired === false) return false;
-    return rideManager.getProfileForRide(ride.id)?.features?.settlementRequired !== false;
-}
-
-function rejectSettlementWhenNotRequired(res, ride) {
-    if (settlementRequiredFor(ride)) return false;
-    res.status(409).json({ error: 'Settlement is not required for this task' });
-    return true;
 }
 
 // Serve React frontend build if available (web/dist/)
@@ -576,38 +452,6 @@ function rateCardOptions(currency, multiplier = 1) {
     };
 }
 
-/**
- * A no-settlement task still needs a distance, duration and road geometry,
- * but it must not contact exchange-rate or Bitcoin-price services just to
- * manufacture a row of zeroes. Keep the normal estimate response shape so
- * old clients can render it without learning a second protocol.
- */
-function zeroSettlementEstimate(distance, duration, currency) {
-    const zeroRow = { fiat: 0, formatted: '0' };
-    return {
-        distance: {
-            km: distance,
-            formatted: `${distance.toFixed(1)} km`
-        },
-        duration: {
-            minutes: duration,
-            formatted: `${Math.round(duration)} min`
-        },
-        fare: { sats: 0, fiat: 0, currency, formatted: '0 sats' },
-        breakdown: {
-            baseFare: { ...zeroRow },
-            distance: { ...zeroRow },
-            duration: { ...zeroRow }
-        },
-        operatorFee: {
-            sats: 0, fiat: 0, percentage: 0, formatted: '0 sats'
-        },
-        driverEarns: { sats: 0, fiat: 0, formatted: '0 sats' },
-        btcPrice: null,
-        currency
-    };
-}
-
 // Straight-line fallback speed when the router is unreachable. ONE constant:
 // the quote and the recorded fare must never be derived from different
 // assumptions, or the price the rider approved is not the price they get.
@@ -622,7 +466,7 @@ const FALLBACK_SPEED_KMH = parseFloat(process.env.FALLBACK_SPEED_KMH || '30');
  * @returns {{distance:number, duration:number, coordinates:Array|null,
  *            routed:boolean, estimate:object}}
  */
-async function routeAndPrice(pickup, dropoff, via, currency, multiplier = 1, profile = domainProfile) {
+async function routeAndPrice(pickup, dropoff, via, currency, multiplier = 1) {
     let distance = 0;
     let duration = 0;
     let coordinates = null;
@@ -638,11 +482,6 @@ async function routeAndPrice(pickup, dropoff, via, currency, multiplier = 1, pro
             coordinates = osrmRoute.coordinates;
             routed = true;
         } else {
-            if (profile?.features?.routeRequired) {
-                const error = new Error('A road route could not be calculated. Please try again before arranging this journey.');
-                error.statusCode = 503;
-                throw error;
-            }
             // Sum straight-line legs through every stop
             const legs = [pickup, ...(via || []), dropoff];
             for (let i = 0; i < legs.length - 1; i++) {
@@ -654,10 +493,9 @@ async function routeAndPrice(pickup, dropoff, via, currency, multiplier = 1, pro
         }
     }
 
-    const settlementRequired = profile?.features?.settlementRequired !== false;
-    const estimate = settlementRequired
-        ? await estimateTripCost(distance, duration, rateCardOptions(currency, multiplier))
-        : zeroSettlementEstimate(distance, duration, currency);
+    const estimate = await estimateTripCost(
+        distance, duration, rateCardOptions(currency, multiplier)
+    );
     return { distance, duration, coordinates, routed, estimate };
 }
 
@@ -944,39 +782,6 @@ _domainManagers.set(domainProfile.id, new TaskManager(domainProfile));
 // Task persistence — attached to every domain manager once initialised in startServer()
 let taskStore = null;
 
-/**
- * Report whether this operator can safely accept a profile right now. Most
- * profiles can use PII-free Nostr snapshots. Community lifts cannot: those
- * snapshots intentionally omit passenger names, exact stops and handoff
- * digests, so production must have a private durable store and a stable HMAC
- * key before it accepts a child journey.
- */
-function domainRuntimeStatus(profile) {
-    if (process.env.NODE_ENV !== 'production' || !profile?.features?.durableTaskDataRequired) {
-        return { operational: true, unavailableReason: null };
-    }
-    if (!taskStore) {
-        return {
-            operational: false,
-            unavailableReason: 'This operator must configure private durable task storage before accepting Community Lifts.'
-        };
-    }
-    if (profile.encryptionRequired
-        && (taskStore.encrypted !== true || String(process.env.TASK_DATA_ENCRYPTION_KEY || '').length < 32)) {
-        return {
-            operational: false,
-            unavailableReason: 'This operator must configure a strong TASK_DATA_ENCRYPTION_KEY before accepting Community Lifts.'
-        };
-    }
-    if (!HANDOFF_HMAC_IS_STABLE) {
-        return {
-            operational: false,
-            unavailableReason: 'This operator must configure HANDOFF_HMAC_SECRET or a stable operator signing key before accepting Community Lifts.'
-        };
-    }
-    return { operational: true, unavailableReason: null };
-}
-
 function _getManagerForDomain(domainId) {
     if (!_domainManagers.has(domainId)) {
         const profile = loadProfile(domainId);
@@ -1006,9 +811,7 @@ async function initializeTaskStore() {
         return;
     }
     try {
-        const store = createTaskStore(process.env.DATABASE_URL, {
-            encryptionKey: process.env.TASK_DATA_ENCRYPTION_KEY
-        });
+        const store = createTaskStore(process.env.DATABASE_URL);
         await store.init();
         taskStore = store;
         for (const manager of _domainManagers.values()) {
@@ -1532,31 +1335,15 @@ if (wss) {
                             ws.send(JSON.stringify({ type: 'error', error: 'forbidden', details: 'pubkey does not match authenticated key' }));
                             break;
                         }
-                        let driverProfile;
-                        try {
-                            driverProfile = data.domain ? loadProfile(data.domain) : domainProfile;
-                        } catch (_error) {
-                            ws.send(JSON.stringify({ type: 'error', error: 'unknown_domain' }));
-                            break;
-                        }
-                        const runtimeStatus = domainRuntimeStatus(driverProfile);
-                        if (!runtimeStatus.operational) {
-                            ws.send(JSON.stringify({
-                                type: 'error',
-                                error: 'domain_unavailable',
-                                details: runtimeStatus.unavailableReason
-                            }));
-                            break;
-                        }
                         const location = data.location && validLatLon(data.location.lat, data.location.lon)
                             ? { lat: data.location.lat, lon: data.location.lon }
                             : null;
-                        const credentials = sanitiseCredentials(data.credentials, driverProfile);
+                        const credentials = sanitiseCredentials(data.credentials, domainProfile);
                         const admission = evaluateDriverAdmission(operatorPolicy, {
                             pubkey,
                             npub,
                             credentials,
-                            requiredCredentials: requiredCredentialIds(driverProfile)
+                            requiredCredentials: requiredCredentialIds(domainProfile)
                         });
                         if (!admission.allowed) {
                             ws.send(JSON.stringify({
@@ -1571,7 +1358,6 @@ if (wss) {
                         }
                         ws.driverNpub = npub;
                         ws.driverPubkey = pubkey;
-                        ws.driverDomain = driverProfile.id;
                         ws.clientType = 'driver';
                         // Driver-declared working areas (geohash cells) —
                         // omitted keeps any stored areas, [] clears them
@@ -1581,11 +1367,10 @@ if (wss) {
                             // Self-declared, for women-only matching
                             gender: data.gender,
                             womenOnly: data.women_only,
-                            accessFeatures: sanitiseAccessNeeds(data.access_features, driverProfile),
+                            accessFeatures: sanitiseAccessNeeds(data.access_features, domainProfile),
                             // Vehicle classes this driver can serve
-                            serviceOptions: sanitiseServiceOptions(data.service_options, driverProfile),
-                            credentials,
-                            domain: driverProfile.id
+                            serviceOptions: sanitiseServiceOptions(data.service_options),
+                            credentials
                         });
                         sendPendingRideRequests(ws);
                         break;
@@ -1599,18 +1384,13 @@ if (wss) {
                         const location = rawLocation && validLatLon(rawLocation.lat, rawLocation.lon)
                             ? { lat: rawLocation.lat, lon: rawLocation.lon }
                             : null;
-                        const presenceProfile = (() => {
-                            try { return loadProfile(data.domain || ws.driverDomain || domainProfile.id); }
-                            catch (_error) { return domainProfile; }
-                        })();
                         updateDriverPresence({
                             npub: nip98Enabled ? ws.driverNpub : (data.npub || ws.driverNpub),
                             pubkey,
                             location,
                             gender: data.gender,
                             womenOnly: data.women_only,
-                            accessFeatures: sanitiseAccessNeeds(data.access_features, presenceProfile),
-                            domain: presenceProfile.id
+                            accessFeatures: sanitiseAccessNeeds(data.access_features, domainProfile)
                         });
                         break;
                     }
@@ -1658,11 +1438,9 @@ function broadcastToRide(rideId, message) {
     if (!wss) {
         return;
     }
-    const payload = JSON.stringify(message, (key, value) =>
-        key === 'handoffCodeDigest' ? undefined : value);
     wss.clients.forEach(client => {
         if (client.rideId === rideId && client.readyState === WebSocket.OPEN) {
-            client.send(payload);
+            client.send(JSON.stringify(message));
         }
     });
 }
@@ -1988,12 +1766,11 @@ const SURGE_RADIUS_KM = parseFloat(process.env.SURGE_RADIUS_KM || '5');
 const SURGE_MIN_DEMAND = parseInt(process.env.SURGE_MIN_DEMAND || '3', 10);
 
 /** Available providers within SURGE_RADIUS_KM of a point, right now */
-function supplyNear(origin, domainId = domainProfile.id) {
+function supplyNear(origin) {
     const now = Date.now();
     let count = 0;
     for (const [, entry] of driverPresence) {
         if ((now - entry.lastSeen) > DRIVER_PRESENCE_TTL_MS) continue;
-        if ((entry.domain || domainProfile.id) !== domainId) continue;
         if (!entry.location) continue;
         if (calculateDistance(
             entry.location.lat, entry.location.lon, origin.lat, origin.lon
@@ -2003,10 +1780,9 @@ function supplyNear(origin, domainId = domainProfile.id) {
 }
 
 /** Unmatched requests within SURGE_RADIUS_KM of a point, right now */
-function demandNear(origin, domainId = domainProfile.id) {
+function demandNear(origin) {
     let count = 0;
     for (const ride of rideManager.getActiveRides()) {
-        if (ride.domain !== domainId) continue;
         if (ride.driver || ride.provider) continue;
         if (ride.scheduledFor) continue; // pre-booked demand is not now
         const pickup = ride.pickup;
@@ -2025,12 +1801,12 @@ function demandNear(origin, domainId = domainProfile.id) {
  * quotes reads as a machine haggling with you. Always returns a shape, so
  * callers never branch on whether the feature is on.
  */
-function surgeFor(origin, domainId = domainProfile.id) {
+function surgeFor(origin) {
     const off = { multiplier: 1, enabled: SURGE_ENABLED, waiting: 0, available: 0 };
     if (!SURGE_ENABLED || !origin || !Number.isFinite(origin.lat)) return off;
 
-    const waiting = demandNear(origin, domainId);
-    const available = supplyNear(origin, domainId);
+    const waiting = demandNear(origin);
+    const available = supplyNear(origin);
     if (waiting < SURGE_MIN_DEMAND) return { ...off, waiting, available };
 
     // No providers at all is not infinite demand — it is a search that will
@@ -2160,7 +1936,7 @@ const presenceSweep = setInterval(() => {
 }, 60000);
 presenceSweep.unref();
 
-function updateDriverPresence({ npub, pubkey, location, areas, gender, womenOnly, serviceOptions, accessFeatures, credentials, domain }) {
+function updateDriverPresence({ npub, pubkey, location, areas, gender, womenOnly, serviceOptions, accessFeatures, credentials }) {
     const key = (npub || pubkey || '').toLowerCase();
     if (!key) {
         return null;
@@ -2169,7 +1945,6 @@ function updateDriverPresence({ npub, pubkey, location, areas, gender, womenOnly
     const entry = {
         npub: npub || existing.npub || null,
         pubkey: (pubkey || existing.pubkey || null),
-        domain: domain || existing.domain || domainProfile.id,
         // Service classes this vehicle can serve; undefined keeps the
         // stored list, [] means default class only
         serviceOptions: Array.isArray(serviceOptions)
@@ -2356,15 +2131,11 @@ function pushEligible(entry, origin, radiusKm = DISPATCH_RADIUS_KM) {
  *  not currently connected over WS (those already got the live frame). */
 function pushRideRequestToOfflineDrivers(ride, estimate) {
     const connected = connectedDriverPubkeys();
-    const profile = rideManager.getProfileForRide(ride.id);
-    const noun = profile?.labels?.taskNoun || 'job';
-    const fareText = profile?.features?.settlementRequired === false
-        ? null : (estimate?.fare?.formatted || null);
+    const noun = rideManager.getProfileForRide(ride.id)?.labels?.taskNoun || 'job';
+    const fareText = estimate?.fare?.formatted || null;
     const payload = {
         title: `New ${noun} nearby`,
-        body: profile?.features?.settlementRequired === false
-            ? `Shared ${noun} — no payment needed. Open DonkeyRide to view and accept`
-            : fareText
+        body: fareText
             ? `${fareText} — open DonkeyRide to view and accept`
             : 'Open DonkeyRide to view and accept',
         tag: `ride-${ride.id}`,
@@ -2375,9 +2146,6 @@ function pushRideRequestToOfflineDrivers(ride, estimate) {
         // Riders subscribe to the same service for their own alerts —
         // they must never be offered a job
         if (entry.role === 'requester') {
-            continue;
-        }
-        if ((entry.domain || domainProfile.id) !== ride.domain) {
             continue;
         }
         if (connected.has(entry.pubkey)) {
@@ -2461,9 +2229,6 @@ function broadcastToDrivers(message, origin = null, constraints = null) {
     let count = 0;
     wss.clients.forEach(client => {
         if (client.clientType === 'driver' && client.readyState === WebSocket.OPEN) {
-            if (constraints?.domain && (client.driverDomain || domainProfile.id) !== constraints.domain) {
-                return;
-            }
             const identifier = client.driverNpub || client.driverPubkey;
             if (!driverInRange(identifier, origin, rideRadiusKm(constraints))) {
                 return;
@@ -2517,9 +2282,6 @@ function sendPendingRideRequests(ws) {
     );
 
     pendingRides.forEach((ride) => {
-        if ((ws.driverDomain || domainProfile.id) !== ride.domain) {
-            return;
-        }
         if (!driverInRange(ws.driverNpub || ws.driverPubkey, ride.pickup)) {
             return;
         }
@@ -2554,8 +2316,6 @@ function sendPendingRideRequests(ws) {
                 pickup: approximateLocation(ride.pickup),
                 dropoff: approximateLocation(ride.dropoff),
                 stopCount: ride.stops ? ride.stops.length : 0,
-                passengerCount: ride.passengers ? ride.passengers.length : 0,
-                domain: ride.domain,
                 fare: ride.fare,
                 distance: distanceKm,
                 estimatedFare: estimate,
@@ -2590,8 +2350,6 @@ function dispatchScheduledRide(ride) {
             pickup: approximateLocation(ride.pickup),
             dropoff: approximateLocation(ride.dropoff),
             stopCount: ride.stops ? ride.stops.length : 0,
-            passengerCount: ride.passengers ? ride.passengers.length : 0,
-            domain: ride.domain,
             fare: ride.fare,
             distance: distanceKm,
             estimatedFare: estimate,
@@ -3615,7 +3373,6 @@ async function handleTaskStake(req, res, side) {
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
         }
-        if (rejectSettlementWhenNotRequired(res, ride)) return;
 
         const authErr = authoriseRideActor(req, ride, [side]);
         if (authErr) {
@@ -3702,7 +3459,6 @@ async function confirmTaskStake(req, res, side) {
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
         }
-        if (rejectSettlementWhenNotRequired(res, ride)) return;
         const authErr = authoriseRideActor(req, ride, [side]);
         if (authErr) {
             return res.status(authErr.status).json(authErr);
@@ -3793,12 +3549,8 @@ const DEMAND_MIN_WAITING = parseInt(process.env.DEMAND_MIN_WAITING || '2', 10);
  * with thirty idle drivers in the cell is not somewhere to drive to.
  */
 app.get('/api/demand', publicRateLimiter, (req, res) => {
-    let demandProfile;
-    try { demandProfile = req.query.domain ? loadProfile(req.query.domain) : domainProfile; }
-    catch (_error) { return res.status(400).json({ error: 'Unknown domain profile' }); }
     const cells = new Map();
     for (const ride of rideManager.getActiveRides()) {
-        if (ride.domain !== demandProfile.id) continue;
         if (ride.driver || ride.provider) continue;
         if (ride.scheduledFor) continue; // pre-booked demand is not now
         const pickup = ride.pickup;
@@ -3822,7 +3574,6 @@ app.get('/api/demand', publicRateLimiter, (req, res) => {
         let available = 0;
         for (const [, presence] of driverPresence) {
             if ((now - presence.lastSeen) > DRIVER_PRESENCE_TTL_MS) continue;
-            if ((presence.domain || domainProfile.id) !== demandProfile.id) continue;
             if (!presence.location) continue;
             if (encodeGeohash(
                 presence.location.lat, presence.location.lon, DEMAND_GEOHASH_PRECISION
@@ -3836,8 +3587,7 @@ app.get('/api/demand', publicRateLimiter, (req, res) => {
             available,
             // What a request from this cell would price at right now, so the
             // number a driver sees is the number they would actually earn
-            multiplier: demandProfile.features.settlementRequired === false
-                ? 1 : surgeFor({ lat: centre.lat, lon: centre.lon }, demandProfile.id).multiplier
+            multiplier: surgeFor({ lat: centre.lat, lon: centre.lon }).multiplier
         });
     }
 
@@ -3848,7 +3598,7 @@ app.get('/api/demand', publicRateLimiter, (req, res) => {
         cells: list.slice(0, 20),
         precision: DEMAND_GEOHASH_PRECISION,
         min_waiting: DEMAND_MIN_WAITING,
-        surge_enabled: demandProfile.features.settlementRequired !== false && SURGE_ENABLED,
+        surge_enabled: SURGE_ENABLED,
         generated_at: now
     });
 });
@@ -3864,7 +3614,6 @@ app.post('/api/rides/:rideId/payment-methods', async (req, res) => {
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
         }
-        if (rejectSettlementWhenNotRequired(res, ride)) return;
         const authErr = authoriseRideActor(req, ride, ['provider']);
         if (authErr) {
             return res.status(authErr.status).json(authErr);
@@ -3904,7 +3653,6 @@ app.get('/api/rides/:rideId/payment-options', optionalNip98, (req, res) => {
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
         }
-        if (rejectSettlementWhenNotRequired(res, ride)) return;
         const authErr = authoriseRideActor(req, ride);
         if (authErr) {
             return res.status(authErr.status).json(authErr);
@@ -3933,7 +3681,6 @@ app.post('/api/rides/:rideId/pay-instruction', async (req, res) => {
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
         }
-        if (rejectSettlementWhenNotRequired(res, ride)) return;
         const authErr = authoriseRideActor(req, ride, ['requester']);
         if (authErr) {
             return res.status(authErr.status).json(authErr);
@@ -3985,7 +3732,6 @@ app.post('/api/rides/:rideId/settle', async (req, res) => {
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
         }
-        if (rejectSettlementWhenNotRequired(res, ride)) return;
         const authErr = authoriseRideActor(req, ride, ['requester']);
         if (authErr) {
             return res.status(authErr.status).json(authErr);
@@ -4062,7 +3808,6 @@ app.post('/api/rides/:rideId/confirm-received', async (req, res) => {
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
         }
-        if (rejectSettlementWhenNotRequired(res, ride)) return;
         const authErr = authoriseRideActor(req, ride, ['provider']);
         if (authErr) {
             return res.status(authErr.status).json(authErr);
@@ -4126,9 +3871,6 @@ app.get('/api/participants/:pubkey/active', optionalNip98, (req, res) => {
 // entries (demo/simulator fleets). Optional ?lat/&lon/&radius filter.
 app.get('/api/drivers/available', publicRateLimiter, async (req, res) => {
     try {
-        let availableProfile;
-        try { availableProfile = req.query.domain ? loadProfile(req.query.domain) : domainProfile; }
-        catch (_error) { return res.status(400).json({ error: 'Unknown domain profile' }); }
         const byKey = new Map();
 
         // Live presence from real connected drivers. Positions are rounded
@@ -4143,7 +3885,6 @@ app.get('/api/drivers/available', publicRateLimiter, async (req, res) => {
             if ((now - entry.lastSeen) > DRIVER_PRESENCE_TTL_MS) {
                 continue;
             }
-            if ((entry.domain || domainProfile.id) !== availableProfile.id) continue;
             byKey.set(key, {
                 name: 'Driver',
                 location: coarse(entry.location),
@@ -4172,7 +3913,6 @@ app.get('/api/drivers/available', publicRateLimiter, async (req, res) => {
                 })
             );
             driversData.filter(Boolean).forEach((driver) => {
-                if ((driver.domain || domainProfile.id) !== availableProfile.id) return;
                 const key = (driver.npub || '').toLowerCase();
                 if (key && !byKey.has(key)) {
                     byKey.set(key, {
@@ -4229,7 +3969,7 @@ app.get('/api/drivers/available', publicRateLimiter, async (req, res) => {
 // Driver reports presence + location (used by the driver app while online)
 app.post('/api/drivers/location', async (req, res) => {
     try {
-        const { npub, pubkey, lat, lon, areas, gender, women_only, service_options, access_features, domain } = req.body || {};
+        const { npub, pubkey, lat, lon, areas, gender, women_only, service_options, access_features } = req.body || {};
         const signerPubkey = req.user?.pubkey || null;
 
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
@@ -4244,13 +3984,6 @@ app.post('/api/drivers/location', async (req, res) => {
             });
         }
 
-        let locationProfile;
-        try { locationProfile = domain ? loadProfile(domain) : domainProfile; }
-        catch (_error) { return res.status(400).json({ error: 'Unknown domain profile' }); }
-        const runtimeStatus = domainRuntimeStatus(locationProfile);
-        if (!runtimeStatus.operational) {
-            return res.status(503).json({ error: runtimeStatus.unavailableReason });
-        }
         const entry = updateDriverPresence({
             npub,
             pubkey: pubkey || signerPubkey,
@@ -4258,9 +3991,8 @@ app.post('/api/drivers/location', async (req, res) => {
             areas: sanitiseWorkingAreas(areas),
             gender,
             womenOnly: women_only,
-            accessFeatures: sanitiseAccessNeeds(access_features, locationProfile),
-            serviceOptions: sanitiseServiceOptions(service_options, locationProfile),
-            domain: locationProfile.id
+            accessFeatures: sanitiseAccessNeeds(access_features, domainProfile),
+            serviceOptions: sanitiseServiceOptions(service_options)
         });
 
         if (!entry) {
@@ -4273,9 +4005,8 @@ app.post('/api/drivers/location', async (req, res) => {
             location: { lat, lon },
             gender: gender !== undefined ? sanitiseGender(gender) : undefined,
             womenOnly: women_only !== undefined ? women_only === true : undefined,
-            accessFeatures: sanitiseAccessNeeds(access_features, locationProfile),
-            serviceOptions: sanitiseServiceOptions(service_options, locationProfile),
-            domain: locationProfile.id
+            accessFeatures: sanitiseAccessNeeds(access_features, domainProfile),
+            serviceOptions: sanitiseServiceOptions(service_options)
         });
 
         res.json({ success: true, lastSeen: entry.lastSeen });
@@ -4294,7 +4025,7 @@ app.get('/api/push/vapid-key', publicRateLimiter, (req, res) => {
 // The push endpoint URL is device-addressing PII: held in memory only.
 app.post('/api/push/subscribe', optionalNip98, (req, res) => {
     try {
-        const { subscription, pubkey, areas, location, gender, women_only, role, access_features, domain } = req.body || {};
+        const { subscription, pubkey, areas, location, gender, women_only, role, access_features } = req.body || {};
         if (nip98Enabled && req.user && pubkey
             && !actorMatchesIdentity(req.user, { pubkey })) {
             return res.status(403).json({
@@ -4312,13 +4043,6 @@ app.post('/api/push/subscribe', optionalNip98, (req, res) => {
         const loc = location && validLatLon(location.lat, location.lon)
             ? { lat: location.lat, lon: location.lon }
             : null;
-        let pushProfile;
-        try { pushProfile = domain ? loadProfile(domain) : domainProfile; }
-        catch (_error) { return res.status(400).json({ error: 'Unknown domain profile' }); }
-        const runtimeStatus = domainRuntimeStatus(pushProfile);
-        if (role !== 'requester' && !runtimeStatus.operational) {
-            return res.status(503).json({ error: runtimeStatus.unavailableReason });
-        }
         pushService.subscribe(subscriber, subscription, {
             // Riders subscribe for "your driver is on the way / is here";
             // only providers are ever swept into job dispatch.
@@ -4327,9 +4051,8 @@ app.post('/api/push/subscribe', optionalNip98, (req, res) => {
             location: loc,
             gender: sanitiseGender(gender),
             womenOnly: women_only === true,
-            accessFeatures: sanitiseAccessNeeds(access_features, pushProfile),
-            serviceOptions: sanitiseServiceOptions(req.body.service_options, pushProfile),
-            domain: pushProfile.id
+            accessFeatures: sanitiseAccessNeeds(access_features, domainProfile),
+            serviceOptions: sanitiseServiceOptions(req.body.service_options)
         });
         res.json({ success: true });
     } catch (error) {
@@ -4437,37 +4160,29 @@ app.get('/api/drivers/:pubkey/earnings', optionalNip98, async (req, res) => {
 // Estimate trip cost
 app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
     try {
-        const { pickup_lat, pickup_lon, dropoff_lat, dropoff_lon, currency, stops, domain } = req.body;
+        const { pickup_lat, pickup_lon, dropoff_lat, dropoff_lon, currency, stops } = req.body;
         const fiatCurrency = resolveFiatCurrency(currency);
-        let estimateProfile;
-        try {
-            estimateProfile = domain ? loadProfile(domain) : domainProfile;
-        } catch (_error) {
-            return res.status(400).json({ error: 'Unknown domain profile' });
-        }
 
         // Validate inputs
-        if (!isValidLat(pickup_lat) || !isValidLon(pickup_lon)
-            || !isValidLat(dropoff_lat) || !isValidLon(dropoff_lon)) {
+        if (!pickup_lat || !pickup_lon || !dropoff_lat || !dropoff_lon) {
             return res.status(400).json({
-                error: 'Pickup and dropoff must contain valid coordinates',
+                error: 'Missing required parameters',
                 required: ['pickup_lat', 'pickup_lon', 'dropoff_lat', 'dropoff_lon']
             });
         }
 
         // Intermediate stops, so a multi-stop quote covers the detour
-        const parsedStops = parseStops(stops);
-        if (parsedStops.error) {
-            return res.status(400).json({ error: parsedStops.error });
-        }
-        const via = parsedStops.stops || [];
+        const via = Array.isArray(stops)
+            ? stops
+                .map((s) => ({ lat: Number(s?.lat), lon: Number(s?.lon != null ? s.lon : s?.lng) }))
+                .filter((s) => isValidLat(s.lat) && isValidLon(s.lon))
+                .slice(0, 3)
+            : [];
 
         // Demand pricing, if this operator runs it. Resolved once and
         // carried into the response so the rider sees the multiplier on the
         // confirm screen — never discovered afterwards on a receipt.
-        const surge = estimateProfile.features.settlementRequired === false
-            ? { multiplier: 1, enabled: false, waiting: 0, available: 0 }
-            : surgeFor({ lat: pickup_lat, lon: pickup_lon }, estimateProfile.id);
+        const surge = surgeFor({ lat: pickup_lat, lon: pickup_lon });
 
         // THE upfront-price guarantee: this is the same routing and pricing
         // path /api/rides/request uses, so the number the rider approves here
@@ -4477,7 +4192,7 @@ app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
             await routeAndPrice(
                 { lat: pickup_lat, lon: pickup_lon },
                 { lat: dropoff_lat, lon: dropoff_lon },
-                via, fiatCurrency, surge.multiplier, estimateProfile
+                via, fiatCurrency, surge.multiplier
             );
 
         // Per-class prices so the picker shows real numbers, not a
@@ -4486,13 +4201,11 @@ app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
         // What each class was priced at, kept for the quote. Not part of the
         // response — the client already has fareSats per class.
         const pricedByOption = {};
-        for (const option of (estimateProfile.serviceOptions || [])) {
+        for (const option of (domainProfile.serviceOptions || [])) {
             // Class multiplier composes with demand: an XL in a surge is
             // one rate card scaled once, so its breakdown still sums
             const combined = option.fareMultiplier * surge.multiplier;
-            const priced = estimateProfile.features.settlementRequired === false
-                ? estimate
-                : combined === surge.multiplier
+            const priced = combined === surge.multiplier
                 ? estimate
                 : await estimateTripCost(
                     distance, duration, rateCardOptions(fiatCurrency, combined)
@@ -4553,7 +4266,7 @@ app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
 
     } catch (error) {
         console.error('Error estimating trip cost:', error);
-        res.status(error.statusCode || 500).json({
+        res.status(500).json({
             error: 'Failed to estimate trip cost',
             details: error.message
         });
@@ -4671,8 +4384,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 pickup_address,
                 dropoff_address,
                 option,
-                preferred_providers,
-                passengers
+                preferred_providers
             } = req.body;
 
             // Intermediate stops (multi-stop trips) — visited in order
@@ -4682,7 +4394,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             if (parsedStops.error) {
                 return res.status(400).json({ error: parsedStops.error });
             }
-            let rideStops = parsedStops.stops && parsedStops.stops.length > 0
+            const rideStops = parsedStops.stops && parsedStops.stops.length > 0
                 ? parsedStops.stops
                 : null;
 
@@ -4705,16 +4417,9 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             }
 
             // Use request-specified domain profile if provided, else the server's startup profile
-            let requestProfile;
-            try {
-                requestProfile = domain ? loadProfile(domain) : domainProfile;
-            } catch (_error) {
-                return res.status(400).json({ error: 'Unknown domain profile' });
-            }
-            const runtimeStatus = domainRuntimeStatus(requestProfile);
-            if (!runtimeStatus.operational) {
-                return res.status(503).json({ error: runtimeStatus.unavailableReason });
-            }
+            const requestProfile = domain && domain !== domainProfile.id
+                ? (() => { try { return loadProfile(domain); } catch { return domainProfile; } })()
+                : domainProfile;
 
             const fiatCurrency = resolveFiatCurrency(currency);
 
@@ -4741,11 +4446,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 }
             }
 
-            const settlementRequired = requestProfile.features.settlementRequired !== false;
-            if (!settlementRequired && fare_sats != null && Number(fare_sats) !== 0) {
-                return res.status(400).json({ error: 'This domain does not permit a fare' });
-            }
-            if (settlementRequired && fare_sats != null && !isPositiveInt(fare_sats, 100000000)) {
+            if (fare_sats != null && !isPositiveInt(fare_sats, 100000000)) {
                 return res.status(400).json({ error: 'fare_sats must be a positive integer' });
             }
 
@@ -4757,14 +4458,10 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 return res.status(400).json({ error: 'rider_npub or rider_pubkey is required' });
             }
             const rideOptions = ride_id ? { rideId: ride_id } : {};
-            if (requestProfile.features.multiPassengerHandoffs && !rideOptions.rideId) {
-                rideOptions.rideId = `task_${crypto.randomUUID().split('-')[0]}`;
-            }
             const sessionForRide = ride_id ? activeRides.get(ride_id) : null;
             const riderPubkeyHex = (sessionForRide?.riderId || req.body.rider_pubkey || '').toLowerCase() || null;
             rideOptions.currency = fiatCurrency;
             rideOptions.domain = requestProfile.id;
-            rideOptions.settlementRequired = settlementRequired;
             if (scheduledFor) {
                 rideOptions.scheduledFor = scheduledFor;
             }
@@ -4772,41 +4469,20 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 rideOptions.stops = rideStops;
             }
 
-            const hasDropoff = dropoff_lat != null && dropoff_lon != null;
+            const hasDropoff = dropoff_lat && dropoff_lon;
+            // Stops without a destination make no sense — quietly ignore them
+            // for single-location domains rather than reject
+            const routeVia = (hasDropoff && rideStops) ? rideStops : [];
+
             // Service class (Standard / Comfort / XL): scales the rate card
             const serviceOption = resolveServiceOption(option, requestProfile);
-
-            if (requestProfile.features.multiPassengerHandoffs) {
-                const parsedPassengers = parseJourneyPassengers(passengers, rideOptions.rideId);
-                if (parsedPassengers.error) {
-                    return res.status(400).json({ error: parsedPassengers.error });
-                }
-                const passengerList = parsedPassengers.passengers;
-                if (serviceOption?.seats && passengerList.length > serviceOption.seats) {
-                    return res.status(400).json({
-                        error: `${serviceOption.label} has ${serviceOption.seats} passenger seats`
-                    });
-                }
-                const last = passengerList[passengerList.length - 1].dropoff;
-                if (!hasDropoff
-                    || calculateDistance(last.lat, last.lon, Number(dropoff_lat), Number(dropoff_lon)) > 0.05) {
-                    return res.status(400).json({ error: 'The last passenger dropoff must match the journey destination' });
-                }
-                rideStops = passengerList.slice(0, -1).map((p) => ({ ...p.dropoff }));
-                rideOptions.stops = rideStops.length > 0 ? rideStops : null;
-                rideOptions.passengers = passengerList;
-            }
-
-            const routeVia = (hasDropoff && rideStops) ? rideStops : [];
 
             // The SAME demand multiplier the quote used. Recomputing it here
             // is deliberate — surge moves with the market, and a quote taken
             // minutes ago must not silently reprice on tap. The client sends
             // back the multiplier it was shown; anything higher is refused
             // below, so the rider can only ever be charged what they saw.
-            const liveSurge = settlementRequired
-                ? surgeFor({ lat: pickup_lat, lon: pickup_lon }, requestProfile.id)
-                : { multiplier: 1, enabled: false, waiting: 0, available: 0 };
+            const liveSurge = surgeFor({ lat: pickup_lat, lon: pickup_lon });
             const quotedSurge = Number(req.body.surge_multiplier);
             const honouredSurge = Number.isFinite(quotedSurge) && quotedSurge > 0
                 ? Math.min(liveSurge.multiplier, Math.max(1, quotedSurge))
@@ -4819,8 +4495,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                     { lat: pickup_lat, lon: pickup_lon },
                     hasDropoff ? { lat: dropoff_lat, lon: dropoff_lon } : null,
                     routeVia, fiatCurrency,
-                    (serviceOption?.fareMultiplier || 1) * honouredSurge,
-                    requestProfile
+                    (serviceOption?.fareMultiplier || 1) * honouredSurge
                 );
             if (!hasDropoff) {
                 console.log(`📍 Single-location task — no route needed`);
@@ -4857,9 +4532,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                     : `💱 Quote ${req.body.quote_id} not honoured (expired or different journey) — re-priced live`);
             }
 
-            const estimatedFareSats = !settlementRequired
-                ? 0
-                : fare_sats
+            const estimatedFareSats = fare_sats
                 ? parseInt(fare_sats, 10)
                 : (quotedFare ? quotedFare.sats : estimate.fare.sats);
             // Everything downstream (breakdown rows, the driver's card, the
@@ -4999,8 +4672,6 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                         dropoff: approximateLocation(ride.dropoff),
                         // Count only pre-accept — stop locations are PII
                         stopCount: ride.stops ? ride.stops.length : 0,
-                        passengerCount: ride.passengers ? ride.passengers.length : 0,
-                        domain: ride.domain,
                         fare: ride.fare,
                         distance: distance,
                         estimatedFare: pricedEstimate,
@@ -5041,8 +4712,6 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 women_only: ride.womenOnly === true,
                 access_needs: ride.accessNeeds || [],
                 option: ride.option || null,
-                passenger_count: ride.passengers ? ride.passengers.length : 0,
-                settlement_required: settlementRequired,
                 // What was actually applied — never more than the rider saw
                 surge_multiplier: honouredSurge,
                 favourites_first: inFavouriteWindow(ride),
@@ -5053,7 +4722,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
 
     } catch (error) {
         console.error('Error requesting ride:', error);
-        res.status(error.statusCode || 500).json({
+        res.status(500).json({
             error: 'Failed to request ride',
             details: error.message
         });
@@ -5109,17 +4778,6 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
         // self-attested (pseudonymous system) — the claim comes from the
         // accept body or the driver's registered presence.
         const pendingRide = rideManager.getRide(rideId);
-        if (!pendingRide) {
-            return res.status(404).json({ error: 'Ride not found' });
-        }
-        const acceptingPresence = getDriverPresence(driver_npub || driver_pubkey);
-        const declaredDomain = req.body.domain || acceptingPresence?.domain || null;
-        if (declaredDomain && declaredDomain !== pendingRide.domain) {
-            return res.status(403).json({
-                error: 'Wrong task domain',
-                details: `This provider is online for '${declaredDomain}', not '${pendingRide.domain}'.`
-            });
-        }
         if (pendingRide?.womenOnly) {
             const claimed = sanitiseGender(req.body.gender)
                 || getDriverPresence(driver_npub || driver_pubkey)?.gender
@@ -5351,9 +5009,7 @@ app.post('/api/rides/:rideId/location', async (req, res) => {
         if (ride.status === rideProfile.states.values.PROVIDER_EN_ROUTE) {
             destination = ride.pickup;
         } else if (ride.status === rideProfile.states.values.ACTIVE) {
-            destination = rideProfile.features.multiPassengerHandoffs
-                ? (ride.passengers || []).find((p) => p.handoffStatus !== 'handed_off')?.dropoff
-                : ride.dropoff;
+            destination = ride.dropoff;
         }
 
         // Calculate ETA if we have a destination
@@ -5479,30 +5135,29 @@ app.post('/api/rides/:rideId/pickup', async (req, res) => {
         let distance = 0;
         let duration = 0;
         let routeCoordinates = null;
-        let estimate = noteOnly ? (ride.estimate || null) : null;
 
         if (ride.dropoff && !noteOnly) {
             const routeVia = Array.isArray(ride.stops) ? ride.stops : [];
-            const serviceOption = resolveServiceOption(ride.option, rideProfile);
-            const agreedMultiplier = (serviceOption?.fareMultiplier || 1)
-                * (Number.isFinite(ride.surgeMultiplier) && ride.surgeMultiplier > 1
-                    ? ride.surgeMultiplier : 1);
-            const recalculated = await routeAndPrice(
-                newPickup, ride.dropoff, routeVia, fiatCurrency, agreedMultiplier, rideProfile
+            const osrmRoute = await getRoute(
+                newPickup.lat, newPickup.lon, ride.dropoff.lat, ride.dropoff.lon, routeVia
             );
-            distance = recalculated.distance;
-            duration = recalculated.duration;
-            routeCoordinates = recalculated.coordinates;
-            estimate = recalculated.estimate;
+            if (osrmRoute) {
+                distance = parseFloat(osrmRoute.distanceKm);
+                duration = osrmRoute.durationMin;
+                routeCoordinates = osrmRoute.coordinates;
+            } else {
+                const legs = [newPickup, ...routeVia, ride.dropoff];
+                for (let i = 0; i < legs.length - 1; i++) {
+                    distance += calculateDistance(legs[i].lat, legs[i].lon, legs[i + 1].lat, legs[i + 1].lon);
+                }
+                duration = (distance / 45) * 60;
+            }
         }
 
         // A note-only edit touches neither the route nor the price
-        if (!estimate && !noteOnly) {
-            estimate = await estimateTripCost(distance, duration,
-                settlementRequiredFor(ride)
-                    ? rateCardOptions(fiatCurrency)
-                    : { ...rateCardOptions(fiatCurrency), baseFare: 0, perKm: 0, perMinute: 0, operatorFeePct: 0 });
-        }
+        const estimate = noteOnly
+            ? (ride.estimate || null)
+            : await estimateTripCost(distance, duration, rateCardOptions(fiatCurrency));
 
         const updated = rideManager.updatePickup(rideId, newPickup, {
             ...(address !== undefined ? { address } : {}),
@@ -5561,7 +5216,7 @@ app.post('/api/rides/:rideId/pickup', async (req, res) => {
 
     } catch (error) {
         console.error('Error updating pickup:', error);
-        res.status(error.statusCode || 500).json({
+        res.status(500).json({
             error: 'Failed to update pickup',
             details: error.message
         });
@@ -5606,11 +5261,6 @@ app.post('/api/rides/:rideId/dropoff', async (req, res) => {
         }
 
         const rideProfile = rideManager.getProfileForRide(rideId);
-        if (rideProfile.features.multiPassengerHandoffs) {
-            return res.status(409).json({
-                error: 'Edit the passenger drop-off plan before arranging a community lift'
-            });
-        }
         if (rideProfile.features?.requiresDestination === false) {
             return res.status(400).json({
                 error: 'This service has no destination to change',
@@ -5660,7 +5310,7 @@ app.post('/api/rides/:rideId/dropoff', async (req, res) => {
 
         const { distance, duration, coordinates: routeCoordinates, routed, estimate: livePricing } =
             await routeAndPrice(
-                ride.pickup, newDropoff, newStops, fiatCurrency, agreedMultiplier, rideProfile
+                ride.pickup, newDropoff, newStops, fiatCurrency, agreedMultiplier
             );
 
         // Waiting already accrued is not part of the route — carry it over
@@ -5774,7 +5424,7 @@ app.post('/api/rides/:rideId/dropoff', async (req, res) => {
 
     } catch (error) {
         console.error('Error updating destination:', error);
-        res.status(error.statusCode || 500).json({
+        res.status(500).json({
             error: 'Failed to update destination',
             details: error.message
         });
@@ -5854,7 +5504,7 @@ app.post('/api/rides/:rideId/start', async (req, res) => {
         const arrivedAt = ride.timestamps?.providerArrived
             || ride.timestamps?.driverArrived
             || null;
-        if (settlementRequiredFor(ride) && arrivedAt && !ride.waiting && FREE_WAITING_MINUTES >= 0) {
+        if (arrivedAt && !ride.waiting && FREE_WAITING_MINUTES >= 0) {
             const waitedMinutes = (Date.now() - arrivedAt) / 60000;
             const chargeable = Math.max(0, waitedMinutes - FREE_WAITING_MINUTES);
             if (chargeable >= 1) {
@@ -5896,148 +5546,6 @@ app.post('/api/rides/:rideId/start', async (req, res) => {
             error: 'Failed to start trip',
             details: error.message
         });
-    }
-});
-
-// Ordered passenger drop-offs for community lifts. The driver never receives
-// the code: they type what the receiving guardian tells them, and the server
-// compares it with a persisted HMAC.
-app.post('/api/rides/:rideId/handoffs/:passengerId/arrive', async (req, res) => {
-    try {
-        const { rideId, passengerId } = req.params;
-        const ride = rideManager.getRide(rideId);
-        if (!ride) return res.status(404).json({ error: 'Ride not found' });
-        const profile = rideManager.getProfileForRide(rideId);
-        if (!profile.features.multiPassengerHandoffs) {
-            return res.status(409).json({ error: 'This task does not use passenger handoffs' });
-        }
-        const authErr = authoriseRideActor(req, ride, ['provider']);
-        if (authErr) return res.status(authErr.status).json(authErr);
-        if (ride.status !== profile.states.values.ACTIVE) {
-            return res.status(409).json({ error: 'The lift must be active before a drop-off can be confirmed' });
-        }
-        const next = (ride.passengers || []).find((p) => p.handoffStatus !== 'handed_off');
-        if (!next || next.id !== passengerId) {
-            return res.status(409).json({ error: 'Passenger drop-offs must be completed in route order' });
-        }
-        if (next.handoffStatus === 'pending') {
-            next.handoffStatus = 'arrived';
-            next.arrivedAt = new Date().toISOString();
-            rideManager.persistRide(rideId);
-            broadcastToRide(rideId, {
-                type: 'handoff_updated', ride_id: rideId, passenger: next
-            });
-            pushToParticipant(ride, ride.requester || ride.rider, {
-                // Lock-screen notifications can be visible to bystanders.
-                // Keep the child's name inside the authenticated app.
-                title: 'Driver arrived at a drop-off',
-                body: 'Open the app for the next handoff code',
-                url: '/request/active'
-            });
-        }
-        res.json({ success: true, ride, passenger: next });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to record passenger arrival', details: safeErrorMessage(error) });
-    }
-});
-
-app.post('/api/rides/:rideId/handoffs/:passengerId/confirm', async (req, res) => {
-    try {
-        const { rideId, passengerId } = req.params;
-        const ride = rideManager.getRide(rideId);
-        if (!ride) return res.status(404).json({ error: 'Ride not found' });
-        const profile = rideManager.getProfileForRide(rideId);
-        if (!profile.features.multiPassengerHandoffs) {
-            return res.status(409).json({ error: 'This task does not use passenger handoffs' });
-        }
-        const authErr = authoriseRideActor(req, ride, ['provider']);
-        if (authErr) return res.status(authErr.status).json(authErr);
-        if (ride.status !== profile.states.values.ACTIVE) {
-            return res.status(409).json({ error: 'The lift must be active before a handoff can be confirmed' });
-        }
-        const passenger = (ride.passengers || []).find((p) => p.id === passengerId);
-        if (!passenger) return res.status(404).json({ error: 'Passenger not found' });
-        const next = ride.passengers.find((p) => p.handoffStatus !== 'handed_off');
-        if (next?.id !== passengerId || passenger.handoffStatus !== 'arrived') {
-            return res.status(409).json({ error: 'Mark arrival for the next passenger before confirming handoff' });
-        }
-        const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
-        if (!/^\d{4}$/.test(code)) {
-            return res.status(400).json({ error: 'Enter the four-digit handoff code' });
-        }
-        const attemptState = getHandoffAttemptState(rideId, passengerId);
-        if (attemptState.attempts >= HANDOFF_MAX_ATTEMPTS) {
-            const retryAfterSeconds = Math.max(1, Math.ceil((attemptState.resetAt - Date.now()) / 1000));
-            res.setHeader('Retry-After', String(retryAfterSeconds));
-            return res.status(429).json({
-                error: 'Too many incorrect handoff codes',
-                retry_after_seconds: retryAfterSeconds
-            });
-        }
-        const actual = Buffer.from(handoffDigest(rideId, passengerId, code), 'hex');
-        const expected = Buffer.from(passenger.handoffCodeDigest || '', 'hex');
-        if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) {
-            attemptState.attempts += 1;
-            if (attemptState.attempts >= HANDOFF_MAX_ATTEMPTS) {
-                const retryAfterSeconds = Math.max(1, Math.ceil((attemptState.resetAt - Date.now()) / 1000));
-                res.setHeader('Retry-After', String(retryAfterSeconds));
-                return res.status(429).json({
-                    error: 'Too many incorrect handoff codes',
-                    retry_after_seconds: retryAfterSeconds
-                });
-            }
-            return res.status(403).json({
-                error: 'Handoff code does not match',
-                attempts_remaining: HANDOFF_MAX_ATTEMPTS - attemptState.attempts
-            });
-        }
-        clearHandoffAttempts(rideId, passengerId);
-        passenger.handoffStatus = 'handed_off';
-        passenger.handedOffAt = new Date().toISOString();
-        rideManager.persistRide(rideId);
-        broadcastToRide(rideId, {
-            type: 'handoff_updated', ride_id: rideId, passenger
-        });
-        res.json({ success: true, ride, passenger });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to confirm passenger handoff', details: safeErrorMessage(error) });
-    }
-});
-
-app.post('/api/rides/:rideId/handoffs/:passengerId/reset-code', async (req, res) => {
-    try {
-        const { rideId, passengerId } = req.params;
-        const ride = rideManager.getRide(rideId);
-        if (!ride) return res.status(404).json({ error: 'Ride not found' });
-        const profile = rideManager.getProfileForRide(rideId);
-        if (!profile.features.multiPassengerHandoffs) {
-            return res.status(409).json({ error: 'This task does not use passenger handoffs' });
-        }
-        const authErr = authoriseRideActor(req, ride, ['requester']);
-        if (authErr) return res.status(authErr.status).json(authErr);
-        if ((profile.states.terminal || []).includes(ride.status)) {
-            return res.status(409).json({ error: 'This lift has already ended' });
-        }
-        const passenger = (ride.passengers || []).find((p) => p.id === passengerId);
-        if (!passenger) return res.status(404).json({ error: 'Passenger not found' });
-        if (passenger.handoffStatus === 'handed_off') {
-            return res.status(409).json({ error: 'This passenger handoff is already complete' });
-        }
-        const code = typeof req.body?.code === 'string' ? req.body.code.trim() : '';
-        if (!/^\d{4}$/.test(code)) {
-            return res.status(400).json({ error: 'Enter a four-digit replacement code' });
-        }
-        passenger.handoffCodeDigest = handoffDigest(rideId, passengerId, code);
-        passenger.codeResetAt = new Date().toISOString();
-        clearHandoffAttempts(rideId, passengerId);
-        rideManager.persistRide(rideId);
-        broadcastToRide(rideId, {
-            type: 'handoff_updated', ride_id: rideId,
-            passenger: { id: passenger.id, handoffStatus: passenger.handoffStatus }
-        });
-        res.json({ success: true, passenger: { id: passenger.id, handoffStatus: passenger.handoffStatus } });
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to replace handoff code', details: safeErrorMessage(error) });
     }
 });
 
@@ -6545,7 +6053,6 @@ app.post('/api/rides/:rideId/tip', async (req, res) => {
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
         }
-        if (rejectSettlementWhenNotRequired(res, ride)) return;
 
         const authErr = authoriseRideActor(req, ride, ['requester']);
         if (authErr) {
@@ -7848,20 +7355,6 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
             return res.status(authErr.status).json(authErr);
         }
 
-        const completionProfile = rideManager.getProfileForRide(rideId);
-        if (completionProfile.features.multiPassengerHandoffs) {
-            if (!Array.isArray(ride.passengers) || ride.passengers.length === 0) {
-                return res.status(409).json({ error: 'This lift has no recoverable passenger handoff plan' });
-            }
-            const incomplete = (ride.passengers || []).filter((p) => p.handoffStatus !== 'handed_off');
-            if (incomplete.length > 0) {
-                return res.status(409).json({
-                    error: 'Every passenger handoff must be confirmed before completing this lift',
-                    incomplete: incomplete.map((p) => p.id)
-                });
-            }
-        }
-
         // Settle via the configured payment provider — every payment record
         // carries an explicit method, amount, currency and trust_model, never
         // a fake payment hash dressed up as real settlement.
@@ -7877,31 +7370,15 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
         // who settled in pounds (derived on demand, so it survives rehydration).
         const fareSats = Number(ride.fare) || 0;
         let fareFiat = null;
-        if (settlementRequiredFor(ride)) {
-            try {
-                const converted = await satsToFiat(fareSats, currency);
-                fareFiat = { amount: converted.amount, currency };
-            } catch (_err) {
-                fareFiat = null; // no price available — omit rather than invent one
-            }
+        try {
+            const converted = await satsToFiat(fareSats, currency);
+            fareFiat = { amount: converted.amount, currency };
+        } catch (_err) {
+            fareFiat = null; // no price available — omit rather than invent one
         }
 
         let payment;
-        if (!settlementRequiredFor(ride)) {
-            payment = {
-                success: true,
-                method: 'none',
-                status: 'not_required',
-                amount: 0,
-                currency: 'SAT',
-                fiat: null,
-                trust_model: 'not_applicable',
-                custody: 'none',
-                operator_transmitted: 0,
-                settlement: 'not_required',
-                timestamp: Date.now()
-            };
-        } else if (paymentProvider && typeof paymentProvider.recordSettlement === 'function') {
+        if (paymentProvider && typeof paymentProvider.recordSettlement === 'function') {
             // Record-only rails (cash): the fare changes hands face-to-face.
             // The operator records that it happened; it moves no money itself.
             const record = await paymentProvider.recordSettlement(rideId, fareSats, 'SAT');
@@ -8016,12 +7493,6 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
 // so 'open' is not captured as a ride id.
 app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
     try {
-        let browsingProfile;
-        try {
-            browsingProfile = req.query.domain ? loadProfile(req.query.domain) : domainProfile;
-        } catch (_error) {
-            return res.status(400).json({ error: 'Unknown domain profile' });
-        }
         const lat = parseFloat(req.query.lat);
         const lon = parseFloat(req.query.lon ?? req.query.lng);
         const areas = sanitiseWorkingAreas(
@@ -8035,8 +7506,7 @@ app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
         const browsingOptions = sanitiseServiceOptions(
             typeof req.query.options === 'string' && req.query.options.length > 0
                 ? req.query.options.split(',')
-                : null,
-            browsingProfile
+                : null
         ) || [];
         // Access features this browser can provide (?access=wheelchair,…).
         // Declaring none is the safe default: jobs with needs stay hidden.
@@ -8044,7 +7514,7 @@ app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
             typeof req.query.access === 'string' && req.query.access.length > 0
                 ? req.query.access.split(',')
                 : null,
-            browsingProfile
+            domainProfile
         );
         const browsingPubkey = ((nip98Enabled && req.user?.pubkey) || req.query.pubkey || '').toLowerCase();
 
@@ -8053,7 +7523,6 @@ app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
                 const p = rideManager.getProfileForRide(ride.id);
                 return ride.status === p.states.values.REQUESTED;
             })
-            .filter((ride) => ride.domain === browsingProfile.id)
             .filter((ride) => {
                 const pickup = ride.pickup;
                 if (!pickup || !Number.isFinite(pickup.lat) || !Number.isFinite(pickup.lon)) {
@@ -8092,8 +7561,6 @@ app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
                     pickup: approximateLocation(ride.pickup),
                     dropoff: approximateLocation(ride.dropoff),
                     stopCount: ride.stops ? ride.stops.length : 0,
-                    passengerCount: ride.passengers ? ride.passengers.length : 0,
-                    domain: ride.domain,
                     fare: ride.fare,
                     distance: distanceKm,
                     estimatedFare: estimate,
@@ -8190,7 +7657,6 @@ app.get('/api/domains', publicRateLimiter, (req, res) => {
     const details = profiles.map(id => {
         try {
             const profile = loadProfile(id);
-            const runtimeStatus = domainRuntimeStatus(profile);
             return {
                 id: profile.id,
                 name: profile.name,
@@ -8199,7 +7665,6 @@ app.get('/api/domains', publicRateLimiter, (req, res) => {
                 roles: profile.roles,
                 discoveryMethod: profile.discoveryMethod,
                 pricingModel: profile.pricingModel,
-                ...runtimeStatus,
                 features: profile.features,
                 states: Object.values(profile.states.values)
             };
@@ -8217,7 +7682,6 @@ app.get('/api/domains', publicRateLimiter, (req, res) => {
 
 // Get current domain profile details
 app.get('/api/domains/current', publicRateLimiter, (req, res) => {
-    const runtimeStatus = domainRuntimeStatus(domainProfile);
     res.json({
         id: domainProfile.id,
         name: domainProfile.name,
@@ -8226,7 +7690,6 @@ app.get('/api/domains/current', publicRateLimiter, (req, res) => {
         labels: domainProfile.labels,
         discoveryMethod: domainProfile.discoveryMethod,
         pricingModel: domainProfile.pricingModel,
-        ...runtimeStatus,
         serviceOptions: domainProfile.serviceOptions || [],
         // Without this the access-needs picker has nothing to render, and a
         // wheelchair user is quietly offered no way to say so.
@@ -8254,7 +7717,6 @@ app.get('/api/domains/current', publicRateLimiter, (req, res) => {
 app.get('/api/domains/:id', publicRateLimiter, (req, res) => {
     try {
         const profile = loadProfile(req.params.id);
-        const runtimeStatus = domainRuntimeStatus(profile);
         res.json({
             id: profile.id,
             name: profile.name,
@@ -8263,7 +7725,6 @@ app.get('/api/domains/:id', publicRateLimiter, (req, res) => {
             labels: profile.labels,
             discoveryMethod: profile.discoveryMethod,
             pricingModel: profile.pricingModel,
-            ...runtimeStatus,
             serviceOptions: profile.serviceOptions || [],
             accessOptions: profile.accessOptions || [],
             credentials: profile.credentials || [],

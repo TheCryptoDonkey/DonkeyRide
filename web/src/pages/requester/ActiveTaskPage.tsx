@@ -30,7 +30,6 @@ import { useWebSocket } from '../../hooks/useWebSocket';
 import {
   triggerPanic, cancelTask, getTask, acceptQuote, declineQuote, reportNoShow,
   reportLateCancel, getOperatorInfoCached, updateTaskPickup,
-  resetPassengerHandoffCode,
 } from '../../services/api';
 import { reverseGeocode } from '../../utils/reverse-geocode';
 import { QuotePanel } from '../../components/task/QuotePanel';
@@ -48,7 +47,6 @@ import { describeVehicle } from '../../utils/vehicle';
 import { arrivalClock, etaMinutes, remainingSeconds } from '../../utils/eta';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import { getAgreedRate } from '../../utils/agreed-rate';
-import { generateHandoffCode, loadHandoffCodes, saveHandoffCodes } from '../../utils/handoff-codes';
 import type { WsMessage, Task, LatLng, OperatorPaymentInfo } from '../../types/api';
 
 export function ActiveTaskPage() {
@@ -67,15 +65,12 @@ export function ActiveTaskPage() {
   const [cancelReason, setCancelReason] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [payment, setPayment] = useState<OperatorPaymentInfo | null>(null);
-  const [handoffCodes, setHandoffCodes] = useState<Record<string, string>>({});
 
   const originLabel = profile?.labels?.originLabel || 'Pickup';
   const destinationLabel = profile?.labels?.destinationLabel || 'Dropoff';
   const taskNoun = profile?.labels?.taskNoun || 'task';
   const requiresDestination = profile?.features.requiresDestination !== false;
   const providerRoleLabel = profile?.roles.provider || 'Provider';
-  const settlementRequired = profile?.features.settlementRequired !== false;
-  const usesPassengerHandoffs = profile?.features.multiPassengerHandoffs === true;
 
   const terminalStates = profile?.states.terminal || [];
   const cancelledValue = profile?.states.values.CANCELLED || 'cancelled';
@@ -86,10 +81,6 @@ export function ActiveTaskPage() {
     if (!activeTask) navigate('/request');
   }, [activeTask, navigate]);
 
-  useEffect(() => {
-    setHandoffCodes(activeTask ? loadHandoffCodes(activeTask.id) : {});
-  }, [activeTask?.id]);
-
   // Put `origin` back from the task after an app restart. It is held in
   // sessionStorage (a pre-request convenience) while the task itself is
   // durable, so reopening the app mid-trip leaves the two out of step.
@@ -99,11 +90,10 @@ export function ActiveTaskPage() {
 
   // Honest payment copy needs to know the rail
   useEffect(() => {
-    if (!settlementRequired) return;
     getOperatorInfoCached()
       .then((info) => setPayment(info.payment || null))
       .catch(() => {});
-  }, [settlementRequired]);
+  }, []);
 
   // Live search progress while nobody has accepted yet
   const [search, setSearch] = useState<{
@@ -201,9 +191,6 @@ export function ActiveTaskPage() {
         break;
       case 'settlement_confirmed':
         showToast(t('active.paymentConfirmed'));
-        void refreshTask();
-        break;
-      case 'handoff_updated':
         void refreshTask();
         break;
       case 'scheduled_reminder':
@@ -443,20 +430,6 @@ export function ActiveTaskPage() {
   // The dropoff is a last resort so the map still has somewhere to sit if a
   // restart left us with neither a provider fix nor a pickup yet.
   const centre = providerLocation || pickupPoint || activeTask.dropoff || null;
-  const replaceHandoffCode = async (passengerId: string) => {
-    const code = generateHandoffCode();
-    try {
-      await resetPassengerHandoffCode(
-        activeTask.id, passengerId, code, activeTask.operatorBase,
-      );
-      const updated = { ...handoffCodes, [passengerId]: code };
-      saveHandoffCodes(activeTask.id, updated);
-      setHandoffCodes(updated);
-      showToast(t('lift.replacementCreated'));
-    } catch (err) {
-      showToast(err instanceof Error ? err.message : t('lift.replacementFailed'), { type: 'error' });
-    }
-  };
 
   return (
     <div className="h-full flex flex-col">
@@ -532,15 +505,11 @@ export function ActiveTaskPage() {
           {/* The headline the rider watches for the whole journey. Through
               the agreed rate, or it drifts a penny at a time against the
               number they tapped to book. */}
-          {settlementRequired ? (
-            <DualPrice
-              sats={activeTask.fareEstimateSats}
-              size="sm"
-              ratesOverride={getAgreedRate(activeTask.id)}
-            />
-          ) : (
-            <span className="text-xs font-bold text-donkey-green">{t('lift.noPayment')}</span>
-          )}
+          <DualPrice
+            sats={activeTask.fareEstimateSats}
+            size="sm"
+            ratesOverride={getAgreedRate(activeTask.id)}
+          />
         </div>
 
         {/* Nobody has taken it yet — show that the search is alive */}
@@ -632,7 +601,7 @@ export function ActiveTaskPage() {
         {matched && <CredentialsCard credentials={activeTask.providerCredentials} />}
 
         {/* Waiting time — a running meter belongs in front of both parties */}
-        {settlementRequired && <WaitingTimer task={activeTask} role="requester" />}
+        <WaitingTimer task={activeTask} role="requester" />
 
         {/* Quote review — an unanswered question, never behind a tap */}
         {profile?.features.quoteNegotiation && activeTask.quote &&
@@ -659,62 +628,8 @@ export function ActiveTaskPage() {
         )}
 
         {/* Pay the driver — the current step once the job is under way */}
-        {settlementRequired && activeTask.status === activeValue && (
+        {activeTask.status === activeValue && (
           <PayDriver task={activeTask} settlement={activeTask.settlement} />
-        )}
-
-        {usesPassengerHandoffs && activeTask.passengers && (
-          <SheetSection
-            title={t('lift.dropoffProgress')}
-            icon="👥"
-            badge={`${activeTask.passengers.filter((p) => p.handoffStatus === 'handed_off').length}/${activeTask.passengers.length}`}
-            defaultOpen
-            rememberAs="rider-handoffs"
-          >
-            <p className="text-xs text-donkey-muted">{t('lift.shareCodeHint')}</p>
-            {activeTask.passengers.map((passenger, index) => (
-              <div key={passenger.id} className="meta-card">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-donkey-text">
-                      {index + 1}. {passenger.name}
-                    </p>
-                    {passenger.guardianName && (
-                      <p className="text-xs text-donkey-muted mt-1">
-                        {t('lift.guardian')}: {passenger.guardianName}
-                      </p>
-                    )}
-                    <p className="text-xs text-donkey-muted mt-1 truncate">
-                      {passenger.dropoff.address
-                        || `${passenger.dropoff.lat.toFixed(4)}, ${passenger.dropoff.lng.toFixed(4)}`}
-                    </p>
-                  </div>
-                  {handoffCodes[passenger.id] ? (
-                    <div className="text-right shrink-0">
-                      <p className="meta-label">{t('lift.handoffCode')}</p>
-                      <p
-                        className="text-xl font-black tracking-widest text-donkey-blue"
-                        data-testid={`handoff-code-${passenger.id}`}
-                      >
-                        {handoffCodes[passenger.id]}
-                      </p>
-                    </div>
-                  ) : passenger.handoffStatus !== 'handed_off' ? (
-                    <button
-                      type="button"
-                      className="text-xs font-semibold text-donkey-blue min-h-[44px]"
-                      onClick={() => void replaceHandoffCode(passenger.id)}
-                    >
-                      {t('lift.createReplacement')}
-                    </button>
-                  ) : null}
-                </div>
-                <p className="text-xs font-semibold text-donkey-blue mt-2">
-                  {t(`lift.status.${passenger.handoffStatus}`)}
-                </p>
-              </div>
-            ))}
-          </SheetSection>
         )}
 
         {/* ── Everything below is one tap away ───────────────────────── */}
@@ -752,7 +667,7 @@ export function ActiveTaskPage() {
 
         {/* Plans change mid-journey. Re-prices, and shows the new number
             before anything is committed. */}
-        {requiresDestination && !usesPassengerHandoffs && !terminalStates.includes(activeTask.status) && (
+        {requiresDestination && !terminalStates.includes(activeTask.status) && (
           <SheetSection
             title={t('destination.section', { label: destinationLabel.toLowerCase() })}
             icon="🏁"
@@ -820,7 +735,7 @@ export function ActiveTaskPage() {
         )}
 
         {/* Payment detail: how it settles, and any stake */}
-        {settlementRequired && (payment?.provider === 'cash' || payment?.provider === 'demo'
+        {(payment?.provider === 'cash' || payment?.provider === 'demo'
           || activeTask.requesterStake) && (
           <SheetSection title={t('sheet.payment')} icon="💷" rememberAs="rider-payment">
             {payment?.provider === 'cash' && (

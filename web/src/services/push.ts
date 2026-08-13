@@ -56,7 +56,7 @@ export function onPushStateChange(listener: (state: PushState) => void): () => v
 }
 
 /** Re-subscription details, kept so a rotated endpoint can re-register itself */
-let lastJobSubscribe: { pubkey: string; areas: string[]; location: LatLng | null; domain?: string } | null = null;
+let lastJobSubscribe: { pubkey: string; areas: string[]; location: LatLng | null } | null = null;
 let rotationWatcher: Promise<unknown> | null = null;
 
 /** Decode a URL-safe base64 VAPID key for pushManager.subscribe */
@@ -82,10 +82,9 @@ export async function enableJobPush(
   pubkey: string,
   areas: string[],
   location: LatLng | null,
-  domain?: string,
 ): Promise<boolean> {
   if (unifiedPushSupported()) {
-    return enableNativeJobPush(pubkey, areas, location, domain);
+    return enableNativeJobPush(pubkey, areas, location);
   }
   if (!pushSupported()) {
     setPushState('unsupported');
@@ -129,7 +128,6 @@ export async function enableJobPush(
       // Self-declared, so pushed jobs honour women-only pairing too
       gender: loadGender(),
       women_only: loadWomenOnlyDriver(),
-      domain,
     });
     setPushState('enabled');
     return true;
@@ -150,9 +148,8 @@ async function enableNativeJobPush(
   pubkey: string,
   areas: string[],
   location: LatLng | null,
-  domain?: string,
 ): Promise<boolean> {
-  lastJobSubscribe = { pubkey, areas, location, domain };
+  lastJobSubscribe = { pubkey, areas, location };
   try {
     if (!(await requestNotificationPermission())) {
       setPushState('denied');
@@ -186,7 +183,6 @@ async function enableNativeJobPush(
       location: location ? { lat: location.lat, lon: location.lng } : null,
       gender: loadGender(),
       women_only: loadWomenOnlyDriver(),
-      domain,
     });
     setPushState('enabled');
     watchForRotation();
@@ -215,7 +211,6 @@ function watchForRotation(): void {
         : null,
       gender: loadGender(),
       women_only: loadWomenOnlyDriver(),
-      domain: lastJobSubscribe.domain,
     }).catch(() => {
       setPushState('failed');
     });

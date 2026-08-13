@@ -59,7 +59,7 @@ function isValidSubscription(sub) {
 
 function subscribe(pubkey, subscription, {
     areas = null, location = null, gender = null, womenOnly = false, role = 'provider',
-    serviceOptions = null, domain = null
+    serviceOptions = null
 } = {}) {
     if (!pubkey || !isValidSubscription(subscription)) {
         return false;
@@ -69,7 +69,6 @@ function subscribe(pubkey, subscription, {
         // Riders subscribe too (matched / arrived / cancelled alerts) and
         // must never be swept up in job dispatch — hence the role.
         role: role === 'requester' ? 'requester' : 'provider',
-        domain: typeof domain === 'string' && domain ? domain : null,
         areas: Array.isArray(areas) && areas.length > 0 ? areas : null,
         location: location || null,
         // Self-declared, for women-only matching of pushed jobs
@@ -87,7 +86,7 @@ function unsubscribe(pubkey) {
 }
 
 /** Refresh dispatch targeting (working areas / last location / gender prefs) */
-function updateTargeting(pubkey, { areas, location, gender, womenOnly, serviceOptions, domain } = {}) {
+function updateTargeting(pubkey, { areas, location, gender, womenOnly, serviceOptions } = {}) {
     const entry = subscriptions.get((pubkey || '').toLowerCase());
     if (!entry) {
         return;
@@ -106,9 +105,6 @@ function updateTargeting(pubkey, { areas, location, gender, womenOnly, serviceOp
     }
     if (Array.isArray(serviceOptions)) {
         entry.serviceOptions = serviceOptions;
-    }
-    if (typeof domain === 'string' && domain) {
-        entry.domain = domain;
     }
 }
 
