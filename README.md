@@ -1,218 +1,137 @@
-# DonkeyRide — Reference Implementation of the TROTT Protocol
+# DonkeyRide
 
-> **The reference operator server for trust-minimised service coordination on Nostr**
+DonkeyRide is an installable rider/driver PWA for peer-to-peer journey
+coordination. The normal product is the app, not an operator business.
 
-[![Licence: MIT](https://img.shields.io/badge/Licence-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Protocol: TROTT](https://img.shields.io/badge/Protocol-TROTT_v4.0-blue.svg)](https://github.com/TheCryptoDonkey/trott)
-[![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
+The default build joins an open Nostr network directly:
 
----
+- drivers publish short-lived, coarse availability beacons;
+- riders publish coarse, per-journey rendezvous announcements;
+- matching, the exact itinerary, chat and lifecycle updates use NIP-17 gift
+  wraps with NIP-44 encryption;
+- road distance, duration and geometry come from a Valhalla-compatible router,
+  including ordered intermediate stops; and
+- `settlement_mode=none` supports informal lifts and other journeys where no
+  money changes hands.
 
-## What is DonkeyRide?
+No DonkeyRide REST API, WebSocket coordinator, PostgreSQL or Redis is required
+for that mode. A taxi firm or regulated operator can deliberately select the
+optional managed backend included in this repository.
 
-DonkeyRide is the **reference implementation** of the [TROTT Protocol](https://github.com/TheCryptoDonkey/trott) (**T**rusted **R**eal-world **O**rchestration of **T**asks & **T**rades). It's a Node.js operator server that coordinates tasks, manages stakes, and processes payments across multiple service domains.
+## Runtime choices
 
-**For the protocol specification** (TROTT-01 through TROTT-08, domain profiles, implementor guides), see the [trott repository](https://github.com/TheCryptoDonkey/trott).
+| Mode | Who runs coordination | Data boundary | Intended use |
+|---|---|---|---|
+| `direct` (default) | Rider and driver PWAs over user-selected Nostr relays | Public coarse discovery; exact details encrypted participant-to-participant | Open networks, informal lifts, independent drivers |
+| `managed` (optional) | A selected firm/operator over authenticated HTTPS and WSS | Operator policy decides blind or managed handling and retention | Licensed fleets, roster/admission rules, regulated records |
 
-### Implemented Domains
+Switching is explicit in Account → Operator. Relay and road-router URLs are
+also device-local settings; changing them does not require rebuilding the app.
 
-| Domain | Env Var | Description |
-|--------|---------|-------------|
-| **Ridesharing** | `DOMAIN=ridesharing` | Rider/driver coordination, stake escrow, live tracking |
-| **Locksmith** | `DOMAIN=locksmith` | Customer/locksmith dispatch, quote negotiation, flat-rate pricing |
-| **Delivery** | `DOMAIN=delivery` | Sender/courier, chain of custody, photo/signature proofs |
-| **Towing** | `DOMAIN=towing` | Motorist/recovery operator, binding on-site quote before the vehicle is loaded |
-| **Emergency trades** | `DOMAIN=emergency-trades` | Householder/tradesperson, milestone pricing approved stage by stage |
-| **Pet services** | `DOMAIN=pet-services` | Pet owner/carer, check-in to check-out with a GPS session record |
-| **Security** | `DOMAIN=security` | Client/officer, shift with patrol checkpoints and safety check-ins |
-| **Cleaning** | `DOMAIN=cleaning` | Client/cleaner, one task per session, symmetric stakes |
-| **Moving** | `DOMAIN=moving` | Client/mover, loading → transit → unloading milestones |
+## What still sees data
 
-Each mirrors its [TROTT domain profile](https://github.com/TheCryptoDonkey/trott/tree/main/domains): the same state machine, roles, rating criteria and regulatory posture. Where this implementation cannot yet match the spec it says so in the profile — `moving` records one provider per task, so the spec's multi-mover crew split is settled among the crew rather than by the operator.
+“No DonkeyRide backend” does not mean “no metadata” or “no personal data.”
 
----
+| Service | What it can observe in direct mode |
+|---|---|
+| Static PWA host | Ordinary web request metadata, depending on its logging |
+| Nostr relays | IP/timing, durable driver pubkey on availability, coarse cells, rendezvous keys and encrypted envelope metadata |
+| Road router | Exact ordered route points and request metadata, but no DonkeyRide identity or journey id |
+| Photon/search provider | The place text a person types and a coarse location bias |
+| Map tile provider | Requested map tiles and request metadata |
+| Participant devices | Exact journey state and identity secrets, encrypted at rest |
 
-## Quick Start
+The identity secret is AES-GCM encrypted under a non-exportable WebCrypto key
+held in IndexedDB. Exact journey records are separately NIP-44 encrypted. A
+compromised app origin executing code while the app is open can still use the
+loaded identity, so this is storage protection rather than an anonymity claim.
+See [privacy modes](./docs/PRIVACY-MODES.md).
 
-### Option A: Nix (recommended)
+## Develop the PWA
+
 ```bash
-git clone https://github.com/TheCryptoDonkey/DonkeyRide
-cd DonkeyRide
-nix develop
+git clone https://github.com/TheCryptoDonkey/DonkeyRide.git
+cd DonkeyRide/web
+npm install
 
-# Start the database-free reference coordinator + relay
+# Point this at a browser-reachable Valhalla-compatible endpoint.
+VITE_PUBLIC_ROUTING_URL=https://router.example npm run dev
+```
+
+The default relay set is `wss://relay.damus.io,wss://nos.lol`; it can be set at
+build time with `VITE_NOSTR_RELAYS` or changed later in Account.
+
+Build static installable files:
+
+```bash
+cd web
+VITE_COORDINATION_MODE=direct \
+VITE_PUBLIC_ROUTING_URL=https://router.example \
+VITE_NOSTR_RELAYS=wss://relay.example,wss://relay2.example \
+npm run build
+```
+
+Serve `web/dist/` from any HTTPS static host. Rider routes use `index.html`;
+`/provide*` and `/drive*` must fall back to `driver.html`. HTTPS is required for
+browser geolocation, secure storage and service workers. The complete Caddy
+example is in [static PWA deployment](./docs/DEPLOY-PWA.md).
+
+## Optional managed operator
+
+The Node.js reference operator remains available for a firm that wants to run
+one. It provides domain profiles, authenticated REST/WebSocket lifecycle,
+admission policy, optional records and optional payment integrations.
+
+```bash
+npm install
 docker compose -f docker-compose.demo.yml up --build
-
-# In another terminal
-npm install && npm run dev
 ```
 
-### Option B: Docker
-```bash
-git clone https://github.com/TheCryptoDonkey/DonkeyRide
-cd DonkeyRide
-docker compose -f docker-compose.demo.yml up --build
-```
+That is not required by the default PWA. PostgreSQL is used only when an
+operator explicitly sets `DATABASE_URL`; Redis is used only when it explicitly
+sets `REDIS_URL`. Their presence creates operator-held records and therefore a
+different privacy/compliance posture. See [operator policy](./docs/OPERATOR-POLICY.md)
+and [operator deployment](./guides/OPERATOR-DEPLOYMENT.md).
 
-### Run with a different domain
-```bash
-DOMAIN=locksmith npm start           # Locksmith dispatch
-DOMAIN=delivery npm start            # Parcel delivery
-DOMAIN=towing npm start              # Vehicle recovery
-DOMAIN=emergency-trades npm start    # Emergency trade callouts
-DOMAIN=pet-services npm start        # Dog walking, sitting, grooming
-DOMAIN=security npm start            # Security officer assignments
-DOMAIN=cleaning npm start            # Domestic and specialist cleaning
-DOMAIN=moving npm start              # House and office moves
-DOMAIN=ridesharing npm start         # Default (ridesharing)
-```
-
----
-
-## Commands
+## Verification
 
 ```bash
-npm start              # Run operator server (Express on PORT=3000, WebSocket on WS_PORT=3001)
-npm run dev            # Development mode with nodemon auto-reload
-npm test               # Run backend tests (Node.js built-in test runner)
-npm run web:dev        # React frontend dev server (Vite, in web/)
-npm run web:build      # Build React frontend (tsc + vite build)
-npm run web:test       # Run frontend tests (vitest)
-npm run test:ui        # Real Chromium rider/driver journeys on small + standard phones
-npm run docker:build   # Build Docker image
-npm run docker:run     # Run Docker container with .env
+# Backend/reference-operator unit and integration tests
+npm test
+
+# PWA unit tests and production build
+cd web
+npm test
+npm run build
+
+# Static direct-mode: two isolated phones, mocked relay/router/geocoder/GPS,
+# no coordinator HTTP or operator WebSocket allowed
+npm run test:ui:direct
+
+# Read-only mobile smoke against the deployed PWA (override LIVE_PWA_URL)
+npm run test:ui:live
+
+# Optional managed mode: real local operator, two phone sizes
+npm run test:ui
 ```
 
-**Frontend dependencies are separate** — run `npm install` in `web/` before using `web:*` commands.
-The UI gate also needs Chromium once per machine: `cd web && npx playwright install chromium`.
+The direct browser journey covers discovery, no-money matching, encrypted exact
+itinerary handoff, road routing, acceptance, arrival, start and completion. A
+separate browser check denies location permission and proves manual pickup
+remains usable without opening another window. The direct coordination unit
+test covers an ordered multi-stop no-money journey and verifies that exact
+points and address strings never appear in relay events.
 
----
+## Repository map
 
-## Architecture
-
-DonkeyRide uses a **three-layer federated architecture**:
-
-```
-NOSTR (public, permanent)     →  Discovery + Reputation + State snapshots (durability)
-OPERATOR (thin, non-custodial)→  Coordination only. No database, no custody of funds.
-SETTLEMENT                    →  Peer-to-peer (cash / wallet-to-wallet). Operator moves nothing.
-```
-
-The operator is a **thin compliance layer** — handling only what the law mandates. Everything else runs on decentralised rails:
-
-- **Stake custody** → operator-configured rail, from record-only cash (no custody at all) to hodl invoices; NIP-47 wallet-to-wallet planned
-- **Exact itinerary (privacy-default)** → the browser sends exact points directly to a Valhalla router, then gives the coordinator only geohash-5 cells and routed distance/time totals. After a driver accepts, exact pickup, drop-off, stops, addresses and meeting notes travel to that driver in a signed NIP-17 gift wrap and are stored NIP-44-encrypted on each device.
-- **Managed operator mode** → `OPERATOR_DATA_MODE=managed` restores the authenticated HTTPS/WSS path for firms that deliberately want operator-readable journey data and accept the corresponding controller obligations.
-- **Coordination** → NIP-44 encrypted Nostr events
-- **Discovery** → Geohash-based on public relays
-- **Reputation** → Cryptographically signed on Nostr
-
-See the [architecture documentation](https://github.com/TheCryptoDonkey/trott/blob/main/docs/architecture.md) for the full analysis.
-The concrete runtime boundary is documented in
-[docs/PRIVACY-MODES.md](./docs/PRIVACY-MODES.md).
-
-### Payments — pay the driver directly, any rail
-
-The operator is **non-custodial**: riders pay drivers **directly** and the
-operator never receives, holds, or transmits funds (see
-[docs/REGULATORY-POSTURE.md](./docs/REGULATORY-POSTURE.md)). It advertises the
-driver's accepted rails, produces something the rider can pay, and records or
-verifies the result.
-
-A journey may instead set `settlement_mode=none`. That is not a zero-priced
-payment: payment methods, stakes, settlement proofs and tips are disabled, so
-friends, neighbours and informal lift-sharing can coordinate a properly routed
-multi-stop journey without money changing hands or naming third parties.
-
-Encryption is not anonymity. The coordinator and relay can still observe
-metadata such as IP addresses, timing, task ids, coarse cells and pubkeys; the
-selected routing service necessarily sees the exact route request. Do not call
-this “no PII” or “no trace.”
-
-Settlement rails (`settlement/`, all custody `none`):
-
-| Rail | How the rider pays the driver | Verification |
-|------|-------------------------------|--------------|
-| **Lightning** | Driver's Lightning Address; rider pays from any LN wallet or a connected NWC wallet | Preimage (`SHA256(preimage) == payment_hash`), or LUD-21 verify |
-| **Tando** | Driver's Kenyan number becomes `2547…@bitcoin.co.ke`; rider pays over Lightning, driver receives **M-Pesa** | Preimage — cryptographic proof for an M-Pesa payout |
-| **M-Pesa** | Direct "Send Money" to the driver's number; rider enters the confirmation code | Code recorded + driver confirms (no operator paybill — that would be custodial) |
-| **Cash** | In person | Driver confirms on receipt |
-
-The Lightning/Tando rail is proven live (resolves a real invoice from a real
-LNURL service). NWC lets the rider's own wallet pay the driver's invoice. Adding
-a rail is a module in `settlement/` — the "etc." is config, not a rewrite.
-
-**Stake escrow** (`payment-providers/`) is a separate, optional layer for
-operators who are licensed to custody funds; it is gated off by default
-(`OPERATOR_LICENSED_CUSTODIAN`). The custodial LND hodl-invoice semantics are
-regtest-proven for those operators.
-
----
-
-## Documentation
-
-### Implementation Docs (this repo)
-- **[docs/PAYMENT-PROVIDERS.md](./docs/PAYMENT-PROVIDERS.md)** — Payment provider integration guide
-- **[docs/GDPR-COMPLIANCE.md](./docs/GDPR-COMPLIANCE.md)** — GDPR compliance architecture
-- **[docs/API-STRESS-TEST.md](./docs/API-STRESS-TEST.md)** — API stress test results
-- **[DOCKER-SETUP.md](./DOCKER-SETUP.md)** — Docker deployment guide
-- **[MULTI-OPERATOR-SETUP.md](./MULTI-OPERATOR-SETUP.md)** — Multi-operator configuration
-- **[Operator policy](./docs/OPERATOR-POLICY.md)** — One network for open markets and operator-controlled fleets
-
-### Protocol Docs (trott repo)
-- **[TROTT Specifications](https://github.com/TheCryptoDonkey/trott)** — Full protocol specification
-- **[Quick Reference](https://github.com/TheCryptoDonkey/trott/blob/main/specs/QUICK-REFERENCE.md)** — Event kind table and structure overview
-- **[Implementor Guides](https://github.com/TheCryptoDonkey/trott/tree/main/guides)** — Step-by-step build guides for each domain
-- **[Architecture](https://github.com/TheCryptoDonkey/trott/blob/main/docs/architecture.md)** — Three-layer federated architecture
-- **[Trust Mechanisms](https://github.com/TheCryptoDonkey/trott/blob/main/docs/trust-mechanisms.md)** — 6 layers of trust
-
----
-
-## Environment
-
-Copy `.env.example` for configuration. Key variables:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DOMAIN` | Domain profile | `ridesharing` |
-| `PAYMENT_PROVIDER` | Payment backend | `demo` |
-| `NAVIGATION_PROVIDER` | Routing backend | `osrm` |
-| `OPERATOR_DATA_MODE` | `blind` participant-encrypted itinerary, or `managed` | `blind` in demo compose |
-| `PUBLIC_ROUTING_URL` | Browser-reachable Valhalla base for blind mode | `/routing` |
-| `OPERATOR_PUBKEY` | Operator Nostr identity | — |
-| `DATABASE_URL` | PostgreSQL connection | — |
-| `REDIS_URL` | Redis connection | — |
-| `NOSTR_RELAY` | Relay URL | — |
-
----
-
-## Contributing
-
-We welcome contributions to the reference implementation.
-
-- **Submit issues** — found a bug or gap?
-- **Add domain profiles** — implement a new domain in `src/domain-profiles/` (~100 lines)
-- **Improve the frontend** — React/TypeScript SPA in `web/`
-- **Add payment providers** — extend `payment-providers/base.js`
-
-**For protocol specification contributions**, submit PRs to the [trott repository](https://github.com/TheCryptoDonkey/trott).
-
-### Guidelines
-1. Use **British English** spelling throughout
-2. Maintain **backward compatibility** with the `RideManager` interface
-3. Keep core code **domain-agnostic** — domain-specific logic belongs in the profile
-4. Run `npm test`, `npm run web:test`, and `npm run test:ui` before submitting UI changes
-
----
+- `web/` — installable rider and driver PWA; direct mode is the default
+- `src/`, `server.js` — optional reference operator
+- `domain-profiles/` — managed-operator service/state profiles
+- `settlement/`, `payment-providers/` — optional operator settlement modules
+- `specs/` — TROTT protocol material retained by the reference implementation
+- `docs/PRIVACY-MODES.md` — exact component/data boundary
+- `docs/DEPLOY-PWA.md` — static production deployment
 
 ## Licence
 
-MIT Licence — Copyright (c) 2025-2026 DonkeyRide Community
-
-See [LICENCE](./LICENCE) for the full text.
-
----
-
-**Protocol specs?** See the [trott repository](https://github.com/TheCryptoDonkey/trott).
-
-**Questions?** See the [FAQ](https://github.com/TheCryptoDonkey/trott/blob/main/docs/faq.md) or open an issue.
+MIT Licence — Copyright (c) 2025–2026 DonkeyRide Community. See [LICENCE](./LICENCE).

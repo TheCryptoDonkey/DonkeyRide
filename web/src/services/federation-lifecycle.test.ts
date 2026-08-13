@@ -38,6 +38,7 @@ function taskBody(overrides: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  localStorage.setItem('donkeyride.coordination.mode', 'managed');
   fetchMock = vi.fn().mockResolvedValue({
     ok: true,
     json: async () => taskBody(),

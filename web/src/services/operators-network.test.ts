@@ -40,6 +40,7 @@ import { discoverNetworkProviders } from './operators';
 describe('network supply discovery', () => {
   beforeEach(() => {
     localStorage.clear();
+    localStorage.setItem('donkeyride.coordination.mode', 'managed');
     localStorage.setItem('donkeyride.operator.known', JSON.stringify([
       'https://fleet.example',
     ]));

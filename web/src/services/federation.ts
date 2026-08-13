@@ -4,6 +4,7 @@ import { decodeGeohash } from '../utils/geohash';
 import type { Task, LatLng } from '../types/api';
 import type { NostrEvent } from '../types/nostr';
 import { safeOperatorOrigin } from './operator-origin';
+import { directTaskEventState, parseDirectTaskAnnouncement } from './direct-coordination';
 
 export { safeOperatorOrigin } from './operator-origin';
 
@@ -33,7 +34,8 @@ export interface TaskAnnouncement {
   geohash: string;
   domain: string;
   /** Coordinating operator's API origin */
-  api: string;
+  api: string | null;
+  mode?: 'direct' | 'managed';
   operatorPubkey: string | null;
   expiration: number | null;
   eventId: string;
@@ -45,6 +47,19 @@ function tag(event: NostrEvent, name: string): string | null {
 
 export function parseTaskAnnouncement(event: NostrEvent): TaskAnnouncement | null {
   if (event.kind !== TASK_ANNOUNCEMENT_KIND) return null;
+  const direct = parseDirectTaskAnnouncement(event);
+  if (direct) {
+    return {
+      taskId: direct.task.id,
+      geohash: direct.geohash,
+      domain: 'ridesharing',
+      api: null,
+      mode: 'direct',
+      operatorPubkey: null,
+      expiration: direct.expiration,
+      eventId: event.id,
+    };
+  }
   const taskId = tag(event, 'd');
   const geohash = tag(event, 'g');
   const domain = tag(event, 'domain');
@@ -56,6 +71,7 @@ export function parseTaskAnnouncement(event: NostrEvent): TaskAnnouncement | nul
     geohash: geohash.toLowerCase(),
     domain,
     api,
+    mode: 'managed',
     operatorPubkey: tag(event, 'operator'),
     expiration: expirationRaw ? Number(expirationRaw) : null,
     eventId: event.id,
@@ -94,7 +110,7 @@ export function isRelevantAnnouncement(
   if (announcement.expiration != null && announcement.expiration < now) return false;
   if (options.domainId && announcement.domain !== options.domainId) return false;
   const ownOrigin = options.ownOrigin ?? getApiBase();
-  if (safeOperatorOrigin(ownOrigin) === announcement.api) return false;
+  if (announcement.api && safeOperatorOrigin(ownOrigin) === announcement.api) return false;
 
   if (options.areas.length > 0) {
     return options.areas.some((cell) =>
@@ -116,6 +132,7 @@ export function isRelevantAnnouncement(
  * -redacted there, like our own), NOT from the relay event.
  */
 export async function resolveForeignTask(announcement: TaskAnnouncement): Promise<Task | null> {
+  if (!announcement.api) return null;
   try {
     // Signed, not a bare fetch: an operator running with NIP-98 enabled —
     // the recommended posture, and the demo's — answers 401 to an
@@ -140,7 +157,9 @@ export async function subscribeFederatedTasks(
     location: LatLng | null;
   },
   onTask: (task: Task, announcement: TaskAnnouncement) => void,
+  onClosed?: (taskId: string) => void,
 ): Promise<{ close: () => void }> {
+  const { verifyEvent } = await import('nostr-tools');
   const seenEvents = new Set<string>();
   return subscribeToRelays(
     {
@@ -151,9 +170,20 @@ export async function subscribeFederatedTasks(
     (event) => {
       if (seenEvents.has(event.id)) return;
       seenEvents.add(event.id);
+      if (!verifyEvent(event as never)) return;
+      const directState = directTaskEventState(event);
+      if (directState?.status === 'closed') {
+        onClosed?.(directState.taskId);
+        return;
+      }
+      const direct = parseDirectTaskAnnouncement(event);
       const announcement = parseTaskAnnouncement(event);
       if (!announcement) return;
       if (!isRelevantAnnouncement(announcement, { ...getContext() })) return;
+      if (direct) {
+        onTask(direct.task, announcement);
+        return;
+      }
       void resolveForeignTask(announcement).then((task) => {
         if (task) onTask(task, announcement);
       });

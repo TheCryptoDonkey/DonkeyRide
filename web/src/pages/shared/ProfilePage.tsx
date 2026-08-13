@@ -19,6 +19,7 @@ import { ThemeToggle } from '../../components/common/ThemeToggle';
 import { WomenSafetyCard } from '../../components/safety/WomenSafetyCard';
 import { ReputationBadge } from '../../components/common/ReputationBadge';
 import { OperatorPicker } from '../../components/operator/OperatorPicker';
+import { OpenNetworkSettings } from '../../components/operator/OpenNetworkSettings';
 import { DomainSwitcher } from '../../components/layout/DomainSwitcher';
 
 interface ProfilePageProps {
@@ -116,6 +117,7 @@ export function ProfilePage({ role }: ProfilePageProps) {
 
       {/* The app is portable: pick any compatible operator at runtime. */}
       <OperatorPicker role={role} />
+      <OpenNetworkSettings />
 
       {/* Identity recovery notice — stored key was unreadable and replaced */}
       {recoveryNotice && (

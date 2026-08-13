@@ -99,6 +99,7 @@ export function IncomingTaskPage() {
         // claims never leave this device — an operator running
         // ENFORCE_CREDENTIALS refuses the accept, which is the point.
         credentials: privateItinerary ? [] : validCredentials(),
+        directTask: activeTask.coordinationMode === 'direct' ? activeTask : undefined,
       }, activeTask.operatorBase);
       // The rate behind the fare this driver just agreed to work for. Accept
       // is their moment of agreement, exactly as the request tap is the

@@ -1,61 +1,102 @@
 # Privacy and storage modes
 
-DonkeyRide separates coordination, routing and optional record keeping. Those
-services see different data; “encrypted” must never be used as shorthand for
-“no personal data.”
+DonkeyRide separates the static app, relay delivery, road routing and optional
+operator records. Encryption is not shorthand for anonymity or for “no PII.”
 
-| Component | Privacy-default (`blind`) | Managed operator (`managed`) | Why it exists |
+| Component | Direct PWA (default) | Optional managed operator | Why it exists |
 |---|---|---|---|
-| Participant devices | Exact pickup, drop-off, ordered stops, addresses and notes; NIP-44-encrypted local copy | Same user-facing data | Request, navigation and post-match handoff |
-| Coordinator | Geohash-5 cell centres, routed distance/time, stop count, settlement mode, task state, pubkeys, timing and network metadata | Exact itinerary plus coordination state | Discovery, matching and lifecycle |
-| Valhalla router | Exact ordered points for the route request; no rider name or task pubkey in the request body | Exact ordered points received from the operator | Road distance, duration and route geometry; prevents point-to-point fare/ETA guesses |
-| Address search (Photon by default) | User-entered text and a geohash-5 bias; no automatic exact reverse lookup | Search text and configured bias; managed screens may reverse-geocode exact points | Turn human place names into coordinates; self-host or replace where required |
-| Map tiles | Tile coordinates, IP and request metadata; tiles cover an area rather than carry a task id | Same | Draw the map; default tiles come from OpenStreetMap's public service |
-| Nostr relay | Gift-wrap ciphertext and its delivery metadata; coarse/expiring discovery events; sealed operator snapshots | Same | Participant exchange, discovery and database-free restart durability |
-| PostgreSQL | Not present | Optional when `DATABASE_URL` is explicitly set | Durable records for a firm that chooses to retain them |
+| Participant device | Exact itinerary and lifecycle; encrypted local records; AES-GCM-wrapped identity secret | Same UI data plus the selected operator contract | Signing, navigation, recovery |
+| Static host | Asset requests and ordinary request metadata only | May also host the managed UI | Deliver the installable PWA |
+| Nostr relay | Coarse/expiring availability and task events; gift-wrap ciphertext; pubkeys, IP/timing and envelope metadata | Portable reputation/chat plus any operator-published events | Discovery and message delivery |
+| Road router | Exact ordered points; no DonkeyRide pubkey or journey id in the route body | Exact points either client-direct or operator-originated, per policy | Road distance, duration and geometry; no point-to-point guess |
+| Photon/search | Typed place text and geohash-5 bias | Same unless the operator replaces it | Human place search |
+| Map tiles | Tile coordinates and request metadata | Same unless replaced | Map display |
+| DonkeyRide coordinator | Absent | Lifecycle, admission and data defined by its published policy | Fleet/regulatory operation |
+| PostgreSQL/Redis | Absent | Optional and disabled unless configured by the operator | Durable records/cache chosen by that operator |
 
-## Privacy-default flow
+## Direct journey flow
 
-1. The rider selects exact points locally.
-2. The browser calls the configured Valhalla `PUBLIC_ROUTING_URL` directly.
-3. The browser sends the coordinator geohash-5 pickup/drop-off cells, stop
-   count, and Valhalla's distance/time totals. It sends no exact points,
-   addresses, notes or route geometry.
-4. Drivers discover the task from the coarse cell and accept it.
-5. The rider sends the matched driver a signed NIP-17 gift wrap containing the
-   exact itinerary. Relays and the coordinator cannot read the content.
-6. Each participant stores the exact itinerary NIP-44-encrypted to their own
-   device identity. Ordinary session storage holds no exact itinerary.
+1. A driver who taps Go Online publishes a durable-identity-signed kind `20500`
+   availability event with a geohash-5 cell and two-minute expiration. It is an
+   ephemeral kind: the PWA keeps a live subscription rather than requiring the
+   relay to retain it. Refresh is every 15 seconds while online.
+2. A rider selects exact pickup, ordered intermediate stops and drop-off in the
+   PWA. If location permission is denied, they choose pickup manually; the
+   London map-framing fallback is never treated as their position.
+3. The PWA sends those ordered points directly to the selected
+   Valhalla-compatible router. The returned road distance, time and geometry
+   are used; no straight-line estimate is substituted.
+4. The rider generates a per-journey rendezvous key and publishes a signed kind
+   `37500` event. It contains only task id, pickup/drop-off geohash-5 cells,
+   stop count, road totals, settlement mode, status and expiration. It does not
+   contain the rider's durable pubkey, exact points, addresses, notes or route
+   geometry.
+5. A driver reviews the coarse offer and sends an encrypted NIP-17 acceptance
+   to the rendezvous key. The rider confirms the first acceptance and closes
+   the public announcement.
+6. The rider and driver exchange their durable pubkeys inside encrypted
+   messages. The exact itinerary then travels in its own verified NIP-17 gift
+   wrap. Relays cannot read it.
+7. Arrival, start, completion and cancellation travel as participant-to-
+   participant encrypted lifecycle messages. There is no DonkeyRide API or
+   operator WebSocket in this path.
 
-Blind mode also omits vehicle registration, credential declarations,
-women-only declarations, access-needs matching and favourite-provider lists
-from the coordinator. Operators that need those regulated/admission features
-must select `managed` mode and publish the corresponding data policy.
+Both parties must have the PWA open and connected while establishing the
+match. A static PWA has no central push service to wake a suspended browser.
+The native wrapper can integrate user-selected notification transport, but a
+direct browser match should not be advertised as background-guaranteed.
 
-The coordinator deliberately disables exact driver live-tracking for a blind
-task. A driver can use the received exact points in their own navigation app.
-Pickup/drop-off mutation, operator-held proof uploads and free-text quote
-descriptions are managed-mode features. Privacy-mode participants coordinate
-changes and human/payment context in their encrypted chat.
+## Device encryption
 
-## No-money journeys
+The rider and driver identity secrets are AES-GCM encrypted at rest. The
+wrapping key is generated by WebCrypto as non-exportable and stored by the
+origin in IndexedDB. Legacy cleartext identity keys are migrated only after the
+encrypted write succeeds and are then deleted.
 
-`settlement_mode=none` supports informal lifts and shared multi-stop journeys.
-It disables all payment methods, stakes, payment instructions, settlement
-proofs and tips. It does not collect a passenger name. A numeric stop count and
-ordered encrypted itinerary are enough to coordinate the route.
+Exact journey and rendezvous records are separately NIP-44 encrypted to the
+participant identity. Ordinary session storage receives only geohash-centred
+task data, never exact points, address labels, notes or route geometry.
 
-## Residual metadata
+This protects against a casual Web Storage export and at-rest file inspection.
+It does not defeat malicious JavaScript executing under the app origin: code
+running while the user is in the app can use the non-exportable wrapping key or
+the already-loaded Nostr identity. Native OS keystores remain stronger for a
+packaged mobile app.
 
-Blind mode is data minimisation, not anonymity. IP addresses, request timing,
-task ids, coarse location, pubkeys and ciphertext delivery patterns can be
-correlated. The routing service necessarily sees exact route points. Operators
-must publish which router and relays they use and set appropriate log
-retention. Encryption/pseudonymisation do not automatically take data outside
-data-protection law.
+## No-money and multi-stop journeys
 
-The browser identity key is currently held in origin-scoped Web Storage so the
-PWA can sign after a restart. NIP-44 ciphertext prevents casual cleartext
-location recovery, but it does not protect against a compromised origin that
-can read both key and ciphertext. Native secure-key storage remains a separate
-hardening requirement.
+`settlement_mode=none` is a first-class journey, not a zero-price payment. It
+disables payment methods, stakes, payment instructions, proofs and tips.
+Ordered intermediate stops are included in the road-router request and only in
+the encrypted participant itinerary. Public discovery exposes the number of
+stops, not who will be collected or the stop addresses.
+
+That supports friends, neighbours, a parent collecting several people, or an
+informal delivery-style route without inventing a commercial fare or requiring
+a passenger manifest.
+
+## Managed operator mode
+
+A taxi company, licensed fleet or other operator can explicitly select an
+HTTPS operator in Account. That changes the runtime to authenticated REST/WSS
+coordination. The operator publishes whether it is open/regulated, its
+admission rules, its data mode and its record backend.
+
+`OPERATOR_DATA_MODE=blind` withholds exact itinerary from that coordinator;
+`managed` permits operator-readable records and features that depend on them.
+Setting `DATABASE_URL` or `REDIS_URL` is an operator decision, not a dependency
+of the PWA. Operators must make their own retention, security and regulatory
+decisions rather than inheriting a “no PII” claim from this software.
+
+## Residual metadata and deletion limits
+
+Direct mode minimises content but still exposes correlatable metadata: network
+addresses, timing, durable driver pubkeys, coarse cells, rendezvous pubkeys,
+event sizes and counterpart delivery patterns. The selected router sees exact
+route points. The search service sees typed places. The static host may log
+normal requests.
+
+NIP-40 expiration asks relays to stop serving expired events; it does not prove
+that a relay or passive subscriber deleted a copy. Public availability is
+therefore both coarse and short-lived, but it must still be treated as
+potentially recorded personal data.

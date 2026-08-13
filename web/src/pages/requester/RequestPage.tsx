@@ -26,6 +26,7 @@ import type { TaskStop } from '../../types/api';
 import {
   itineraryFromTask, savePrivateItinerary,
 } from '../../services/private-itinerary';
+import { getCoordinationMode } from '../../services/network-mode';
 
 const MAX_STOPS = 2;
 
@@ -83,7 +84,10 @@ export function RequestPage() {
   // Meeting instructions a pin cannot express
   const [pickupNote, setPickupNote] = useState('');
   // A route can be coordinated without any payment at all.
-  const [settlementMode, setSettlementMode] = useState<'priced' | 'none'>('priced');
+  const directMode = getCoordinationMode() === 'direct';
+  const [settlementMode, setSettlementMode] = useState<'priced' | 'none'>(
+    directMode ? 'none' : 'priced',
+  );
   // Single-location profiles have no route estimate from which to infer the
   // operator's privacy contract, so read it explicitly.
   const [operatorBlind, setOperatorBlind] = useState<boolean | null>(null);
@@ -127,7 +131,9 @@ export function RequestPage() {
     let live = true;
     void getOperatorInfoCached()
       .then((info) => {
-        if (live) setOperatorBlind(info.data_handling?.mode === 'blind');
+        if (live) setOperatorBlind(
+          info.data_handling?.mode === 'blind' || info.data_handling?.mode === 'direct',
+        );
       })
       .catch(() => {
         if (live) {
@@ -222,6 +228,7 @@ export function RequestPage() {
           distanceKm: estimate?.distanceKm ?? 0,
           durationMinutes: estimate?.durationMinutes ?? 0,
         } : undefined,
+        routeGeometry: privateItinerary ? estimate?.routeGeometry : undefined,
         settlementMode,
       });
       const localTask = privateItinerary
@@ -248,7 +255,7 @@ export function RequestPage() {
       if (settlementMode !== 'none') recordAgreedRate(task.id, peekBtcPrices());
       // Decentralised announcement — geohash-only, best-effort, relays only.
       // Operator tags let drivers on OTHER operators discover this job.
-      if (profile?.id) {
+      if (profile?.id && task.coordinationMode !== 'direct') {
         void getOperatorInfoCached()
           .then((info) => publishTaskAnnouncement(task.id, origin, profile.id, {
             pubkey: info.pubkey || null,

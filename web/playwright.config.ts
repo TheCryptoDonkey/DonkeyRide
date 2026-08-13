@@ -7,6 +7,7 @@ const useLocalServer = !process.env.PLAYWRIGHT_SKIP_WEBSERVER;
 
 export default defineConfig({
   testDir: './e2e',
+  testIgnore: ['**/direct-*.spec.ts', '**/live-production.spec.ts'],
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
@@ -43,7 +44,7 @@ export default defineConfig({
     },
   ],
   webServer: useLocalServer ? {
-    command: `VITE_WS_URL=ws://127.0.0.1:${WS_PORT} npm run build && cd .. && `
+    command: `VITE_COORDINATION_MODE=managed VITE_WS_URL=ws://127.0.0.1:${WS_PORT} npm run build && cd .. && `
       + `PORT=${HTTP_PORT} WS_PORT=${WS_PORT} NODE_ENV=test PAYMENT_PROVIDER=cash `
       + 'DISABLE_REDIS=true ENABLE_NIP98_AUTH=true ENABLE_RATE_LIMITING=false '
       + 'OPERATOR_DATA_MODE=blind PUBLIC_ROUTING_URL=/routing '

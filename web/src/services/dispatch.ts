@@ -15,11 +15,12 @@ import { loadAccessFeatures } from '../utils/access-needs';
 import { validCredentials } from '../utils/credentials';
 import type { DestinationMode } from '../utils/destination-mode';
 import { decodeGeohash, encodeGeohash } from '../utils/geohash';
+import { getCoordinationMode } from './network-mode';
 
 const ONLINE_KEY = 'donkeyride.provider.online';
 const RECONNECT_DELAY_MS = 4000;
 const PRESENCE_INTERVAL_MS = 30_000;
-const BEACON_INTERVAL_MS = 60_000;
+const BEACON_INTERVAL_MS = 15_000;
 const OPEN_POLL_INTERVAL_MS = 30_000;
 
 export interface DispatchState {
@@ -134,6 +135,9 @@ class DispatchService {
   /** Latest GPS fix (null when unavailable — presence is then withheld) */
   updateLocation(location: LatLng | null): void {
     this.location = location;
+    if (location && this.online && getCoordinationMode() === 'direct') {
+      void this.sendBeacon();
+    }
   }
 
   /**
@@ -279,6 +283,7 @@ class DispatchService {
    */
   async refreshOpenTasks(): Promise<void> {
     if (!this.online) return;
+    if (getCoordinationMode() === 'direct') return;
     let open: Task[];
     try {
       open = await getOpenTasks({
@@ -325,6 +330,7 @@ class DispatchService {
     // the dispatch socket alive with the screen off (no-op on web)
     void startShiftTracking((location) => {
       this.location = location;
+      if (getCoordinationMode() === 'direct') void this.sendBeacon();
       this.queueOrSend({
         type: 'driver_location',
         npub: this.identity?.npub || '',
@@ -387,6 +393,13 @@ class DispatchService {
       this.reconnectTimer = null;
     }
     this.closeSocket();
+
+    if (getCoordinationMode() === 'direct') {
+      this.operatorBlind = true;
+      this.connected = navigator.onLine;
+      this.emitStatus();
+      return;
+    }
 
     let ws: WebSocket;
     try {
@@ -625,7 +638,7 @@ class DispatchService {
 
   /**
    * TROTT-02 availability beacon — signed kind 20500 published direct to
-   * public relays only, immediately on going online and every 60 seconds.
+   * public relays only, immediately on going online and every 15 seconds.
    *
    * OFF by default (`p2pBeaconEnabled`): it publishes the driver's coarse
    * whereabouts under their identity key for a whole shift, and while an
@@ -662,6 +675,7 @@ class DispatchService {
         this.availableTasks.set(task.id, { task, receivedAt: Date.now() });
         this.emitAvailable();
       },
+      (taskId) => this.removeAvailable(taskId),
     ).then((sub) => {
       if (this.online) this.federation = sub;
       else sub.close();
@@ -721,6 +735,12 @@ class DispatchService {
 
     const reviveConnection = () => {
       if (!this.online) return;
+      if (getCoordinationMode() === 'direct') {
+        this.connected = navigator.onLine;
+        this.emitStatus();
+        if (this.location) void this.sendBeacon();
+        return;
+      }
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
         this.connect();
       } else {

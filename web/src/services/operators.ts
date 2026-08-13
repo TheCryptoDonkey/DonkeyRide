@@ -8,6 +8,8 @@ import {
 import type { AvailableProvider, LatLng, OperatorInfo, OperatorPolicy } from '../types/api';
 import type { NostrEvent } from '../types/nostr';
 import { decodeGeohash, encodeGeohash } from '../utils/geohash';
+import { getCoordinationMode } from './network-mode';
+import { queryAvailabilityBeacons } from './events';
 
 const OPERATOR_KIND = 30511;
 const KNOWN_KEY = 'donkeyride.operator.known';
@@ -194,6 +196,17 @@ export async function discoverNetworkProviders(location: LatLng, radiusKm = 10):
   providers: NetworkProvider[];
   operators: OperatorDirectoryEntry[];
 }> {
+  if (getCoordinationMode() === 'direct') {
+    return {
+      providers: (await queryAvailabilityBeacons(location, 'ridesharing', radiusKm))
+        .map((provider) => ({
+          ...provider,
+          operatorBase: '',
+          operatorName: 'Open network',
+        })),
+      operators: [],
+    };
+  }
   const operators = await discoverOperators();
   const cell = decodeGeohash(encodeGeohash(location.lat, location.lng, 5));
   const coarseLocation = cell ? { lat: cell.lat, lng: cell.lon } : location;

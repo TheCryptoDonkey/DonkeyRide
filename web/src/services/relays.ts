@@ -1,5 +1,6 @@
 import type { NostrEvent } from '../types/nostr';
 import { getOperatorInfoCached } from './api';
+import { getCoordinationMode, getDirectRelayUrls } from './network-mode';
 
 /**
  * Last-resort public relays when neither env nor operator supply any.
@@ -22,10 +23,9 @@ import { getOperatorInfoCached } from './api';
  *
  * Narrow this to one operator's relay and a driver's reputation becomes
  * invisible to anyone not already pointed at that operator, which is
- * precisely the lock-in the protocol exists to avoid. The kind 20500
- * beacon was the one member of this list that did NOT need public reach;
- * it is off by default now (see `p2pBeaconEnabled`), which is why this
- * list can stay wide with a clear conscience.
+ * precisely the lock-in the protocol exists to avoid. Kind 20500 is coarse,
+ * short-lived and ephemeral in direct mode. That reduces relay retention,
+ * but a passive subscriber can still record it.
  */
 const FALLBACK_RELAYS = ['wss://relay.damus.io', 'wss://nos.lol'];
 
@@ -50,6 +50,11 @@ function getPool() {
  */
 export async function getPublicRelays(): Promise<string[]> {
   if (cachedRelays) return cachedRelays;
+
+  if (getCoordinationMode() === 'direct') {
+    cachedRelays = getDirectRelayUrls();
+    return cachedRelays;
+  }
 
   const envRelays = String(import.meta.env.VITE_NOSTR_RELAYS || '')
     .split(',')

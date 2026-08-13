@@ -51,6 +51,7 @@ import type { WsMessage, Task, LatLng, OperatorPaymentInfo } from '../../types/a
 import {
   loadPrivateItinerary, mergePrivateItinerary, sendPrivateItinerary,
 } from '../../services/private-itinerary';
+import { subscribeRequesterDirectTask } from '../../services/direct-coordination';
 
 export function ActiveTaskPage() {
   const navigate = useNavigate();
@@ -250,7 +251,34 @@ export function ActiveTaskPage() {
     }
   }, [activeTask, setActiveTask, setProviderLocation, setOrigin, setDestination, navigate, profile, terminalStates, routeTerminal, refreshTask, reset, taskNoun]);
 
-  const { connected } = useWebSocket(activeTask?.id || null, handleWsMessage);
+  const managedTaskId = activeTask?.coordinationMode === 'direct' ? null : (activeTask?.id || null);
+  const { connected: managedConnected } = useWebSocket(managedTaskId, handleWsMessage);
+  const connected = activeTask?.coordinationMode === 'direct'
+    ? (typeof navigator === 'undefined' || navigator.onLine)
+    : managedConnected;
+
+  useEffect(() => {
+    if (!activeTask || !identity || activeTask.coordinationMode !== 'direct') return;
+    let closed = false;
+    let subscription: { close: () => void } | null = null;
+    void subscribeRequesterDirectTask(
+      identity.privKeyHex,
+      identity.pubKeyHex,
+      activeTask,
+      (next) => {
+        if (closed) return;
+        setActiveTask(next);
+        if (terminalStates.includes(next.status)) routeTerminal(next);
+      },
+    ).then((handle) => {
+      if (closed) handle.close();
+      else subscription = handle;
+    });
+    return () => {
+      closed = true;
+      subscription?.close();
+    };
+  }, [activeTask?.id, activeTask?.providerPubkey, activeTask?.coordinationMode, identity?.privKeyHex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-share: guardians flagged "every trip" get the share as soon as a
   // provider is matched (the share names the driver) — once per task
@@ -295,6 +323,7 @@ export function ActiveTaskPage() {
   // Poll for updates as fallback
   useEffect(() => {
     if (!activeTask) return;
+    if (activeTask.coordinationMode === 'direct') return;
     const timer = setInterval(async () => {
       try {
         const updated = await getTask(activeTask.id, activeTask.operatorBase);

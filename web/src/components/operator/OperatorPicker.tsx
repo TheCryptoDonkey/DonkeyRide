@@ -3,7 +3,11 @@ import { useTask } from '../../context/TaskContext';
 import { dispatchService } from '../../services/dispatch';
 import { getOperatorInfo } from '../../services/api';
 import { discoverOperators, rememberOperator, type OperatorDirectoryEntry } from '../../services/operators';
-import { getSelectedOperatorBase, safeOperatorOrigin, setSelectedOperatorBase } from '../../services/operator-origin';
+import {
+  getSelectedOperatorBase, resetSelectedOperatorBase, safeOperatorOrigin,
+  setSelectedOperatorBase,
+} from '../../services/operator-origin';
+import { getCoordinationMode } from '../../services/network-mode';
 import { useT } from '../../i18n';
 
 export function OperatorPicker({ role }: { role: 'requester' | 'provider' }) {
@@ -14,6 +18,7 @@ export function OperatorPicker({ role }: { role: 'requester' | 'provider' }) {
   const [manual, setManual] = useState('');
   const [error, setError] = useState<string | null>(null);
   const selected = getSelectedOperatorBase();
+  const direct = getCoordinationMode() === 'direct';
   const locked = Boolean(activeTask) || (role === 'provider' && dispatchService.isOnline());
 
   const load = (force = false) => {
@@ -50,6 +55,12 @@ export function OperatorPicker({ role }: { role: 'requester' | 'provider' }) {
     }
   };
 
+  const chooseDirect = () => {
+    if (locked || direct) return;
+    resetSelectedOperatorBase();
+    window.location.reload();
+  };
+
   return (
     <div className="card space-y-3">
       <div>
@@ -66,6 +77,26 @@ export function OperatorPicker({ role }: { role: 'requester' | 'provider' }) {
       )}
 
       <div className="space-y-2">
+        <button
+          type="button"
+          disabled={locked}
+          onClick={chooseDirect}
+          className={`w-full rounded-lg border p-3 text-left min-h-[44px] ${
+            direct
+              ? 'border-donkey-blue bg-donkey-blue/10'
+              : 'border-donkey-border bg-donkey-bg'
+          } disabled:opacity-60`}
+        >
+          <span className="flex items-start justify-between gap-2">
+            <span className="font-semibold text-sm text-donkey-text">Open network</span>
+            <span className="text-xs text-donkey-green">
+              {direct ? t('operator.selected') : t('operator.online')}
+            </span>
+          </span>
+          <span className="block text-xs text-donkey-muted mt-1">
+            Static app · encrypted Nostr coordination · no DonkeyRide operator
+          </span>
+        </button>
         {operators.map((operator) => (
           <button
             key={operator.origin}
@@ -73,7 +104,7 @@ export function OperatorPicker({ role }: { role: 'requester' | 'provider' }) {
             disabled={locked || !operator.reachable}
             onClick={() => choose(operator.origin)}
             className={`w-full rounded-lg border p-3 text-left min-h-[44px] ${
-              operator.selected
+              !direct && operator.selected
                 ? 'border-donkey-blue bg-donkey-blue/10'
                 : 'border-donkey-border bg-donkey-bg'
             } disabled:opacity-60`}
@@ -81,7 +112,7 @@ export function OperatorPicker({ role }: { role: 'requester' | 'provider' }) {
             <span className="flex items-start justify-between gap-2">
               <span className="font-semibold text-sm text-donkey-text">{operator.name}</span>
               <span className={`text-xs ${operator.reachable ? 'text-donkey-green' : 'text-donkey-red'}`}>
-                {operator.selected
+                {!direct && operator.selected
                   ? t('operator.selected')
                   : operator.reachable ? t('operator.online') : t('operator.offline')}
               </span>

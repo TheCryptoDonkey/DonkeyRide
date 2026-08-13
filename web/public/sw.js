@@ -9,7 +9,7 @@
  *   still opens in a car park with no signal.
  */
 
-const CACHE_NAME = 'donkeyride-v3';
+const CACHE_NAME = 'donkeyride-v4';
 // Two app shells: rider ('/') and driver ('/provide')
 const APP_SHELL = ['/', '/provide', '/manifest.webmanifest', '/manifest-driver.webmanifest'];
 

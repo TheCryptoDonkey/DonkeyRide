@@ -1,5 +1,7 @@
 /** Runtime operator selection shared by the rider and driver apps. */
 
+import { setCoordinationMode } from './network-mode';
+
 const STORAGE_KEY = 'donkeyride.operator.origin';
 export const OPERATOR_CHANGED_EVENT = 'donkeyride:operator-changed';
 
@@ -41,6 +43,7 @@ export function setSelectedOperatorBase(raw: string): string {
   if (!origin) {
     throw new Error('Operator must use HTTPS (HTTP is allowed only on this device for development).');
   }
+  setCoordinationMode('managed');
   localStorage.setItem(STORAGE_KEY, origin);
   window.dispatchEvent(new CustomEvent(OPERATOR_CHANGED_EVENT, { detail: { origin } }));
   return origin;
@@ -48,6 +51,7 @@ export function setSelectedOperatorBase(raw: string): string {
 
 export function resetSelectedOperatorBase(): string {
   localStorage.removeItem(STORAGE_KEY);
+  setCoordinationMode('direct');
   const origin = getBootstrapOperatorBase();
   window.dispatchEvent(new CustomEvent(OPERATOR_CHANGED_EVENT, { detail: { origin } }));
   return origin;

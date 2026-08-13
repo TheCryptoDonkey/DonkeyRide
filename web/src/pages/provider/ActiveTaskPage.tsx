@@ -43,6 +43,7 @@ import {
   loadPrivateItinerary, mergePrivateItinerary, savePrivateItinerary,
   subscribePrivateItinerary,
 } from '../../services/private-itinerary';
+import { subscribeParticipantDirectTask } from '../../services/direct-coordination';
 
 /** Map known state keys to existing API endpoints */
 const KNOWN_ENDPOINTS: Record<string, string> = {
@@ -235,13 +236,41 @@ export function ActiveTaskPage() {
 
   // A federated job's updates live on the operator that holds it, so the
   // socket follows the job rather than the app's own operator.
-  const { connected } = useWebSocket(
-    activeTask?.id || null, handleWsMessage, activeTask?.operatorBase,
+  const managedTaskId = activeTask?.coordinationMode === 'direct' ? null : (activeTask?.id || null);
+  const { connected: managedConnected } = useWebSocket(
+    managedTaskId, handleWsMessage, activeTask?.operatorBase,
   );
+  const connected = activeTask?.coordinationMode === 'direct'
+    ? (typeof navigator === 'undefined' || navigator.onLine)
+    : managedConnected;
+
+  useEffect(() => {
+    if (!activeTask || !identity || activeTask.coordinationMode !== 'direct') return;
+    let closed = false;
+    let subscription: { close: () => void } | null = null;
+    void subscribeParticipantDirectTask(
+      identity.privKeyHex,
+      identity.pubKeyHex,
+      activeTask,
+      (next) => {
+        if (closed) return;
+        setActiveTask(next);
+        if (terminalStates.includes(next.status)) navigate('/provide/complete');
+      },
+    ).then((handle) => {
+      if (closed) handle.close();
+      else subscription = handle;
+    });
+    return () => {
+      closed = true;
+      subscription?.close();
+    };
+  }, [activeTask?.id, activeTask?.requesterPubkey, activeTask?.coordinationMode, identity?.privKeyHex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Poll for updates
   useEffect(() => {
     if (!activeTask) return;
+    if (activeTask.coordinationMode === 'direct') return;
     const timer = setInterval(async () => {
       try {
         const updated = await getTask(activeTask.id, activeTask.operatorBase);
@@ -621,7 +650,12 @@ export function ActiveTaskPage() {
 
         {/* Stops and job detail */}
         {(activeTask.stops || []).length > 0 && (
-          <SheetSection title={t('sheet.jobDetail')} icon="🗺️" rememberAs="driver-detail">
+          <SheetSection
+            title={t('sheet.jobDetail')}
+            icon="🗺️"
+            defaultOpen
+            rememberAs="driver-detail"
+          >
             <div>
               <p className="meta-label">{t('pactive.stops')}</p>
               {activeTask.stops!.map((stop, i) => (

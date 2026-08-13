@@ -1,0 +1,167 @@
+import type { OperatorInfo } from '../types/api';
+import type { DomainProfile } from '../types/domain';
+import { getDirectRelayUrls, getDirectRoutingUrl } from '../services/network-mode';
+
+/** Built into the static PWA so loading the app never depends on an operator. */
+export const OPEN_NETWORK_PROFILE: DomainProfile = {
+  id: 'ridesharing',
+  name: 'DonkeyRide',
+  description: 'Open peer-to-peer journey coordination over user-selected Nostr relays.',
+  discoveryMethod: 'geohash',
+  pricingModel: 'flatRate',
+  serviceOptions: [],
+  accessOptions: [
+    {
+      id: 'wheelchair',
+      label: 'Wheelchair accessible',
+      description: 'Ramp or lift, and space for a wheelchair',
+      providerPrompt: 'My vehicle is wheelchair accessible',
+    },
+    {
+      id: 'step_free',
+      label: 'Step-free / assistance',
+      description: 'Can help with a walking frame or heavy bags',
+      providerPrompt: 'I can help with mobility aids and bags',
+    },
+    {
+      id: 'assistance_dog',
+      label: 'Assistance dog',
+      description: 'An assistance dog travels with the rider',
+      providerPrompt: 'Assistance dogs are welcome',
+    },
+    {
+      id: 'pet_friendly',
+      label: 'Pet friendly',
+      description: 'A pet travels with the rider',
+      providerPrompt: 'Pets are welcome',
+    },
+    {
+      id: 'extra_luggage',
+      label: 'Extra luggage',
+      description: 'More than an everyday car boot takes',
+      providerPrompt: 'I have room for extra luggage',
+    },
+  ],
+  credentials: [],
+  enforceCredentials: false,
+  states: {
+    values: {
+      REQUESTED: 'requested',
+      MATCHED: 'matched',
+      PROVIDER_EN_ROUTE: 'en_route',
+      PROVIDER_ARRIVED: 'arrived',
+      ACTIVE: 'active',
+      COMPLETED: 'completed',
+      CANCELLED: 'cancelled',
+      NO_SHOW: 'no_show',
+    },
+    transitions: {
+      requested: ['matched', 'cancelled'],
+      matched: ['en_route', 'cancelled'],
+      en_route: ['arrived', 'cancelled'],
+      arrived: ['active', 'no_show', 'cancelled'],
+      active: ['completed', 'cancelled'],
+    },
+    terminal: ['completed', 'no_show', 'cancelled'],
+    initial: 'requested',
+  },
+  roles: { requester: 'rider', provider: 'driver' },
+  labels: {
+    originLabel: 'Pickup',
+    destinationLabel: 'Dropoff',
+    taskNoun: 'ride',
+    requestVerb: 'Request',
+    activeVerb: 'In transit',
+    completedLabel: 'Ride Complete',
+    originInstruction: 'Tap the map to set your pickup location',
+    destinationInstruction: 'Now tap to set your destination',
+  },
+  stakingModel: { requesterStakePercent: 0, providerStakePercent: 0, penaltyPercent: 0 },
+  completionProofTypes: [],
+  disputeEvidenceTypes: [],
+  ratingCriteria: [
+    { tag: 'overall', label: 'Overall', weight: 0.4 },
+    { tag: 'punctuality', label: 'Punctuality', weight: 0.2 },
+    { tag: 'safety', label: 'Safety', weight: 0.2 },
+    { tag: 'courtesy', label: 'Courtesy', weight: 0.2 },
+  ],
+  dataRetention: { taskData: 0, locationData: 0, paymentData: 0 },
+  encryptionRequired: true,
+  regulatoryBodies: {},
+  features: {
+    navigation: true,
+    liveTracking: false,
+    tipping: false,
+    safetyAlerts: true,
+    photos: false,
+    signatures: false,
+    quoteNegotiation: false,
+    guaranteePeriod: false,
+    requiresDestination: true,
+  },
+  eventKinds: {
+    availability: 20500,
+    taskAnnouncement: 37500,
+    giftWrap: 1059,
+    rating: 30520,
+  },
+  theme: {
+    primary: '#b24cf3',
+    primaryRgb: '178, 76, 243',
+    secondary: '#ff6ec7',
+    secondaryRgb: '255, 110, 199',
+    accent: '#00ff88',
+    accentRgb: '0, 255, 136',
+    gradientFrom: '#b24cf3',
+    gradientTo: '#ff6ec7',
+    gradientAngle: '135deg',
+    routeColour: '#b24cf3',
+    emoji: '🚗',
+  },
+};
+
+export function openNetworkInfo(): OperatorInfo {
+  return {
+    name: 'Open DonkeyRide network',
+    fee: '0%',
+    feePercent: 0,
+    domain: {
+      id: OPEN_NETWORK_PROFILE.id,
+      name: OPEN_NETWORK_PROFILE.name,
+      roles: OPEN_NETWORK_PROFILE.roles,
+      features: OPEN_NETWORK_PROFILE.features as unknown as Record<string, boolean>,
+    },
+    public_relays: getDirectRelayUrls(),
+    data_handling: {
+      mode: 'direct',
+      exact_itinerary: 'participant_encrypted',
+      storage: 'encrypted_device_and_relay',
+      database_enabled: false,
+      residual_metadata: [
+        'relay_network_address',
+        'timing',
+        'task_rendezvous_pubkey',
+        'coarse_geohash',
+      ],
+    },
+    routing: {
+      provider: 'client_selected',
+      client_url: getDirectRoutingUrl(),
+      client_direct: true,
+    },
+    policy: {
+      schema: 'org.donkeyride.open-network/v1',
+      mode: 'open',
+      admission: {
+        mode: 'open',
+        assurance: 'none',
+        requiredCredentials: [],
+        allowlistSize: null,
+        note: 'No operator admits or verifies participants; users choose counterparties directly.',
+      },
+      records: { mode: 'ephemeral', backend: 'encrypted_device_and_relay' },
+    },
+    payment: { provider: 'none', trustModel: 'peer_to_peer' },
+    version: 'open-network-v1',
+  };
+}

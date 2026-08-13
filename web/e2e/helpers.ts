@@ -3,6 +3,7 @@ import { expect, type BrowserContext, type Page } from '@playwright/test';
 
 export const MANCHESTER = { latitude: 53.4808, longitude: -2.2426 };
 export const OLD_TRAFFORD = { latitude: 53.4631, longitude: -2.2913 };
+export const ETIHAD_STADIUM = { latitude: 53.4831, longitude: -2.2004 };
 
 export function phoneViewport(projectName: string): { width: number; height: number } {
   return projectName === 'small-mobile-chromium'
@@ -44,8 +45,10 @@ export async function installMapMocks(context: BrowserContext): Promise<void> {
       }));
     }
 
-    const pickupSearch = (url.searchParams.get('q') || '').toLowerCase().includes('piccadilly');
-    const location = pickupSearch ? MANCHESTER : OLD_TRAFFORD;
+    const query = (url.searchParams.get('q') || '').toLowerCase();
+    const pickupSearch = query.includes('piccadilly');
+    const stopSearch = query.includes('etihad');
+    const location = pickupSearch ? MANCHESTER : stopSearch ? ETIHAD_STADIUM : OLD_TRAFFORD;
     return route.fulfill(json({
       features: [{
         geometry: { coordinates: [location.longitude, location.latitude] },
@@ -57,6 +60,14 @@ export async function installMapMocks(context: BrowserContext): Promise<void> {
             postcode: 'M1 2DT',
             country: 'United Kingdom',
           }
+          : stopSearch
+            ? {
+              name: 'Etihad Stadium',
+              street: 'Ashton New Road',
+              city: 'Manchester',
+              postcode: 'M11 3FF',
+              country: 'United Kingdom',
+            }
           : {
             name: 'Old Trafford',
             street: 'Sir Matt Busby Way',
@@ -84,8 +95,12 @@ export async function installMapMocks(context: BrowserContext): Promise<void> {
 
 export async function skipOnboarding(context: BrowserContext): Promise<void> {
   await context.addInitScript(() => {
-    localStorage.setItem('donkeyride.onboarded.requester', '1');
-    localStorage.setItem('donkeyride.onboarded.provider', '1');
+    // Init scripts also run in the initial opaque about:blank document,
+    // where storage access is forbidden. They run again on the app origin.
+    try {
+      localStorage.setItem('donkeyride.onboarded.requester', '1');
+      localStorage.setItem('donkeyride.onboarded.provider', '1');
+    } catch { /* opaque origin */ }
   });
 }
 

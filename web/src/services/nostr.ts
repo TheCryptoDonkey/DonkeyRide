@@ -1,4 +1,7 @@
 import type { NostrIdentity, NostrEvent } from '../types/nostr';
+import {
+  secureDeviceEnvelope, secureDeviceGet, secureDeviceSet,
+} from './secure-device-storage';
 
 const REQUESTER_KEY = 'donkeyride.requesterPrivKey';
 const PROVIDER_KEY = 'donkeyride.providerPrivKey';
@@ -42,7 +45,7 @@ export function clearIdentityRecoveryNotice(): void {
 }
 
 /**
- * Load or create a Nostr identity from localStorage.
+ * Load or create a Nostr identity from encrypted device storage.
  * Uses nostr-tools dynamically to avoid bundling issues.
  * Falls back to legacy storage keys for backward compatibility.
  *
@@ -56,20 +59,39 @@ export async function loadOrCreateIdentity(
 ): Promise<NostrIdentity> {
   const { getPublicKey, nip19 } = await import('nostr-tools');
 
-  let privKeyHex = localStorage.getItem(storageKey);
+  let privKeyHex: string | null = null;
+
+  try {
+    privKeyHex = await secureDeviceGet(storageKey);
+  } catch {
+    const timestamp = Date.now();
+    const corrupt = secureDeviceEnvelope(storageKey);
+    if (corrupt) localStorage.setItem(`${storageKey}.corrupt-${timestamp}`, corrupt);
+    localStorage.setItem(RECOVERY_FLAG_KEY, new Date(timestamp).toISOString());
+  }
+
+  // Migrate old cleartext records only after the encrypted write succeeds.
+  if (!privKeyHex) {
+    const cleartext = localStorage.getItem(storageKey);
+    if (cleartext) {
+      await secureDeviceSet(storageKey, cleartext);
+      localStorage.removeItem(storageKey);
+      privKeyHex = cleartext;
+    }
+  }
 
   // Fall back to legacy key if new key not found
   if (!privKeyHex && legacyKey) {
     privKeyHex = localStorage.getItem(legacyKey);
     if (privKeyHex) {
-      // Migrate to new key
-      localStorage.setItem(storageKey, privKeyHex);
+      await secureDeviceSet(storageKey, privKeyHex);
+      localStorage.removeItem(legacyKey);
     }
   }
 
   if (!privKeyHex) {
     privKeyHex = generateRandomHex();
-    localStorage.setItem(storageKey, privKeyHex);
+    await secureDeviceSet(storageKey, privKeyHex);
   }
 
   try {
@@ -80,11 +102,13 @@ export async function loadOrCreateIdentity(
     // Key was corrupted — preserve it for manual recovery, flag it, then
     // create a fresh identity so the app can still function.
     const timestamp = Date.now();
-    localStorage.setItem(`${storageKey}.corrupt-${timestamp}`, privKeyHex);
+    // Keep the invalid value only for explicit recovery, encrypted under the
+    // same device key. It must not reintroduce a cleartext secret dump.
+    await secureDeviceSet(`${storageKey}.corrupt-${timestamp}`, privKeyHex);
     localStorage.setItem(RECOVERY_FLAG_KEY, new Date(timestamp).toISOString());
 
     privKeyHex = generateRandomHex();
-    localStorage.setItem(storageKey, privKeyHex);
+    await secureDeviceSet(storageKey, privKeyHex);
     const pubKeyHex = getPublicKey(hexToBytes(privKeyHex));
     const npub = nip19.npubEncode(pubKeyHex);
     return { privKeyHex, pubKeyHex, npub };
@@ -181,6 +205,8 @@ export async function importIdentity(
   }
 
   const pubKeyHex = getPublicKey(hexToBytes(privKeyHex));
-  localStorage.setItem(role === 'provider' ? PROVIDER_KEY : REQUESTER_KEY, privKeyHex);
+  const storageKey = role === 'provider' ? PROVIDER_KEY : REQUESTER_KEY;
+  await secureDeviceSet(storageKey, privKeyHex);
+  localStorage.removeItem(storageKey);
   return nip19.npubEncode(pubKeyHex);
 }

@@ -1,7 +1,9 @@
-import type { LatLng } from '../types/api';
+import type { AvailableProvider, LatLng } from '../types/api';
 import { signNostrEvent, bytesToHex } from './nostr';
-import { publishToRelays } from './relays';
-import { encodeGeohash } from '../utils/geohash';
+import { publishToRelays, queryRelays, subscribeToRelays } from './relays';
+import { decodeGeohash, encodeGeohash } from '../utils/geohash';
+import { getCoordinationMode } from './network-mode';
+import type { NostrEvent } from '../types/nostr';
 
 /**
  * Decentralised discovery events — published DIRECT TO PUBLIC RELAYS ONLY,
@@ -25,18 +27,13 @@ import { encodeGeohash } from '../utils/geohash';
  * STORE it — but nothing stops a subscriber storing it themselves, and
  * `{kinds:[20500]}` is a free, passive, permanently-open subscription.
  *
- * That cost buys nothing while an operator coordinates: dispatch already
- * has the provider's position over the authenticated task socket every 30
- * seconds, and NOTHING in this codebase subscribes to kind 20500 — riders
- * are matched by the operator, and federated jobs resolve through the
- * coordinating operator's authenticated API. Providers were paying a
- * public-location price for a reader that does not exist.
- *
- * It stays implemented, and spec-conformant, for the operator-free mode it
- * was written for. It is simply not on by default in a deployment that has
- * an operator — which is every deployment of this app today.
+ * Direct-mode riders keep a live kind-20500 subscription and need this
+ * contact/reputation anchor to discover nearby drivers. Managed dispatch
+ * already has its own authenticated presence channel, so its beacon remains
+ * off unless that operator build explicitly opts in.
  */
 export function p2pBeaconEnabled(): boolean {
+  if (getCoordinationMode() === 'direct') return true;
   return String(import.meta.env.VITE_TROTT_P2P_BEACON || '')
     .trim().toLowerCase() === 'true';
 }
@@ -70,6 +67,85 @@ export async function publishAvailabilityBeacon(
   } catch {
     return 0;
   }
+}
+
+function distanceKm(a: LatLng, b: LatLng): number {
+  const rad = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * rad;
+  const dLng = (b.lng - a.lng) * rad;
+  const h = Math.sin(dLat / 2) ** 2
+    + Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(h));
+}
+
+// Kind 20500 is ephemeral by design: a conforming relay need not replay a
+// beacon to a query made after it was published. Keep one live subscription
+// in the PWA and cache only the latest short-lived event in memory. This
+// makes discovery work without asking a relay to retain a location history.
+const liveAvailability = new Map<string, NostrEvent>();
+let availabilitySubscription: Promise<{ close: () => void }> | null = null;
+
+async function ensureAvailabilitySubscription(): Promise<void> {
+  if (!availabilitySubscription) {
+    availabilitySubscription = import('nostr-tools').then(({ verifyEvent }) =>
+      subscribeToRelays({
+        kinds: [20500],
+        since: Math.floor(Date.now() / 1000) - 180,
+      }, (event) => {
+        if (!verifyEvent(event as never)) return;
+        const existing = liveAvailability.get(event.pubkey);
+        if (!existing || event.created_at > existing.created_at) {
+          liveAvailability.set(event.pubkey, event);
+        }
+      }));
+  }
+  await availabilitySubscription;
+}
+
+/** Current coarse provider beacons for the rider's map; no operator query. */
+export async function queryAvailabilityBeacons(
+  around: LatLng,
+  domainId = 'ridesharing',
+  radiusKm = 10,
+): Promise<AvailableProvider[]> {
+  const now = Math.floor(Date.now() / 1000);
+  await ensureAvailabilitySubscription();
+  const replayed = await queryRelays({
+    kinds: [20500],
+    since: now - 180,
+    limit: 500,
+  });
+  const byId = new Map<string, NostrEvent>();
+  for (const event of liveAvailability.values()) byId.set(event.id, event);
+  for (const event of replayed || []) byId.set(event.id, event);
+  const events = Array.from(byId.values());
+  const { verifyEvent, nip19 } = await import('nostr-tools');
+  const latest = new Map<string, AvailableProvider & { at: number }>();
+  for (const event of events) {
+    if (!verifyEvent(event as never)) continue;
+    const expiration = Number(event.tags.find((item) => item[0] === 'expiration')?.[1]);
+    const geohash = event.tags.find((item) => item[0] === 'g')?.[1];
+    const eventDomain = event.tags.find((item) => item[0] === 'domain')?.[1];
+    if (!geohash || eventDomain !== domainId || !Number.isFinite(expiration) || expiration < now) continue;
+    const point = decodeGeohash(geohash);
+    if (!point) continue;
+    const location = { lat: point.lat, lng: point.lon };
+    if (distanceKm(around, location) > radiusKm + 5) continue;
+    const existing = latest.get(event.pubkey);
+    if (!existing || event.created_at > existing.at) {
+      latest.set(event.pubkey, {
+        pubkey: event.pubkey,
+        npub: nip19.npubEncode(event.pubkey),
+        location,
+        at: event.created_at,
+      });
+    }
+  }
+  for (const [pubkey, event] of liveAvailability) {
+    const expiration = Number(event.tags.find((item) => item[0] === 'expiration')?.[1]);
+    if (!Number.isFinite(expiration) || expiration < now) liveAvailability.delete(pubkey);
+  }
+  return Array.from(latest.values()).map(({ at: _at, ...provider }) => provider);
 }
 
 /**

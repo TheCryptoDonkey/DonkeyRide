@@ -22,6 +22,7 @@ const PICKUP = { lat: 53.47741, lng: -2.23094 };
 
 beforeEach(() => {
   published.length = 0;
+  localStorage.setItem('donkeyride.coordination.mode', 'managed');
 });
 
 describe('task announcements are unlinkable to the requester', () => {
@@ -76,9 +77,8 @@ describe('the P2P availability beacon is off unless asked for', () => {
 
   it('publishes NOTHING by default', async () => {
     // A provider going on shift used to sign a kind 20500 under their
-    // identity key every 60 seconds for the whole shift. Nothing in this
-    // app reads kind 20500 — dispatch runs off the authenticated socket —
-    // so that was a public location feed with no reader.
+    // Managed dispatch uses its authenticated socket, so it must not also
+    // publish the driver's identity-linked coarse position to public relays.
     const acks = await publishAvailabilityBeacon(PICKUP, 'ridesharing', RIDER_PRIV);
 
     expect(acks).toBe(0);

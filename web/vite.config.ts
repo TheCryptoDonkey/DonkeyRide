@@ -55,7 +55,9 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    sourcemap: true,
+    // Production bundles should not publish the full application source.
+    // A developer can opt in for a private diagnostic build when needed.
+    sourcemap: process.env.VITE_BUILD_SOURCEMAPS === 'true',
     rollupOptions: {
       input: {
         rider: path.resolve(__dirname, 'index.html'),

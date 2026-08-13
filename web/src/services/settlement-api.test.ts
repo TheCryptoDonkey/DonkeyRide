@@ -29,6 +29,7 @@ function lastBody(calls: MockCall[]): Record<string, unknown> {
 beforeEach(() => {
   // No auth key → no NIP-98 signing, keeping these tests offline and simple
   setAuthPrivKey(null);
+  localStorage.setItem('donkeyride.coordination.mode', 'managed');
 });
 
 afterEach(() => {

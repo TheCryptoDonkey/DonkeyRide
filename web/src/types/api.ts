@@ -47,6 +47,8 @@ export interface Task {
   stopCount?: number;
   /** Where exact itinerary data lives for this task */
   locationMode?: 'participant_encrypted' | 'operator_memory';
+  /** Relay-native open network or an explicitly selected managed operator. */
+  coordinationMode?: 'direct' | 'managed';
   /** Whether parties agreed a priced fare or explicitly no money */
   settlementMode?: 'priced' | 'none';
   /** The car to look for — participant-gated detail only */
@@ -326,7 +328,7 @@ export interface OperatorInfo {
   relay?: string;
   public_relays?: string[];
   data_handling?: {
-    mode: 'blind' | 'managed';
+    mode: 'direct' | 'blind' | 'managed';
     exact_itinerary: 'participant_encrypted' | 'operator_memory';
     storage: string;
     database_enabled: boolean;

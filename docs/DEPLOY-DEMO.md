@@ -1,4 +1,8 @@
-# Deploying a public demo instance
+# Deploying the optional managed demo
+
+This document is for a firm testing the reference operator. It is not the
+default DonkeyRide product. To publish the operatorless installable PWA, use
+[DEPLOY-PWA.md](./DEPLOY-PWA.md).
 
 The privacy-default demo stack runs an ephemeral coordinator plus a Nostr
 relay behind any TLS reverse proxy. It has no PostgreSQL and no Redis. Ports

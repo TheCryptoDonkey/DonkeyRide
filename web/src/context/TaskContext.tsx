@@ -8,6 +8,10 @@ import { safeOperatorOrigin } from '../services/federation';
 import { decodeGeohash, encodeGeohash } from '../utils/geohash';
 import { useDomain } from './DomainContext';
 import { useIdentity } from './IdentityContext';
+import { getCoordinationMode } from '../services/network-mode';
+import {
+  clearDirectTask, loadDirectTask, saveDirectTask,
+} from '../services/direct-coordination';
 
 const STORAGE_KEYS = {
   activeTask: 'donkeyride.activeTask',
@@ -154,6 +158,8 @@ export function TaskProvider({ children }: { children: ReactNode }) {
   terminalStatesRef.current = profile?.states.terminal || [];
   const roleRef = useRef(role);
   roleRef.current = role;
+  const activeTaskRef = useRef(activeTask);
+  activeTaskRef.current = activeTask;
 
   const setActiveTask = useCallback((task: Task | null) => {
     setActiveTaskState(task);
@@ -217,6 +223,9 @@ export function TaskProvider({ children }: { children: ReactNode }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const reset = useCallback(() => {
+    if (identity && activeTaskRef.current?.coordinationMode === 'direct') {
+      void clearDirectTask(identity.privKeyHex, activeTaskRef.current.id);
+    }
     setActiveTaskState(null);
     setEstimate(null);
     setOriginState(null);
@@ -231,7 +240,14 @@ export function TaskProvider({ children }: { children: ReactNode }) {
     sessionStorage.removeItem(STORAGE_KEYS.destinationAddress);
     localStorage.removeItem(activeTaskIdKey(roleRef.current));
     localStorage.removeItem(activeTaskOriginKey(roleRef.current));
-  }, []);
+  }, [identity]);
+
+  // Direct mode has no coordinator to recover from. Keep its state encrypted
+  // to this device identity whenever React adopts a newer lifecycle event.
+  useEffect(() => {
+    if (!identity || activeTask?.coordinationMode !== 'direct') return;
+    void saveDirectTask(identity.privKeyHex, activeTask);
+  }, [activeTask, identity?.privKeyHex]);
 
   // On boot, re-fetch the stored task; if the session is fresh (app/tab
   // restart) ask the operator for this participant's active task instead.
@@ -256,6 +272,12 @@ export function TaskProvider({ children }: { children: ReactNode }) {
 
     const stored = loadJson<Task>(STORAGE_KEYS.activeTask);
     if (stored?.id) {
+      if (stored.coordinationMode === 'direct') {
+        loadDirectTask(identity.privKeyHex, stored.id)
+          .then((fresh) => fresh ? adopt(fresh) : reset())
+          .catch(() => reset());
+        return;
+      }
       getTask(stored.id, safeOperatorOrigin(stored.operatorBase || null) || storedOrigin())
         .then(adopt)
         .catch(() => reset()); // Task not found — clear
@@ -266,6 +288,15 @@ export function TaskProvider({ children }: { children: ReactNode }) {
     const fromStoredId = () => {
       const storedId = localStorage.getItem(activeTaskIdKey(roleRef.current));
       if (!storedId) return;
+      if (getCoordinationMode() === 'direct') {
+        loadDirectTask(identity.privKeyHex, storedId)
+          .then((fresh) => {
+            if (fresh && !terminalStates.includes(fresh.status)) setActiveTask(fresh);
+            else localStorage.removeItem(activeTaskIdKey(roleRef.current));
+          })
+          .catch(() => localStorage.removeItem(activeTaskIdKey(roleRef.current)));
+        return;
+      }
       getTask(storedId, storedOrigin())
         .then((fresh) => {
           if (!terminalStates.includes(fresh.status)) {

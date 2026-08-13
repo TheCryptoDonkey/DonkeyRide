@@ -11,6 +11,13 @@ import { getCurrencySymbol } from './pricing';
 import { decodeGeohash, encodeGeohash } from '../utils/geohash';
 import { getSelectedOperatorBase } from './operator-origin';
 import { routeDirect } from './client-routing';
+import { mergeEarnings } from './job-history';
+import { isDirectMode, getDirectRoutingUrl } from './network-mode';
+import { OPEN_NETWORK_PROFILE, openNetworkInfo } from '../config/open-network';
+import {
+  acceptDirectTask, cancelDirectTask, createDirectTask, loadDirectTask,
+  transitionDirectTask, isKnownDirectTask,
+} from './direct-coordination';
 
 /** The operator origin this app instance talks to (absolute) */
 export function getApiBase(): string {
@@ -256,6 +263,7 @@ export function normaliseProviders(raw: any): AvailableProvider[] {
 
 /** GET /info — operator metadata */
 export async function getOperatorInfo(base?: string): Promise<OperatorInfo> {
+  if (isDirectMode(base)) return openNetworkInfo();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const raw: any = await request('/info', undefined, base);
   if (raw?.payment && raw.payment.trustModel === undefined && raw.payment.trust_model !== undefined) {
@@ -273,7 +281,10 @@ const _operatorInfoPromises = new Map<string, Promise<OperatorInfo>>();
 export function getOperatorInfoCached(base?: string): Promise<OperatorInfo> {
   const origin = base || getApiBase();
   if (!_operatorInfoPromises.has(origin)) {
-    const pending = getOperatorInfo(origin).catch((err) => {
+    // `origin` is only the cache key when no operator was supplied. Passing
+    // that derived same-origin URL back as an explicit base made direct mode
+    // look managed and caused a stray /info request from the static PWA.
+    const pending = getOperatorInfo(base).catch((err) => {
       _operatorInfoPromises.delete(origin);
       throw err;
     });
@@ -284,6 +295,7 @@ export function getOperatorInfoCached(base?: string): Promise<OperatorInfo> {
 
 /** GET /health */
 export function getHealth(): Promise<{ status: string }> {
+  if (isDirectMode()) return Promise.resolve({ status: 'static-pwa' });
   return request('/health');
 }
 
@@ -295,16 +307,33 @@ export function listDomains(): Promise<{
   available: Array<{ id: string; name: string; emoji: string }>;
   count: number;
 }> {
+  if (isDirectMode()) {
+    return Promise.resolve({
+      current: OPEN_NETWORK_PROFILE.id,
+      available: [{
+        id: OPEN_NETWORK_PROFILE.id,
+        name: OPEN_NETWORK_PROFILE.name,
+        emoji: OPEN_NETWORK_PROFILE.theme.emoji,
+      }],
+      count: 1,
+    });
+  }
   return request('/api/domains');
 }
 
 /** GET /api/domains/current — active domain profile */
 export function getCurrentDomain(): Promise<DomainProfile> {
+  if (isDirectMode()) return Promise.resolve(OPEN_NETWORK_PROFILE);
   return request('/api/domains/current');
 }
 
 /** GET /api/domains/:id — get a specific domain profile */
 export function getDomain(domainId: string): Promise<DomainProfile> {
+  if (isDirectMode()) {
+    return domainId === OPEN_NETWORK_PROFILE.id
+      ? Promise.resolve(OPEN_NETWORK_PROFILE)
+      : Promise.reject(new Error('Only journeys are built into the open-network PWA'));
+  }
   return request(`/api/domains/${domainId}`);
 }
 
@@ -351,7 +380,29 @@ export async function requestTask(params: {
   routeSummary?: { distanceKm: number; durationMinutes: number };
   /** Explicitly allow a journey with no payment at all. */
   settlementMode?: 'priced' | 'none';
+  routeGeometry?: string | [number, number][];
 }): Promise<Task> {
+  if (isDirectMode()) {
+    if (!_authPrivKey) throw new Error('No identity available for encrypted coordination');
+    if (!params.dropoff || !params.routeSummary) {
+      throw new Error('A road-routed destination is required');
+    }
+    return createDirectTask({
+      requesterPrivkey: _authPrivKey,
+      requesterPubkey: params.requesterPubkey,
+      pickup: params.pickup,
+      dropoff: params.dropoff,
+      stops: params.stops,
+      pickupAddress: params.pickupAddress,
+      dropoffAddress: params.dropoffAddress,
+      pickupNote: params.pickupNote,
+      scheduledFor: params.scheduledFor,
+      distanceKm: params.routeSummary.distanceKm,
+      durationMinutes: params.routeSummary.durationMinutes,
+      routeGeometry: params.routeGeometry,
+      settlementMode: params.settlementMode,
+    });
+  }
   const privateItinerary = params.locationMode === 'participant_encrypted';
   const body: Record<string, unknown> = {
     ...(privateItinerary ? {
@@ -467,7 +518,16 @@ export async function acceptTask(taskId: string, params: {
    * it did. Expired claims are dropped operator-side.
    */
   credentials?: Array<{ id: string; expiresAt?: number; reference?: string }>;
+  directTask?: Task;
 }, base?: string): Promise<Task> {
+  if (isDirectMode(base) || params.directTask?.coordinationMode === 'direct') {
+    if (!_authPrivKey || !params.directTask) {
+      throw new Error('The encrypted direct journey offer is unavailable');
+    }
+    return acceptDirectTask(
+      _authPrivKey, params.providerPubkey, params.directTask, params.providerLocation,
+    );
+  }
   const privateItinerary = params.locationMode === 'participant_encrypted';
   let providerLocation = params.providerLocation;
   if (privateItinerary) {
@@ -546,6 +606,10 @@ export async function updateTaskPickup(taskId: string, params: {
 export async function arriveAtOrigin(taskId: string, params: {
   providerPubkey: string;
 }, base?: string): Promise<Task> {
+  if (isDirectMode(base) || isKnownDirectTask(taskId)) {
+    if (!_authPrivKey) throw new Error('No identity available for encrypted coordination');
+    return transitionDirectTask(_authPrivKey, taskId, 'arrived');
+  }
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/arrive`, {
     method: 'POST',
     body: JSON.stringify({ driverPubkey: params.providerPubkey }),
@@ -557,6 +621,10 @@ export async function arriveAtOrigin(taskId: string, params: {
 export async function startTask(taskId: string, params: {
   providerPubkey: string;
 }, base?: string): Promise<Task> {
+  if (isDirectMode(base) || isKnownDirectTask(taskId)) {
+    if (!_authPrivKey) throw new Error('No identity available for encrypted coordination');
+    return transitionDirectTask(_authPrivKey, taskId, 'active');
+  }
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/start`, {
     method: 'POST',
     body: JSON.stringify({ driverPubkey: params.providerPubkey }),
@@ -568,6 +636,10 @@ export async function startTask(taskId: string, params: {
 export async function completeTask(taskId: string, params: {
   providerPubkey?: string;
 }, base?: string): Promise<Task> {
+  if (isDirectMode(base) || isKnownDirectTask(taskId)) {
+    if (!_authPrivKey) throw new Error('No identity available for encrypted coordination');
+    return transitionDirectTask(_authPrivKey, taskId, 'completed');
+  }
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/complete`, {
     method: 'POST',
     body: JSON.stringify({ driverPubkey: params.providerPubkey }),
@@ -581,6 +653,10 @@ export async function transitionTask(taskId: string, params: {
   providerPubkey?: string;
   metadata?: Record<string, unknown>;
 }, base?: string): Promise<Task> {
+  if (isDirectMode(base) || isKnownDirectTask(taskId)) {
+    if (!_authPrivKey) throw new Error('No identity available for encrypted coordination');
+    return transitionDirectTask(_authPrivKey, taskId, params.targetState);
+  }
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/transition`, {
     method: 'POST',
     body: JSON.stringify({
@@ -603,6 +679,11 @@ export function cancelTask(taskId: string, params: {
    */
   reasonCode?: string | null;
 }, base?: string): Promise<{ success: boolean }> {
+  if (isDirectMode(base) || isKnownDirectTask(taskId)) {
+    if (!_authPrivKey) return Promise.reject(new Error('No identity available for encrypted coordination'));
+    return cancelDirectTask(_authPrivKey, taskId, params.reason || params.reasonCode || undefined)
+      .then(() => ({ success: true }));
+  }
   const { reasonCode, ...rest } = params;
   return request(`/api/tasks/${taskId}/cancel`, {
     method: 'POST',
@@ -666,6 +747,10 @@ export async function submitRating(taskId: string, params: {
   // reportNonEvent (just below) already had this ordering.
   void publishToRelays(event);
 
+  if (isDirectMode(base) || isKnownDirectTask(taskId)) {
+    return { success: true };
+  }
+
   // The mirror goes to whoever coordinated the job, so their fallback
   // aggregate is right too — best-effort, never fatal.
   try {
@@ -719,6 +804,7 @@ export async function reportNonEvent(taskId: string, params: {
   }, _authPrivKey);
 
   void publishToRelays(event);
+  if (isDirectMode(base) || isKnownDirectTask(taskId)) return;
   try {
     await request(`/api/tasks/${taskId}/rate`, {
       method: 'POST',
@@ -814,6 +900,14 @@ export async function triggerPanic(taskId: string, params: {
   // Managed mode can give the participant-gated operator socket an exact
   // point. Privacy mode sends only the public event's coarse cell centre;
   // trusted contacts receive the exact alert separately over NIP-17.
+  // The relay signal is the complete direct-mode action; there is no
+  // coordinator endpoint to notify. Exact positions go only to guardians
+  // through the separately encrypted alert above this service layer.
+  if (isDirectMode(base) || isKnownDirectTask(taskId)) {
+    void publishToRelays(event);
+    return { success: true };
+  }
+
   const res = await request<{ success: boolean }>(`/api/tasks/${taskId}/panic`, {
     method: 'POST',
     body: JSON.stringify({
@@ -842,6 +936,12 @@ export function respondToCheckIn(taskId: string, params: {
 
 /** GET /api/tasks/:id — get task details */
 export async function getTask(taskId: string, base?: string): Promise<Task> {
+  if (isDirectMode(base) || isKnownDirectTask(taskId)) {
+    if (!_authPrivKey) throw new Error('No identity available for encrypted coordination');
+    const task = await loadDirectTask(_authPrivKey, taskId);
+    if (!task) throw new ApiError('Journey not found on this device', 404);
+    return task;
+  }
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}`, undefined, base);
   return stampOrigin(normaliseTask(raw), base);
 }
@@ -852,6 +952,7 @@ export async function getTask(taskId: string, base?: string): Promise<Task> {
  * Used to recover an active task after an app/tab restart.
  */
 export async function getActiveParticipantTask(pubkey: string): Promise<Task | null> {
+  if (isDirectMode()) return null;
   const raw = await request<{ task: Record<string, unknown> | null }>(
     `/api/participants/${pubkey}/active`,
   );
@@ -877,6 +978,7 @@ export async function getOpenTasks(params?: {
   /** Who is browsing — lets a favourite see a job inside its head start */
   pubkey?: string;
 }, base?: string): Promise<Task[]> {
+  if (isDirectMode(base)) return [];
   const query = new URLSearchParams();
   if (params?.areas && params.areas.length > 0) {
     query.set('areas', params.areas.join(','));
@@ -985,6 +1087,7 @@ export function confirmProviderStake(taskId: string, params: {
 
 /** GET /api/settlement/rails — the catalogue of rails a driver can offer */
 export async function getSettlementRails(base?: string): Promise<SettlementRail[]> {
+  if (isDirectMode(base)) return [];
   const raw = await request<{ rails: SettlementRail[] }>('/api/settlement/rails', undefined, base);
   return raw.rails || [];
 }
@@ -1055,6 +1158,25 @@ export async function getTripEstimate(params: {
   /** Intermediate stops in visit order (≤3) — the estimate covers the detour */
   stops?: { lat: number; lng: number }[];
 }): Promise<TripEstimate> {
+  if (isDirectMode()) {
+    const directRoute = await routeDirect(
+      getDirectRoutingUrl(), params.pickup, params.dropoff, params.stops || [],
+    );
+    return {
+      distanceKm: directRoute.distanceKm,
+      durationMinutes: directRoute.durationMinutes,
+      fareEstimateSats: 0,
+      fareBreakdown: {
+        baseFareSats: 0,
+        distanceFareSats: 0,
+        timeFareSats: 0,
+        operatorFeeSats: 0,
+      },
+      routeGeometry: directRoute.geometry,
+      routed: true,
+      locationMode: 'participant_encrypted',
+    };
+  }
   const operator = await getOperatorInfoCached();
   const privateItinerary = operator.data_handling?.mode === 'blind';
   let clientRoute: Awaited<ReturnType<typeof routeDirect>> | null = null;
@@ -1148,6 +1270,9 @@ export function getRoutePreview(params: {
 
 /** GET /api/prices/btc — current BTC prices (server wraps them in {prices}) */
 export async function getBtcPrices(): Promise<BtcPrices> {
+  if (isDirectMode()) {
+    return { USD: 0, GBP: 0, EUR: 0, KES: 0, updatedAt: new Date(0).toISOString() };
+  }
   const raw = await request<{ prices?: BtcPrices } & Partial<BtcPrices>>('/api/prices/btc');
   return (raw.prices ?? raw) as BtcPrices;
 }
@@ -1180,6 +1305,7 @@ export function getReputation(npub: string): Promise<Reputation> {
 
 /** GET /api/push/vapid-key — the operator's self-generated VAPID public key */
 export async function getVapidKey(): Promise<string | null> {
+  if (isDirectMode()) return null;
   const raw = await request<{ key?: string | null }>(`/api/push/vapid-key`);
   return raw.key || null;
 }
@@ -1320,6 +1446,7 @@ export interface DriverEarnings {
 
 /** GET /api/drivers/:pubkey/earnings — driver earnings + completed rides */
 export function getDriverEarnings(pubkey: string): Promise<DriverEarnings> {
+  if (isDirectMode()) return Promise.resolve(mergeEarnings(null));
   return request(`/api/drivers/${pubkey}/earnings`);
 }
 
@@ -1408,6 +1535,7 @@ export interface DemandCell {
  * but their own guess.
  */
 export async function getDemand(): Promise<{ cells: DemandCell[]; surgeEnabled: boolean }> {
+  if (isDirectMode()) return { cells: [], surgeEnabled: false };
   const raw = await request<{ cells?: DemandCell[]; surge_enabled?: boolean }>('/api/demand');
   return { cells: raw.cells || [], surgeEnabled: raw.surge_enabled === true };
 }
@@ -1419,6 +1547,12 @@ export async function getCancellationReasons(): Promise<{
   requester: string[];
   provider: string[];
 }> {
+  if (isDirectMode()) {
+    return {
+      requester: ['changed_mind', 'wait_too_long', 'wrong_pickup', 'other'],
+      provider: ['vehicle_issue', 'unsafe_pickup', 'cannot_complete', 'other'],
+    };
+  }
   const raw = await request<{ reasons?: { requester?: string[]; provider?: string[] } }>(
     '/api/cancellation-reasons',
   );
