@@ -9,7 +9,13 @@ interface DomainState {
   profile: DomainProfile | null;
   loading: boolean;
   error: string | null;
-  availableDomains: Array<{ id: string; name: string; emoji: string }>;
+  availableDomains: Array<{
+    id: string;
+    name: string;
+    emoji: string;
+    operational?: boolean;
+    unavailableReason?: string | null;
+  }>;
   switchDomain: (domainId: string) => void;
 }
 
@@ -60,7 +66,7 @@ export function DomainProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<DomainProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [availableDomains, setAvailableDomains] = useState<Array<{ id: string; name: string; emoji: string }>>([]);
+  const [availableDomains, setAvailableDomains] = useState<DomainState['availableDomains']>([]);
 
   // Fetch the domain list on mount
   useEffect(() => {

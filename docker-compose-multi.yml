@@ -102,6 +102,7 @@ ides
       - NOSTR_RELAY=ws://nostr-relay:7777
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=postgresql://donkey:${POSTGRES_PASSWORD:-rideshare123}@postgres:5432/donkeyride
+      - TASK_DATA_ENCRYPTION_KEY=${TASK_DATA_ENCRYPTION_KEY:-}
 
       # Payment provider
       - PAYMENT_PROVIDER=mock
@@ -150,6 +151,7 @@ ides
       - NOSTR_RELAY=ws://nostr-relay:7777
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=postgresql://donkey:${POSTGRES_PASSWORD:-rideshare123}@postgres:5432/donkeyride
+      - TASK_DATA_ENCRYPTION_KEY=${TASK_DATA_ENCRYPTION_KEY:-}
 
       # Payment provider
       - PAYMENT_PROVIDER=mock
@@ -198,6 +200,7 @@ ides
       - NOSTR_RELAY=ws://nostr-relay:7777
       - REDIS_URL=redis://redis:6379
       - DATABASE_URL=postgresql://donkey:${POSTGRES_PASSWORD:-rideshare123}@postgres:5432/donkeyride
+      - TASK_DATA_ENCRYPTION_KEY=${TASK_DATA_ENCRYPTION_KEY:-}
 
       # Payment provider
       - PAYMENT_PROVIDER=mock

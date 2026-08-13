@@ -197,6 +197,11 @@ function validateProfile(profile) {
       quoteNegotiation: false,
       guaranteePeriod: false,
       requiresDestination: true,
+      settlementRequired: true,
+      multiPassengerHandoffs: false,
+      routeRequired: false,
+      durableTaskDataRequired: false,
+      redactSensitiveDataOnTerminal: false,
       ...profile.features
     },
     eventKinds: {
@@ -261,7 +266,7 @@ function getSchemaTemplate() {
     name: '(string) Human-readable domain name, e.g. "Ridesharing"',
     description: '(string) Brief description of the domain',
     discoveryMethod: '(string) "geohash" | "skillTags" | "availability"',
-    pricingModel: '(string) "distance_time_surge" | "distance_weight" | "hourly" | "milestone" | "flatRate" | "quote"',
+    pricingModel: '(string) "none" | "distance_time_surge" | "distance_weight" | "hourly" | "milestone" | "flatRate" | "quote"',
     states: {
       values: '(object) Map of STATE_KEY to state string value',
       transitions: '(object) Map of state string to array of valid next states',
@@ -306,7 +311,12 @@ function getSchemaTemplate() {
       photos: '(boolean) Whether photo evidence is used',
       signatures: '(boolean) Whether digital signatures are collected',
       quoteNegotiation: '(boolean) Whether quote-then-accept flow is used',
-      guaranteePeriod: '(boolean) Whether post-completion guarantee tracking is used'
+      guaranteePeriod: '(boolean) Whether post-completion guarantee tracking is used',
+      settlementRequired: '(boolean) Whether the requester must settle money with the provider',
+      multiPassengerHandoffs: '(boolean) Whether the task has individually confirmed passenger drop-offs',
+      routeRequired: '(boolean) Whether task creation must fail if a road route cannot be calculated',
+      durableTaskDataRequired: '(boolean) Whether production requires a private durable task store',
+      redactSensitiveDataOnTerminal: '(boolean) Whether terminal records discard exact locations and personal details'
     },
     eventKinds: '(object) Map of operation names to Nostr event kind numbers'
   };

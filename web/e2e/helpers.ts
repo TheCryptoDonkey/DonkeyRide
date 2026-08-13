@@ -3,6 +3,7 @@ import { expect, type BrowserContext, type Page } from '@playwright/test';
 
 export const MANCHESTER = { latitude: 53.4808, longitude: -2.2426 };
 export const OLD_TRAFFORD = { latitude: 53.4631, longitude: -2.2913 };
+export const DIDSBURY = { latitude: 53.4169, longitude: -2.2315 };
 
 export function phoneViewport(projectName: string): { width: number; height: number } {
   return projectName === 'small-mobile-chromium'
@@ -30,22 +31,29 @@ export async function installMapMocks(context: BrowserContext): Promise<void> {
     if (url.pathname === '/reverse') {
       const lng = Number(url.searchParams.get('lon'));
       const oldTrafford = lng < -2.27;
+      const didsbury = !oldTrafford && lng < -2.22 && Number(url.searchParams.get('lat')) < 53.45;
       return route.fulfill(json({
         features: [{
           geometry: {
             coordinates: oldTrafford
               ? [OLD_TRAFFORD.longitude, OLD_TRAFFORD.latitude]
-              : [MANCHESTER.longitude, MANCHESTER.latitude],
+              : didsbury
+                ? [DIDSBURY.longitude, DIDSBURY.latitude]
+                : [MANCHESTER.longitude, MANCHESTER.latitude],
           },
           properties: oldTrafford
             ? { name: 'Old Trafford', street: 'Sir Matt Busby Way', city: 'Manchester', postcode: 'M16 0RA' }
-            : { name: 'Manchester Piccadilly', street: 'Piccadilly Station', city: 'Manchester', postcode: 'M1 2DT' },
+            : didsbury
+              ? { name: 'Didsbury Village', street: 'Wilmslow Road', city: 'Manchester', postcode: 'M20 2DW' }
+              : { name: 'Manchester Piccadilly', street: 'Piccadilly Station', city: 'Manchester', postcode: 'M1 2DT' },
         }],
       }));
     }
 
-    const pickupSearch = (url.searchParams.get('q') || '').toLowerCase().includes('piccadilly');
-    const location = pickupSearch ? MANCHESTER : OLD_TRAFFORD;
+    const query = (url.searchParams.get('q') || '').toLowerCase();
+    const pickupSearch = query.includes('piccadilly');
+    const didsburySearch = query.includes('didsbury');
+    const location = pickupSearch ? MANCHESTER : didsburySearch ? DIDSBURY : OLD_TRAFFORD;
     return route.fulfill(json({
       features: [{
         geometry: { coordinates: [location.longitude, location.latitude] },
@@ -57,7 +65,13 @@ export async function installMapMocks(context: BrowserContext): Promise<void> {
             postcode: 'M1 2DT',
             country: 'United Kingdom',
           }
-          : {
+          : didsburySearch ? {
+            name: 'Didsbury Village',
+            street: 'Wilmslow Road',
+            city: 'Manchester',
+            postcode: 'M20 2DW',
+            country: 'United Kingdom',
+          } : {
             name: 'Old Trafford',
             street: 'Sir Matt Busby Way',
             city: 'Manchester',

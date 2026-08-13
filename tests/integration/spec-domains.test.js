@@ -25,6 +25,7 @@ const SPEC_DOMAINS = ['towing', 'emergency-trades', 'pet-services', 'security', 
  */
 const LIFECYCLE_PATHS = {
   ridesharing: { beforeActive: [], beforeComplete: [] },
+  'community-lift': { beforeActive: [], beforeComplete: [] },
   locksmith: { beforeActive: ['access_method_confirmed'], beforeComplete: [] },
   delivery: { beforeActive: ['collected'], beforeComplete: ['arrived_at_delivery'] },
   towing: { beforeActive: ['vehicle_assessed', 'vehicle_loaded'], beforeComplete: [] },

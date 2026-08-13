@@ -103,7 +103,10 @@ class TaskManager {
       return;
     }
     const write = this.store
-      .saveTask(task, { terminal: this.isTerminal(task.status) })
+      .saveTask(task, {
+        terminal: this.isTerminal(task.status),
+        redactSensitiveData: this.profile.features?.redactSensitiveDataOnTerminal === true
+      })
       .catch((error) => {
         console.error(`[storage] Failed to persist task ${task.id}:`, error.message);
       });
@@ -229,6 +232,16 @@ class TaskManager {
         : null,
       currency: options.currency || 'GBP',
       fare: estimatedFare,
+      settlementRequired: options.settlementRequired !== false,
+      // Ordered people and their individual handoff state. The digest is an
+      // HMAC created by the operator; the plaintext four-digit code is never
+      // stored by the backend.
+      passengers: Array.isArray(options.passengers) && options.passengers.length > 0
+        ? options.passengers.map((passenger) => ({
+            ...passenger,
+            dropoff: passenger.dropoff ? { ...passenger.dropoff } : null
+          }))
+        : null,
       // Unix ms pickup time for pre-booked tasks; null = as soon as possible
       scheduledFor: options.scheduledFor || null,
       timestamps: {

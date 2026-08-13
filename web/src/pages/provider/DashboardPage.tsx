@@ -137,18 +137,19 @@ export function DashboardPage() {
 
   // Resume the shift after a reload if the driver was online
   useEffect(() => {
-    if (dispatchService.wasOnline() && !dispatchService.isOnline() && identity && geoReady) {
+    if (profile?.operational !== false
+        && dispatchService.wasOnline() && !dispatchService.isOnline() && identity && geoReady) {
       dispatchService.goOnline();
     }
-  }, [identity, geoReady]);
+  }, [identity, geoReady, profile?.operational]);
 
   const toggleOnline = useCallback(() => {
     if (dispatchService.isOnline()) {
       dispatchService.goOffline();
-    } else if (!geoError) {
+    } else if (!geoError && profile?.operational !== false) {
       dispatchService.goOnline();
     }
-  }, [geoError]);
+  }, [geoError, profile?.operational]);
 
   const providerLabel = td(profile?.roles.provider || 'Provider');
   const taskNoun = td(profile?.labels?.taskNoun || 'task');
@@ -211,8 +212,17 @@ export function DashboardPage() {
           <div className="px-2 min-w-0">
             {/* compact: at a third of a phone's width the sats line runs out
                 of the card and over the one beside it */}
-            <DualPrice sats={earnings?.summary?.today.sats ?? 0} size="sm" compact />
-            <p className="stat-label">{t('dash.todayEarned')}</p>
+            {profile?.features.settlementRequired !== false ? (
+              <>
+                <DualPrice sats={earnings?.summary?.today.sats ?? 0} size="sm" compact />
+                <p className="stat-label">{t('dash.todayEarned')}</p>
+              </>
+            ) : (
+              <>
+                <p className="text-lg font-black text-donkey-text">{earnings?.summary?.today.rides ?? 0}</p>
+                <p className="stat-label">{t('lift.todayLifts')}</p>
+              </>
+            )}
           </div>
           <div className="px-2 min-w-0">
             <p className="text-lg font-black text-donkey-text">
@@ -228,13 +238,21 @@ export function DashboardPage() {
 
         {/* Per hour — the number that says whether the day is worth it.
             Withheld until enough of a shift has run to mean anything. */}
-        {perHour != null && (
+        {profile?.features.settlementRequired !== false && perHour != null && (
           <p className="text-xs text-donkey-muted text-center">
             {t('dash.perHour')} <DualPrice sats={perHour} size="sm" />
           </p>
         )}
 
         {/* Anything blocking work comes before anything optional */}
+        {profile?.operational === false && (
+          <div className="bg-donkey-orange/20 border border-donkey-orange rounded-lg p-3" role="alert">
+            <p className="text-donkey-orange text-sm font-semibold">
+              {profile.unavailableReason || t('domain.notReady')}
+            </p>
+          </div>
+        )}
+
         {geoError && !online && (
           <div className="bg-donkey-orange/20 border border-donkey-orange rounded-lg p-3" role="alert">
             <p className="text-donkey-orange text-sm font-semibold">
@@ -305,7 +323,11 @@ export function DashboardPage() {
                 >
                   <div className="min-w-0">
                     <div className="flex items-baseline gap-2">
-                      <DualPrice sats={job.fareEstimateSats} size="sm" />
+                      {profile?.features.settlementRequired !== false ? (
+                        <DualPrice sats={job.fareEstimateSats} size="sm" />
+                      ) : (
+                        <span className="text-sm font-bold text-donkey-green">{t('lift.noPayment')}</span>
+                      )}
                       {near && (
                         <span className="text-xs font-bold text-donkey-blue shrink-0">
                           {t('dash.awayShort', { min: near.minutes })}
@@ -372,7 +394,11 @@ export function DashboardPage() {
             demand; a driver guessing at it was the odd part */}
         {online && (
           <SheetSection title={t('demand.section')} icon="📈" rememberAs="driver-demand" defaultOpen>
-            <DemandPanel location={geoReady ? location : null} taskNoun={taskNoun} />
+            <DemandPanel
+              location={geoReady ? location : null}
+              taskNoun={taskNoun}
+              domain={profile?.id}
+            />
           </SheetSection>
         )}
 
@@ -476,7 +502,7 @@ export function DashboardPage() {
         <button
           className={online ? 'btn-danger w-full' : 'btn-primary w-full'}
           onClick={toggleOnline}
-          disabled={!online && !!geoError}
+          disabled={!online && (!!geoError || profile?.operational === false)}
         >
           {online ? t('dash.goOffline') : t('dash.goOnline')}
         </button>

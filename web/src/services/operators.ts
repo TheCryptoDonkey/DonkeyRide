@@ -189,7 +189,7 @@ export async function discoverOperators(force = false): Promise<OperatorDirector
 }
 
 /** Coarse, identity-free supply across all reachable operators. */
-export async function discoverNetworkProviders(location: LatLng, radiusKm = 10): Promise<{
+export async function discoverNetworkProviders(location: LatLng, radiusKm = 10, domain?: string): Promise<{
   providers: NetworkProvider[];
   operators: OperatorDirectoryEntry[];
 }> {
@@ -201,6 +201,7 @@ export async function discoverNetworkProviders(location: LatLng, radiusKm = 10):
         lat: location.lat,
         lng: location.lng,
         radiusKm,
+        domain,
       }, operator.origin));
       return response.drivers.map((provider, index): NetworkProvider => ({
         ...provider,

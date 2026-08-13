@@ -17,6 +17,7 @@ import { useBtcPrices } from '../../hooks/useBtcPrices';
 import { isFavourite, toggleFavourite } from '../../utils/favourites';
 import { getAgreedRate } from '../../utils/agreed-rate';
 import { useT } from '../../i18n';
+import { clearHandoffCodes } from '../../utils/handoff-codes';
 import type { OperatorPaymentInfo, SettlementInfo } from '../../types/api';
 
 /**
@@ -50,12 +51,14 @@ export function CompletionPage() {
   const taskNoun = td(profile?.labels?.taskNoun || 'task');
   const completedLabel = td(profile?.labels?.completedLabel || 'Complete');
   const providerLabel = td(profile?.roles.provider || 'provider');
+  const settlementRequired = profile?.features.settlementRequired !== false;
 
   useEffect(() => {
+    if (!settlementRequired) return;
     getOperatorInfoCached()
       .then((info) => setPayment(info.payment || null))
       .catch(() => {});
-  }, []);
+  }, [settlementRequired]);
 
   // Survive a refresh: fall back to the stored terminal task until Done
   const task = activeTask ?? completedTask;
@@ -67,7 +70,7 @@ export function CompletionPage() {
 
   // Poll for the driver's receipt confirmation while payment is unconfirmed.
   useEffect(() => {
-    if (!task || settlementConfirmed) return;
+    if (!settlementRequired || !task || settlementConfirmed) return;
     const timer = setInterval(async () => {
       try {
         const fresh = await getTask(task.id, task.operatorBase);
@@ -77,7 +80,7 @@ export function CompletionPage() {
       }
     }, 5000);
     return () => clearInterval(timer);
-  }, [task?.id, settlementConfirmed]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [task?.id, settlementConfirmed, settlementRequired]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reflect what is already saved when the page opens
   useEffect(() => {
@@ -87,7 +90,7 @@ export function CompletionPage() {
   // Your copy of the trip — device-local history (the operator keeps none).
   // Re-records when settlement confirms so the paid-by rail lands too.
   useEffect(() => {
-    if (task) {
+    if (task && settlementRequired) {
       // The breakdown and any demand multiplier come from the estimate the
       // rider approved, so the receipt can explain the fare rather than
       // just restate it
@@ -99,9 +102,17 @@ export function CompletionPage() {
         btcPrices: prices,
       });
     }
-  }, [task?.id, settlement?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [task?.id, settlement?.status, settlementRequired]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Handoff codes have served their purpose once every passenger is safely
+  // dropped off. Do not wait for the organiser to press Done before removing
+  // them from device storage.
+  useEffect(() => {
+    if (task && !settlementRequired) clearHandoffCodes(task.id);
+  }, [task?.id, settlementRequired]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDone = () => {
+    if (task) clearHandoffCodes(task.id);
     clearCompletedTask();
     reset();
     navigate('/request');
@@ -183,7 +194,7 @@ export function CompletionPage() {
     <div className="h-full overflow-y-auto p-6">
       <div className="max-w-md mx-auto space-y-6">
         {/* Pay first: somebody is sitting there waiting to be paid */}
-        <PayDriver task={task} settlement={settlement} />
+        {settlementRequired && <PayDriver task={task} settlement={settlement} />}
 
         {/* Rating, with the reason attached. A star alone tells an
             aggregator nothing it can act on. */}
@@ -228,7 +239,7 @@ export function CompletionPage() {
         )}
 
         {/* Tip — attached to the rating, where the goodwill is */}
-        {profile?.features.tipping && !tipped && (
+        {settlementRequired && profile?.features.tipping && !tipped && (
           <TipSelector
             fareEstimateSats={task.fareEstimateSats}
             onTip={handleTip}
@@ -256,7 +267,11 @@ export function CompletionPage() {
           {/* Through the rate agreed at booking: the sats are exact either
               way, but reconverting them today quietly changes the number the
               rider actually approved */}
-          <DualPrice sats={task.fareEstimateSats} size="lg" ratesOverride={agreedRate} />
+          {settlementRequired ? (
+            <DualPrice sats={task.fareEstimateSats} size="lg" ratesOverride={agreedRate} />
+          ) : (
+            <p className="text-base font-bold text-donkey-text">{t('lift.noPaymentCompleted')}</p>
+          )}
 
           {task.distanceKm && task.durationMin && (
             <p className="text-donkey-muted text-sm mt-2">
@@ -264,13 +279,13 @@ export function CompletionPage() {
             </p>
           )}
 
-          {payment?.provider === 'cash' && (
+          {settlementRequired && payment?.provider === 'cash' && (
             <p className="text-sm text-donkey-text mt-3">
               {t('complete.payDirect', { label: providerLabel.toLowerCase() })}{' '}
               <DualPrice sats={task.fareEstimateSats} size="sm" ratesOverride={agreedRate} />
             </p>
           )}
-          {payment?.provider === 'demo' && (
+          {settlementRequired && payment?.provider === 'demo' && (
             <p className="text-sm text-donkey-muted mt-3">{t('complete.demoPayment')}</p>
           )}
         </div>

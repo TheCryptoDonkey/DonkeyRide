@@ -19,6 +19,7 @@ import { useWebSocket } from '../../hooks/useWebSocket';
 import { useLiveTracking } from '../../modules/pii';
 import {
   arriveAtOrigin, startTask, completeTask, transitionTask,
+  arrivePassenger, confirmPassengerHandoff,
   triggerPanic, getTask, submitProof,
   submitSignatureProof, submitQuote, cancelTask, reportNoShow, reportLateCancel,
 } from '../../services/api';
@@ -89,6 +90,7 @@ export function ActiveTaskPage() {
   // "One more and I'm done" — spent on completion, never sent early
   const [endShiftAfter, setEndShiftAfter] = useState(dispatchService.isEndingShiftAfterJob());
   const [declaredRail, setDeclaredRail] = useState<string | null>(null);
+  const [handoffCode, setHandoffCode] = useState('');
   // The requester cancelled — its own screen, with the option to record it
   const [cancelledOn, setCancelledOn] = useState<
     { late: boolean; reasonCode: string | null } | null
@@ -176,6 +178,9 @@ export function ActiveTaskPage() {
         void refreshTask();
         break;
       case 'settlement_confirmed':
+        void refreshTask();
+        break;
+      case 'handoff_updated':
         void refreshTask();
         break;
       case 'scheduled_reminder':
@@ -325,6 +330,30 @@ export function ActiveTaskPage() {
 
   const status = activeTask.status;
   const isTerminal = terminalStates.includes(status);
+  const settlementRequired = profile?.features.settlementRequired !== false;
+  const usesPassengerHandoffs = profile?.features.multiPassengerHandoffs === true;
+  const nextPassenger = usesPassengerHandoffs
+    ? activeTask.passengers?.find((passenger) => passenger.handoffStatus !== 'handed_off')
+    : undefined;
+
+  const handlePassengerArrival = () => {
+    if (!nextPassenger) return;
+    void runAction('passenger-arrive', async () => {
+      const updated = await arrivePassenger(activeTask.id, nextPassenger.id, activeTask.operatorBase);
+      setActiveTask(updated);
+    });
+  };
+
+  const handlePassengerHandoff = () => {
+    if (!nextPassenger || !/^\d{4}$/.test(handoffCode)) return;
+    void runAction('passenger-handoff', async () => {
+      const updated = await confirmPassengerHandoff(
+        activeTask.id, nextPassenger.id, handoffCode, activeTask.operatorBase,
+      );
+      setHandoffCode('');
+      setActiveTask(updated);
+    });
+  };
 
   // Build dynamic action buttons from profile transitions
   const getActionButtons = () => {
@@ -334,6 +363,17 @@ export function ActiveTaskPage() {
     // Filter out cancelled — that's handled separately
     const cancelledValue = profile.states.values.CANCELLED;
     const filtered = validNextStates.filter((s: string) => s !== cancelledValue);
+
+    if (usesPassengerHandoffs && status === profile.states.values.ACTIVE && nextPassenger) {
+      return [{
+        label: nextPassenger.handoffStatus === 'arrived'
+          ? t('lift.confirmHandoff', { name: nextPassenger.name })
+          : t('lift.arrivedFor', { name: nextPassenger.name }),
+        handler: nextPassenger.handoffStatus === 'arrived'
+          ? handlePassengerHandoff : handlePassengerArrival,
+        stateKey: nextPassenger.handoffStatus === 'arrived' ? 'PASSENGER_HANDOFF' : 'PASSENGER_ARRIVE',
+      }];
+    }
 
     return filtered.map((nextStateValue: string) => {
       // Find the key for this state value
@@ -417,11 +457,15 @@ export function ActiveTaskPage() {
           <StatusBadge status={status} role="provider" />
           {/* Through the rate in force when they accepted — the fare on the
               offer card is what they agreed to work for */}
-          <DualPrice
-            sats={activeTask.fareEstimateSats}
-            size="sm"
-            ratesOverride={getAgreedRate(activeTask.id)}
-          />
+          {settlementRequired ? (
+            <DualPrice
+              sats={activeTask.fareEstimateSats}
+              size="sm"
+              ratesOverride={getAgreedRate(activeTask.id)}
+            />
+          ) : (
+            <span className="text-xs font-bold text-donkey-green">{t('lift.noPayment')}</span>
+          )}
         </div>
 
         {/* Who you are collecting. The driver is meeting a stranger too —
@@ -483,23 +527,28 @@ export function ActiveTaskPage() {
         {/* Where this ends, in words. The driver could see the destination
             only as a map pin and a nav button — fine until you decline the
             hand-off, or the rider changes it mid-trip. */}
-        {requiresDestination && (activeTask.dropoffAddress || activeTask.dropoff) && (
+        {requiresDestination && (nextPassenger || activeTask.dropoffAddress || activeTask.dropoff) && (
           <div className="meta-card">
-            <p className="meta-label">{destinationLabel}</p>
+            <p className="meta-label">
+              {nextPassenger ? t('lift.nextDropoff', { name: nextPassenger.name }) : destinationLabel}
+            </p>
             <p className="text-sm text-donkey-text mt-1">
-              {activeTask.dropoffAddress
-                || `${activeTask.dropoff!.lat.toFixed(4)}, ${activeTask.dropoff!.lng.toFixed(4)}`}
+              {nextPassenger
+                ? (nextPassenger.dropoff.address
+                  || `${nextPassenger.dropoff.lat.toFixed(4)}, ${nextPassenger.dropoff.lng.toFixed(4)}`)
+                : activeTask.dropoffAddress
+                  || `${activeTask.dropoff!.lat.toFixed(4)}, ${activeTask.dropoff!.lng.toFixed(4)}`}
             </p>
           </div>
         )}
 
         {/* Waiting time — a running meter belongs in front of both parties */}
-        <WaitingTimer task={activeTask} role="provider" />
+        {settlementRequired && <WaitingTimer task={activeTask} role="provider" />}
 
         {/* Navigation hand-off — drivers trust their own nav app */}
         {(() => {
           const navTarget = status === profile?.states.values.ACTIVE
-            ? activeTask.dropoff
+            ? (nextPassenger?.dropoff || activeTask.dropoff)
             : activeTask.pickup;
           if (!navTarget || isTerminal) return null;
           return (
@@ -542,11 +591,13 @@ export function ActiveTaskPage() {
         )}
 
         {/* The rider says they have paid — confirm it */}
-        <ConfirmReceipt
-          task={activeTask}
-          settlement={activeTask.settlement}
-          declaredRail={declaredRail}
-        />
+        {settlementRequired && (
+          <ConfirmReceipt
+            task={activeTask}
+            settlement={activeTask.settlement}
+            declaredRail={declaredRail}
+          />
+        )}
 
         {/* ── Everything below is one tap away ───────────────────────── */}
 
@@ -597,6 +648,31 @@ export function ActiveTaskPage() {
                 </p>
               ))}
             </div>
+          </SheetSection>
+        )}
+
+        {usesPassengerHandoffs && activeTask.passengers && (
+          <SheetSection
+            title={t('lift.dropoffProgress')}
+            icon="👥"
+            badge={`${activeTask.passengers.filter((p) => p.handoffStatus === 'handed_off').length}/${activeTask.passengers.length}`}
+            defaultOpen
+            rememberAs="driver-handoffs"
+          >
+            {activeTask.passengers.map((passenger, index) => (
+              <div key={passenger.id} className="meta-card">
+                <p className="text-sm font-bold text-donkey-text">
+                  {index + 1}. {passenger.name}
+                </p>
+                <p className="text-xs text-donkey-muted mt-1">
+                  {passenger.dropoff.address
+                    || `${passenger.dropoff.lat.toFixed(4)}, ${passenger.dropoff.lng.toFixed(4)}`}
+                </p>
+                <p className="text-xs font-semibold text-donkey-blue mt-1">
+                  {t(`lift.status.${passenger.handoffStatus}`)}
+                </p>
+              </div>
+            ))}
           </SheetSection>
         )}
 
@@ -659,7 +735,7 @@ export function ActiveTaskPage() {
         )}
 
         {/* How you get paid */}
-        {!isTerminal && (
+        {!isTerminal && settlementRequired && (
           <SheetSection title={t('sheet.payment')} icon="💷" rememberAs="driver-payment">
             <PaymentMethodsEditor rideId={activeTask.id} operatorBase={activeTask.operatorBase} />
             <TaskStakePanel task={activeTask} role="provider" />
@@ -762,12 +838,25 @@ export function ActiveTaskPage() {
       {buttons.length > 0 && !showCancelConfirm && (
         <div className="bg-donkey-surface border-t-2 border-donkey-border px-5 py-3 shadow-panel shrink-0">
           <div className="flex gap-3">
+            {usesPassengerHandoffs && nextPassenger?.handoffStatus === 'arrived' && (
+              <input
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={4}
+                value={handoffCode}
+                onChange={(event) => setHandoffCode(event.target.value.replace(/\D/g, '').slice(0, 4))}
+                aria-label={t('lift.handoffCodeFor', { name: nextPassenger.name })}
+                placeholder={t('lift.codePlaceholder')}
+                className="w-24 bg-donkey-bg border border-donkey-border rounded-lg px-3 text-center text-lg tracking-widest text-donkey-text"
+              />
+            )}
             {buttons.map(({ label, handler, stateKey }) => (
               <button
                 key={stateKey}
                 className="btn-primary flex-1"
                 onClick={handler}
-                disabled={busyAction !== null}
+                disabled={busyAction !== null
+                  || (stateKey === 'PASSENGER_HANDOFF' && !/^\d{4}$/.test(handoffCode))}
               >
                 {busyAction !== null ? t('pactive.working') : label}
               </button>

@@ -51,6 +51,10 @@ services:
       # Only needed if PAYMENT_PROVIDER is demo (mock rail) on a public demo.
       ALLOW_DEMO_PAYMENTS: ${ALLOW_DEMO_PAYMENTS:-false}
       OPERATOR_PRIVKEY: ${OPERATOR_PRIVKEY:-}
+      # Community Lift remains preview-only in this database-free stack.
+      # Add docker-compose.community-lift.yml with strong secrets to accept it.
+      TASK_DATA_ENCRYPTION_KEY: ${TASK_DATA_ENCRYPTION_KEY:-}
+      HANDOFF_HMAC_SECRET: ${HANDOFF_HMAC_SECRET:-}
       OPERATOR_PUBKEY: ${OPERATOR_PUBKEY:-}
       NOSTR_RELAY: ws://nostr-relay:7777
       NOSTR_RELAYS: ${NOSTR_RELAYS:-}

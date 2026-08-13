@@ -23,8 +23,8 @@ export function DomainSwitcher() {
           className="input-field w-full mt-1"
         >
           {availableDomains.map(d => (
-            <option key={d.id} value={d.id}>
-              {d.emoji} {d.name}
+            <option key={d.id} value={d.id} disabled={d.operational === false}>
+              {d.emoji} {d.name}{d.operational === false ? ` — ${t('domain.notReady')}` : ''}
             </option>
           ))}
         </select>

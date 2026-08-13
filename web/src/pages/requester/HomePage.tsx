@@ -55,7 +55,7 @@ export function HomePage() {
     let live = true;
     const fetchProviders = async () => {
       try {
-        const result = await discoverNetworkProviders(providerSearchLocation, 10);
+        const result = await discoverNetworkProviders(providerSearchLocation, 10, profile?.id);
         if (!live) return;
         setProviders(result.providers);
         setProviderOperators(new Set(result.providers.map((provider) => provider.operatorBase)).size);
@@ -69,7 +69,7 @@ export function HomePage() {
       live = false;
       clearInterval(timer);
     };
-  }, [providerSearchLocation?.lat, providerSearchLocation?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [providerSearchLocation?.lat, providerSearchLocation?.lng, profile?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Set when the rider named a destination before we had a pickup (GPS
   // denied or still resolving) — the moment they set one, we continue.

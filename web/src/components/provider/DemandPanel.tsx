@@ -9,6 +9,7 @@ interface DemandPanelProps {
   /** The driver's own position, when there is a fix — nearest first */
   location: LatLng | null;
   taskNoun: string;
+  domain?: string;
 }
 
 /**
@@ -24,19 +25,19 @@ interface DemandPanelProps {
  * showed only the demand half would be sending people on wild goose
  * chases in the name of engagement.
  */
-export function DemandPanel({ location, taskNoun }: DemandPanelProps) {
+export function DemandPanel({ location, taskNoun, domain }: DemandPanelProps) {
   const { t } = useT();
   const [cells, setCells] = useState<DemandCell[] | null>(null);
 
   useEffect(() => {
     let live = true;
-    const load = () => getDemand()
+    const load = () => getDemand(domain)
       .then(({ cells: next }) => { if (live) setCells(next); })
       .catch(() => { if (live) setCells([]); });
     void load();
     const timer = window.setInterval(load, 60000);
     return () => { live = false; window.clearInterval(timer); };
-  }, []);
+  }, [domain]);
 
   if (cells == null) return null;
 

@@ -166,6 +166,8 @@ Copy `.env.example` for configuration. Key variables:
 | `NAVIGATION_PROVIDER` | Routing backend | `osrm` |
 | `OPERATOR_PUBKEY` | Operator Nostr identity | — |
 | `DATABASE_URL` | PostgreSQL connection | — |
+| `TASK_DATA_ENCRYPTION_KEY` | Stable high-entropy key for encrypted private task records; required for Community Lift in production | — |
+| `HANDOFF_HMAC_SECRET` | Optional separate stable key for guardian handoff-code HMACs | task encryption/operator key |
 | `REDIS_URL` | Redis connection | — |
 | `NOSTR_RELAY` | Relay URL | — |
 

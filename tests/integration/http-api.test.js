@@ -32,7 +32,7 @@ const { generatePrivateKey, getPublicKey, nip19 } = require('nostr-tools');
 const { app, startServer } = require('../../server.js');
 const { generateAuthEvent, createAuthHeader } = require('../../middleware/nip98-auth');
 const { TaskManager } = require('../../src/task-manager');
-const { MemoryTaskStore } = require('../../src/storage/task-store');
+const { MemoryTaskStore, PgTaskStore } = require('../../src/storage/task-store');
 
 // ── Test identities ─────────────────────────────────
 
@@ -385,6 +385,71 @@ test('tasks survive a manager restart via the task store', async () => {
   const remaining = await store.loadActiveTasks();
   remaining.forEach((row) => managerC.hydrateTask(row));
   assert.equal(managerC.getTask(task.id), undefined);
+});
+
+test('community lift durable record drops child and route data once terminal', async () => {
+  const store = new MemoryTaskStore();
+  const manager = new TaskManager('community-lift');
+  manager.setStore(store);
+  const task = manager.createTask(
+    { pubkey: riderPub, npub: riderNpub },
+    PICKUP,
+    DROPOFF,
+    0,
+    {
+      settlementRequired: false,
+      passengers: [{
+        id: 'child-1',
+        name: 'Synthetic Child',
+        guardianName: 'Synthetic Guardian',
+        dropoff: { ...DROPOFF, address: 'Synthetic Drop-off' },
+        handoffStatus: 'handed_off',
+        handoffCodeDigest: 'secret-digest'
+      }]
+    }
+  );
+  manager.acceptTask(task.id, driverNpub, {
+    pubkey: driverPub,
+    name: 'Test Driver',
+    location: PICKUP
+  });
+  manager.startEnRoute(task.id);
+  manager.arriveAtPickup(task.id);
+  manager.startTrip(task.id);
+  manager.completeTrip(task.id, { method: 'none', status: 'not_required' });
+  await manager.flushPersistence();
+
+  assert.equal(task.passengers[0].name, 'Synthetic Child', 'the completing client still receives its live copy');
+  const [stored] = await store.loadTasksByParticipant(riderPub);
+  assert.equal(stored.pickup, null);
+  assert.equal(stored.dropoff, null);
+  assert.equal(stored.provider.location, undefined);
+  assert.equal(stored.passengerCount, 1);
+  assert.equal(stored.passengers[0].handoffStatus, 'handed_off');
+  assert.equal(stored.passengers[0].name, undefined);
+  assert.equal(stored.passengers[0].dropoff, undefined);
+  assert.equal(stored.passengers[0].handoffCodeDigest, undefined);
+  assert.ok(stored.sensitiveDataRedactedAt);
+});
+
+test('PostgreSQL task payload encryption hides and authenticates private data', () => {
+  const store = new PgTaskStore('postgres://unused', {
+    encryptionKey: 'synthetic-test-encryption-key-32-bytes-minimum'
+  });
+  const payload = {
+    id: 'synthetic-task',
+    passengers: [{ name: 'Synthetic Child' }],
+    pickup: { lat: 53.4808, lon: -2.2426 }
+  };
+  const encoded = store._encodePayload(payload);
+  assert.equal(encoded.schema, 'org.donkeyride.encrypted-task/v1');
+  assert.equal(JSON.stringify(encoded).includes('Synthetic Child'), false);
+  assert.deepEqual(store._decodePayload(encoded), payload);
+
+  const wrongKeyStore = new PgTaskStore('postgres://unused', {
+    encryptionKey: 'different-synthetic-encryption-key-32-bytes'
+  });
+  assert.throws(() => wrongKeyStore._decodePayload(encoded));
 });
 
 // ── Non-custodial multi-rail settlement ─────────────

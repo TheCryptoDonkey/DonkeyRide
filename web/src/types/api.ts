@@ -9,6 +9,17 @@ export interface TaskStop extends LatLng {
   address?: string;
 }
 
+export interface JourneyPassenger {
+  id: string;
+  name: string;
+  guardianName?: string;
+  note?: string;
+  dropoff: TaskStop;
+  handoffStatus: 'pending' | 'arrived' | 'handed_off';
+  arrivedAt?: string;
+  handedOffAt?: string;
+}
+
 /**
  * A licence, registration or insurance a provider says they hold.
  *
@@ -35,6 +46,7 @@ export interface TaskVehicle {
 /** A ride/task as returned by the API */
 export interface Task {
   id: string;
+  domain?: string;
   status: string;
   requesterPubkey: string;
   providerPubkey?: string;
@@ -45,6 +57,9 @@ export interface Task {
   stops?: TaskStop[];
   /** Stop count — the only stop information pre-accept payloads carry */
   stopCount?: number;
+  passengerCount?: number;
+  passengers?: JourneyPassenger[];
+  settlementRequired?: boolean;
   /** The car to look for — participant-gated detail only */
   vehicle?: TaskVehicle | null;
   /** Requester asked to be matched only with declared-women drivers */
@@ -434,5 +449,6 @@ export type WsMessage =
   | { type: 'searching'; taskId?: string; attempt: number; radiusKm: number; providersNotified: number; expiresInMs: number }
   | { type: 'settlement_declared'; taskId?: string; rail?: string; verified?: boolean }
   | { type: 'settlement_confirmed'; taskId?: string; rail?: string }
+  | { type: 'handoff_updated'; taskId?: string; passengerId?: string; status?: string }
   | { type: 'auth_ok'; pubkey: string }
   | { type: 'error'; error: string; details?: string; missing?: string[] };

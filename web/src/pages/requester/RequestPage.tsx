@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MapView } from '../../components/map/MapView';
 import { LocationMarker } from '../../components/map/LocationMarker';
@@ -23,8 +23,30 @@ import { formatScheduledTime } from '../../utils/datetime';
 import { recordAgreedRate } from '../../utils/agreed-rate';
 import { peekBtcPrices } from '../../hooks/useBtcPrices';
 import type { TaskStop } from '../../types/api';
+import { generateHandoffCode, saveHandoffCodes } from '../../utils/handoff-codes';
 
-const MAX_STOPS = 2;
+const MAX_STOPS = 5;
+const MAX_LIFT_PASSENGERS = 6;
+
+interface LiftPassengerDraft {
+  id: string;
+  name: string;
+  guardianName: string;
+  note: string;
+  handoffCode: string;
+  dropoff: TaskStop;
+}
+
+function newLiftPassenger(dropoff: TaskStop): LiftPassengerDraft {
+  return {
+    id: crypto.randomUUID(),
+    name: '',
+    guardianName: '',
+    note: '',
+    handoffCode: generateHandoffCode(),
+    dropoff,
+  };
+}
 
 /** Format a Date for a datetime-local input (local time, minute precision) */
 function toLocalInputValue(date: Date): string {
@@ -84,6 +106,12 @@ export function RequestPage() {
   const [forSomeoneElse, setForSomeoneElse] = useState(false);
   const [passengerName, setPassengerName] = useState('');
   const [passengerNote, setPassengerNote] = useState('');
+  const communityLift = profile?.features.multiPassengerHandoffs === true;
+  const settlementRequired = profile?.features.settlementRequired !== false;
+  const [liftPassengers, setLiftPassengers] = useState<LiftPassengerDraft[]>(() =>
+    destination ? [newLiftPassenger({ ...destination, address: destinationAddress || undefined })] : [],
+  );
+  const [addingPassenger, setAddingPassenger] = useState(false);
   // What this journey needs. Remembered on the device so a wheelchair user
   // is not re-declaring it every single time.
   const [accessNeeds, setAccessNeeds] = useState<string[]>(loadAccessNeeds);
@@ -100,6 +128,32 @@ export function RequestPage() {
   // Saved providers get a short head start; the list never leaves the
   // device except as part of this request
   const favourites = favouritePubkeys();
+  const routeStops = useMemo(
+    () => communityLift ? liftPassengers.slice(0, -1).map((p) => p.dropoff) : stops,
+    [communityLift, liftPassengers, stops],
+  );
+  const passengersInvalid = communityLift && (
+    liftPassengers.length < 1
+    || liftPassengers.some((p) => !p.name.trim())
+    || Boolean(chosenOption?.seats && liftPassengers.length > chosenOption.seats)
+  );
+
+  useEffect(() => {
+    if (!communityLift || !destination) return;
+    setLiftPassengers((current) => {
+      if (current.length === 0) {
+        return [newLiftPassenger({ ...destination, address: destinationAddress || undefined })];
+      }
+      const last = current[current.length - 1];
+      const address = destinationAddress || undefined;
+      if (last.dropoff.lat === destination.lat && last.dropoff.lng === destination.lng
+          && last.dropoff.address === address) return current;
+      return [
+        ...current.slice(0, -1),
+        { ...last, dropoff: { ...destination, address } },
+      ];
+    });
+  }, [communityLift, destination, destinationAddress]);
 
   // Resolved pickup time (unix ms) when scheduling; null = leave now
   const scheduledFor = when === 'later' && whenValue
@@ -116,6 +170,7 @@ export function RequestPage() {
   const destinationLabel = td(profile?.labels?.destinationLabel || 'Dropoff');
   const taskNoun = td(profile?.labels?.taskNoun || 'ride');
   const providerLabel = td(profile?.roles.provider || 'Provider');
+  const requestVerb = td(profile?.labels?.requestVerb || 'Request');
 
   // Back-navigation guard: an existing active task means no second request
   useEffect(() => {
@@ -145,7 +200,7 @@ export function RequestPage() {
     }
     if (!destination) return;
     setEstimating(true);
-    getTripEstimate({ pickup: origin, dropoff: destination, stops })
+    getTripEstimate({ pickup: origin, dropoff: destination, stops: routeStops, domain: profile?.id })
       .then((est) => {
         setEstimate(est);
         setEstimating(false);
@@ -154,7 +209,7 @@ export function RequestPage() {
         setError(err.message);
         setEstimating(false);
       });
-  }, [origin, destination, stops, setEstimate, requiresDestination]);
+  }, [origin, destination, routeStops, setEstimate, requiresDestination, profile?.id]);
 
   const handleRequest = async () => {
     if (!origin || !identity) return;
@@ -180,7 +235,7 @@ export function RequestPage() {
         dropoffAddress: requiresDestination ? (destinationAddress || undefined) : undefined,
         domain: profile?.id,
         scheduledFor,
-        stops: stops.length > 0 ? stops : undefined,
+        stops: routeStops.length > 0 ? routeStops : undefined,
         womenOnly: isWoman && womenOnly,
         pickupNote: pickupNote.trim() || undefined,
         option: chosenOption?.id,
@@ -193,12 +248,25 @@ export function RequestPage() {
         passenger: forSomeoneElse && (passengerName.trim() || passengerNote.trim())
           ? { name: passengerName.trim() || undefined, note: passengerNote.trim() || undefined }
           : null,
+        passengers: communityLift ? liftPassengers.map((passenger) => ({
+          id: passenger.id,
+          name: passenger.name.trim(),
+          guardianName: passenger.guardianName.trim() || undefined,
+          note: passenger.note.trim() || undefined,
+          handoffCode: passenger.handoffCode,
+          dropoff: passenger.dropoff,
+        })) : undefined,
       });
+      if (communityLift) {
+        saveHandoffCodes(task.id, Object.fromEntries(
+          liftPassengers.map((passenger) => [passenger.id, passenger.handoffCode]),
+        ));
+      }
       setActiveTask(task);
       // The rate behind the number just agreed to. Without it the completion
       // screen reconverts the same sats at a rate that has since moved, and
       // reports an "agreed amount" nobody agreed to.
-      recordAgreedRate(task.id, peekBtcPrices());
+      if (settlementRequired) recordAgreedRate(task.id, peekBtcPrices());
       // Decentralised announcement — geohash-only, best-effort, relays only.
       // Operator tags let drivers on OTHER operators discover this job.
       if (profile?.id) {
@@ -244,9 +312,11 @@ export function RequestPage() {
               <span className="block text-xs text-donkey-muted truncate">{o.description}</span>
             )}
           </span>
-          <span className="shrink-0">
-            <DualPrice sats={o.fareSats} size="md" compact />
-          </span>
+          {settlementRequired && (
+            <span className="shrink-0">
+              <DualPrice sats={o.fareSats} size="md" compact />
+            </span>
+          )}
         </button>
       ))}
     </div>
@@ -381,6 +451,89 @@ export function RequestPage() {
     </>
   );
 
+  const liftPassengerPicker = (
+    <div className="space-y-3" data-testid="community-lift-passengers">
+      <p className="text-donkey-muted text-xs">{t('lift.passengersHint')}</p>
+      {liftPassengers.map((passenger, index) => {
+        const isLast = index === liftPassengers.length - 1;
+        const update = (change: Partial<LiftPassengerDraft>) => {
+          setLiftPassengers((current) => current.map((item) =>
+            item.id === passenger.id ? { ...item, ...change } : item));
+        };
+        return (
+          <div key={passenger.id} className="meta-card space-y-2" data-testid={`lift-passenger-${index}`}>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-bold text-donkey-text">
+                {t('lift.passengerNumber', { n: index + 1 })}
+              </p>
+              {!isLast && (
+                <button
+                  type="button"
+                  className="text-donkey-muted text-xs min-h-[44px] px-2"
+                  onClick={() => setLiftPassengers((current) => current.filter((p) => p.id !== passenger.id))}
+                  aria-label={t('lift.removePassenger', { n: index + 1 })}
+                >
+                  {t('common.remove')}
+                </button>
+              )}
+            </div>
+            <input
+              type="text"
+              className="w-full bg-donkey-bg border border-donkey-border rounded-lg px-3 py-2 text-donkey-text text-sm min-h-[44px]"
+              value={passenger.name}
+              maxLength={60}
+              aria-label={t('lift.passengerName', { n: index + 1 })}
+              placeholder={t('lift.passengerNamePlaceholder')}
+              onChange={(event) => update({ name: event.target.value })}
+            />
+            <input
+              type="text"
+              className="w-full bg-donkey-bg border border-donkey-border rounded-lg px-3 py-2 text-donkey-text text-sm min-h-[44px]"
+              value={passenger.guardianName}
+              maxLength={60}
+              aria-label={t('lift.guardianName', { n: index + 1 })}
+              placeholder={t('lift.guardianPlaceholder')}
+              onChange={(event) => update({ guardianName: event.target.value })}
+            />
+            <p className="text-xs text-donkey-muted">
+              <span className="font-semibold text-donkey-text">
+                {isLast ? t('lift.lastDropoff') : t('lift.dropoff', { n: index + 1 })}:
+              </span>{' '}
+              {passenger.dropoff.address
+                || `${passenger.dropoff.lat.toFixed(4)}, ${passenger.dropoff.lng.toFixed(4)}`}
+            </p>
+          </div>
+        );
+      })}
+      {addingPassenger ? (
+        <AddressSearch
+          name="community-passenger-dropoff"
+          placeholder={t('lift.searchDropoff')}
+          biasLocation={origin}
+          autoFocus
+          onSelect={(loc, label) => {
+            setLiftPassengers((current) => {
+              const next = newLiftPassenger({ ...loc, address: label });
+              return current.length > 0
+                ? [...current.slice(0, -1), next, current[current.length - 1]]
+                : [next];
+            });
+            setAddingPassenger(false);
+          }}
+        />
+      ) : liftPassengers.length < MAX_LIFT_PASSENGERS ? (
+        <button
+          type="button"
+          className="text-donkey-blue text-sm font-semibold min-h-[44px]"
+          onClick={() => setAddingPassenger(true)}
+        >
+          {t('lift.addPassenger')}
+        </button>
+      ) : null}
+      <p className="text-donkey-muted text-xs">{t('lift.codePrivacy')}</p>
+    </div>
+  );
+
   const whenPicker = (
     <>
       <div className="flex gap-2">
@@ -463,6 +616,11 @@ export function RequestPage() {
   // The one control that must never be below the fold
   const actionBar = (
     <div className="bg-donkey-surface border-t-2 border-donkey-border px-5 py-3 shadow-panel">
+      {profile?.operational === false && (
+        <p className="text-donkey-orange text-sm mb-2" role="alert">
+          {profile.unavailableReason || t('domain.notReady')}
+        </p>
+      )}
       {error && <p className="text-donkey-red text-sm mb-2">{error}</p>}
       <div className="flex gap-3">
         <button className="btn-secondary px-5" onClick={() => navigate('/request')}>
@@ -471,14 +629,14 @@ export function RequestPage() {
         <button
           className="btn-primary flex-1 flex items-center justify-center gap-2"
           onClick={handleRequest}
-          disabled={loading || scheduleInvalid || (requiresDestination && estimating)}
+          disabled={profile?.operational === false || loading || scheduleInvalid || passengersInvalid || (requiresDestination && estimating)}
         >
           <span>
             {loading
               ? t('request.requesting')
               : when === 'later'
                 ? t('request.bookForLater', { label: providerLabel })
-                : t('request.request', { label: providerLabel })}
+                : `${requestVerb} ${providerLabel}`}
           </span>
           {/* The number you are agreeing to, on the button that agrees to it */}
           {requiresDestination && !loading && headlineSats > 0 && (
@@ -498,7 +656,7 @@ export function RequestPage() {
         <div className="flex-1 relative">
           <MapView centre={mapCentre} zoom={13}>
             <LocationMarker position={origin} label={originLabel} colour="green" />
-            {stops.map((stop, i) => (
+            {routeStops.map((stop, i) => (
               <LocationMarker
                 key={`${stop.lat},${stop.lng},${i}`}
                 position={stop}
@@ -529,7 +687,11 @@ export function RequestPage() {
             {/* What you are buying */}
             <div className="flex items-baseline justify-between gap-3">
               <div>
-                <DualPrice sats={headlineSats} size="lg" />
+                {settlementRequired ? (
+                  <DualPrice sats={headlineSats} size="lg" />
+                ) : (
+                  <p className="text-lg font-black text-donkey-text">{t('lift.noPayment')}</p>
+                )}
                 <p className="text-donkey-muted text-sm mt-1">
                   {formatDistance(estimate.distanceKm)} &middot; {formatDuration(estimate.durationMinutes)}
                 </p>
@@ -543,7 +705,7 @@ export function RequestPage() {
 
             {/* Demand pricing, said plainly and BEFORE the tap. A rider who
                 discovers a multiplier on the receipt has been ambushed. */}
-            {estimate.surge?.active && (
+            {settlementRequired && estimate.surge?.active && (
               <div className="meta-card border border-donkey-orange/50">
                 <p className="text-sm font-bold text-donkey-orange">
                   {t('surge.title', { x: estimate.surge.multiplier.toFixed(1) })}
@@ -559,9 +721,11 @@ export function RequestPage() {
                 life, which is exactly backwards */}
             {optionPicker}
 
-            <SheetSection title={t('request.fareBreakdown')} icon="🧾" rememberAs="request-breakdown">
-              {fareBreakdown}
-            </SheetSection>
+            {settlementRequired && (
+              <SheetSection title={t('request.fareBreakdown')} icon="🧾" rememberAs="request-breakdown">
+                {fareBreakdown}
+              </SheetSection>
+            )}
 
             <SheetSection
               title={t('request.whenTitle')}
@@ -574,14 +738,26 @@ export function RequestPage() {
               {whenPicker}
             </SheetSection>
 
-            <SheetSection
-              title={t('request.stopsTitle')}
-              icon="📍"
-              badge={stops.length > 0 ? String(stops.length) : undefined}
-              rememberAs="request-stops"
-            >
-              {stopsPicker}
-            </SheetSection>
+            {communityLift ? (
+              <SheetSection
+                title={t('lift.passengersTitle')}
+                icon="👥"
+                badge={String(liftPassengers.length)}
+                rememberAs="request-lift-passengers"
+                defaultOpen
+              >
+                {liftPassengerPicker}
+              </SheetSection>
+            ) : (
+              <SheetSection
+                title={t('request.stopsTitle')}
+                icon="📍"
+                badge={stops.length > 0 ? String(stops.length) : undefined}
+                rememberAs="request-stops"
+              >
+                {stopsPicker}
+              </SheetSection>
+            )}
 
             <SheetSection
               title={t('request.noteTitle', { label: providerLabel.toLowerCase() })}
@@ -592,14 +768,16 @@ export function RequestPage() {
               {notePicker}
             </SheetSection>
 
-            <SheetSection
-              title={t('passenger.title')}
-              icon="👤"
-              badge={forSomeoneElse ? (passengerName.trim() || t('common.set')) : undefined}
-              rememberAs="request-passenger"
-            >
-              {passengerPicker}
-            </SheetSection>
+            {!communityLift && (
+              <SheetSection
+                title={t('passenger.title')}
+                icon="👤"
+                badge={forSomeoneElse ? (passengerName.trim() || t('common.set')) : undefined}
+                rememberAs="request-passenger"
+              >
+                {passengerPicker}
+              </SheetSection>
+            )}
 
             <SheetSection
               title={t('access.title')}

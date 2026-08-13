@@ -162,6 +162,7 @@ export function normaliseTask(raw: any): Task {
 
   return {
     id: r.id || r.ride_id || '',
+    domain: r.domain || undefined,
     status: r.status || '',
     requesterPubkey: r.rider?.pubkey || r.requester?.pubkey || r.requesterPubkey || '',
     providerPubkey: r.driver?.pubkey || r.provider?.pubkey || r.providerPubkey,
@@ -179,6 +180,28 @@ export function normaliseTask(raw: any): Task {
       : undefined,
     stopCount: typeof r.stopCount === 'number' ? r.stopCount
       : Array.isArray(r.stops) ? r.stops.length : undefined,
+    passengerCount: typeof r.passengerCount === 'number' ? r.passengerCount
+      : typeof r.passenger_count === 'number' ? r.passenger_count
+        : Array.isArray(r.passengers) ? r.passengers.length : undefined,
+    passengers: Array.isArray(r.passengers)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ? r.passengers.flatMap((p: any) => {
+          const dropoff = normLoc(p?.dropoff);
+          if (!dropoff || typeof p?.id !== 'string' || typeof p?.name !== 'string') return [];
+          return [{
+            id: p.id,
+            name: p.name,
+            guardianName: p.guardianName || undefined,
+            note: p.note || undefined,
+            dropoff: { ...dropoff, ...(p.dropoff?.address ? { address: p.dropoff.address } : {}) },
+            handoffStatus: ['pending', 'arrived', 'handed_off'].includes(p.handoffStatus)
+              ? p.handoffStatus : 'pending',
+            arrivedAt: p.arrivedAt || undefined,
+            handedOffAt: p.handedOffAt || undefined,
+          }];
+        })
+      : undefined,
+    settlementRequired: r.settlementRequired !== false && r.settlement_required !== false,
     vehicle: r.vehicle && typeof r.vehicle === 'object' ? {
       make: r.vehicle.make || undefined,
       model: r.vehicle.model || undefined,
@@ -294,7 +317,13 @@ export function getHealth(): Promise<{ status: string }> {
 /** GET /api/domains — list available domains */
 export function listDomains(): Promise<{
   current: string;
-  available: Array<{ id: string; name: string; emoji: string }>;
+  available: Array<{
+    id: string;
+    name: string;
+    emoji: string;
+    operational?: boolean;
+    unavailableReason?: string | null;
+  }>;
   count: number;
 }> {
   return request('/api/domains');
@@ -323,7 +352,7 @@ export async function requestTask(params: {
   domain?: string;
   /** Unix ms pickup time for a pre-booked task */
   scheduledFor?: number | null;
-  /** Intermediate stops in visit order (≤3) */
+  /** Intermediate stops in visit order (≤5) */
   stops?: { lat: number; lng: number; address?: string }[];
   /** Match only with drivers who have declared they are women */
   womenOnly?: boolean;
@@ -353,6 +382,15 @@ export async function requestTask(params: {
    * and it never reaches a relay.
    */
   passenger?: { name?: string; note?: string } | null;
+  /** Ordered passenger drop-offs for a community lift. Plaintext codes are sent once and never returned. */
+  passengers?: Array<{
+    id: string;
+    name: string;
+    guardianName?: string;
+    note?: string;
+    handoffCode: string;
+    dropoff: { lat: number; lng: number; address?: string };
+  }>;
 }): Promise<Task> {
   const body: Record<string, unknown> = {
     pickup_lat: params.pickup.lat,
@@ -394,6 +432,16 @@ export async function requestTask(params: {
 
   if (params.passenger && (params.passenger.name || params.passenger.note)) {
     body.passenger = params.passenger;
+  }
+  if (params.passengers?.length) {
+    body.passengers = params.passengers.map((passenger) => ({
+      ...passenger,
+      dropoff: {
+        lat: passenger.dropoff.lat,
+        lon: passenger.dropoff.lng,
+        ...(passenger.dropoff.address ? { address: passenger.dropoff.address } : {}),
+      },
+    }));
   }
 
   if (params.dropoff) {
@@ -456,12 +504,14 @@ export async function acceptTask(taskId: string, params: {
    * it did. Expired claims are dropped operator-side.
    */
   credentials?: Array<{ id: string; expiresAt?: number; reference?: string }>;
+  domain?: string;
 }, base?: string): Promise<Task> {
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/accept`, {
     method: 'POST',
     body: JSON.stringify({
       driver_pubkey: params.providerPubkey,
       driver_npub: params.providerNpub,
+      ...(params.domain ? { domain: params.domain } : {}),
       // Server reads .lon, not .lng
       driver_location: {
         lat: params.providerLocation.lat,
@@ -543,6 +593,45 @@ export async function startTask(taskId: string, params: {
     body: JSON.stringify({ driverPubkey: params.providerPubkey }),
   }, base);
   return stampOrigin(normaliseTask(raw), base);
+}
+
+/** Provider marks arrival at the next ordered passenger drop-off. */
+export async function arrivePassenger(taskId: string, passengerId: string, base?: string): Promise<Task> {
+  const raw = await request<Record<string, unknown>>(
+    `/api/tasks/${taskId}/handoffs/${encodeURIComponent(passengerId)}/arrive`,
+    { method: 'POST', body: JSON.stringify({}) },
+    base,
+  );
+  return stampOrigin(normaliseTask(raw), base);
+}
+
+/** Provider confirms handoff with the code held by the organiser/guardian. */
+export async function confirmPassengerHandoff(
+  taskId: string,
+  passengerId: string,
+  code: string,
+  base?: string,
+): Promise<Task> {
+  const raw = await request<Record<string, unknown>>(
+    `/api/tasks/${taskId}/handoffs/${encodeURIComponent(passengerId)}/confirm`,
+    { method: 'POST', body: JSON.stringify({ code }) },
+    base,
+  );
+  return stampOrigin(normaliseTask(raw), base);
+}
+
+/** Requester replaces a locally lost code without revealing it to the driver. */
+export function resetPassengerHandoffCode(
+  taskId: string,
+  passengerId: string,
+  code: string,
+  base?: string,
+): Promise<{ success: boolean }> {
+  return request(
+    `/api/tasks/${taskId}/handoffs/${encodeURIComponent(passengerId)}/reset-code`,
+    { method: 'POST', body: JSON.stringify({ code }) },
+    base,
+  );
 }
 
 /** POST /api/tasks/:id/complete — complete task */
@@ -847,6 +936,7 @@ export async function getOpenTasks(params?: {
   access?: string[];
   /** Who is browsing — lets a favourite see a job inside its head start */
   pubkey?: string;
+  domain?: string;
 }, base?: string): Promise<Task[]> {
   const query = new URLSearchParams();
   if (params?.areas && params.areas.length > 0) {
@@ -866,6 +956,9 @@ export async function getOpenTasks(params?: {
   }
   if (params?.pubkey) {
     query.set('pubkey', params.pubkey);
+  }
+  if (params?.domain) {
+    query.set('domain', params.domain);
   }
   const qs = query.toString();
   const raw = await request<{ rides: Record<string, unknown>[] }>(
@@ -1023,8 +1116,9 @@ export function confirmReceived(rideId: string, base?: string): Promise<{
 export async function getTripEstimate(params: {
   pickup: LatLng;
   dropoff: LatLng;
-  /** Intermediate stops in visit order (≤3) — the estimate covers the detour */
+  /** Intermediate stops in visit order (≤5) — the estimate covers the detour */
   stops?: { lat: number; lng: number }[];
+  domain?: string;
 }): Promise<TripEstimate> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const raw: any = await request('/api/trips/estimate', {
@@ -1034,6 +1128,7 @@ export async function getTripEstimate(params: {
       pickup_lon: params.pickup.lng,
       dropoff_lat: params.dropoff.lat,
       dropoff_lon: params.dropoff.lng,
+      ...(params.domain ? { domain: params.domain } : {}),
       ...(params.stops && params.stops.length > 0
         ? { stops: params.stops.map((s) => ({ lat: s.lat, lon: s.lng })) }
         : {}),
@@ -1109,11 +1204,13 @@ export async function getAvailableProviders(params?: {
   lat?: number;
   lng?: number;
   radiusKm?: number;
+  domain?: string;
 }, base?: string): Promise<{ drivers: AvailableProvider[] }> {
   const qs = new URLSearchParams();
   if (params?.lat) qs.set('lat', String(params.lat));
   if (params?.lng) qs.set('lng', String(params.lng));
   if (params?.radiusKm) qs.set('radius', String(params.radiusKm));
+  if (params?.domain) qs.set('domain', params.domain);
   const suffix = qs.toString() ? `?${qs}` : '';
   const raw = await request<Record<string, unknown>>(`/api/providers/available${suffix}`, undefined, base);
   return { drivers: normaliseProviders(raw) };
@@ -1143,6 +1240,7 @@ export function subscribePush(params: {
   /** Self-declared, for women-only matching of pushed jobs */
   gender?: 'woman' | 'man' | null;
   women_only?: boolean;
+  domain?: string;
   /** 'requester' subscribes for their own task alerts, never for jobs */
   role?: 'provider' | 'requester';
 }): Promise<{ success: boolean }> {
@@ -1357,8 +1455,10 @@ export interface DemandCell {
  * person in it. A driver deciding where to wait has had nothing to go on
  * but their own guess.
  */
-export async function getDemand(): Promise<{ cells: DemandCell[]; surgeEnabled: boolean }> {
-  const raw = await request<{ cells?: DemandCell[]; surge_enabled?: boolean }>('/api/demand');
+export async function getDemand(domain?: string): Promise<{ cells: DemandCell[]; surgeEnabled: boolean }> {
+  const raw = await request<{ cells?: DemandCell[]; surge_enabled?: boolean }>(
+    `/api/demand${domain ? `?domain=${encodeURIComponent(domain)}` : ''}`,
+  );
   return { cells: raw.cells || [], surgeEnabled: raw.surge_enabled === true };
 }
 

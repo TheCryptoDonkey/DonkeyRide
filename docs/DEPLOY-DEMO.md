@@ -1,8 +1,10 @@
 # Deploying a public demo instance
 
-The demo stack runs the operator with PostgreSQL persistence and Redis behind
-any TLS reverse proxy. Ports bind to loopback only — the proxy is the sole
-public surface.
+The base demo stack is a database-free operator behind any TLS reverse proxy.
+Ports bind to loopback only — the proxy is the sole public surface. Add the
+Community Lift storage overlay when active child journeys must survive a
+restart; it adds private encrypted PostgreSQL storage without publishing a
+database port.
 
 ## 1. Start the stack
 
@@ -15,9 +17,23 @@ This exposes on the host:
 - `127.0.0.1:3999` — HTTP API + built web app
 - `127.0.0.1:3998` — WebSocket
 
-The operator runs with `PAYMENT_PROVIDER=demo`, `ENABLE_NIP98_AUTH=true` and
-`ENABLE_RATE_LIMITING=true`. Persistence is PostgreSQL (tasks survive
-restarts and are rehydrated on startup).
+The operator runs with `ENABLE_NIP98_AUTH=true` and
+`ENABLE_RATE_LIMITING=true`. The base stack uses PII-free encrypted Nostr
+snapshots for restart recovery. It lists Community Lift as setup-required and
+refuses those requests until the encrypted storage overlay is enabled.
+
+To accept Community Lift tasks, put a URL-safe database password and stable
+high-entropy encryption key in `.env`, then start all three files:
+
+```sh
+DB_PASSWORD=$(openssl rand -hex 24)
+TASK_DATA_ENCRYPTION_KEY=$(openssl rand -base64 32)
+printf '\nDB_PASSWORD=%s\nTASK_DATA_ENCRYPTION_KEY=%s\n' \
+  "$DB_PASSWORD" "$TASK_DATA_ENCRYPTION_KEY" >> .env
+docker compose -f docker-compose.demo.yml \
+  -f docker-compose.private-routing.yml \
+  -f docker-compose.community-lift.yml up -d --build
+```
 
 ## 2. Front with Caddy (automatic TLS)
 
@@ -87,8 +103,9 @@ with two browsers (one rider, one driver going online).
 
 ## Notes
 
-- This is a **demo** configuration: demo payment rail, throwaway Postgres
-  password, single node. For a real operator deployment see
+- This is a **demo** configuration: cash as a record-only payment rail and a
+  single node. If the Community Lift overlay is enabled, replaceable demo
+  database credentials are not suitable for a real operator. See
   `DOCKER-SETUP.md` and the payment provider guide.
 - Routing falls back to straight-line estimates unless `OSRM_URL` points at
   a routing engine covering your region.

@@ -125,7 +125,17 @@ class DispatchService {
   }
 
   setDomain(domainId: string | null): void {
+    if (this.domainId === domainId) return;
     this.domainId = domainId;
+    this.availableTasks.clear();
+    this.emitAvailable();
+    if (this.connected) {
+      this.queueOrSend(this.registerMessage());
+      void this.refreshOpenTasks();
+    }
+    if (this.online && this.identity) {
+      void enableJobPush(this.identity.pubKeyHex, this.areas, this.location, domainId || undefined);
+    }
   }
 
   /** Latest GPS fix (null when unavailable — presence is then withheld) */
@@ -155,7 +165,7 @@ class DispatchService {
     }
     // Push targeting must track the new areas too
     if (this.online && this.identity) {
-      void enableJobPush(this.identity.pubKeyHex, this.areas, this.location);
+      void enableJobPush(this.identity.pubKeyHex, this.areas, this.location, this.domainId || undefined);
     }
   }
 
@@ -281,6 +291,7 @@ class DispatchService {
         options: loadServiceOptions(),
         access: loadAccessFeatures(),
         pubkey: this.identity?.pubKeyHex,
+        domain: this.domainId || undefined,
       });
     } catch {
       return; // transient — the next poll reconciles
@@ -321,6 +332,7 @@ class DispatchService {
         type: 'driver_location',
         npub: this.identity?.npub || '',
         pubkey: this.identity?.pubKeyHex || '',
+        domain: this.domainId || undefined,
         location: { lat: location.lat, lon: location.lng },
       });
     }).then((watcher) => {
@@ -331,7 +343,7 @@ class DispatchService {
     // Job alerts while backgrounded — called here so the permission
     // prompt rides the Go online tap (a user gesture)
     if (this.identity) {
-      void enableJobPush(this.identity.pubKeyHex, this.areas, this.location);
+      void enableJobPush(this.identity.pubKeyHex, this.areas, this.location, this.domainId || undefined);
     }
   }
 
@@ -444,6 +456,7 @@ class DispatchService {
 
       if (msg.type === 'task_broadcast') {
         const task = normaliseTask(msg.task);
+        if (this.domainId && task.domain && task.domain !== this.domainId) return;
         const withDistance = msg.distanceKm != null && task.distanceKm == null
           ? { ...task, distanceKm: msg.distanceKm }
           : task;
@@ -483,6 +496,7 @@ class DispatchService {
       type: WS_PROTOCOL.registerProvider,
       npub: this.identity?.npub || '',
       pubkey: this.identity?.pubKeyHex || '',
+      domain: this.domainId || undefined,
       // Never register a fallback position — omit location until GPS is real
       location: this.location ? { lat: this.location.lat, lon: this.location.lng } : undefined,
       // Working-area cells; [] deliberately clears any stored areas
@@ -567,6 +581,7 @@ class DispatchService {
         type: 'driver_location',
         npub: this.identity?.npub || '',
         pubkey: this.identity?.pubKeyHex || '',
+        domain: this.domainId || undefined,
         location: { lat: this.location.lat, lon: this.location.lng },
       });
     };
