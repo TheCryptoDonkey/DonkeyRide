@@ -7,6 +7,7 @@ import {
 } from './operator-origin';
 import type { AvailableProvider, LatLng, OperatorInfo, OperatorPolicy } from '../types/api';
 import type { NostrEvent } from '../types/nostr';
+import { decodeGeohash, encodeGeohash } from '../utils/geohash';
 
 const OPERATOR_KIND = 30511;
 const KNOWN_KEY = 'donkeyride.operator.known';
@@ -194,12 +195,14 @@ export async function discoverNetworkProviders(location: LatLng, radiusKm = 10):
   operators: OperatorDirectoryEntry[];
 }> {
   const operators = await discoverOperators();
+  const cell = decodeGeohash(encodeGeohash(location.lat, location.lng, 5));
+  const coarseLocation = cell ? { lat: cell.lat, lng: cell.lon } : location;
   const reachable = operators.filter((operator) => operator.reachable);
   const results = await Promise.all(reachable.map(async (operator) => {
     try {
       const response = await withTimeout(getAvailableProviders({
-        lat: location.lat,
-        lng: location.lng,
+        lat: coarseLocation.lat,
+        lng: coarseLocation.lng,
         radiusKm,
       }, operator.origin));
       return response.drivers.map((provider, index): NetworkProvider => ({

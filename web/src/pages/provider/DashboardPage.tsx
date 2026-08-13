@@ -305,7 +305,9 @@ export function DashboardPage() {
                 >
                   <div className="min-w-0">
                     <div className="flex items-baseline gap-2">
-                      <DualPrice sats={job.fareEstimateSats} size="sm" />
+                      {job.settlementMode === 'none'
+                        ? <span className="text-sm font-black text-donkey-green">{t('settlement.none')}</span>
+                        : <DualPrice sats={job.fareEstimateSats} size="sm" />}
                       {near && (
                         <span className="text-xs font-bold text-donkey-blue shrink-0">
                           {t('dash.awayShort', { min: near.minutes })}

@@ -6,12 +6,16 @@ import {
   savePlace,
   removeSavedPlace,
   suggestPlaceName,
+  clearPlaces,
 } from './places';
 
 const place = (label: string, lat = 51.5, lng = -0.1) => ({ label, lat, lng });
 
 describe('places', () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    clearPlaces();
+  });
 
   it('recents dedupe by label and cap at 5, newest first', () => {
     for (let i = 1; i <= 6; i++) saveRecent(place(`Place ${i}`));

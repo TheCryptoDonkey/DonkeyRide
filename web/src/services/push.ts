@@ -56,7 +56,12 @@ export function onPushStateChange(listener: (state: PushState) => void): () => v
 }
 
 /** Re-subscription details, kept so a rotated endpoint can re-register itself */
-let lastJobSubscribe: { pubkey: string; areas: string[]; location: LatLng | null } | null = null;
+let lastJobSubscribe: {
+  pubkey: string;
+  areas: string[];
+  location: LatLng | null;
+  includeSensitiveMatching: boolean;
+} | null = null;
 let rotationWatcher: Promise<unknown> | null = null;
 
 /** Decode a URL-safe base64 VAPID key for pushManager.subscribe */
@@ -82,9 +87,10 @@ export async function enableJobPush(
   pubkey: string,
   areas: string[],
   location: LatLng | null,
+  includeSensitiveMatching = false,
 ): Promise<boolean> {
   if (unifiedPushSupported()) {
-    return enableNativeJobPush(pubkey, areas, location);
+    return enableNativeJobPush(pubkey, areas, location, includeSensitiveMatching);
   }
   if (!pushSupported()) {
     setPushState('unsupported');
@@ -126,8 +132,10 @@ export async function enableJobPush(
       areas,
       location: location ? { lat: location.lat, lon: location.lng } : null,
       // Self-declared, so pushed jobs honour women-only pairing too
-      gender: loadGender(),
-      women_only: loadWomenOnlyDriver(),
+      ...(includeSensitiveMatching ? {
+        gender: loadGender(),
+        women_only: loadWomenOnlyDriver(),
+      } : {}),
     });
     setPushState('enabled');
     return true;
@@ -148,8 +156,9 @@ async function enableNativeJobPush(
   pubkey: string,
   areas: string[],
   location: LatLng | null,
+  includeSensitiveMatching: boolean,
 ): Promise<boolean> {
-  lastJobSubscribe = { pubkey, areas, location };
+  lastJobSubscribe = { pubkey, areas, location, includeSensitiveMatching };
   try {
     if (!(await requestNotificationPermission())) {
       setPushState('denied');
@@ -181,8 +190,10 @@ async function enableNativeJobPush(
       pubkey,
       areas,
       location: location ? { lat: location.lat, lon: location.lng } : null,
-      gender: loadGender(),
-      women_only: loadWomenOnlyDriver(),
+      ...(includeSensitiveMatching ? {
+        gender: loadGender(),
+        women_only: loadWomenOnlyDriver(),
+      } : {}),
     });
     setPushState('enabled');
     watchForRotation();
@@ -209,8 +220,10 @@ function watchForRotation(): void {
       location: lastJobSubscribe.location
         ? { lat: lastJobSubscribe.location.lat, lon: lastJobSubscribe.location.lng }
         : null,
-      gender: loadGender(),
-      women_only: loadWomenOnlyDriver(),
+      ...(lastJobSubscribe.includeSensitiveMatching ? {
+        gender: loadGender(),
+        women_only: loadWomenOnlyDriver(),
+      } : {}),
     }).catch(() => {
       setPushState('failed');
     });

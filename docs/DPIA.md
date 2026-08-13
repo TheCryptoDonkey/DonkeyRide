@@ -2,7 +2,7 @@
 
 **Status:** template, pre-filled for the reference implementation
 **Covers:** DonkeyRide reference operator, default non-custodial posture
-**Last reviewed:** 4 August 2026
+**Last reviewed:** 13 August 2026
 **Reviewer:** _(operator to complete)_
 
 > This is engineering documentation, not legal advice. It is pre-filled with
@@ -51,8 +51,8 @@ REQUESTER DEVICE ──┐                        ┌── PROVIDER DEVICE
    places, audio   │                        │   working areas
                    ▼                        ▼
               ┌─────────────────────────────────┐
-              │ OPERATOR (in-memory, ephemeral) │  ← exact coordinates live
-              │ coordination only, £0 handled   │    here and ONLY here
+              │ OPERATOR (in-memory, ephemeral) │  ← blind: coarse cells,
+              │ coordination only, £0 handled   │    managed: exact itinerary
               └─────────────────────────────────┘
                    │                        │
                    │ sealed snapshot        │ nothing
@@ -69,9 +69,9 @@ REQUESTER DEVICE ──┐                        ┌── PROVIDER DEVICE
 
 | Purpose | Data | Lawful basis |
 |---|---|---|
-| Match a requester to a provider | Pickup/dropoff, pubkeys, service class | Art. 6(1)(b) contract |
+| Match a requester to a provider | Coarse pickup/dropoff cells, pubkeys, service class | Art. 6(1)(b) contract |
 | Price the job | Route distance/duration | Art. 6(1)(b) contract |
-| Let the parties find each other at the kerb | Exact coordinates, pickup note, passenger name | Art. 6(1)(b) contract |
+| Let the parties find each other at the kerb | Participant-encrypted exact itinerary and pickup note | Art. 6(1)(b) contract |
 | Match an access need to a capable provider | Access needs | **Art. 9(2)(a) explicit consent** + Art. 6(1)(a) |
 | Women-only pairing | Self-declared gender | Art. 6(1)(a) consent |
 | Safety: panic, trip sharing, ride check | Location, guardian contacts | Art. 6(1)(d) vital interests / Art. 6(1)(a) |
@@ -103,12 +103,13 @@ The strongest proportionality argument available is that most of the data
 **Data minimisation is enforced in code, not policy.** Examples that are
 tested, not merely intended:
 
-- Pre-accept payloads carry ~1 km rounded location and no route geometry;
-  exact coordinates exist only for the provider who committed.
+- In `blind` mode exact itinerary points, addresses, notes and geometry stay
+  on participant devices and reach the match in a NIP-17 gift wrap. The
+  coordinator receives geohash-5 cells, stop count and road-route totals.
 - The kind 30078 snapshot is NIP-44 sealed to the operator's own key and
   its tags reduced to `d` + `expiration` (`snapshot-privacy.test.js`).
-- Access needs, gender, pickup notes and passenger names are **excluded
-  from the snapshot entirely** — they do not survive a restart, by design.
+- Access needs, gender and pickup notes are **excluded from the snapshot
+  entirely**. Blind mode also omits them from coordinator matching.
 - Payment receipts (kind 30535) are off by default and carry no `p` tags.
 - The availability beacon is off by default (`VITE_TROTT_P2P_BEACON`).
 
@@ -273,9 +274,8 @@ where a frightened person stood helps whoever they are frightened of.
   operator refuses to relay an event carrying a `location` tag — *but still
   processes the alert*, because a privacy rule must never break the safety
   path (`panic-privacy.test.js`).
-- Exact position goes where it acts: NIP-17 to the user's guardians, and
-  the participant-gated task socket for the counterparty — out-of-band on
-  the request body, never inside the signed event.
+- Exact position goes by NIP-17 to the user's chosen trusted contacts. The
+  panic event and blind coordinator socket carry only geohash-5 location.
 - 30540 carries a `d` tag of the task id; without one, every alert a person
   raises would share `d=""` and silently replace the last.
 
@@ -295,26 +295,23 @@ enforced; earnings exported to the driver's own device, never retained.
 is the point of portable reputation but does allow long-term inference.
 Disclose it in provider onboarding.
 
-### 5.8 Third-party data: booking for someone else
+### 5.8 Third-party identity fields
 
 **Risk: MEDIUM inherent, LOW residual.**
 
-`passenger: {name, note}` processes someone who is not your user and who
-cannot consent through your UI.
+Legacy `passenger: {name, note}` fields would process someone who is not a
+user and cannot consent through this UI.
 
-**Measures:** capped length, in-memory, excluded from every pre-accept
-payload and from the snapshot, participant-gated.
-
-**OPERATOR:** the Article 14 notice obligation is practically the
-requester's, not yours, but take advice before scaling this.
+**Measures:** the field has been removed from the clients and types; the
+server ignores it entirely. Only numeric stop/seat counts are coordinated.
 
 ### 5.9 Operator compromise while jobs are live
 
 **Risk: MEDIUM inherent, MEDIUM residual.**
 
-In-memory is excellent for erasure and useless against a live attacker: an
-operator running active jobs holds exact coordinates and both identities for
-those jobs, in RAM.
+In-memory is excellent for erasure and does not defeat a live attacker. A
+blind coordinator still holds pubkeys, task state, timing and coarse cells.
+A managed coordinator additionally holds exact itinerary data in RAM.
 
 **Measures:** NIP-98 signed HTTP auth; participant-gated task access and
 sockets; rate limiting; no funds to steal; the blast radius is bounded to

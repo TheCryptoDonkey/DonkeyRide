@@ -53,7 +53,7 @@ export function TaskStakePanel({ task, role }: TaskStakePanelProps) {
     });
   }, [profile, role, task.fareEstimateSats, stake]);
 
-  if (!supported || !identity || !stake) return null;
+  if (task.settlementMode === 'none' || !supported || !identity || !stake) return null;
   if (profile?.states.terminal.includes(task.status)) return null;
 
   const applyResponse = (res: StakeResponse) => {

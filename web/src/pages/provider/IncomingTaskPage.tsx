@@ -56,6 +56,10 @@ export function IncomingTaskPage() {
   );
   useEffect(() => {
     if (!activeTask) return;
+    if (activeTask.locationMode === 'participant_encrypted') {
+      setAreas({ from: null, to: null });
+      return;
+    }
     let live = true;
     void Promise.all([
       activeTask.pickup ? reverseGeocode(activeTask.pickup) : Promise.resolve(null),
@@ -64,7 +68,7 @@ export function IncomingTaskPage() {
       .then(([from, to]) => { if (live) setAreas({ from, to }); })
       .catch(() => {});
     return () => { live = false; };
-  }, [activeTask?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTask?.id, activeTask?.locationMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!activeTask) return null;
 
@@ -76,29 +80,33 @@ export function IncomingTaskPage() {
     }
     setAccepting(true);
     try {
+      const privateItinerary = activeTask.locationMode === 'participant_encrypted';
       const updated = await acceptTask(activeTask.id, {
         providerPubkey: identity.pubKeyHex,
         providerNpub: identity.npub,
         providerLocation: location,
         // The car the requester should look for (set on the profile page)
-        vehicle: loadVehicle(),
+        vehicle: privateItinerary ? null : loadVehicle(),
         // Self-declared — required by the server for a women-only task
-        gender: loadGender(),
+        gender: privateItinerary ? null : loadGender(),
         // Vehicle classes declared on the profile page (XL, Comfort …)
         serviceOptions: loadServiceOptions(),
         // Fail-closed guard at accept: the server refuses if these do not
         // cover what the request needs
-        accessFeatures: loadAccessFeatures(),
+        accessFeatures: privateItinerary ? [] : loadAccessFeatures(),
+        locationMode: activeTask.locationMode,
         // Licences and cover, as declared on the profile page. Expired
         // claims never leave this device — an operator running
         // ENFORCE_CREDENTIALS refuses the accept, which is the point.
-        credentials: validCredentials(),
+        credentials: privateItinerary ? [] : validCredentials(),
       }, activeTask.operatorBase);
       // The rate behind the fare this driver just agreed to work for. Accept
       // is their moment of agreement, exactly as the request tap is the
       // rider's — without it the figure drifts against the one on the offer
       // card they said yes to.
-      recordAgreedRate(activeTask.id, peekBtcPrices());
+      if (activeTask.settlementMode !== 'none') {
+        recordAgreedRate(activeTask.id, peekBtcPrices());
+      }
       dispatchService.removeAvailable(activeTask.id);
       // The job stays theirs to coordinate — carry the origin forward so
       // every later call goes back to the operator that holds it.
@@ -109,7 +117,8 @@ export function IncomingTaskPage() {
       // Best-effort: advertise the driver's saved payment methods on this ride
       // so the rider can pay directly. Never blocks accepting the job.
       const savedMethods = getSavedPaymentMethods();
-      if (savedMethods.length > 0) {
+      if (activeTask.settlementMode !== 'none' && !privateItinerary
+          && savedMethods.length > 0) {
         void setPaymentMethods(
           updated.id, { methods: savedMethods }, activeTask.operatorBase,
         ).catch(() => {});
@@ -194,7 +203,9 @@ export function IncomingTaskPage() {
               <p className="section-title mb-1">
                 {t('incoming.new', { label: requesterLabel, noun: taskNoun })}
               </p>
-              <DualPrice sats={activeTask.fareEstimateSats} size="lg" />
+              {activeTask.settlementMode === 'none'
+                ? <p className="text-lg font-black text-donkey-green">{t('settlement.none')}</p>
+                : <DualPrice sats={activeTask.fareEstimateSats} size="lg" />}
               {proximity && (
                 <p className="text-sm font-bold text-donkey-blue mt-1">
                   {t('incoming.away', {

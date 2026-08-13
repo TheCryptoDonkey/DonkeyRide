@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MapView } from '../../components/map/MapView';
 import { LocationMarker } from '../../components/map/LocationMarker';
@@ -39,6 +39,10 @@ import { dispatchService } from '../../services/dispatch';
 import { getAgreedRate } from '../../utils/agreed-rate';
 import { useT } from '../../i18n';
 import type { WsMessage } from '../../types/api';
+import {
+  loadPrivateItinerary, mergePrivateItinerary, savePrivateItinerary,
+  subscribePrivateItinerary,
+} from '../../services/private-itinerary';
 
 /** Map known state keys to existing API endpoints */
 const KNOWN_ENDPOINTS: Record<string, string> = {
@@ -77,6 +81,7 @@ export function ActiveTaskPage() {
   const { profile } = useDomain();
   const { t } = useT();
   const { location, hasFix } = useLocation(true);
+  const loadedPrivateTaskRef = useRef<string | null>(null);
   // Keep using the app-level listener's last genuine fix while this freshly
   // mounted watcher starts. Its initial London value is map framing only and
   // must never become a live-tracking update or panic location.
@@ -105,13 +110,47 @@ export function ActiveTaskPage() {
     if (!activeTask) navigate('/provide');
   }, [activeTask, navigate]);
 
+  // The provider initially accepts a coarse-cell task. Restore a previously
+  // received itinerary from encrypted device storage, then listen for the
+  // requester's verified NIP-17 envelope.
+  useEffect(() => {
+    if (!activeTask || !identity || !activeTask.requesterPubkey
+        || activeTask.locationMode !== 'participant_encrypted') return;
+    let closed = false;
+    let subscription: { close: () => void } | null = null;
+    if (loadedPrivateTaskRef.current !== activeTask.id) {
+      loadedPrivateTaskRef.current = activeTask.id;
+      void loadPrivateItinerary(identity.privKeyHex, activeTask.id).then((itinerary) => {
+        if (!closed && itinerary) setActiveTask(mergePrivateItinerary(activeTask, itinerary));
+      });
+    }
+    void subscribePrivateItinerary(
+      identity.privKeyHex,
+      identity.pubKeyHex,
+      activeTask.requesterPubkey,
+      activeTask.id,
+      (itinerary) => {
+        void savePrivateItinerary(identity.privKeyHex, itinerary);
+        setActiveTask(mergePrivateItinerary(activeTask, itinerary));
+      },
+    ).then((handle) => {
+      if (closed) handle.close();
+      else subscription = handle;
+    });
+    return () => {
+      closed = true;
+      subscription?.close();
+    };
+  }, [activeTask?.id, activeTask?.requesterPubkey, activeTask?.locationMode, identity?.privKeyHex]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Send location updates via PII module (only when liveTracking is enabled)
   useLiveTracking({
     taskId: activeTask?.id || null,
     providerPubkey: identity?.pubKeyHex || null,
     lat: safeLocation?.lat ?? 0,
     lng: safeLocation?.lng ?? 0,
-    enabled: !!(profile?.features.liveTracking && activeTask && identity && safeLocation),
+    enabled: !!(profile?.features.liveTracking && activeTask && identity && safeLocation
+      && activeTask.locationMode !== 'participant_encrypted'),
     operatorBase: activeTask?.operatorBase,
   });
 
@@ -320,6 +359,7 @@ export function ActiveTaskPage() {
     await triggerPanic(activeTask.id, {
       role: 'provider',
       location: safeLocation,
+      locationMode: activeTask.locationMode,
     }, activeTask.operatorBase);
   };
 
@@ -417,11 +457,15 @@ export function ActiveTaskPage() {
           <StatusBadge status={status} role="provider" />
           {/* Through the rate in force when they accepted — the fare on the
               offer card is what they agreed to work for */}
-          <DualPrice
-            sats={activeTask.fareEstimateSats}
-            size="sm"
-            ratesOverride={getAgreedRate(activeTask.id)}
-          />
+          {activeTask.settlementMode === 'none'
+            ? <span className="text-sm font-black text-donkey-green">{t('settlement.none')}</span>
+            : (
+              <DualPrice
+                sats={activeTask.fareEstimateSats}
+                size="sm"
+                ratesOverride={getAgreedRate(activeTask.id)}
+              />
+            )}
         </div>
 
         {/* Who you are collecting. The driver is meeting a stranger too —
@@ -458,20 +502,6 @@ export function ActiveTaskPage() {
           </div>
         )}
 
-        {/* Who you are actually collecting, when it is not the person who
-            booked — a name to call out at the kerb and nothing more */}
-        {activeTask.passenger && !activeTask.startedAt && (
-          <div className="meta-card border border-donkey-blue/40">
-            <p className="meta-label">{t('passenger.travelling')}</p>
-            <p className="text-sm font-bold text-donkey-text mt-1">
-              {activeTask.passenger.name || t('passenger.unnamed')}
-            </p>
-            {activeTask.passenger.note && (
-              <p className="text-sm text-donkey-text mt-1">{activeTask.passenger.note}</p>
-            )}
-          </div>
-        )}
-
         {/* Where exactly to pull in */}
         {activeTask.pickupAddress && !activeTask.startedAt && (
           <div className="meta-card">
@@ -494,7 +524,7 @@ export function ActiveTaskPage() {
         )}
 
         {/* Waiting time — a running meter belongs in front of both parties */}
-        <WaitingTimer task={activeTask} role="provider" />
+        {activeTask.settlementMode !== 'none' && <WaitingTimer task={activeTask} role="provider" />}
 
         {/* Navigation hand-off — drivers trust their own nav app */}
         {(() => {
@@ -523,7 +553,9 @@ export function ActiveTaskPage() {
         })()}
 
         {/* Quote negotiation — an action the job is waiting on */}
-        {profile?.features.quoteNegotiation &&
+        {activeTask.locationMode !== 'participant_encrypted'
+          && activeTask.settlementMode !== 'none'
+          && profile?.features.quoteNegotiation &&
           status === profile?.states.values.PROVIDER_ARRIVED && (
           <QuotePanel
             mode="provider"
@@ -542,11 +574,13 @@ export function ActiveTaskPage() {
         )}
 
         {/* The rider says they have paid — confirm it */}
-        <ConfirmReceipt
-          task={activeTask}
-          settlement={activeTask.settlement}
-          declaredRail={declaredRail}
-        />
+        {activeTask.settlementMode !== 'none' && (
+          <ConfirmReceipt
+            task={activeTask}
+            settlement={activeTask.settlement}
+            declaredRail={declaredRail}
+          />
+        )}
 
         {/* ── Everything below is one tap away ───────────────────────── */}
 
@@ -601,7 +635,7 @@ export function ActiveTaskPage() {
         )}
 
         {/* Proof of completion, where the domain asks for it */}
-        {((profile?.features.photos && (
+        {activeTask.locationMode !== 'participant_encrypted' && ((profile?.features.photos && (
           status === profile?.states.values.PROVIDER_ARRIVED ||
           status === profile?.states.values.COLLECTED ||
           status === profile?.states.values.ARRIVED_AT_DELIVERY
@@ -659,9 +693,11 @@ export function ActiveTaskPage() {
         )}
 
         {/* How you get paid */}
-        {!isTerminal && (
+        {!isTerminal && activeTask.settlementMode !== 'none' && (
           <SheetSection title={t('sheet.payment')} icon="💷" rememberAs="driver-payment">
-            <PaymentMethodsEditor rideId={activeTask.id} operatorBase={activeTask.operatorBase} />
+            {activeTask.locationMode !== 'participant_encrypted' && (
+              <PaymentMethodsEditor rideId={activeTask.id} operatorBase={activeTask.operatorBase} />
+            )}
             <TaskStakePanel task={activeTask} role="provider" />
           </SheetSection>
         )}

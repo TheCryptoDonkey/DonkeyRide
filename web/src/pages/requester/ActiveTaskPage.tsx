@@ -48,6 +48,9 @@ import { arrivalClock, etaMinutes, remainingSeconds } from '../../utils/eta';
 import { formatScheduledTime, isUpcoming } from '../../utils/datetime';
 import { getAgreedRate } from '../../utils/agreed-rate';
 import type { WsMessage, Task, LatLng, OperatorPaymentInfo } from '../../types/api';
+import {
+  loadPrivateItinerary, mergePrivateItinerary, sendPrivateItinerary,
+} from '../../services/private-itinerary';
 
 export function ActiveTaskPage() {
   const navigate = useNavigate();
@@ -65,6 +68,8 @@ export function ActiveTaskPage() {
   const [cancelReason, setCancelReason] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [payment, setPayment] = useState<OperatorPaymentInfo | null>(null);
+  const loadedPrivateTaskRef = useRef<string | null>(null);
+  const sentPrivateTaskRef = useRef<string | null>(null);
 
   const originLabel = profile?.labels?.originLabel || 'Pickup';
   const destinationLabel = profile?.labels?.destinationLabel || 'Dropoff';
@@ -73,6 +78,33 @@ export function ActiveTaskPage() {
   const providerRoleLabel = profile?.roles.provider || 'Provider';
 
   const terminalStates = profile?.states.terminal || [];
+
+  // A refresh rehydrates only the operator's coarse task. Restore the exact
+  // itinerary from this identity's NIP-44-encrypted device record.
+  useEffect(() => {
+    if (!activeTask || !identity
+        || activeTask.locationMode !== 'participant_encrypted'
+        || loadedPrivateTaskRef.current === activeTask.id) return;
+    loadedPrivateTaskRef.current = activeTask.id;
+    void loadPrivateItinerary(identity.privKeyHex, activeTask.id).then((itinerary) => {
+      if (itinerary) setActiveTask(mergePrivateItinerary(activeTask, itinerary));
+    });
+  }, [activeTask?.id, activeTask?.locationMode, identity?.privKeyHex]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Once a provider commits, give that provider the exact points directly as
+  // a verified NIP-17 gift wrap. The coordinator never carries the payload.
+  useEffect(() => {
+    if (!activeTask || !identity || !activeTask.providerPubkey
+        || activeTask.locationMode !== 'participant_encrypted') return;
+    const key = `${activeTask.id}:${activeTask.providerPubkey}`;
+    if (sentPrivateTaskRef.current === key) return;
+    sentPrivateTaskRef.current = key;
+    void loadPrivateItinerary(identity.privKeyHex, activeTask.id)
+      .then((itinerary) => itinerary
+        ? sendPrivateItinerary(identity.privKeyHex, activeTask.providerPubkey!, itinerary)
+        : undefined)
+      .catch(() => { sentPrivateTaskRef.current = null; });
+  }, [activeTask?.id, activeTask?.providerPubkey, activeTask?.locationMode, identity?.privKeyHex]);
   const cancelledValue = profile?.states.values.CANCELLED || 'cancelled';
   const activeValue = profile?.states.values.ACTIVE || 'active';
 
@@ -81,9 +113,8 @@ export function ActiveTaskPage() {
     if (!activeTask) navigate('/request');
   }, [activeTask, navigate]);
 
-  // Put `origin` back from the task after an app restart. It is held in
-  // sessionStorage (a pre-request convenience) while the task itself is
-  // durable, so reopening the app mid-trip leaves the two out of step.
+  // Put `origin` back after the encrypted itinerary has been merged. The
+  // ordinary session copy contains only the coordinator's coarse cell.
   useEffect(() => {
     if (!origin && activeTask?.pickup) setOrigin(activeTask.pickup);
   }, [origin, activeTask?.pickup, setOrigin]);
@@ -327,6 +358,7 @@ export function ActiveTaskPage() {
     await triggerPanic(activeTask.id, {
       role: 'requester',
       location: currentLocation,
+      locationMode: activeTask.locationMode,
     }, activeTask.operatorBase);
   };
 
@@ -385,7 +417,8 @@ export function ActiveTaskPage() {
   // riders walk while the car is on its way
   const arrivedValue = profile?.states.values.PROVIDER_ARRIVED || 'arrived';
   const matched = Boolean(activeTask.providerPubkey);
-  const pickupMovable = !terminalStates.includes(activeTask.status)
+  const pickupMovable = activeTask.locationMode !== 'participant_encrypted'
+    && !terminalStates.includes(activeTask.status)
     && activeTask.status !== arrivedValue
     && activeTask.status !== activeValue
     && !activeTask.startedAt;
@@ -505,11 +538,15 @@ export function ActiveTaskPage() {
           {/* The headline the rider watches for the whole journey. Through
               the agreed rate, or it drifts a penny at a time against the
               number they tapped to book. */}
-          <DualPrice
-            sats={activeTask.fareEstimateSats}
-            size="sm"
-            ratesOverride={getAgreedRate(activeTask.id)}
-          />
+          {activeTask.settlementMode === 'none'
+            ? <span className="text-sm font-black text-donkey-green">{t('settlement.none')}</span>
+            : (
+              <DualPrice
+                sats={activeTask.fareEstimateSats}
+                size="sm"
+                ratesOverride={getAgreedRate(activeTask.id)}
+              />
+            )}
         </div>
 
         {/* Nobody has taken it yet — show that the search is alive */}
@@ -601,7 +638,7 @@ export function ActiveTaskPage() {
         {matched && <CredentialsCard credentials={activeTask.providerCredentials} />}
 
         {/* Waiting time — a running meter belongs in front of both parties */}
-        <WaitingTimer task={activeTask} role="requester" />
+        {activeTask.settlementMode !== 'none' && <WaitingTimer task={activeTask} role="requester" />}
 
         {/* Quote review — an unanswered question, never behind a tap */}
         {profile?.features.quoteNegotiation && activeTask.quote &&
@@ -628,7 +665,7 @@ export function ActiveTaskPage() {
         )}
 
         {/* Pay the driver — the current step once the job is under way */}
-        {activeTask.status === activeValue && (
+        {activeTask.status === activeValue && activeTask.settlementMode !== 'none' && (
           <PayDriver task={activeTask} settlement={activeTask.settlement} />
         )}
 
@@ -667,7 +704,8 @@ export function ActiveTaskPage() {
 
         {/* Plans change mid-journey. Re-prices, and shows the new number
             before anything is committed. */}
-        {requiresDestination && !terminalStates.includes(activeTask.status) && (
+        {activeTask.locationMode !== 'participant_encrypted'
+          && requiresDestination && !terminalStates.includes(activeTask.status) && (
           <SheetSection
             title={t('destination.section', { label: destinationLabel.toLowerCase() })}
             icon="🏁"
@@ -735,7 +773,7 @@ export function ActiveTaskPage() {
         )}
 
         {/* Payment detail: how it settles, and any stake */}
-        {(payment?.provider === 'cash' || payment?.provider === 'demo'
+        {activeTask.settlementMode !== 'none' && (payment?.provider === 'cash' || payment?.provider === 'demo'
           || activeTask.requesterStake) && (
           <SheetSection title={t('sheet.payment')} icon="💷" rememberAs="rider-payment">
             {payment?.provider === 'cash' && (

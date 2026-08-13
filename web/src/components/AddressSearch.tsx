@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { showToast } from './common/Toast';
 import { useT } from '../i18n';
 import type { LatLng } from '../types/api';
+import { decodeGeohash, encodeGeohash } from '../utils/geohash';
 import {
   loadRecents,
   saveRecent,
@@ -42,7 +43,8 @@ function formatLabel(p: PhotonFeature['properties']): string {
 
 /**
  * Debounced address search backed by Photon (komoot) — free, no API key,
- * OpenStreetMap data. Falls back gracefully: tapping the map still works.
+ * OpenStreetMap data. The location bias is geohash-5 coarse; text the user
+ * types necessarily goes to the configured search service.
  */
 export function AddressSearch({ name, placeholder, biasLocation, onSelect, autoFocus }: AddressSearchProps) {
   const { t } = useT();
@@ -84,7 +86,10 @@ export function AddressSearch({ name, placeholder, biasLocation, onSelect, autoF
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
       try {
-        const bias = biasLocation ? `&lat=${biasLocation.lat}&lon=${biasLocation.lng}` : '';
+        const coarseBias = biasLocation
+          ? decodeGeohash(encodeGeohash(biasLocation.lat, biasLocation.lng, 5))
+          : null;
+        const bias = coarseBias ? `&lat=${coarseBias.lat}&lon=${coarseBias.lon}` : '';
         const res = await fetch(
           `https://photon.komoot.io/api/?q=${encodeURIComponent(query)}&limit=5${bias}`
         );

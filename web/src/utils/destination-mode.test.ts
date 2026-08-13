@@ -41,7 +41,10 @@ describe('jobMovesToward', () => {
 });
 
 describe('destination mode storage', () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    clearDestinationMode();
+  });
 
   it('round-trips and clears', () => {
     expect(loadDestinationMode()).toBeNull();

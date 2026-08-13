@@ -219,8 +219,7 @@ test('unknown access ids are dropped, not rejected', async () => {
 test('access needs never reach the public Nostr snapshot', async () => {
   const { body } = await createRide({
     access_needs: ['wheelchair'],
-    pickup_note: 'ramp at the side door',
-    passenger: { name: 'Miriam', note: 'uses a walking frame' }
+    pickup_note: 'ramp at the side door'
   });
   const detail = await get(`/api/rides/${body.ride_id}`);
 
@@ -239,7 +238,7 @@ test('access needs never reach the public Nostr snapshot', async () => {
   assert.ok(built.content.geohashPickup, 'the snapshot carries a pickup cell');
   assert.ok(built.content.status, 'the snapshot carries a status');
 
-  for (const secret of ['wheelchair', 'ramp at the side door', 'Miriam', 'walking frame']) {
+  for (const secret of ['wheelchair', 'ramp at the side door']) {
     assert.ok(
       !snapshot.includes(secret),
       `health-adjacent and participant-only data must never be published to a relay (found "${secret}")`

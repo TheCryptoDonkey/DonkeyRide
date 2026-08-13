@@ -23,6 +23,9 @@ import { formatScheduledTime } from '../../utils/datetime';
 import { recordAgreedRate } from '../../utils/agreed-rate';
 import { peekBtcPrices } from '../../hooks/useBtcPrices';
 import type { TaskStop } from '../../types/api';
+import {
+  itineraryFromTask, savePrivateItinerary,
+} from '../../services/private-itinerary';
 
 const MAX_STOPS = 2;
 
@@ -79,11 +82,11 @@ export function RequestPage() {
   const [womenOnly, setWomenOnly] = useState(false);
   // Meeting instructions a pin cannot express
   const [pickupNote, setPickupNote] = useState('');
-  // Booking for somebody else — a parent sending a child home, an office
-  // booking for a client. The provider needs a name to call out.
-  const [forSomeoneElse, setForSomeoneElse] = useState(false);
-  const [passengerName, setPassengerName] = useState('');
-  const [passengerNote, setPassengerNote] = useState('');
+  // A route can be coordinated without any payment at all.
+  const [settlementMode, setSettlementMode] = useState<'priced' | 'none'>('priced');
+  // Single-location profiles have no route estimate from which to infer the
+  // operator's privacy contract, so read it explicitly.
+  const [operatorBlind, setOperatorBlind] = useState<boolean | null>(null);
   // What this journey needs. Remembered on the device so a wheelchair user
   // is not re-declaring it every single time.
   const [accessNeeds, setAccessNeeds] = useState<string[]>(loadAccessNeeds);
@@ -116,6 +119,24 @@ export function RequestPage() {
   const destinationLabel = td(profile?.labels?.destinationLabel || 'Dropoff');
   const taskNoun = td(profile?.labels?.taskNoun || 'ride');
   const providerLabel = td(profile?.roles.provider || 'Provider');
+  const privateItinerary = estimate?.locationMode === 'participant_encrypted'
+    || operatorBlind === true;
+  const operatorModeKnown = estimate != null || operatorBlind != null;
+
+  useEffect(() => {
+    let live = true;
+    void getOperatorInfoCached()
+      .then((info) => {
+        if (live) setOperatorBlind(info.data_handling?.mode === 'blind');
+      })
+      .catch(() => {
+        if (live) {
+          setOperatorBlind(null);
+          setError('Cannot verify this operator’s privacy mode');
+        }
+      });
+    return () => { live = false; };
+  }, []);
 
   // Back-navigation guard: an existing active task means no second request
   useEffect(() => {
@@ -160,14 +181,19 @@ export function RequestPage() {
     if (!origin || !identity) return;
     if (requiresDestination && !destination) return;
     if (scheduleInvalid) return;
+    if (!operatorModeKnown) {
+      setError('Cannot verify this operator’s privacy mode');
+      return;
+    }
     setLoading(true);
     setError(null);
     // Lock-screen alerts for "on the way" and "I'm here". Fired from this
     // tap so the permission prompt is gesture-driven (Safari insists), and
     // never blocking: a refusal must not stop the request.
     void enableTaskPush(identity.pubKeyHex).catch(() => {});
-    // Remember the needs so this is not re-declared on every journey
-    saveAccessNeeds(accessNeeds);
+    // Managed operators can match these declarations. In blind mode they
+    // stay on the device and are never included in coordination.
+    if (!privateItinerary) saveAccessNeeds(accessNeeds);
     try {
       const task = await requestTask({
         pickup: origin,
@@ -190,15 +216,36 @@ export function RequestPage() {
         // ...and the quote itself, so the fare recorded is the fare shown
         quoteId: estimate?.quoteId,
         preferredProviders: favourites,
-        passenger: forSomeoneElse && (passengerName.trim() || passengerNote.trim())
-          ? { name: passengerName.trim() || undefined, note: passengerNote.trim() || undefined }
-          : null,
+        locationMode: privateItinerary ? 'participant_encrypted' : 'operator_memory',
+        routeSummary: privateItinerary ? {
+          // Explicit no-route summary for a single-location profile.
+          distanceKm: estimate?.distanceKm ?? 0,
+          durationMinutes: estimate?.durationMinutes ?? 0,
+        } : undefined,
+        settlementMode,
       });
-      setActiveTask(task);
+      const localTask = privateItinerary
+        ? {
+            ...task,
+            pickup: origin,
+            dropoff: requiresDestination ? destination! : null,
+            stops,
+            stopCount: stops.length,
+            pickupAddress: originAddress || undefined,
+            dropoffAddress: requiresDestination ? (destinationAddress || undefined) : undefined,
+            pickupNote: pickupNote.trim() || undefined,
+            routeGeometry: estimate?.routeGeometry,
+            locationMode: 'participant_encrypted' as const,
+          }
+        : task;
+      if (localTask.locationMode === 'participant_encrypted') {
+        await savePrivateItinerary(identity.privKeyHex, itineraryFromTask(localTask));
+      }
+      setActiveTask(localTask);
       // The rate behind the number just agreed to. Without it the completion
       // screen reconverts the same sats at a rate that has since moved, and
       // reports an "agreed amount" nobody agreed to.
-      recordAgreedRate(task.id, peekBtcPrices());
+      if (settlementMode !== 'none') recordAgreedRate(task.id, peekBtcPrices());
       // Decentralised announcement — geohash-only, best-effort, relays only.
       // Operator tags let drivers on OTHER operators discover this job.
       if (profile?.id) {
@@ -219,8 +266,8 @@ export function RequestPage() {
 
   if (!origin) return null;
 
-  const headlineSats = chosenOption?.fareSats ?? estimate?.fareEstimateSats ?? 0;
-
+  const pricedHeadlineSats = chosenOption?.fareSats ?? estimate?.fareEstimateSats ?? 0;
+  const headlineSats = settlementMode === 'none' ? 0 : pricedHeadlineSats;
   // ── The choices, each one tap away ──────────────────────────────
 
   /** Service classes — real prices, and ABOVE the breakdown they determine */
@@ -273,9 +320,6 @@ export function RequestPage() {
           {t('request.includesFee')}{' '}
           <DualPrice sats={breakdown.operatorFeeSats} size="sm" compact />
         </p>
-      )}
-      {estimate?.routed === false && (
-        <p className="text-donkey-muted text-xs mt-2">{t('request.straightLine')}</p>
       )}
     </>
   );
@@ -339,46 +383,36 @@ export function RequestPage() {
     </>
   );
 
-  /** Booking for somebody else: who is actually travelling */
-  const passengerPicker = (
-    <>
-      <label className="flex items-center gap-3 min-h-[44px] cursor-pointer">
-        <input
-          type="checkbox"
-          className="w-5 h-5 accent-donkey-blue"
-          checked={forSomeoneElse}
-          onChange={(e) => setForSomeoneElse(e.target.checked)}
-        />
-        <span className="text-sm text-donkey-text font-semibold">
-          {t('passenger.toggle', { noun: taskNoun })}
-        </span>
-      </label>
-      {forSomeoneElse && (
-        <div className="space-y-2 mt-2">
-          <input
-            type="text"
-            className="w-full bg-donkey-bg border border-donkey-border rounded-lg px-3 py-2 text-donkey-text text-sm"
-            value={passengerName}
-            maxLength={60}
-            aria-label={t('passenger.name')}
-            placeholder={t('passenger.namePlaceholder')}
-            onChange={(e) => setPassengerName(e.target.value)}
-          />
-          <input
-            type="text"
-            className="w-full bg-donkey-bg border border-donkey-border rounded-lg px-3 py-2 text-donkey-text text-sm"
-            value={passengerNote}
-            maxLength={140}
-            aria-label={t('passenger.note')}
-            placeholder={t('passenger.notePlaceholder')}
-            onChange={(e) => setPassengerNote(e.target.value)}
-          />
-          <p className="text-donkey-muted text-xs">
-            {t('passenger.privacy', { label: providerLabel.toLowerCase() })}
-          </p>
-        </div>
-      )}
-    </>
+  const settlementPicker = (
+    <div className="grid grid-cols-2 gap-2" role="group" aria-label={t('settlement.title')}>
+      <button
+        type="button"
+        aria-pressed={settlementMode === 'priced'}
+        className={`min-h-[52px] rounded-lg border px-3 text-sm font-semibold ${
+          settlementMode === 'priced'
+            ? 'border-donkey-blue bg-donkey-blue/10 text-donkey-blue'
+            : 'border-donkey-border text-donkey-muted'
+        }`}
+        onClick={() => setSettlementMode('priced')}
+      >
+        {t('settlement.priced')}
+      </button>
+      <button
+        type="button"
+        aria-pressed={settlementMode === 'none'}
+        className={`min-h-[52px] rounded-lg border px-3 text-sm font-semibold ${
+          settlementMode === 'none'
+            ? 'border-donkey-green bg-donkey-green/10 text-donkey-green'
+            : 'border-donkey-border text-donkey-muted'
+        }`}
+        onClick={() => setSettlementMode('none')}
+      >
+        {t('settlement.none')}
+      </button>
+      <p className="col-span-2 text-xs text-donkey-muted">
+        {settlementMode === 'none' ? t('settlement.noneHint') : t('settlement.pricedHint')}
+      </p>
+    </div>
   );
 
   const whenPicker = (
@@ -471,7 +505,8 @@ export function RequestPage() {
         <button
           className="btn-primary flex-1 flex items-center justify-center gap-2"
           onClick={handleRequest}
-          disabled={loading || scheduleInvalid || (requiresDestination && estimating)}
+          disabled={loading || scheduleInvalid || !operatorModeKnown
+            || (requiresDestination && estimating)}
         >
           <span>
             {loading
@@ -485,6 +520,9 @@ export function RequestPage() {
             <span className="opacity-90">
               · <DualPrice sats={headlineSats} size="sm" compact />
             </span>
+          )}
+          {requiresDestination && !loading && settlementMode === 'none' && (
+            <span className="opacity-90">· {t('settlement.none')}</span>
           )}
         </button>
       </div>
@@ -529,7 +567,9 @@ export function RequestPage() {
             {/* What you are buying */}
             <div className="flex items-baseline justify-between gap-3">
               <div>
-                <DualPrice sats={headlineSats} size="lg" />
+                {settlementMode === 'none'
+                  ? <p className="text-lg font-black text-donkey-green">{t('settlement.none')}</p>
+                  : <DualPrice sats={headlineSats} size="lg" />}
                 <p className="text-donkey-muted text-sm mt-1">
                   {formatDistance(estimate.distanceKm)} &middot; {formatDuration(estimate.durationMinutes)}
                 </p>
@@ -543,7 +583,7 @@ export function RequestPage() {
 
             {/* Demand pricing, said plainly and BEFORE the tap. A rider who
                 discovers a multiplier on the receipt has been ambushed. */}
-            {estimate.surge?.active && (
+            {settlementMode === 'priced' && estimate.surge?.active && (
               <div className="meta-card border border-donkey-orange/50">
                 <p className="text-sm font-bold text-donkey-orange">
                   {t('surge.title', { x: estimate.surge.multiplier.toFixed(1) })}
@@ -557,11 +597,22 @@ export function RequestPage() {
             {/* The class decides the price, so it comes before the rows that
                 explain it — the other way round for the whole of this app's
                 life, which is exactly backwards */}
-            {optionPicker}
+            {settlementMode === 'priced' && optionPicker}
 
-            <SheetSection title={t('request.fareBreakdown')} icon="🧾" rememberAs="request-breakdown">
-              {fareBreakdown}
+            <SheetSection
+              title={t('settlement.title')}
+              icon="🤝"
+              badge={settlementMode === 'none' ? t('settlement.none') : undefined}
+              rememberAs="request-settlement"
+            >
+              {settlementPicker}
             </SheetSection>
+
+            {settlementMode === 'priced' && (
+              <SheetSection title={t('request.fareBreakdown')} icon="🧾" rememberAs="request-breakdown">
+                {fareBreakdown}
+              </SheetSection>
+            )}
 
             <SheetSection
               title={t('request.whenTitle')}
@@ -592,33 +643,26 @@ export function RequestPage() {
               {notePicker}
             </SheetSection>
 
-            <SheetSection
-              title={t('passenger.title')}
-              icon="👤"
-              badge={forSomeoneElse ? (passengerName.trim() || t('common.set')) : undefined}
-              rememberAs="request-passenger"
-            >
-              {passengerPicker}
-            </SheetSection>
-
-            <SheetSection
-              title={t('access.title')}
-              icon="♿"
-              badge={accessNeeds.length > 0 ? String(accessNeeds.length) : undefined}
-              rememberAs="request-access"
-            >
-              <AccessNeedsPicker
-                value={accessNeeds}
-                onChange={setAccessNeeds}
-                role="requester"
-                bare
-              />
-            </SheetSection>
+            {!privateItinerary && (
+              <SheetSection
+                title={t('access.title')}
+                icon="♿"
+                badge={accessNeeds.length > 0 ? String(accessNeeds.length) : undefined}
+                rememberAs="request-access"
+              >
+                <AccessNeedsPicker
+                  value={accessNeeds}
+                  onChange={setAccessNeeds}
+                  role="requester"
+                  bare
+                />
+              </SheetSection>
+            )}
 
             {/* Safety, not an option — stays visible for a declared woman */}
-            {womenOnlyPicker}
+            {!privateItinerary && womenOnlyPicker}
 
-            {favourites.length > 0 && when === 'now' && (
+            {!privateItinerary && favourites.length > 0 && when === 'now' && (
               <p className="text-donkey-muted text-xs">
                 {t('request.favouritesFirst', { n: favourites.length })}
               </p>
@@ -661,7 +705,7 @@ export function RequestPage() {
               {whenPicker}
             </SheetSection>
 
-            {womenOnlyPicker}
+            {!privateItinerary && womenOnlyPicker}
           </Sheet>
           {actionBar}
         </>

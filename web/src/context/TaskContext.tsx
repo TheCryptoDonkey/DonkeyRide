@@ -5,6 +5,7 @@ import {
 import type { Task, TripEstimate, LatLng } from '../types/api';
 import { getTask, getActiveParticipantTask } from '../services/api';
 import { safeOperatorOrigin } from '../services/federation';
+import { decodeGeohash, encodeGeohash } from '../utils/geohash';
 import { useDomain } from './DomainContext';
 import { useIdentity } from './IdentityContext';
 
@@ -44,6 +45,29 @@ function saveJson(key: string, value: unknown) {
   } else {
     sessionStorage.setItem(key, JSON.stringify(value));
   }
+}
+
+function geohash5Centre(point: LatLng): LatLng {
+  const centre = decodeGeohash(encodeGeohash(point.lat, point.lng, 5));
+  return centre ? { lat: centre.lat, lng: centre.lon } : point;
+}
+
+/** Exact itineraries have their own NIP-44-encrypted device record. */
+function taskForSession(task: Task | null): Task | null {
+  if (!task || task.locationMode !== 'participant_encrypted') return task;
+  return {
+    ...task,
+    // Recreate the same geohash-5 disclosure boundary even when `task` has
+    // already been merged with its exact encrypted itinerary. Do not
+    // duplicate exact points, human addresses or meeting notes in cleartext.
+    pickup: geohash5Centre(task.pickup),
+    dropoff: task.dropoff ? geohash5Centre(task.dropoff) : task.dropoff,
+    stops: undefined,
+    pickupAddress: undefined,
+    dropoffAddress: undefined,
+    pickupNote: undefined,
+    routeGeometry: undefined,
+  };
 }
 
 function loadLocalJson<T>(key: string): T | null {
@@ -112,13 +136,18 @@ const TaskContext = createContext<TaskState>({
 export function TaskProvider({ children }: { children: ReactNode }) {
   const { profile } = useDomain();
   const { identity, role } = useIdentity();
-  const [activeTask, setActiveTaskState] = useState<Task | null>(() => loadJson(STORAGE_KEYS.activeTask));
-  const [completedTask, setCompletedTask] = useState<Task | null>(() => loadLocalJson(completedTaskKey(role)));
+  const [activeTask, setActiveTaskState] = useState<Task | null>(() =>
+    taskForSession(loadJson<Task>(STORAGE_KEYS.activeTask)));
+  const [completedTask, setCompletedTask] = useState<Task | null>(() =>
+    taskForSession(loadLocalJson<Task>(completedTaskKey(role))));
   const [estimate, setEstimate] = useState<TripEstimate | null>(null);
-  const [origin, setOriginState] = useState<LatLng | null>(() => loadJson(STORAGE_KEYS.origin));
-  const [destination, setDestinationState] = useState<LatLng | null>(() => loadJson(STORAGE_KEYS.destination));
-  const [originAddress, setOriginAddressState] = useState<string | null>(() => loadJson(STORAGE_KEYS.originAddress));
-  const [destinationAddress, setDestinationAddressState] = useState<string | null>(() => loadJson(STORAGE_KEYS.destinationAddress));
+  // Booking points live only in React memory until they are put into the
+  // encrypted private-itinerary record. Never write exact locations to
+  // ordinary session storage.
+  const [origin, setOriginState] = useState<LatLng | null>(null);
+  const [destination, setDestinationState] = useState<LatLng | null>(null);
+  const [originAddress, setOriginAddressState] = useState<string | null>(null);
+  const [destinationAddress, setDestinationAddressState] = useState<string | null>(null);
   const [providerLocation, setProviderLocation] = useState<LatLng | null>(null);
 
   const terminalStatesRef = useRef<string[]>([]);
@@ -128,7 +157,7 @@ export function TaskProvider({ children }: { children: ReactNode }) {
 
   const setActiveTask = useCallback((task: Task | null) => {
     setActiveTaskState(task);
-    saveJson(STORAGE_KEYS.activeTask, task);
+    saveJson(STORAGE_KEYS.activeTask, taskForSession(task));
 
     const currentRole = roleRef.current;
     if (task) {
@@ -136,7 +165,7 @@ export function TaskProvider({ children }: { children: ReactNode }) {
         // Terminal — keep a copy until the user acknowledges it (Done)
         setCompletedTask(task);
         try {
-          localStorage.setItem(completedTaskKey(currentRole), JSON.stringify(task));
+          localStorage.setItem(completedTaskKey(currentRole), JSON.stringify(taskForSession(task)));
         } catch { /* storage full — non-fatal */ }
         localStorage.removeItem(activeTaskIdKey(currentRole));
         localStorage.removeItem(activeTaskOriginKey(currentRole));
@@ -159,28 +188,33 @@ export function TaskProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem(completedTaskKey(roleRef.current));
   }, []);
 
-  // Addresses are stored beside the coordinates, not derived later: the
-  // requester picked them by name, and a reverse-geocode of the same point
-  // is a different (and worse) string than the one they chose.
+  // Keep the label the requester chose beside the point in memory. Both move
+  // into the NIP-44-encrypted itinerary only after the task exists.
   const setOrigin = useCallback((loc: LatLng | null, address?: string | null) => {
     setOriginState(loc);
-    saveJson(STORAGE_KEYS.origin, loc);
     if (address !== undefined || loc === null) {
       const next = loc === null ? null : (address ?? null);
       setOriginAddressState(next);
-      saveJson(STORAGE_KEYS.originAddress, next);
     }
   }, []);
 
   const setDestination = useCallback((loc: LatLng | null, address?: string | null) => {
     setDestinationState(loc);
-    saveJson(STORAGE_KEYS.destination, loc);
     if (address !== undefined || loc === null) {
       const next = loc === null ? null : (address ?? null);
       setDestinationAddressState(next);
-      saveJson(STORAGE_KEYS.destinationAddress, next);
     }
   }, []);
+
+  // Purge coordinates written by older builds as soon as this provider
+  // mounts. Active-task recovery uses ids plus encrypted itinerary storage.
+  useEffect(() => {
+    saveJson(STORAGE_KEYS.activeTask, taskForSession(activeTask));
+    sessionStorage.removeItem(STORAGE_KEYS.origin);
+    sessionStorage.removeItem(STORAGE_KEYS.destination);
+    sessionStorage.removeItem(STORAGE_KEYS.originAddress);
+    sessionStorage.removeItem(STORAGE_KEYS.destinationAddress);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const reset = useCallback(() => {
     setActiveTaskState(null);

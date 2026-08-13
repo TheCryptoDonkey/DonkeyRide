@@ -1,6 +1,6 @@
 import type { Task, LatLng } from '../types/api';
 import { WS_PROTOCOL, getWsBaseUrl, normaliseWsMessage } from './websocket';
-import { getAuthPrivKey, getOpenTasks, normaliseTask } from './api';
+import { getAuthPrivKey, getOpenTasks, normaliseTask, getOperatorInfoCached } from './api';
 import { createNip98Event } from './nostr';
 import { publishAvailabilityBeacon, p2pBeaconEnabled } from './events';
 import { enableJobPush, disableJobPush } from './push';
@@ -14,6 +14,7 @@ import { startShift, endShift } from '../utils/shift';
 import { loadAccessFeatures } from '../utils/access-needs';
 import { validCredentials } from '../utils/credentials';
 import type { DestinationMode } from '../utils/destination-mode';
+import { decodeGeohash, encodeGeohash } from '../utils/geohash';
 
 const ONLINE_KEY = 'donkeyride.provider.online';
 const RECONNECT_DELAY_MS = 4000;
@@ -49,6 +50,8 @@ class DispatchService {
   private identity: { pubKeyHex: string; npub: string } | null = null;
   private domainId: string | null = null;
   private location: LatLng | null = null;
+  // Fail privacy-closed until /info proves this is a managed coordinator.
+  private operatorBlind = true;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private presenceTimer: ReturnType<typeof setInterval> | null = null;
   private beaconTimer: ReturnType<typeof setInterval> | null = null;
@@ -155,7 +158,12 @@ class DispatchService {
     }
     // Push targeting must track the new areas too
     if (this.online && this.identity) {
-      void enableJobPush(this.identity.pubKeyHex, this.areas, this.location);
+      void enableJobPush(
+        this.identity.pubKeyHex,
+        this.areas,
+        this.location ? this.operatorLatLng(this.location) : null,
+        !this.operatorBlind,
+      );
     }
   }
 
@@ -276,11 +284,11 @@ class DispatchService {
       open = await getOpenTasks({
         ...(this.areas.length > 0
           ? { areas: this.areas }
-          : { location: this.location ?? undefined }),
-        gender: this.gender ?? undefined,
+          : { location: this.location ? this.operatorLatLng(this.location) : undefined }),
+        gender: this.operatorBlind ? undefined : (this.gender ?? undefined),
         options: loadServiceOptions(),
-        access: loadAccessFeatures(),
-        pubkey: this.identity?.pubKeyHex,
+        access: this.operatorBlind ? [] : loadAccessFeatures(),
+        pubkey: this.operatorBlind ? undefined : this.identity?.pubKeyHex,
       });
     } catch {
       return; // transient — the next poll reconciles
@@ -321,7 +329,7 @@ class DispatchService {
         type: 'driver_location',
         npub: this.identity?.npub || '',
         pubkey: this.identity?.pubKeyHex || '',
-        location: { lat: location.lat, lon: location.lng },
+        location: this.operatorLocation(location),
       });
     }).then((watcher) => {
       if (this.online) this.shiftWatcher = watcher;
@@ -331,7 +339,12 @@ class DispatchService {
     // Job alerts while backgrounded — called here so the permission
     // prompt rides the Go online tap (a user gesture)
     if (this.identity) {
-      void enableJobPush(this.identity.pubKeyHex, this.areas, this.location);
+      void enableJobPush(
+        this.identity.pubKeyHex,
+        this.areas,
+        this.location ? this.operatorLatLng(this.location) : null,
+        !this.operatorBlind,
+      );
     }
   }
 
@@ -390,6 +403,22 @@ class DispatchService {
     ws.onopen = async () => {
       this.connected = true;
       this.emitStatus();
+
+      try {
+        const info = await getOperatorInfoCached();
+        this.operatorBlind = info.data_handling?.mode === 'blind';
+      } catch {
+        this.operatorBlind = true;
+      }
+
+      if (this.identity) {
+        void enableJobPush(
+          this.identity.pubKeyHex,
+          this.areas,
+          this.location ? this.operatorLatLng(this.location) : null,
+          !this.operatorBlind,
+        );
+      }
 
       // Auth handshake first (D6), then register for dispatch
       if (getAuthPrivKey()) {
@@ -484,21 +513,21 @@ class DispatchService {
       npub: this.identity?.npub || '',
       pubkey: this.identity?.pubKeyHex || '',
       // Never register a fallback position — omit location until GPS is real
-      location: this.location ? { lat: this.location.lat, lon: this.location.lng } : undefined,
+      location: this.location ? this.operatorLocation(this.location) : undefined,
       // Working-area cells; [] deliberately clears any stored areas
       areas: this.areas,
       // Self-declared, for women-only matching (null clears a declaration)
-      gender: this.gender,
-      women_only: this.womenOnlyPref,
+      gender: this.operatorBlind ? null : this.gender,
+      women_only: this.operatorBlind ? false : this.womenOnlyPref,
       // Vehicle classes this driver can serve beyond the default
       service_options: loadServiceOptions(),
       // What this vehicle can actually accommodate (ramp, child seat…).
       // Undeclared means jobs needing it never reach this driver.
-      access_features: loadAccessFeatures(),
+      access_features: this.operatorBlind ? [] : loadAccessFeatures(),
       // Operators choose whether these self-attested declarations are only
       // displayed or are part of admission. A roster-gated operator still
       // checks the authenticated pubkey independently.
-      credentials: validCredentials(),
+      credentials: this.operatorBlind ? [] : validCredentials(),
     };
   }
 
@@ -559,6 +588,19 @@ class DispatchService {
     }, RECONNECT_DELAY_MS);
   }
 
+  private operatorLatLng(location: LatLng): LatLng {
+    if (!this.operatorBlind) return location;
+    const centre = decodeGeohash(encodeGeohash(location.lat, location.lng, 5));
+    return centre
+      ? { lat: centre.lat, lng: centre.lon }
+      : { lat: Number(location.lat.toFixed(2)), lng: Number(location.lng.toFixed(2)) };
+  }
+
+  private operatorLocation(location: LatLng): { lat: number; lon: number } {
+    const coarse = this.operatorLatLng(location);
+    return { lat: coarse.lat, lon: coarse.lng };
+  }
+
   private startPresence(): void {
     this.stopPresence();
     const sendPresence = () => {
@@ -567,7 +609,7 @@ class DispatchService {
         type: 'driver_location',
         npub: this.identity?.npub || '',
         pubkey: this.identity?.pubKeyHex || '',
-        location: { lat: this.location.lat, lon: this.location.lng },
+        location: this.operatorLocation(this.location),
       });
     };
     sendPresence();

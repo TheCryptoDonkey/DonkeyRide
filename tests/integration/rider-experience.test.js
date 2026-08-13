@@ -336,36 +336,16 @@ test('a long wait grows the agreed fare, once, by the per-minute rate', async ()
   assert.equal(rideManager.getRide(ride_id).fare, started.body.ride.fare);
 });
 
-// ── Booking for somebody else ───────────────────────
+// ── No third-party identity collection ──────────────
 
-test('a passenger name reaches the matched provider and nobody else', async () => {
+test('legacy passenger identity fields are ignored completely', async () => {
   const created = await requestRide({
-    passenger: { name: 'Aunty Mercy', note: 'she uses a stick' }
+    passenger: { name: 'Aunty Mercy', note: 'private medical detail' }
   });
-
-  // Pre-accept: the open list is public-ish, so it must not carry a name
-  // Signed as a driver browsing, which is who the open list is for
-  const open = await get('/api/rides/open', driver.priv);
-  assert.equal(open.status, 200, JSON.stringify(open.body));
-  const listed = (open.body.rides || open.body.tasks || [])
-    .find((r) => r.id === created.ride_id);
-  assert.ok(listed, 'the job should still be browsable');
-  assert.equal(
-    JSON.stringify(listed).includes('Mercy'), false,
-    'a third party name must never appear in a pre-accept payload'
-  );
-
-  const accepted = await post(`/api/rides/${created.ride_id}/accept`, {
-    driver_npub: driver.npub,
-    driver_pubkey: driver.pub,
-    driver_location: { lat: PICKUP.lat, lon: PICKUP.lon }
-  }, driver.priv);
-  assert.equal(accepted.status, 200);
-
-  // Post-accept: the driver has somebody to call out for
-  const detail = await get(`/api/rides/${created.ride_id}`, driver.priv);
-  assert.equal(detail.body.ride.passenger.name, 'Aunty Mercy');
-  assert.equal(detail.body.ride.passenger.note, 'she uses a stick');
+  const ride = rideManager.getRide(created.ride_id);
+  assert.equal(ride.passenger, undefined);
+  assert.equal(JSON.stringify(ride).includes('Mercy'), false);
+  assert.equal(JSON.stringify(ride).includes('medical detail'), false);
 });
 
 test('a driver already at the pickup gets a one-minute ETA, not a router loop', async () => {
@@ -379,13 +359,4 @@ test('a driver already at the pickup gets a one-minute ETA, not a router loop', 
   assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
   assert.equal(accepted.body.eta_seconds, 60);
   assert.equal(accepted.body.driver_route, null);
-});
-
-test('a passenger name is capped and an empty one is not recorded', async () => {
-  const long = await requestRide({ passenger: { name: 'x'.repeat(200) } });
-  const ride = rideManager.getRide(long.ride_id);
-  assert.equal(ride.passenger.name.length, 60);
-
-  const blank = await requestRide({ passenger: { name: '   ', note: '' } });
-  assert.equal(rideManager.getRide(blank.ride_id).passenger, undefined);
 });

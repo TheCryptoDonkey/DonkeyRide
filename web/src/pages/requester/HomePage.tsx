@@ -7,7 +7,6 @@ import { useTask } from '../../context/TaskContext';
 import { useDomain } from '../../context/DomainContext';
 import { discoverNetworkProviders } from '../../services/operators';
 import { AddressSearch } from '../../components/AddressSearch';
-import { reverseGeocode } from '../../utils/reverse-geocode';
 import { useT } from '../../i18n';
 import type { AvailableProvider } from '../../types/api';
 import type { LatLng } from '../../types/api';
@@ -80,17 +79,6 @@ export function HomePage() {
     setPickup(loc);
     setOrigin(loc, label ?? null);
     setPickupLabel(label ?? null);
-    if (label === undefined) {
-      // A dropped pin or a raw fix has no name yet. Reverse-geocode it and
-      // fold the answer back into the task state too, so the provider and
-      // the receipt get a street rather than the coordinates we started with.
-      void reverseGeocode(loc).then((named) => {
-        if (named) {
-          setPickupLabel(named);
-          setOrigin(loc, named);
-        }
-      });
-    }
     if (awaitingPickupRef.current) {
       awaitingPickupRef.current = false;
       navigate('/request/new');
@@ -100,13 +88,6 @@ export function HomePage() {
   /** Destination chosen — the last answer we need, unless the pickup is unknown */
   const chooseDestination = useCallback((loc: LatLng, label?: string) => {
     setDestination(loc, label ?? null);
-    // Tapped on the map rather than searched: name it after the fact so the
-    // provider is not sent to a pair of decimals.
-    if (label === undefined) {
-      void reverseGeocode(loc).then((named) => {
-        if (named) setDestination(loc, named);
-      });
-    }
     if (pickup) {
       navigate('/request/new');
       return;
@@ -123,8 +104,8 @@ export function HomePage() {
   useEffect(() => {
     if (autoPickedRef.current || !hasFix || pickup) return;
     autoPickedRef.current = true;
-    choosePickup(location);
-  }, [hasFix, location, pickup, choosePickup]);
+    choosePickup(location, t('home.currentLocation'));
+  }, [hasFix, location, pickup, choosePickup, t]);
 
   const handleMapClick = useCallback((e: { latlng: { lat: number; lng: number } }) => {
     const loc = { lat: e.latlng.lat, lng: e.latlng.lng };

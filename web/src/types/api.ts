@@ -45,11 +45,15 @@ export interface Task {
   stops?: TaskStop[];
   /** Stop count — the only stop information pre-accept payloads carry */
   stopCount?: number;
+  /** Where exact itinerary data lives for this task */
+  locationMode?: 'participant_encrypted' | 'operator_memory';
+  /** Whether parties agreed a priced fare or explicitly no money */
+  settlementMode?: 'priced' | 'none';
   /** The car to look for — participant-gated detail only */
   vehicle?: TaskVehicle | null;
   /** Requester asked to be matched only with declared-women drivers */
   womenOnly?: boolean;
-  /** Access needs this journey requires (wheelchair, child_seat…) */
+  /** Vehicle/access capabilities this journey requires */
   accessNeeds?: string[];
   pickupAddress?: string;
   dropoffAddress?: string;
@@ -81,11 +85,6 @@ export interface Task {
    * participant-gated — the operator verifies none of it and says so.
    */
   providerCredentials?: DeclaredCredential[];
-  /**
-   * Who is actually travelling, when the requester booked for someone else.
-   * Participant-gated free text; never broadcast, never snapshotted.
-   */
-  passenger?: { name?: string; note?: string };
   /** They committed then dropped it, past the grace window and pre-start */
   lateCancellation?: boolean;
   createdAt: string;
@@ -250,6 +249,8 @@ export interface TripEstimate {
   routeGeometry?: string | [number, number][];
   /** True when a real road route backed the price (not a straight line) */
   routed?: boolean;
+  /** Exact route stayed in the browser; operator priced totals only */
+  locationMode?: 'participant_encrypted' | 'operator_memory';
   /** Demand pricing, disclosed before the rider commits (never after) */
   surge?: {
     multiplier: number;
@@ -324,6 +325,18 @@ export interface OperatorInfo {
   };
   relay?: string;
   public_relays?: string[];
+  data_handling?: {
+    mode: 'blind' | 'managed';
+    exact_itinerary: 'participant_encrypted' | 'operator_memory';
+    storage: string;
+    database_enabled: boolean;
+    residual_metadata?: string[];
+  };
+  routing?: {
+    provider: string;
+    client_url?: string | null;
+    client_direct?: boolean;
+  };
   payment?: OperatorPaymentInfo;
   version?: string;
   policy?: OperatorPolicy;

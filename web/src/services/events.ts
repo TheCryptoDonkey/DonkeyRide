@@ -6,7 +6,7 @@ import { encodeGeohash } from '../utils/geohash';
 /**
  * Decentralised discovery events — published DIRECT TO PUBLIC RELAYS ONLY,
  * never to the operator. Location is geohash precision 5 (roughly 5 km cell):
- * coarse enough to carry no PII, fine enough for local discovery.
+ * minimised for local discovery, but still correlatable personal data.
  */
 
 /**

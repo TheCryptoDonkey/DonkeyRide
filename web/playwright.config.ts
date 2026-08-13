@@ -46,6 +46,7 @@ export default defineConfig({
     command: `VITE_WS_URL=ws://127.0.0.1:${WS_PORT} npm run build && cd .. && `
       + `PORT=${HTTP_PORT} WS_PORT=${WS_PORT} NODE_ENV=test PAYMENT_PROVIDER=cash `
       + 'DISABLE_REDIS=true ENABLE_NIP98_AUTH=true ENABLE_RATE_LIMITING=false '
+      + 'OPERATOR_DATA_MODE=blind PUBLIC_ROUTING_URL=/routing '
       + 'NOSTR_RELAY= PUBLIC_RELAY_URLS= REPUTATION_RELAYS= node server.js',
     url: `${baseURL}/health`,
     timeout: 120_000,

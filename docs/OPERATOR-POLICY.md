@@ -21,6 +21,8 @@ place where the operator does not gate the driver roster:
 OPERATOR_POLICY_MODE=open
 OPERATOR_ADMISSION_MODE=open
 OPERATOR_RECORD_MODE=ephemeral
+OPERATOR_DATA_MODE=blind
+PUBLIC_ROUTING_URL=https://router.example.com
 FEDERATION_CORS=true
 ```
 
@@ -38,6 +40,7 @@ OPERATOR_POLICY_MODE=regulated
 OPERATOR_ADMISSION_MODE=allowlist_and_credentials
 OPERATOR_ALLOWED_DRIVERS=<driver hex pubkey>,npub1...
 OPERATOR_RECORD_MODE=durable
+OPERATOR_DATA_MODE=managed
 DATABASE_URL=postgres://donkeyride:change-me@postgres/donkeyride
 OPERATOR_TERMS_URL=https://example.com/terms
 OPERATOR_PRIVACY_URL=https://example.com/privacy
@@ -94,10 +97,13 @@ arbitrary network PWAs.
 
 ## Private routing
 
-Operators can use a local OSRM (`OSRM_URL`) or Valhalla
-(`NAVIGATION_PROVIDER=valhalla`, `VALHALLA_URL`). Neither mode needs a third
-party to receive exact journey endpoints. If the configured router is down,
-the quote falls back to straight-line distance and says `routed: false`.
+Managed operators can use a private OSRM (`OSRM_URL`) or Valhalla
+(`NAVIGATION_PROVIDER=valhalla`, `VALHALLA_URL`). In blind mode the browser
+instead calls `PUBLIC_ROUTING_URL` directly and sends the coordinator only the
+road distance/time totals. The router necessarily processes exact endpoints,
+so it must be chosen and disclosed separately from the coordinator. Blind mode
+fails visibly when no client router is configured; it does not silently replace
+road routing with point-to-point distance.
 
 When Valhalla already runs on a private Docker network, attach only the
 operator container with the supplied overlay:
@@ -108,5 +114,6 @@ ROUTING_NETWORK=routing_default docker compose \
   -f docker-compose.private-routing.yml up -d --build
 ```
 
-The overlay defaults to the private service name `http://valhalla:8002` and
-does not publish a routing port.
+The overlay defaults to the private service name `http://valhalla:8002` for
+managed mode. A blind PWA needs a browser-reachable TLS reverse proxy to that
+Valhalla `/route` endpoint and must publish its base as `PUBLIC_ROUTING_URL`.

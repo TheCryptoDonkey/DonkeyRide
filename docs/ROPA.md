@@ -2,7 +2,7 @@
 
 **Status:** template, pre-filled for the reference implementation
 **Covers:** DonkeyRide reference operator, default non-custodial posture
-**Last reviewed:** 4 August 2026
+**Last reviewed:** 13 August 2026
 
 > Engineering documentation, not legal advice. Rows marked **OPERATOR** must
 > be completed by whoever runs the deployment. Article 30 requires this
@@ -37,10 +37,10 @@ Each row: purpose, data subjects, personal data, recipients, retention.
 | **Purpose** | Match a requester to a provider; price, route and run the job to completion |
 | **Lawful basis** | Art. 6(1)(b) performance of a contract |
 | **Data subjects** | Requesters, providers |
-| **Personal data** | Nostr pubkey (both parties); exact pickup, dropoff and any intermediate stops; addresses; route geometry; fare; service class; live provider position; vehicle details; timestamps |
-| **Recipients** | The two participants. Routing coordinates go to the configured routing backend (§4). |
-| **Retention** | **In memory only. Erased on process restart.** No database in the default posture. |
-| **Where** | `TaskManager` in-memory maps; nothing on disk |
+| **Personal data** | Blind: pubkeys, task state, geohash-5 cells, road-route totals, stop count, fare/settlement mode and timestamps. Managed: additionally exact itinerary, notes, live position, vehicle/credential declarations and optional proof/payment data. |
+| **Recipients** | The two participants. Exact routing coordinates go directly from the browser to the configured Valhalla service in blind mode (§4). |
+| **Retention** | Coordinator state is **in memory only and erased on restart** by default. Participant devices retain their own encrypted itinerary. |
+| **Where** | Coordinator `TaskManager` in-memory maps; NIP-44/NIP-17 ciphertext on configured relays; no PostgreSQL in the default stack |
 
 ### 2.2 Durability snapshots
 
@@ -52,10 +52,13 @@ Each row: purpose, data subjects, personal data, recipients, retention.
 | **Personal data** | Pubkeys, status, geohash-precision location, fare — **all inside NIP-44 ciphertext sealed to the operator's own key**. Visible on the wire: task id (`d` tag) and expiry only. |
 | **Recipients** | Relays named in `NOSTR_RELAYS` — which store it without being able to read it. Default: **nowhere**. |
 | **Retention** | 24 h NIP-40 expiration (`SNAPSHOT_TTL_SECONDS`); relay retention is outside the operator's control |
-| **Excluded deliberately** | Access needs, gender, pickup notes, passenger names — never snapshotted at any precision |
+| **Excluded deliberately** | Exact itinerary, route geometry, access needs, gender, pickup notes and third-party identity fields — never snapshotted |
 | **Switch** | `NOSTR_SNAPSHOTS=false` for an operator with a database |
 
 ### 2.3 Access needs — **SPECIAL CATEGORY, Article 9**
+
+This matching feature is managed-mode only. Blind mode leaves the declaration
+on the device and does not send it to the coordinator.
 
 | | |
 |---|---|
@@ -72,6 +75,9 @@ Each row: purpose, data subjects, personal data, recipients, retention.
 withdrawal as easy as giving (Art. 7(3)).
 
 ### 2.4 Women-only matching
+
+This matching feature is managed-mode only. Blind mode does not send gender
+or women-only declarations to the coordinator.
 
 | | |
 |---|---|
@@ -125,7 +131,7 @@ withdrawal as easy as giving (Art. 7(3)).
 |---|---|
 | **Purpose** | Reach a backgrounded app with a job offer or a task update |
 | **Lawful basis** | Art. 6(1)(b) contract; consent via the browser permission prompt |
-| **Personal data** | Push endpoint URL — **device-addressing PII** — plus role and declared capabilities |
+| **Personal data** | Push endpoint URL — **device-addressing PII** — plus role and coarse targeting. Sensitive matching declarations are managed-mode only. |
 | **Recipients** | The push service named in the endpoint (Google, Mozilla, Apple, or the driver's own UnifiedPush distributor) — **§4 applies** |
 | **Retention** | **In memory only, never persisted, never published.** Cleared when the driver goes offline. |
 | **Payload** | RFC 8291 encrypted; carries no requester identity and no exact coordinates |
@@ -227,8 +233,9 @@ Two distinct cases, and they are **not** the same:
 
 | Category | Retention |
 |---|---|
-| Task data (exact coordinates, identities, notes) | Until process restart |
-| Access needs, gender, passenger names | Until process restart; never relayed |
+| Blind coordinator task data (pubkeys, coarse cells, state, totals) | Until process restart |
+| Exact itinerary and notes | Encrypted participant storage/relay retention; absent from blind coordinator |
+| Managed access needs and gender | Until process restart; never relayed |
 | Sealed snapshots | 24 h expiry, sealed throughout |
 | Push subscriptions | Until the driver goes offline |
 | Rate-limit buckets | Window duration |

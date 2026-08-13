@@ -67,6 +67,19 @@ export async function installMapMocks(context: BrowserContext): Promise<void> {
       }],
     }));
   });
+
+  // Blind-mode routing is browser → Valhalla. Keep it synthetic and prove
+  // the UI uses a road-router response rather than a point-to-point guess.
+  await context.route('**/routing/route', async (route) => {
+    const body = route.request().postDataJSON() as { locations?: unknown[] };
+    const legs = Math.max(1, (body.locations?.length || 2) - 1);
+    await route.fulfill(json({
+      trip: {
+        summary: { length: 4.75, time: 1050 },
+        legs: Array.from({ length: legs }, () => ({ shape: 'mve_eBd~zgCbA}PNcF' })),
+      },
+    }));
+  });
 }
 
 export async function skipOnboarding(context: BrowserContext): Promise<void> {

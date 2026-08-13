@@ -10,7 +10,7 @@ export { safeOperatorOrigin } from './operator-origin';
 /**
  * Federated job discovery — the decentralised answer to liquidity.
  *
- * Riders' kind 37500 task announcements (geohash-5 only, no PII) carry the
+ * Riders' kind 37500 task announcements (geohash-5, no exact itinerary) carry the
  * coordinating operator's API origin. A driver subscribed to public relays
  * therefore hears about jobs from EVERY operator in the region, not just
  * the one their app is pointed at: many small operators become one

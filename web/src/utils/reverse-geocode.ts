@@ -3,10 +3,10 @@
  *
  * A pin on a map is not an answer to "where shall I meet you?". Uber and
  * Bolt name the pickup ("14 Deansgate") so the rider can tell at a glance
- * whether the app guessed right. Same free, key-less Photon (komoot)
- * backend the address search uses, so there is no new dependency and no
- * new party learning where people stand: one request, no identifier
- * attached, nothing stored.
+ * whether the app guessed right. Same key-less Photon (komoot) backend the
+ * address search uses. The request discloses its coordinate and network
+ * metadata to Photon, so privacy mode never invokes this automatically for
+ * an exact participant point.
  */
 
 import type { LatLng } from '../types/api';

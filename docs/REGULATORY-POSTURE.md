@@ -81,19 +81,34 @@ The default operator runs with **no PostgreSQL and no Redis**:
   can be erased under Article 17 — which makes "publish less" the only
   workable erasure story. The snapshot has one reader (this operator, at
   boot), so it is written for that reader alone.
-- **PII is minimised and ephemeral.** Exact coordinates and addresses are held
-  only in memory for the duration of a task and are never written to a database
-  or published to a relay. A restart discards exact PII by design — a GDPR
-  data-minimisation benefit, not a loss.
+- **Blind mode does not receive the exact itinerary.** The browser routes the
+  ordered points directly with the configured Valhalla service. The coordinator
+  receives geohash-5 cell centres and distance/time totals. Once matched, the
+  requester sends exact points, addresses and notes to the provider as a signed
+  NIP-17 envelope; each device stores its copy NIP-44-encrypted.
 - **Redis** was only ever an optional presence cache for demo bot fleets; real
   driver presence is in-memory. It is disabled by default.
 
+This is minimisation, not “no PII.” The coordinator still processes IP
+addresses, timing, task ids, coarse location and pseudonymous pubkeys, and the
+selected router necessarily processes exact route points. Encryption and
+pseudonymisation do not automatically remove data-protection obligations.
+
+## Journeys without money
+
+`settlement_mode=none` is a first-class coordination contract. The server
+records a zero fare and disables payment methods, stakes, payment instructions,
+settlement proofs and tips. Ordered stops and road routing still work. No
+passenger/child/third-party name field exists; legacy `passenger` input is
+ignored.
+
 ## When an operator DOES take on more (Mode B)
 
-A licensed operator (e.g. a UK/EU taxi firm operating under a PSD2 agent
-permission or holding rider PII under GDPR controller obligations) may
-deliberately opt into:
+A firm or regulated-market operator that deliberately accepts the additional
+data and payment responsibilities may opt into:
 
+- `OPERATOR_DATA_MODE=managed` — exact journey points travel through the
+  operator's authenticated API and are available to its lifecycle logic.
 - `DATABASE_URL` — durable operator-side storage (e.g. to retain PII for the
   legally required period). This is the operator's controller obligation.
 - `OPERATOR_LICENSED_CUSTODIAN=true` with a custodial rail — the operator then

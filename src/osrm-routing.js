@@ -99,9 +99,10 @@ async function getRoute(fromLat, fromLon, toLat, toLon, via = []) {
       return null;
     }
   }
-  // Only use OSRM if local server is configured
+  // Callers fail visibly on null; they never turn it into a point-to-point
+  // fare or route.
   if (!OSRM_SERVER) {
-    console.log('📏 Local OSRM not configured - using straight-line routing');
+    console.log('Road router not configured');
     return null;
   }
 
@@ -134,14 +135,12 @@ async function getRoute(fromLat, fromLon, toLat, toLon, via = []) {
     // NEVER `error.message` raw: node-fetch embeds the whole request URL,
     // and that URL is an exact pickup and an exact dropoff.
     console.error('OSRM routing error:', safeErrorMessage(error));
-    // Fallback to straight line
     return null;
   }
 }
 
 /**
- * Calculate straight-line distance (Haversine formula)
- * Used as fallback when OSRM is unavailable
+ * Calculate direct distance for proximity/ETA helpers, never fare routing.
  */
 function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371; // Earth's radius in km

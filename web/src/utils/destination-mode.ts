@@ -11,6 +11,7 @@ import type { LatLng, Task } from '../types/api';
 import { haversineMetres } from './geo';
 
 const STORAGE_KEY = 'donkeyride.destination-mode';
+let currentDestination: DestinationMode | null = null;
 
 export interface DestinationMode extends LatLng {
   label: string;
@@ -23,22 +24,22 @@ const NEAR_DEST_M = 2000;
 
 export function loadDestinationMode(): DestinationMode | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (!Number.isFinite(parsed?.lat) || !Number.isFinite(parsed?.lng)) return null;
-    return { lat: parsed.lat, lng: parsed.lng, label: String(parsed.label || '') };
+    // Remove exact destinations left by older builds.
+    localStorage.removeItem(STORAGE_KEY);
   } catch {
-    return null;
+    // Storage may be unavailable.
   }
+  return currentDestination ? { ...currentDestination } : null;
 }
 
 export function saveDestinationMode(mode: DestinationMode): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(mode));
+  currentDestination = { ...mode };
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* memory-only */ }
 }
 
 export function clearDestinationMode(): void {
-  localStorage.removeItem(STORAGE_KEY);
+  currentDestination = null;
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* memory-only */ }
 }
 
 /**

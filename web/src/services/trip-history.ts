@@ -1,9 +1,8 @@
 /**
  * Trip history — device-local, like everything else about the rider.
- * The operator keeps no durable PII (trips are in-memory, snapshots are
- * geohash-only), so YOUR history lives on YOUR phone: recorded when a
- * trip reaches the completion screen, capped, clearable by clearing
- * site data. Payment receipts live on Nostr as kind 30535.
+ * The operator keeps no durable database by default, so YOUR summary history
+ * lives on YOUR phone: recorded when a trip reaches the completion screen,
+ * capped and clearable. Privacy-mode history omits exact places/coordinates.
  */
 
 import type { Task, BtcPrices } from '../types/api';
@@ -94,20 +93,23 @@ export function recordTrip(task: Task, extra?: {
   /** The rate in force as this trip settled — see TripRecord.btcPricesAt */
   btcPrices?: BtcPrices | null;
 }): void {
+  const privateItinerary = task.locationMode === 'participant_encrypted';
   const record: TripRecord = {
     id: task.id,
     completedAt: Date.now(),
     status: task.status,
     fareSats: task.fareEstimateSats,
-    from: place(task.pickup, task.pickupAddress),
-    to: place(task.dropoff, task.dropoffAddress),
+    from: privateItinerary ? undefined : place(task.pickup, task.pickupAddress),
+    to: privateItinerary ? undefined : place(task.dropoff, task.dropoffAddress),
     providerNpub: task.providerNpub,
     providerPubkey: task.providerPubkey,
     distanceKm: task.distanceKm,
     durationMin: task.durationMin,
     rail: task.settlement?.rail,
-    fromLoc: task.pickup ? { lat: task.pickup.lat, lng: task.pickup.lng } : undefined,
-    toLoc: task.dropoff ? { lat: task.dropoff.lat, lng: task.dropoff.lng } : undefined,
+    fromLoc: !privateItinerary && task.pickup
+      ? { lat: task.pickup.lat, lng: task.pickup.lng } : undefined,
+    toLoc: !privateItinerary && task.dropoff
+      ? { lat: task.dropoff.lat, lng: task.dropoff.lng } : undefined,
     waitingSats: task.waiting?.sats,
     waitingMinutes: task.waiting?.minutes,
     tipSats: task.tip,

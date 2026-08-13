@@ -1,6 +1,6 @@
 # GDPR Compliance Guide for Operators
 
-**Last Updated**: 2026-02-08
+**Last Updated**: 2026-08-13
 **Applies to**: EU GDPR, UK GDPR, and the Data (Use and Access) Act 2025
 
 ---
@@ -17,7 +17,9 @@ DonkeyRide's three-layer architecture is designed for GDPR compliance. This docu
 > - **Watch what joins.** Task events share the task id, so two innocuous events can compose into a travel history. Task announcements (kind 37500) are consequently signed by a **throwaway key**, never the requester's identity key.
 > - **`p` tags are a per-person index.** Reputation events need that; payment receipts (kind 30535) do not, and are off by default.
 >
-> **Implementation status (honest)**: NIP-17 gift wrap **is** implemented for in-app chat (`web/src/services/chat.ts`) and trip sharing (`web/src/services/trip-share.ts`) — both are genuinely end-to-end encrypted and operator-blind. Addresses, exact coordinates and proofs are never published to a relay: they stay in memory and travel over authenticated HTTPS/WSS. Exact coordinates are additionally kept out of panic events (kind 30540), which carry a geohash-5 cell only.
+> **Implementation status (honest)**: NIP-17 gift wrap is implemented for chat, trip sharing and exact itinerary delivery. With `OPERATOR_DATA_MODE=blind`, exact pickup, drop-off, ordered stops, addresses and meeting notes stay on the requester device until a provider accepts, then travel as a signed NIP-17 envelope to that provider. Device copies are NIP-44 encrypted. The coordinator receives geohash-5 cell centres, routed distance/time totals, task ids, timing and participant pubkeys. The browser-selected router necessarily receives exact route points. `OPERATOR_DATA_MODE=managed` instead sends exact points to the operator over authenticated HTTPS/WSS.
+>
+> Encryption and pseudonymisation do **not** make this “no PII.” The ICO explicitly treats pseudonymised data as personal data for anyone holding the additional information, and network metadata can remain identifying: [ICO pseudonymisation guidance](https://ico.org.uk/for-organisations/uk-gdpr-guidance-and-resources/data-sharing/anonymisation/pseudonymisation/).
 
 ---
 
@@ -43,7 +45,7 @@ DonkeyRide's three-layer architecture is designed for GDPR compliance. This docu
 - **Crypto-shredding**: Destroy key pair → all encrypted data unreadable (see below).
 - **NIP-62 (Request to Vanish)**: Relay-side deletion of all events for a pubkey.
 
-### Layer 2: Operator (Private / Compliant)
+### Layer 2: Managed operator (optional controller mode)
 
 **What stays with the operator:**
 
@@ -63,11 +65,11 @@ DonkeyRide's three-layer architecture is designed for GDPR compliance. This docu
 - Right to erasure honoured for all data except where legal retention overrides (Art. 17(3)(b))
 - Data Processing Agreements (DPAs) with all sub-processors
 
-> The table above describes a **Mode-B operator that has chosen durable
+> The table above describes a **managed operator that has chosen durable
 > storage** (`DATABASE_URL` set). The default operator has no database and
-> no Redis: task state is in-memory and lost on restart, which is the
-> strongest possible answer to Article 17 for that data. See "Non-custodial
-> + database-free" in `CLAUDE.md`.
+> no Redis. In blind mode it also does not receive the exact itinerary. That
+> is data minimisation, not exemption from data-protection law: coarse cells,
+> pubkeys, IP addresses and timing can still be personal data.
 
 #### Logs are storage, and they were the weak point
 
@@ -155,7 +157,11 @@ When a user exercises the right to erasure (Article 17), the protocol destroys t
 | **EDPB** | Recommends storing only hashes, commitments, or ciphertexts on-chain. Crypto-shredding is a valid erasure technique for distributed systems. | EDPB Guidelines 02/2025 (April 2025) |
 | **ICO** (UK) | Uses "motivated intruder" test — if no motivated intruder can recover the data, it is effectively erased. Destroying the key satisfies this. | ICO anonymisation guidance (March 2025) |
 
-No data protection authority has ruled crypto-shredding insufficient for GDPR compliance when applied to encrypted data on distributed systems.
+Crypto-shredding reduces accessibility but is not a magic change of legal
+status. If a participant or operator still holds a key or other re-identifying
+information, the data remains personal data for that party. Operators must
+assess erasure and anonymisation against their actual threat model and current
+regulator guidance rather than treating ciphertext as automatically anonymous.
 
 ---
 
@@ -223,12 +229,12 @@ excluded from the snapshot, fail-closed, absent from ordinary requests)
 because the harm from disclosure is comparable and the safety feature is
 worthless if people cannot trust it.
 
-**Third-party data**: booking for someone else (`passenger: {name, note}`)
-means processing a person who is not your user and cannot consent through
-your UI. It is capped, in-memory, excluded from every pre-accept payload
-and from the snapshot. The lawful basis is legitimate interest, and the
-Article 14 notice obligation is the requester's practical responsibility,
-not the operator's — but an operator scaling this up should take advice.
+**Third-party identity fields are not collected.** The former
+`passenger: {name, note}` path has been removed and legacy clients have those
+fields ignored. A journey can carry an anonymous seat/stop count and can use
+`settlement_mode=none`; participants exchange any necessary human context in
+their encrypted chat rather than registering another person's identity with
+the coordinator.
 
 ## Right to Erasure Implementation
 

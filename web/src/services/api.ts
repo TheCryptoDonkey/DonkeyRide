@@ -8,8 +8,9 @@ import type { DomainProfile } from '../types/domain';
 import { createNip98Auth, signNostrEvent } from './nostr';
 import { publishToRelays } from './relays';
 import { getCurrencySymbol } from './pricing';
-import { encodeGeohash } from '../utils/geohash';
+import { decodeGeohash, encodeGeohash } from '../utils/geohash';
 import { getSelectedOperatorBase } from './operator-origin';
+import { routeDirect } from './client-routing';
 
 /** The operator origin this app instance talks to (absolute) */
 export function getApiBase(): string {
@@ -178,7 +179,10 @@ export function normaliseTask(raw: any): Task {
         })
       : undefined,
     stopCount: typeof r.stopCount === 'number' ? r.stopCount
+      : typeof r.stop_count === 'number' ? r.stop_count
       : Array.isArray(r.stops) ? r.stops.length : undefined,
+    locationMode: r.locationMode || r.location_mode || undefined,
+    settlementMode: r.settlementMode || r.settlement_mode || 'priced',
     vehicle: r.vehicle && typeof r.vehicle === 'object' ? {
       make: r.vehicle.make || undefined,
       model: r.vehicle.model || undefined,
@@ -195,12 +199,6 @@ export function normaliseTask(raw: any): Task {
     pickupNote: r.pickupNote || r.pickup_note || undefined,
     providerCredentials: Array.isArray(r.providerCredentials)
       ? r.providerCredentials : undefined,
-    passenger: r.passenger && typeof r.passenger === 'object'
-      ? {
-          name: r.passenger.name || undefined,
-          note: r.passenger.note || undefined,
-        }
-      : undefined,
     option: r.option || undefined,
     waiting: r.waiting && typeof r.waiting.sats === 'number'
       ? { minutes: r.waiting.minutes ?? 0, sats: r.waiting.sats }
@@ -347,21 +345,36 @@ export async function requestTask(params: {
   quoteId?: string;
   /** Favourite providers this rider wants given a head start */
   preferredProviders?: string[];
-  /**
-   * Booking for somebody else: who is actually travelling. The provider
-   * needs a name to call out at the kerb; the operator keeps it in memory
-   * and it never reaches a relay.
-   */
-  passenger?: { name?: string; note?: string } | null;
+  /** Exact points stay participant-to-participant in this mode. */
+  locationMode?: 'participant_encrypted' | 'operator_memory';
+  /** Road-route totals already computed directly by the browser. */
+  routeSummary?: { distanceKm: number; durationMinutes: number };
+  /** Explicitly allow a journey with no payment at all. */
+  settlementMode?: 'priced' | 'none';
 }): Promise<Task> {
+  const privateItinerary = params.locationMode === 'participant_encrypted';
   const body: Record<string, unknown> = {
-    pickup_lat: params.pickup.lat,
-    pickup_lon: params.pickup.lng,
+    ...(privateItinerary ? {
+      location_mode: 'participant_encrypted',
+      pickup_cell: encodeGeohash(params.pickup.lat, params.pickup.lng, 5),
+      ...(params.dropoff
+        ? { dropoff_cell: encodeGeohash(params.dropoff.lat, params.dropoff.lng, 5) }
+        : {}),
+      stop_count: params.stops?.length || 0,
+      route_summary: params.routeSummary ? {
+        distance_km: params.routeSummary.distanceKm,
+        duration_minutes: params.routeSummary.durationMinutes,
+      } : undefined,
+    } : {
+      pickup_lat: params.pickup.lat,
+      pickup_lon: params.pickup.lng,
+    }),
     rider_pubkey: params.requesterPubkey,
-    ...(params.accessNeeds?.length ? { access_needs: params.accessNeeds } : {}),
+    ...(!privateItinerary && params.accessNeeds?.length ? { access_needs: params.accessNeeds } : {}),
     ...(params.surgeMultiplier && params.surgeMultiplier > 1
       ? { surge_multiplier: params.surgeMultiplier } : {}),
     rider_npub: params.requesterNpub,
+    settlement_mode: params.settlementMode || 'priced',
   };
 
   if (params.domain) {
@@ -372,11 +385,11 @@ export async function requestTask(params: {
     body.scheduled_for = params.scheduledFor;
   }
 
-  if (params.womenOnly) {
+  if (params.womenOnly && !privateItinerary) {
     body.women_only = true;
   }
 
-  if (params.pickupNote) {
+  if (params.pickupNote && !privateItinerary) {
     body.pickup_note = params.pickupNote;
   }
 
@@ -388,15 +401,11 @@ export async function requestTask(params: {
     body.quote_id = params.quoteId;
   }
 
-  if (params.preferredProviders && params.preferredProviders.length > 0) {
+  if (!privateItinerary && params.preferredProviders && params.preferredProviders.length > 0) {
     body.preferred_providers = params.preferredProviders;
   }
 
-  if (params.passenger && (params.passenger.name || params.passenger.note)) {
-    body.passenger = params.passenger;
-  }
-
-  if (params.dropoff) {
+  if (params.dropoff && !privateItinerary) {
     body.dropoff_lat = params.dropoff.lat;
     body.dropoff_lon = params.dropoff.lng;
   }
@@ -405,14 +414,14 @@ export async function requestTask(params: {
   // navigates to a street rather than a pair of decimals, and so the
   // receipt records a journey that reads back. Participant-gated on the
   // operator side — they never appear in a pre-accept payload or a snapshot.
-  if (params.pickupAddress) {
+  if (params.pickupAddress && !privateItinerary) {
     body.pickup_address = params.pickupAddress;
   }
-  if (params.dropoffAddress) {
+  if (params.dropoffAddress && !privateItinerary) {
     body.dropoff_address = params.dropoffAddress;
   }
 
-  if (params.stops && params.stops.length > 0) {
+  if (params.stops && params.stops.length > 0 && !privateItinerary) {
     body.stops = params.stops.map((s) => ({
       lat: s.lat,
       lon: s.lng,
@@ -450,6 +459,8 @@ export async function acceptTask(taskId: string, params: {
   serviceOptions?: string[];
   /** Access features this vehicle offers — required for a job that needs them */
   accessFeatures?: string[];
+  /** Coarsen the provider fix before sending it to a blind coordinator. */
+  locationMode?: 'participant_encrypted' | 'operator_memory';
   /**
    * Licences and cover this provider declares they hold. Self-attested and
    * shown to the requester; the operator never verifies it and never says
@@ -457,6 +468,14 @@ export async function acceptTask(taskId: string, params: {
    */
   credentials?: Array<{ id: string; expiresAt?: number; reference?: string }>;
 }, base?: string): Promise<Task> {
+  const privateItinerary = params.locationMode === 'participant_encrypted';
+  let providerLocation = params.providerLocation;
+  if (privateItinerary) {
+    const centre = decodeGeohash(encodeGeohash(
+      providerLocation.lat, providerLocation.lng, 5,
+    ));
+    if (centre) providerLocation = { lat: centre.lat, lng: centre.lon };
+  }
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/accept`, {
     method: 'POST',
     body: JSON.stringify({
@@ -464,16 +483,16 @@ export async function acceptTask(taskId: string, params: {
       driver_npub: params.providerNpub,
       // Server reads .lon, not .lng
       driver_location: {
-        lat: params.providerLocation.lat,
-        lon: params.providerLocation.lng,
+        lat: providerLocation.lat,
+        lon: providerLocation.lng,
       },
-      ...(params.vehicle ? { vehicle: params.vehicle } : {}),
-      ...(params.gender ? { gender: params.gender } : {}),
+      ...(!privateItinerary && params.vehicle ? { vehicle: params.vehicle } : {}),
+      ...(!privateItinerary && params.gender ? { gender: params.gender } : {}),
       ...(params.serviceOptions && params.serviceOptions.length > 0
         ? { service_options: params.serviceOptions } : {}),
-      ...(params.accessFeatures && params.accessFeatures.length > 0
+      ...(!privateItinerary && params.accessFeatures && params.accessFeatures.length > 0
         ? { access_features: params.accessFeatures } : {}),
-      ...(params.credentials && params.credentials.length > 0
+      ...(!privateItinerary && params.credentials && params.credentials.length > 0
         ? { credentials: params.credentials } : {}),
     }),
   }, base);
@@ -751,8 +770,8 @@ export function sendTip(taskId: string, params: {
  * coordinates. It is a flag, not a fix: its job is to be permanently,
  * publicly attached to the pubkey so aggregators price it in. Exact
  * position is what an attacker most wants and what a relay can never
- * unpublish, so it travels only where it helps — encrypted to the rider's
- * guardians over NIP-17, and to the counterparty over the task socket.
+ * unpublish, so trusted contacts receive it over NIP-17. A blind coordinator
+ * and its participant socket receive only the geohash cell centre.
  *
  * The `d` tag matters: kind 30540 is in the addressable range, so without
  * one every panic a person ever raises collapses into a single replaceable
@@ -762,6 +781,7 @@ export function sendTip(taskId: string, params: {
 export async function triggerPanic(taskId: string, params: {
   role: 'requester' | 'provider';
   location?: LatLng | null;
+  locationMode?: 'participant_encrypted' | 'operator_memory';
 }, base?: string): Promise<{ success: boolean }> {
   if (!_authPrivKey) {
     throw new Error('No identity available to sign the alert');
@@ -783,14 +803,23 @@ export async function triggerPanic(taskId: string, params: {
     content: 'panic',
   }, _authPrivKey);
 
-  // Exact position rides OUTSIDE the signed event, so the operator can
-  // pass it to the other participant without it ever reaching a relay.
+  let operatorLocation = params.location;
+  if (operatorLocation && params.locationMode === 'participant_encrypted') {
+    const centre = decodeGeohash(encodeGeohash(
+      operatorLocation.lat, operatorLocation.lng, 5,
+    ));
+    if (centre) operatorLocation = { lat: centre.lat, lng: centre.lon };
+  }
+
+  // Managed mode can give the participant-gated operator socket an exact
+  // point. Privacy mode sends only the public event's coarse cell centre;
+  // trusted contacts receive the exact alert separately over NIP-17.
   const res = await request<{ success: boolean }>(`/api/tasks/${taskId}/panic`, {
     method: 'POST',
     body: JSON.stringify({
       event,
-      location: params.location
-        ? { lat: params.location.lat, lon: params.location.lng }
+      location: operatorLocation
+        ? { lat: operatorLocation.lat, lon: operatorLocation.lng }
         : null,
     }),
   }, base);
@@ -1026,10 +1055,30 @@ export async function getTripEstimate(params: {
   /** Intermediate stops in visit order (≤3) — the estimate covers the detour */
   stops?: { lat: number; lng: number }[];
 }): Promise<TripEstimate> {
+  const operator = await getOperatorInfoCached();
+  const privateItinerary = operator.data_handling?.mode === 'blind';
+  let clientRoute: Awaited<ReturnType<typeof routeDirect>> | null = null;
+  if (privateItinerary) {
+    const routerUrl = operator.routing?.client_url;
+    if (!routerUrl) {
+      throw new Error('This privacy operator has no client-direct road router configured');
+    }
+    clientRoute = await routeDirect(routerUrl, params.pickup, params.dropoff, params.stops || []);
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const raw: any = await request('/api/trips/estimate', {
     method: 'POST',
-    body: JSON.stringify({
+    body: JSON.stringify(privateItinerary ? {
+      location_mode: 'participant_encrypted',
+      pickup_cell: encodeGeohash(params.pickup.lat, params.pickup.lng, 5),
+      dropoff_cell: encodeGeohash(params.dropoff.lat, params.dropoff.lng, 5),
+      stop_count: params.stops?.length || 0,
+      route_summary: {
+        distance_km: clientRoute!.distanceKm,
+        duration_minutes: clientRoute!.durationMinutes,
+      },
+    } : {
       pickup_lat: params.pickup.lat,
       pickup_lon: params.pickup.lng,
       dropoff_lat: params.dropoff.lat,
@@ -1066,8 +1115,9 @@ export async function getTripEstimate(params: {
     } : raw.fiatEstimate,
     // The road the price was calculated from — same [lon,lat] convention as
     // the ride's own route
-    routeGeometry: normaliseRoute(raw.routeGeometry),
-    routed: raw.routed === true,
+    routeGeometry: clientRoute?.geometry || normaliseRoute(raw.routeGeometry),
+    routed: clientRoute ? true : raw.routed === true,
+    locationMode: privateItinerary ? 'participant_encrypted' : 'operator_memory',
     surge: raw.surge && typeof raw.surge.multiplier === 'number'
       ? {
         multiplier: raw.surge.multiplier,

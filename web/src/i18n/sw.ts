@@ -83,7 +83,6 @@ export const sw: Record<string, string> = {
   'request.operator': 'Opereta',
   'request.time': 'Muda',
   'request.includesFee': 'Inajumuisha ada ya opereta',
-  'request.straightLine': 'Makadirio ya mstari wa moja kwa moja — njia haikupatikana.',
   'request.requesting': 'Inaomba...',
   'request.bookForLater': 'Ratibu {label} kwa baadaye',
   'request.request': 'Omba {label}',
@@ -601,15 +600,11 @@ export const sw: Record<string, string> = {
   'destination.failed': 'Imeshindwa kubadilisha mahali unakoenda',
 
   // Kuagiza kwa niaba ya mtu mwingine
-  'passenger.title': 'Nani anasafiri',
-  'passenger.toggle': '{noun} hii ni ya mtu mwingine',
-  'passenger.name': 'Jina lake',
-  'passenger.namePlaceholder': 'Jina la kumwita akifika',
-  'passenger.note': 'Kingine anachopaswa kujua',
-  'passenger.notePlaceholder': 'mfano: mama yangu, anatumia fimbo',
-  'passenger.privacy': 'Inamfikia {label} aliyekubali pekee. Haichapishwi wala kuhifadhiwa.',
-  'passenger.travelling': 'Unamchukua',
-  'passenger.unnamed': 'Mtu mwingine (hakuna jina)',
+  'settlement.title': 'Pesa kwa safari hii',
+  'settlement.priced': 'Safari yenye bei',
+  'settlement.none': 'Hakuna pesa',
+  'settlement.pricedHint': 'Kiasi kinachoonyeshwa kinakubaliwa sasa na kulipwa moja kwa moja kati yenu.',
+  'settlement.noneHint': 'Hakuna nauli, njia ya malipo, dhamana au bakshishi. Bado ni safari halisi yenye vituo.',
 
   // Vyeti na leseni
   'credentials.title': 'Leseni na bima',

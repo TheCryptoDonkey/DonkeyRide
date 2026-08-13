@@ -146,8 +146,8 @@ if (nip98Enabled) {
     console.log('🔐 NIP-98 authentication enforced on mutating API routes');
 } else {
     // Without a signature there is no identity, so every participant-only
-    // check in this file — the ride detail with its exact coordinates,
-    // pickup notes, passenger names, panic records, and `subscribe_ride` on
+    // check in this file — managed ride details with exact coordinates,
+    // pickup notes, panic records, and `subscribe_ride` on
     // the task socket — degrades to "anyone who knows the task id". That id
     // is not a secret: the requester's own kind 37500 announcement puts it
     // on public relays for federated discovery. So auth-off is not a weaker
@@ -435,6 +435,43 @@ const RATE_CARD_CURRENCY = (() => {
     return SUPPORTED_FIAT.includes(c) ? c : 'USD';
 })();
 
+// Data handling is an operator choice, not a market assumption.
+//
+// blind   — the coordinator receives coarse geohash cell centres and routed
+//           distance/time totals. Exact itinerary points are exchanged
+//           participant-to-participant by the clients after a match.
+// managed — the operator receives exact points and may attach a database.
+//
+// Keep the process default compatible for developers and existing managed
+// operators; the public/demo compose file explicitly selects `blind`.
+const OPERATOR_DATA_MODE = (() => {
+    const mode = String(process.env.OPERATOR_DATA_MODE || 'managed').trim().toLowerCase();
+    if (!['blind', 'managed'].includes(mode)) {
+        console.error(`❌ Invalid OPERATOR_DATA_MODE "${mode}" (expected blind or managed)`);
+        process.exit(1);
+    }
+    return mode;
+})();
+const PUBLIC_ROUTING_URL = String(process.env.PUBLIC_ROUTING_URL || '').trim().replace(/\/$/, '');
+const PRIVATE_LOCATION_PRECISION = 5; // roughly a neighbourhood, not a doorway
+const SETTLEMENT_MODES = new Set(['priced', 'none']);
+
+function normaliseSettlementMode(value) {
+    const mode = typeof value === 'string' ? value.trim().toLowerCase() : 'priced';
+    return SETTLEMENT_MODES.has(mode) ? mode : null;
+}
+
+function parseRouteSummary(value, allowZero = false) {
+    if (!value || typeof value !== 'object') return null;
+    const distanceKm = Number(value.distance_km ?? value.distanceKm);
+    const durationMinutes = Number(value.duration_minutes ?? value.durationMinutes);
+    const minimum = allowZero ? 0 : Number.MIN_VALUE;
+    if (!Number.isFinite(distanceKm) || distanceKm < minimum || distanceKm > 2000) return null;
+    if (!Number.isFinite(durationMinutes) || durationMinutes < minimum || durationMinutes > 48 * 60) return null;
+    if (allowZero && ((distanceKm === 0) !== (durationMinutes === 0))) return null;
+    return { distanceKm, durationMinutes };
+}
+
 /** Rate-card options passed to every estimateTripCost() call. */
 function rateCardOptions(currency, multiplier = 1) {
     // A service class (XL, Comfort) scales the whole rate card, so every
@@ -451,11 +488,6 @@ function rateCardOptions(currency, multiplier = 1) {
         operatorFeePct: config.operatorFeePercent
     };
 }
-
-// Straight-line fallback speed when the router is unreachable. ONE constant:
-// the quote and the recorded fare must never be derived from different
-// assumptions, or the price the rider approved is not the price they get.
-const FALLBACK_SPEED_KMH = parseFloat(process.env.FALLBACK_SPEED_KMH || '30');
 
 /**
  * Route + price a trip. The single pricing path for BOTH the upfront quote
@@ -482,14 +514,9 @@ async function routeAndPrice(pickup, dropoff, via, currency, multiplier = 1) {
             coordinates = osrmRoute.coordinates;
             routed = true;
         } else {
-            // Sum straight-line legs through every stop
-            const legs = [pickup, ...(via || []), dropoff];
-            for (let i = 0; i < legs.length - 1; i++) {
-                distance += calculateDistance(
-                    legs[i].lat, legs[i].lon, legs[i + 1].lat, legs[i + 1].lon
-                );
-            }
-            duration = (distance / FALLBACK_SPEED_KMH) * 60;
+            const error = new Error('Road routing is unavailable; no straight-line estimate was substituted');
+            error.code = 'ROAD_ROUTING_UNAVAILABLE';
+            throw error;
         }
     }
 
@@ -535,8 +562,21 @@ function redeemQuote(quoteId, journey) {
         quoteStore.delete(quoteId);
         return null;
     }
-    // A quote buys the journey it was given for, not a cheaper price on a
-    // different one. Everything the fare depends on has to match.
+    // A privacy-mode quote is bound to routed totals rather than exact
+    // coordinates. The routing client keeps the itinerary; the coordinator
+    // only needs the numbers the rate card prices.
+    if (quote.locationMode === 'participant_encrypted') {
+        const distanceDelta = Math.abs(Number(quote.distanceKm) - Number(journey.distanceKm));
+        const durationDelta = Math.abs(Number(quote.durationMinutes) - Number(journey.durationMinutes));
+        if (!Number.isFinite(distanceDelta) || distanceDelta > 0.05) return null;
+        if (!Number.isFinite(durationDelta) || durationDelta > 0.5) return null;
+        if ((quote.stopCount || 0) !== (journey.stopCount || 0)) return null;
+        if ((quote.currency || null) !== (journey.currency || null)) return null;
+        return quote;
+    }
+
+    // A managed-mode quote buys the journey it was given for, not a cheaper
+    // price on a different one. Everything the fare depends on has to match.
     const near = (a, b) => a && b
         && calculateDistance(a.lat, a.lon, b.lat, b.lon) <= QUOTE_MATCH_TOLERANCE_KM;
     if (!near(quote.pickup, journey.pickup)) return null;
@@ -1079,6 +1119,9 @@ function buildTaskSnapshot(task) {
             provider: provider ? { pubkey: provider.pubkey, npub: provider.npub } : null,
             fare: task.fare ?? null,
             currency: task.currency || null,
+            settlementMode: task.settlementMode || 'priced',
+            locationMode: task.locationMode || 'operator_memory',
+            stopCount: task.stopCount ?? (task.stops?.length || 0),
             scheduledFor: task.scheduledFor || null,
             geohashPickup,
             geohashDropoff,
@@ -1124,6 +1167,9 @@ function taskFromSnapshot(content) {
             : null,
         fare: content.fare ?? null,
         currency: content.currency || null,
+        settlementMode: content.settlementMode || 'priced',
+        locationMode: content.locationMode || 'operator_memory',
+        stopCount: Number.isInteger(content.stopCount) ? content.stopCount : 0,
         scheduledFor: content.scheduledFor || null,
         timestamps: content.timestamps || {},
         history: [],
@@ -1338,7 +1384,9 @@ if (wss) {
                         const location = data.location && validLatLon(data.location.lat, data.location.lon)
                             ? { lat: data.location.lat, lon: data.location.lon }
                             : null;
-                        const credentials = sanitiseCredentials(data.credentials, domainProfile);
+                        const credentials = OPERATOR_DATA_MODE === 'blind'
+                            ? []
+                            : sanitiseCredentials(data.credentials, domainProfile);
                         const admission = evaluateDriverAdmission(operatorPolicy, {
                             pubkey,
                             npub,
@@ -1942,6 +1990,17 @@ function updateDriverPresence({ npub, pubkey, location, areas, gender, womenOnly
         return null;
     }
     const existing = driverPresence.get(key) || {};
+    let storedLocation = location && Number.isFinite(location.lat) && Number.isFinite(location.lon)
+        ? { lat: location.lat, lon: location.lon }
+        : null;
+    if (storedLocation && OPERATOR_DATA_MODE === 'blind') {
+        const cell = encodeGeohash(
+            storedLocation.lat, storedLocation.lon, PRIVATE_LOCATION_PRECISION
+        );
+        const centre = decodeGeohash(cell);
+        storedLocation = { lat: centre.lat, lon: centre.lon };
+    }
+    const privateCoordinator = OPERATOR_DATA_MODE === 'blind';
     const entry = {
         npub: npub || existing.npub || null,
         pubkey: (pubkey || existing.pubkey || null),
@@ -1950,21 +2009,23 @@ function updateDriverPresence({ npub, pubkey, location, areas, gender, womenOnly
         serviceOptions: Array.isArray(serviceOptions)
             ? serviceOptions
             : existing.serviceOptions || null,
-        location: location && Number.isFinite(location.lat) && Number.isFinite(location.lon)
-            ? { lat: location.lat, lon: location.lon }
-            : existing.location || null,
+        location: storedLocation || existing.location || null,
         // null/undefined keeps the stored areas; [] clears them (back to radius)
         areas: Array.isArray(areas) ? areas : existing.areas || null,
         // undefined keeps the stored declaration; an explicit value replaces it
-        gender: gender !== undefined ? sanitiseGender(gender) : existing.gender || null,
-        womenOnly: womenOnly !== undefined ? womenOnly === true : existing.womenOnly || false,
+        gender: privateCoordinator
+            ? null
+            : (gender !== undefined ? sanitiseGender(gender) : existing.gender || null),
+        womenOnly: privateCoordinator
+            ? false
+            : (womenOnly !== undefined ? womenOnly === true : existing.womenOnly || false),
         // What this vehicle/driver can actually accommodate. Undeclared is
         // the safe default: they simply never see jobs that need it.
-        accessFeatures: Array.isArray(accessFeatures)
+        accessFeatures: privateCoordinator ? [] : Array.isArray(accessFeatures)
             ? accessFeatures : (existing.accessFeatures || []),
         // Sanitised declarations are retained only in live memory, so an
         // operator can apply its admission rule on reconnect and accept.
-        credentials: Array.isArray(credentials)
+        credentials: privateCoordinator ? [] : Array.isArray(credentials)
             ? credentials : (existing.credentials || []),
         lastSeen: Date.now()
     };
@@ -2315,8 +2376,10 @@ function sendPendingRideRequests(ws) {
                 // Approximate pre-accept — see approximateLocation
                 pickup: approximateLocation(ride.pickup),
                 dropoff: approximateLocation(ride.dropoff),
-                stopCount: ride.stops ? ride.stops.length : 0,
+                stopCount: ride.stopCount ?? (ride.stops ? ride.stops.length : 0),
                 fare: ride.fare,
+                settlementMode: ride.settlementMode || 'priced',
+                locationMode: ride.locationMode || 'operator_memory',
                 distance: distanceKm,
                 estimatedFare: estimate,
                 currency: ride.currency || session.currency || 'GBP',
@@ -2349,8 +2412,10 @@ function dispatchScheduledRide(ride) {
             id: ride.id,
             pickup: approximateLocation(ride.pickup),
             dropoff: approximateLocation(ride.dropoff),
-            stopCount: ride.stops ? ride.stops.length : 0,
+            stopCount: ride.stopCount ?? (ride.stops ? ride.stops.length : 0),
             fare: ride.fare,
+            settlementMode: ride.settlementMode || 'priced',
+            locationMode: ride.locationMode || 'operator_memory',
             distance: distanceKm,
             estimatedFare: estimate,
             currency: ride.currency || session.currency || 'GBP',
@@ -2577,6 +2642,25 @@ app.get('/info', publicRateLimiter, (req, res) => {
         // Relay URLs reachable by CLIENTS (the internal NOSTR_RELAY hostname
         // is meaningless outside the Docker network)
         public_relays: config.publicRelays,
+        data_handling: {
+            mode: OPERATOR_DATA_MODE,
+            exact_itinerary: OPERATOR_DATA_MODE === 'blind'
+                ? 'participant_encrypted'
+                : 'operator_memory',
+            storage: taskStore?.backend || 'memory',
+            database_enabled: Boolean(taskStore),
+            // Honest boundary: encryption hides content, not IP addresses,
+            // timing, task ids, coarse cells or participant pubkeys.
+            residual_metadata: ['network_address', 'timing', 'task_id', 'coarse_location', 'pubkey']
+        },
+        routing: {
+            provider: String(process.env.NAVIGATION_PROVIDER || 'osrm').toLowerCase(),
+            // In blind mode the browser talks to the router directly. It may
+            // be run by the same firm or by somebody else; its own privacy
+            // policy applies because it necessarily processes the points.
+            client_url: OPERATOR_DATA_MODE === 'blind' ? (PUBLIC_ROUTING_URL || null) : null,
+            client_direct: OPERATOR_DATA_MODE === 'blind'
+        },
         policy: publicOperatorPolicy(operatorPolicy, {
             requiredCredentials: requiredCredentialIds(domainProfile),
             storageBackend: taskStore?.backend || null
@@ -3614,9 +3698,17 @@ app.post('/api/rides/:rideId/payment-methods', async (req, res) => {
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
         }
+        if (ride.settlementMode === 'none') {
+            return res.status(409).json({ error: 'This journey has no monetary settlement' });
+        }
         const authErr = authoriseRideActor(req, ride, ['provider']);
         if (authErr) {
             return res.status(authErr.status).json(authErr);
+        }
+        if (ride.locationMode === 'participant_encrypted') {
+            return res.status(409).json({
+                error: 'Payment handles stay in encrypted participant chat in privacy mode'
+            });
         }
         if (!Array.isArray(methods) || methods.length === 0) {
             return res.status(400).json({ error: 'methods must be a non-empty array of { rail, handle }' });
@@ -3653,6 +3745,15 @@ app.get('/api/rides/:rideId/payment-options', optionalNip98, (req, res) => {
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
         }
+        if (ride.settlementMode === 'none') {
+            return res.json({
+                fare: 0,
+                currency: ride.currency || 'GBP',
+                custody: 'none',
+                settlement: 'none',
+                methods: []
+            });
+        }
         const authErr = authoriseRideActor(req, ride);
         if (authErr) {
             return res.status(authErr.status).json(authErr);
@@ -3680,6 +3781,9 @@ app.post('/api/rides/:rideId/pay-instruction', async (req, res) => {
         const ride = rideManager.getRide(rideId);
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
+        }
+        if (ride.settlementMode === 'none') {
+            return res.status(409).json({ error: 'This journey has no monetary settlement' });
         }
         const authErr = authoriseRideActor(req, ride, ['requester']);
         if (authErr) {
@@ -3731,6 +3835,9 @@ app.post('/api/rides/:rideId/settle', async (req, res) => {
         const ride = rideManager.getRide(rideId);
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
+        }
+        if (ride.settlementMode === 'none') {
+            return res.status(409).json({ error: 'This journey has no monetary settlement' });
         }
         const authErr = authoriseRideActor(req, ride, ['requester']);
         if (authErr) {
@@ -4002,10 +4109,13 @@ app.post('/api/drivers/location', async (req, res) => {
         // Keep push targeting in step with the driver's live position/areas
         pushService.updateTargeting((pubkey || signerPubkey || '').toLowerCase(), {
             areas: sanitiseWorkingAreas(areas),
-            location: { lat, lon },
-            gender: gender !== undefined ? sanitiseGender(gender) : undefined,
-            womenOnly: women_only !== undefined ? women_only === true : undefined,
-            accessFeatures: sanitiseAccessNeeds(access_features, domainProfile),
+            location: entry.location,
+            gender: OPERATOR_DATA_MODE === 'blind'
+                ? null : (gender !== undefined ? sanitiseGender(gender) : undefined),
+            womenOnly: OPERATOR_DATA_MODE === 'blind'
+                ? false : (women_only !== undefined ? women_only === true : undefined),
+            accessFeatures: OPERATOR_DATA_MODE === 'blind'
+                ? [] : sanitiseAccessNeeds(access_features, domainProfile),
             serviceOptions: sanitiseServiceOptions(service_options)
         });
 
@@ -4040,18 +4150,25 @@ app.post('/api/push/subscribe', optionalNip98, (req, res) => {
         if (!pushService.isValidSubscription(subscription)) {
             return res.status(400).json({ error: 'Invalid push subscription' });
         }
-        const loc = location && validLatLon(location.lat, location.lon)
+        let loc = location && validLatLon(location.lat, location.lon)
             ? { lat: location.lat, lon: location.lon }
             : null;
+        if (loc && OPERATOR_DATA_MODE === 'blind') {
+            const centre = decodeGeohash(encodeGeohash(
+                loc.lat, loc.lon, PRIVATE_LOCATION_PRECISION
+            ));
+            loc = { lat: centre.lat, lon: centre.lon };
+        }
         pushService.subscribe(subscriber, subscription, {
             // Riders subscribe for "your driver is on the way / is here";
             // only providers are ever swept into job dispatch.
             role: role === 'requester' ? 'requester' : 'provider',
             areas: sanitiseWorkingAreas(areas),
             location: loc,
-            gender: sanitiseGender(gender),
-            womenOnly: women_only === true,
-            accessFeatures: sanitiseAccessNeeds(access_features, domainProfile),
+            gender: OPERATOR_DATA_MODE === 'blind' ? null : sanitiseGender(gender),
+            womenOnly: OPERATOR_DATA_MODE === 'blind' ? false : women_only === true,
+            accessFeatures: OPERATOR_DATA_MODE === 'blind'
+                ? [] : sanitiseAccessNeeds(access_features, domainProfile),
             serviceOptions: sanitiseServiceOptions(req.body.service_options)
         });
         res.json({ success: true });
@@ -4160,40 +4277,99 @@ app.get('/api/drivers/:pubkey/earnings', optionalNip98, async (req, res) => {
 // Estimate trip cost
 app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
     try {
-        const { pickup_lat, pickup_lon, dropoff_lat, dropoff_lon, currency, stops } = req.body;
+        const {
+            pickup_lat, pickup_lon, dropoff_lat, dropoff_lon, currency, stops,
+            location_mode, pickup_cell, dropoff_cell, route_summary, stop_count
+        } = req.body;
         const fiatCurrency = resolveFiatCurrency(currency);
 
-        // Validate inputs
-        if (!pickup_lat || !pickup_lon || !dropoff_lat || !dropoff_lon) {
+        const privateItinerary = location_mode === 'participant_encrypted';
+        if (OPERATOR_DATA_MODE === 'blind' && !privateItinerary) {
             return res.status(400).json({
-                error: 'Missing required parameters',
-                required: ['pickup_lat', 'pickup_lon', 'dropoff_lat', 'dropoff_lon']
+                error: 'This operator accepts coarse cells and routed totals only',
+                details: 'Route in the client and send location_mode=participant_encrypted'
             });
         }
 
-        // Intermediate stops, so a multi-stop quote covers the detour
-        const via = Array.isArray(stops)
-            ? stops
-                .map((s) => ({ lat: Number(s?.lat), lon: Number(s?.lon != null ? s.lon : s?.lng) }))
-                .filter((s) => isValidLat(s.lat) && isValidLon(s.lon))
-                .slice(0, 3)
-            : [];
+        let pickup;
+        let dropoff;
+        let via = [];
+        let quotedStopCount = 0;
+        let distance;
+        let duration;
+        let coordinates = null;
+        let routed = false;
+        let estimate;
+
+        if (privateItinerary) {
+            const summary = parseRouteSummary(route_summary);
+            const pickupHash = typeof pickup_cell === 'string' ? pickup_cell.trim().toLowerCase() : '';
+            const dropoffHash = typeof dropoff_cell === 'string' ? dropoff_cell.trim().toLowerCase() : '';
+            if (!summary) {
+                return res.status(400).json({
+                    error: 'route_summary must carry valid routed distance and duration'
+                });
+            }
+            if (!GEOHASH_CELL.test(pickupHash) || pickupHash.length > PRIVATE_LOCATION_PRECISION
+                || !GEOHASH_CELL.test(dropoffHash) || dropoffHash.length > PRIVATE_LOCATION_PRECISION) {
+                return res.status(400).json({
+                    error: `pickup_cell and dropoff_cell must be geohashes no more precise than ${PRIVATE_LOCATION_PRECISION} characters`
+                });
+            }
+            quotedStopCount = Number(stop_count || 0);
+            if (!Number.isInteger(quotedStopCount) || quotedStopCount < 0 || quotedStopCount > 3) {
+                return res.status(400).json({ error: 'stop_count must be an integer from 0 to 3' });
+            }
+            const pickupCentre = decodeGeohash(pickupHash);
+            const dropoffCentre = decodeGeohash(dropoffHash);
+            pickup = { lat: pickupCentre.lat, lon: pickupCentre.lon };
+            dropoff = { lat: dropoffCentre.lat, lon: dropoffCentre.lon };
+            distance = summary.distanceKm;
+            duration = summary.durationMinutes;
+            routed = true;
+        } else {
+            if (!isValidLat(pickup_lat) || !isValidLon(pickup_lon)
+                || !isValidLat(dropoff_lat) || !isValidLon(dropoff_lon)) {
+                return res.status(400).json({
+                    error: 'Missing or invalid route coordinates',
+                    required: ['pickup_lat', 'pickup_lon', 'dropoff_lat', 'dropoff_lon']
+                });
+            }
+            pickup = { lat: pickup_lat, lon: pickup_lon };
+            dropoff = { lat: dropoff_lat, lon: dropoff_lon };
+            // Intermediate stops, so a multi-stop quote covers the detour
+            via = Array.isArray(stops)
+                ? stops
+                    .map((s) => ({ lat: Number(s?.lat), lon: Number(s?.lon != null ? s.lon : s?.lng) }))
+                    .filter((s) => isValidLat(s.lat) && isValidLon(s.lon))
+                    .slice(0, 3)
+                : [];
+            quotedStopCount = via.length;
+        }
 
         // Demand pricing, if this operator runs it. Resolved once and
         // carried into the response so the rider sees the multiplier on the
         // confirm screen — never discovered afterwards on a receipt.
-        const surge = surgeFor({ lat: pickup_lat, lon: pickup_lon });
+        const surge = surgeFor(pickup);
 
         // THE upfront-price guarantee: this is the same routing and pricing
         // path /api/rides/request uses, so the number the rider approves here
         // is the number recorded on the ride. Quoting a straight line and
         // charging a road route is how you overcharge everyone by 30%.
-        const { distance, duration, coordinates, routed, estimate } =
-            await routeAndPrice(
-                { lat: pickup_lat, lon: pickup_lon },
-                { lat: dropoff_lat, lon: dropoff_lon },
-                via, fiatCurrency, surge.multiplier
+        if (privateItinerary) {
+            estimate = await estimateTripCost(
+                distance, duration, rateCardOptions(fiatCurrency, surge.multiplier)
             );
+        } else {
+            const priced = await routeAndPrice(
+                pickup, dropoff, via, fiatCurrency, surge.multiplier
+            );
+            distance = priced.distance;
+            duration = priced.duration;
+            coordinates = priced.coordinates;
+            routed = priced.routed;
+            estimate = priced.estimate;
+        }
 
         // Per-class prices so the picker shows real numbers, not a
         // multiplier the client had to guess at
@@ -4227,11 +4403,12 @@ app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
         // rider approves is the number recorded even if the BTC price ticks
         // between reading the quote and tapping the button.
         const quoteId = rememberQuote({
-            pickup: { lat: pickup_lat, lon: pickup_lon },
-            // This endpoint validates all four coordinates above, so a quote
-            // always has a destination — unlike a request, which may not.
-            dropoff: { lat: dropoff_lat, lon: dropoff_lon },
-            stopCount: via ? via.length : 0,
+            pickup,
+            dropoff,
+            locationMode: privateItinerary ? 'participant_encrypted' : 'operator_memory',
+            distanceKm: distance,
+            durationMinutes: duration,
+            stopCount: quotedStopCount,
             currency: fiatCurrency,
             surgeMultiplier: surge.multiplier,
             fares: { __default__: { sats: estimate.fare.sats, estimate }, ...pricedByOption },
@@ -4259,8 +4436,9 @@ app.post('/api/trips/estimate', publicRateLimiter, async (req, res) => {
                 waiting: surge.waiting,
                 available: surge.available
             },
-            pickup: { lat: pickup_lat, lon: pickup_lon },
-            dropoff: { lat: dropoff_lat, lon: dropoff_lon },
+            pickup,
+            dropoff,
+            location_mode: privateItinerary ? 'participant_encrypted' : 'operator_memory',
             timestamp: Date.now()
         });
 
@@ -4319,6 +4497,11 @@ app.post('/api/prices/refresh', async (req, res) => {
 // Preview route (calculate route without creating a ride)
 app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
     try {
+        if (OPERATOR_DATA_MODE === 'blind') {
+            return res.status(409).json({
+                error: 'Route directly from the participant device in privacy mode'
+            });
+        }
         const { from_lat, from_lon, to_lat, to_lon } = req.body;
 
         // Validate inputs
@@ -4367,10 +4550,10 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
     app.post('/api/rides/request', publicRateLimiter, async (req, res) => {
         try {
             const {
-                pickup_lat,
-                pickup_lon,
-                dropoff_lat,
-                dropoff_lon,
+                pickup_lat: suppliedPickupLat,
+                pickup_lon: suppliedPickupLon,
+                dropoff_lat: suppliedDropoffLat,
+                dropoff_lon: suppliedDropoffLon,
                 rider_npub,
                 ride_id,
                 fare_sats,
@@ -4384,13 +4567,67 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 pickup_address,
                 dropoff_address,
                 option,
-                preferred_providers
+                preferred_providers,
+                location_mode,
+                pickup_cell,
+                dropoff_cell,
+                route_summary,
+                stop_count,
+                settlement_mode
             } = req.body;
+
+            const privateItinerary = location_mode === 'participant_encrypted';
+            if (OPERATOR_DATA_MODE === 'blind' && !privateItinerary) {
+                return res.status(400).json({
+                    error: 'This operator accepts participant-encrypted itineraries only'
+                });
+            }
+            const settlementMode = normaliseSettlementMode(settlement_mode);
+            if (!settlementMode) {
+                return res.status(400).json({ error: 'settlement_mode must be priced or none' });
+            }
+
+            let pickup_lat = suppliedPickupLat;
+            let pickup_lon = suppliedPickupLon;
+            let dropoff_lat = suppliedDropoffLat;
+            let dropoff_lon = suppliedDropoffLon;
+            let privateSummary = null;
+            let privateStopCount = 0;
+
+            if (privateItinerary) {
+                privateSummary = parseRouteSummary(route_summary, true);
+                const pickupHash = typeof pickup_cell === 'string' ? pickup_cell.trim().toLowerCase() : '';
+                const dropoffHash = typeof dropoff_cell === 'string' ? dropoff_cell.trim().toLowerCase() : '';
+                if (!privateSummary) {
+                    return res.status(400).json({ error: 'A valid routed route_summary is required' });
+                }
+                const validPickupCell = GEOHASH_CELL.test(pickupHash)
+                    && pickupHash.length <= PRIVATE_LOCATION_PRECISION;
+                const validDropoffCell = !dropoffHash || (
+                    GEOHASH_CELL.test(dropoffHash)
+                    && dropoffHash.length <= PRIVATE_LOCATION_PRECISION
+                );
+                if (!validPickupCell || !validDropoffCell) {
+                    return res.status(400).json({
+                        error: `pickup_cell and optional dropoff_cell must be geohashes no more precise than ${PRIVATE_LOCATION_PRECISION} characters`
+                    });
+                }
+                privateStopCount = Number(stop_count || 0);
+                if (!Number.isInteger(privateStopCount) || privateStopCount < 0 || privateStopCount > 3) {
+                    return res.status(400).json({ error: 'stop_count must be an integer from 0 to 3' });
+                }
+                const pickupCentre = decodeGeohash(pickupHash);
+                const dropoffCentre = dropoffHash ? decodeGeohash(dropoffHash) : null;
+                pickup_lat = pickupCentre.lat;
+                pickup_lon = pickupCentre.lon;
+                dropoff_lat = dropoffCentre?.lat ?? null;
+                dropoff_lon = dropoffCentre?.lon ?? null;
+            }
 
             // Intermediate stops (multi-stop trips) — visited in order
             // between pickup and dropoff. Exact coordinates are PII: they
             // stay in memory and only ever leave as a count pre-accept.
-            const parsedStops = parseStops(stops);
+            const parsedStops = privateItinerary ? { stops: null } : parseStops(stops);
             if (parsedStops.error) {
                 return res.status(400).json({ error: parsedStops.error });
             }
@@ -4468,6 +4705,11 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             if (rideStops) {
                 rideOptions.stops = rideStops;
             }
+            rideOptions.locationMode = privateItinerary
+                ? 'participant_encrypted'
+                : 'operator_memory';
+            rideOptions.stopCount = privateItinerary ? privateStopCount : (rideStops?.length || 0);
+            rideOptions.settlementMode = settlementMode;
 
             const hasDropoff = dropoff_lat && dropoff_lon;
             // Stops without a destination make no sense — quietly ignore them
@@ -4490,19 +4732,43 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
 
             // Same path as the quote the rider just approved — see
             // routeAndPrice(). Do not inline routing here again.
-            const { distance, duration, coordinates: routeCoordinates, routed, estimate } =
-                await routeAndPrice(
+            let distance;
+            let duration;
+            let routeCoordinates;
+            let routed;
+            let estimate;
+            if (privateItinerary) {
+                distance = privateSummary.distanceKm;
+                duration = privateSummary.durationMinutes;
+                routeCoordinates = null;
+                routed = true;
+                estimate = await estimateTripCost(
+                    distance,
+                    duration,
+                    rateCardOptions(
+                        fiatCurrency,
+                        (serviceOption?.fareMultiplier || 1) * honouredSurge
+                    )
+                );
+            } else {
+                const priced = await routeAndPrice(
                     { lat: pickup_lat, lon: pickup_lon },
                     hasDropoff ? { lat: dropoff_lat, lon: dropoff_lon } : null,
                     routeVia, fiatCurrency,
                     (serviceOption?.fareMultiplier || 1) * honouredSurge
                 );
+                distance = priced.distance;
+                duration = priced.duration;
+                routeCoordinates = priced.coordinates;
+                routed = priced.routed;
+                estimate = priced.estimate;
+            }
             if (!hasDropoff) {
                 console.log(`📍 Single-location task — no route needed`);
             } else {
-                console.log(routed
-                    ? `🗺️  Using OSRM routing: ${distance.toFixed(2)}km, ${Math.round(duration)} min, ${routeCoordinates.length} points`
-                    : `📏 Using straight-line routing: ${distance.toFixed(2)}km`);
+                console.log(privateItinerary
+                    ? `🛣️  Client-routed summary: ${distance.toFixed(2)}km, ${Math.round(duration)} min; exact shape withheld`
+                    : `🗺️  Using road routing: ${distance.toFixed(2)}km, ${Math.round(duration)} min, ${routeCoordinates.length} points`);
             }
 
             // The quote the rider actually approved, if they still hold one
@@ -4514,7 +4780,9 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             const heldQuote = redeemQuote(req.body.quote_id, {
                 pickup: { lat: pickup_lat, lon: pickup_lon },
                 dropoff: hasDropoff ? { lat: dropoff_lat, lon: dropoff_lon } : null,
-                stopCount: routeVia ? routeVia.length : 0,
+                distanceKm: distance,
+                durationMinutes: duration,
+                stopCount: privateItinerary ? privateStopCount : (routeVia ? routeVia.length : 0),
                 currency: fiatCurrency
             });
             // ...but only while the demand multiplier has not FALLEN. Those
@@ -4532,9 +4800,11 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                     : `💱 Quote ${req.body.quote_id} not honoured (expired or different journey) — re-priced live`);
             }
 
-            const estimatedFareSats = fare_sats
-                ? parseInt(fare_sats, 10)
-                : (quotedFare ? quotedFare.sats : estimate.fare.sats);
+            const estimatedFareSats = settlementMode === 'none'
+                ? 0
+                : fare_sats
+                    ? parseInt(fare_sats, 10)
+                    : (quotedFare ? quotedFare.sats : estimate.fare.sats);
             // Everything downstream (breakdown rows, the driver's card, the
             // receipt) reads the estimate, so it has to describe the fare
             // actually recorded — not the one we just declined to use.
@@ -4549,6 +4819,9 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 estimatedFareSats,
                 rideOptions
             );
+            ride.locationMode = rideOptions.locationMode;
+            ride.stopCount = rideOptions.stopCount;
+            ride.settlementMode = rideOptions.settlementMode;
 
             // Add route coordinates if available
             if (routeCoordinates) {
@@ -4581,18 +4854,20 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             // In memory for the life of the request and deliberately kept
             // out of the Nostr snapshot — health-adjacent data must never
             // reach a public relay, exactly like the women-only flag.
-            const accessNeeds = sanitiseAccessNeeds(access_needs, requestProfile);
+            const accessNeeds = privateItinerary
+                ? []
+                : sanitiseAccessNeeds(access_needs, requestProfile);
             if (accessNeeds.length > 0) {
                 ride.accessNeeds = accessNeeds;
             }
-            if (women_only === true) {
+            if (!privateItinerary && women_only === true) {
                 ride.womenOnly = true;
             }
 
             // Meeting instructions for the provider ("black gate, side
             // entrance"). Participant-gated: in memory, never in a
             // pre-accept payload, never in the Nostr snapshot.
-            if (typeof pickup_note === 'string' && pickup_note.trim()) {
+            if (!privateItinerary && typeof pickup_note === 'string' && pickup_note.trim()) {
                 ride.pickupNote = pickup_note.trim().slice(0, PICKUP_NOTE_MAX_CHARS);
             }
 
@@ -4603,27 +4878,11 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             // exactly like the meeting note: participant-gated, in memory,
             // never in a pre-accept payload, never in the kind 30078
             // snapshot (which carries geohashes only).
-            if (typeof pickup_address === 'string' && pickup_address.trim()) {
+            if (!privateItinerary && typeof pickup_address === 'string' && pickup_address.trim()) {
                 ride.pickupAddress = pickup_address.trim().slice(0, ADDRESS_MAX_CHARS);
             }
-            if (typeof dropoff_address === 'string' && dropoff_address.trim()) {
+            if (!privateItinerary && typeof dropoff_address === 'string' && dropoff_address.trim()) {
                 ride.dropoffAddress = dropoff_address.trim().slice(0, ADDRESS_MAX_CHARS);
-            }
-
-            // Booking for somebody else — a parent sending a child home, an
-            // office booking a car for a client. The provider needs a name
-            // to call out at the kerb, and nothing else about them: this is
-            // participant-gated like the meeting note, and deliberately
-            // absent from every pre-accept payload and from the snapshot.
-            const passengerName = typeof req.body.passenger?.name === 'string'
-                ? req.body.passenger.name.trim().slice(0, 60) : '';
-            const passengerNote = typeof req.body.passenger?.note === 'string'
-                ? req.body.passenger.note.trim().slice(0, PICKUP_NOTE_MAX_CHARS) : '';
-            if (passengerName || passengerNote) {
-                ride.passenger = {
-                    ...(passengerName ? { name: passengerName } : {}),
-                    ...(passengerNote ? { note: passengerNote } : {})
-                };
             }
 
             if (serviceOption) {
@@ -4640,7 +4899,7 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
             // Favourite providers get a short exclusive window. The list is
             // the rider's own, held in memory for this request only and
             // never snapshotted to relays.
-            const preferred = Array.isArray(preferred_providers)
+            const preferred = !privateItinerary && Array.isArray(preferred_providers)
                 ? preferred_providers
                     .filter((p) => typeof p === 'string' && /^[0-9a-f]{64}$/i.test(p.trim()))
                     .map((p) => p.trim().toLowerCase())
@@ -4651,9 +4910,16 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 ride.preferredUntil = Date.now() + FAVOURITE_HEAD_START_MS;
             }
 
+            // The task manager persisted the base object at creation. Persist
+            // once more after attaching privacy/settlement flags and the
+            // participant-gated optional fields so snapshots reflect the
+            // actual coordination contract.
+            rideManager.persistRide(ride.id);
+
             // Broadcast to drivers within DISPATCH_RADIUS_KM of the pickup
-            // Approximate location + no route pre-accept (progressive
-            // disclosure); the accepting driver gets exact coordinates.
+            // Approximate location + no route pre-accept. In blind mode the
+            // accepting driver gets the exact itinerary by NIP-17 from the
+            // requester; managed mode discloses it through this operator.
             // A pre-booked ride outside the lead window is NOT broadcast yet —
             // the schedule sweep dispatches it when the window opens.
             const deferDispatch = scheduledFor
@@ -4671,8 +4937,10 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                         pickup: approximateLocation(ride.pickup),
                         dropoff: approximateLocation(ride.dropoff),
                         // Count only pre-accept — stop locations are PII
-                        stopCount: ride.stops ? ride.stops.length : 0,
+                        stopCount: ride.stopCount ?? (ride.stops ? ride.stops.length : 0),
                         fare: ride.fare,
+                        settlementMode: ride.settlementMode || 'priced',
+                        locationMode: ride.locationMode || 'operator_memory',
                         distance: distance,
                         estimatedFare: pricedEstimate,
                         currency: fiatCurrency,
@@ -4708,7 +4976,10 @@ app.post('/api/routes/preview', publicRateLimiter, async (req, res) => {
                 duration_minutes: Math.round(duration),
                 drivers_notified: driverCount,
                 scheduled_for: scheduledFor,
-                stops: ride.stops || null,
+                stops: privateItinerary ? null : (ride.stops || null),
+                stop_count: ride.stopCount || 0,
+                location_mode: ride.locationMode,
+                settlement_mode: ride.settlementMode,
                 women_only: ride.womenOnly === true,
                 access_needs: ride.accessNeeds || [],
                 option: ride.option || null,
@@ -4778,6 +5049,16 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
         // self-attested (pseudonymous system) — the claim comes from the
         // accept body or the driver's registered presence.
         const pendingRide = rideManager.getRide(rideId);
+        if (pendingRide?.locationMode === 'participant_encrypted') {
+            vehicle = null;
+        }
+        if (driver_location && pendingRide?.locationMode === 'participant_encrypted') {
+            const cell = encodeGeohash(
+                driver_location.lat, driver_location.lon, PRIVATE_LOCATION_PRECISION
+            );
+            const centre = decodeGeohash(cell);
+            driver_location = { lat: centre.lat, lon: centre.lon };
+        }
         if (pendingRide?.womenOnly) {
             const claimed = sanitiseGender(req.body.gender)
                 || getDriverPresence(driver_npub || driver_pubkey)?.gender
@@ -4843,9 +5124,9 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
         // What this provider declares they hold. Shown to the requester at
         // match; never verified here and never presented as verified.
         const acceptProfileForCreds = rideManager.getProfileForRide(rideId) || domainProfile;
-        const credentials = sanitiseCredentials(
-            req.body.credentials, acceptProfileForCreds
-        );
+        const credentials = pendingRide?.locationMode === 'participant_encrypted'
+            ? []
+            : sanitiseCredentials(req.body.credentials, acceptProfileForCreds);
         const admission = evaluateDriverAdmission(operatorPolicy, {
             pubkey: driver_pubkey,
             npub: driver_npub,
@@ -4985,13 +5266,6 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
 app.post('/api/rides/:rideId/location', async (req, res) => {
     try {
         const { rideId } = req.params;
-        const lat = req.body.lat;
-        const lon = req.body.lon != null ? req.body.lon : req.body.lng;
-
-        if (!isValidLat(lat) || !isValidLon(lon)) {
-            return res.status(400).json({ error: 'lat and lon/lng must be valid coordinates' });
-        }
-
         const ride = rideManager.getRide(rideId);
 
         if (!ride) {
@@ -5001,6 +5275,18 @@ app.post('/api/rides/:rideId/location', async (req, res) => {
         const authErr = authoriseRideActor(req, ride, ['provider']);
         if (authErr) {
             return res.status(authErr.status).json(authErr);
+        }
+        if (ride.locationMode === 'participant_encrypted') {
+            return res.status(409).json({
+                error: 'Live location is disabled for participant-encrypted tasks'
+            });
+        }
+
+        const lat = req.body.lat;
+        const lon = req.body.lon != null ? req.body.lon : req.body.lng;
+
+        if (!isValidLat(lat) || !isValidLon(lon)) {
+            return res.status(400).json({ error: 'lat and lon/lng must be valid coordinates' });
         }
 
         // Determine destination based on status (using the ride's domain profile)
@@ -5078,10 +5364,14 @@ app.post('/api/rides/:rideId/pickup', async (req, res) => {
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
         }
-
         const authErr = authoriseRideActor(req, ride, ['requester']);
         if (authErr) {
             return res.status(authErr.status).json(authErr);
+        }
+        if (ride.locationMode === 'participant_encrypted') {
+            return res.status(409).json({
+                error: 'Pickup changes stay participant-to-participant in privacy mode'
+            });
         }
 
         const rideProfile = rideManager.getProfileForRide(rideId);
@@ -5146,11 +5436,9 @@ app.post('/api/rides/:rideId/pickup', async (req, res) => {
                 duration = osrmRoute.durationMin;
                 routeCoordinates = osrmRoute.coordinates;
             } else {
-                const legs = [newPickup, ...routeVia, ride.dropoff];
-                for (let i = 0; i < legs.length - 1; i++) {
-                    distance += calculateDistance(legs[i].lat, legs[i].lon, legs[i + 1].lat, legs[i + 1].lon);
-                }
-                duration = (distance / 45) * 60;
+                const error = new Error('Road routing is unavailable; pickup was not changed');
+                error.code = 'ROAD_ROUTING_UNAVAILABLE';
+                throw error;
             }
         }
 
@@ -5178,8 +5466,8 @@ app.post('/api/rides/:rideId/pickup', async (req, res) => {
             session.route = routeCoordinates;
         }
 
-        // Tell the committed provider — exact coordinates, participant-gated
-        // (ride subscriptions are participant-only when auth is on).
+        // Managed-mode only (privacy tasks were rejected above): tell the
+        // committed provider over the participant-gated ride socket.
         if (matched) {
             broadcastToRide(rideId, {
                 type: 'pickup_updated',
@@ -5258,6 +5546,11 @@ app.post('/api/rides/:rideId/dropoff', async (req, res) => {
         const authErr = authoriseRideActor(req, ride, ['requester']);
         if (authErr) {
             return res.status(authErr.status).json(authErr);
+        }
+        if (ride.locationMode === 'participant_encrypted') {
+            return res.status(409).json({
+                error: 'Destination changes stay participant-to-participant in privacy mode'
+            });
         }
 
         const rideProfile = rideManager.getProfileForRide(rideId);
@@ -5783,17 +6076,6 @@ app.post('/api/rides/:rideId/panic', async (req, res) => {
             return res.status(400).json({ error: 'Missing panic event payload' });
         }
 
-        // Exact position arrives OUTSIDE the signed event and stays out of
-        // it: the other participant needs to know where to go, a relay does
-        // not. Held in memory for the life of the task, like every other
-        // exact coordinate here.
-        const rawPanicLocation = req.body.location;
-        const panicLocation = rawPanicLocation
-            && isValidLat(rawPanicLocation.lat)
-            && isValidLon(rawPanicLocation.lon ?? rawPanicLocation.lng)
-            ? { lat: rawPanicLocation.lat, lon: rawPanicLocation.lon ?? rawPanicLocation.lng }
-            : null;
-
         const ride = rideManager.getRide(rideId);
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
@@ -5802,6 +6084,19 @@ app.post('/api/rides/:rideId/panic', async (req, res) => {
         const authErr = authoriseRideActor(req, ride);
         if (authErr) {
             return res.status(authErr.status).json(authErr);
+        }
+
+        const rawPanicLocation = req.body.location;
+        let panicLocation = rawPanicLocation
+            && isValidLat(rawPanicLocation.lat)
+            && isValidLon(rawPanicLocation.lon ?? rawPanicLocation.lng)
+            ? { lat: rawPanicLocation.lat, lon: rawPanicLocation.lon ?? rawPanicLocation.lng }
+            : null;
+        if (panicLocation && ride.locationMode === 'participant_encrypted') {
+            const centre = decodeGeohash(encodeGeohash(
+                panicLocation.lat, panicLocation.lon, PRIVATE_LOCATION_PRECISION
+            ));
+            panicLocation = { lat: centre.lat, lon: centre.lon };
         }
 
         const publishResult = await reputation.publishPanic(event, ride);
@@ -5825,9 +6120,8 @@ app.post('/api/rides/:rideId/panic', async (req, res) => {
             console.warn(`Failed to append panic event for ride ${rideId}:`, recordError.message);
         }
 
-        // Participant-gated: the ride socket, not a relay. `location` is the
-        // exact position the client sent out-of-band — the frontend has
-        // always read this field, and until now nothing ever filled it.
+        // Participant-gated socket. Managed mode can carry the exact point;
+        // privacy mode carries the same coarse cell as the signed event.
         broadcastToRide(rideId, {
             type: 'panic_alert',
             ride_id: rideId,
@@ -6053,6 +6347,9 @@ app.post('/api/rides/:rideId/tip', async (req, res) => {
         if (!ride) {
             return res.status(404).json({ error: 'Ride not found' });
         }
+        if (ride.settlementMode === 'none') {
+            return res.status(409).json({ error: 'Tips are disabled for a no-money journey' });
+        }
 
         const authErr = authoriseRideActor(req, ride, ['requester']);
         if (authErr) {
@@ -6093,6 +6390,11 @@ app.post('/api/rides/:rideId/proof', async (req, res) => {
         const authErr = authoriseRideActor(req, ride, ['provider']);
         if (authErr) {
             return res.status(authErr.status).json(authErr);
+        }
+        if (ride.locationMode === 'participant_encrypted') {
+            return res.status(409).json({
+                error: 'Operator-held photo and signature proofs are disabled in privacy mode'
+            });
         }
 
         ride.proofs = ride.proofs || [];
@@ -6166,6 +6468,14 @@ app.post('/api/rides/:rideId/quote', async (req, res) => {
         const authErr = authoriseRideActor(req, ride, ['provider']);
         if (authErr) {
             return res.status(authErr.status).json(authErr);
+        }
+        if (ride.settlementMode === 'none') {
+            return res.status(409).json({ error: 'This journey has no monetary quote' });
+        }
+        if (ride.locationMode === 'participant_encrypted') {
+            return res.status(409).json({
+                error: 'Quote descriptions stay in encrypted participant chat in privacy mode'
+            });
         }
 
         ride.quote = {
@@ -7378,7 +7688,21 @@ app.post('/api/rides/:rideId/complete', async (req, res) => {
         }
 
         let payment;
-        if (paymentProvider && typeof paymentProvider.recordSettlement === 'function') {
+        if (ride.settlementMode === 'none') {
+            payment = {
+                success: true,
+                method: 'none',
+                status: 'not_applicable',
+                amount: 0,
+                currency: 'SAT',
+                fiat: null,
+                trust_model: 'no_money',
+                custody: 'none',
+                operator_transmitted: 0,
+                settlement: 'none',
+                timestamp: Date.now()
+            };
+        } else if (paymentProvider && typeof paymentProvider.recordSettlement === 'function') {
             // Record-only rails (cash): the fare changes hands face-to-face.
             // The operator records that it happened; it moves no money itself.
             const record = await paymentProvider.recordSettlement(rideId, fareSats, 'SAT');
@@ -7560,8 +7884,10 @@ app.get('/api/rides/open', publicRateLimiter, optionalNip98, (req, res) => {
                     // Approximate pre-accept — see approximateLocation
                     pickup: approximateLocation(ride.pickup),
                     dropoff: approximateLocation(ride.dropoff),
-                    stopCount: ride.stops ? ride.stops.length : 0,
+                    stopCount: ride.stopCount ?? (ride.stops ? ride.stops.length : 0),
                     fare: ride.fare,
+                    settlementMode: ride.settlementMode || 'priced',
+                    locationMode: ride.locationMode || 'operator_memory',
                     distance: distanceKm,
                     estimatedFare: estimate,
                     currency: ride.currency || session.currency || 'GBP',

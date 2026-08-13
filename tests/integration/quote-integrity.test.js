@@ -167,14 +167,8 @@ test('every service class carries its own summing breakdown', async () => {
 
 test('the quote carries the geometry the price came from', async () => {
   const { body } = await quote();
-  // With a router up this is the road polyline; without one the estimate is
-  // an honest straight line and says so rather than inventing a route.
-  if (body.routed) {
-    assert.ok(Array.isArray(body.routeGeometry) && body.routeGeometry.length > 1);
-  } else {
-    assert.equal(body.routed, false);
-    assert.equal(body.routeGeometry, null);
-  }
+  assert.equal(body.routed, true, 'a priced journey must have a road route');
+  assert.ok(Array.isArray(body.routeGeometry) && body.routeGeometry.length > 1);
 });
 
 // ── The guarantee across TIME, not just across endpoints ────────────────

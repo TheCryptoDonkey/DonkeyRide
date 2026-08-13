@@ -72,7 +72,6 @@ export const en: Record<string, string> = {
   'request.operator': 'Operator',
   'request.time': 'Time',
   'request.includesFee': 'Includes operator fee',
-  'request.straightLine': 'Estimated in a straight line — the router was unreachable.',
   'request.requesting': 'Requesting...',
   'request.bookForLater': 'Book {label} for later',
   'request.request': 'Request {label}',
@@ -591,15 +590,11 @@ export const en: Record<string, string> = {
   'destination.failed': 'Could not change the destination',
 
   // ── Booking for somebody else ───────────────────────
-  'passenger.title': "Who's travelling",
-  'passenger.toggle': 'This {noun} is for somebody else',
-  'passenger.name': 'Their name',
-  'passenger.namePlaceholder': 'Name to call out at the kerb',
-  'passenger.note': 'Anything else they should know',
-  'passenger.notePlaceholder': 'e.g. my mum, she uses a stick',
-  'passenger.privacy': 'Goes to the matched {label} only. Never published, never kept.',
-  'passenger.travelling': "You're collecting",
-  'passenger.unnamed': 'Somebody else (no name given)',
+  'settlement.title': 'Money for this journey',
+  'settlement.priced': 'Priced journey',
+  'settlement.none': 'No money',
+  'settlement.pricedHint': 'The shown amount is agreed now and settles directly between you.',
+  'settlement.noneHint': 'No fare, payment method, stake or tip. This is still a routed multi-stop journey.',
 
   // ── Credentials ─────────────────────────────────────
   'credentials.title': 'Licences and cover',

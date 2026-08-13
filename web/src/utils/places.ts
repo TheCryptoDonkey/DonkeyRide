@@ -1,7 +1,6 @@
 /**
- * Device-local place storage — recents and pinned saved places (Home, Work…).
- * Like everything else about the rider, this never leaves the phone: the
- * operator has no notion of a saved place.
+ * In-memory place helpers — recents and pinned places for this app session.
+ * Exact home/work coordinates are deliberately not written to Web Storage.
  */
 
 export interface Place {
@@ -19,27 +18,30 @@ const RECENTS_KEY = 'donkeyride.recentPlaces';
 const SAVED_KEY = 'donkeyride.savedPlaces';
 const MAX_RECENTS = 5;
 const MAX_SAVED = 6;
+let recentPlaces: Place[] = [];
+let savedPlaces: SavedPlace[] = [];
 
-function readList<T>(key: string): T[] {
+function purgeLegacyStorage(): void {
   try {
-    const parsed = JSON.parse(localStorage.getItem(key) || '[]');
-    return Array.isArray(parsed) ? parsed : [];
+    localStorage.removeItem(RECENTS_KEY);
+    localStorage.removeItem(SAVED_KEY);
   } catch {
-    return [];
+    // Storage may be disabled; memory-only behaviour is unaffected.
   }
 }
 
 export function loadRecents(): Place[] {
-  return readList<Place>(RECENTS_KEY);
+  purgeLegacyStorage();
+  return [...recentPlaces];
 }
 
 export function saveRecent(place: Place): void {
-  const recents = [place, ...loadRecents().filter((r) => r.label !== place.label)].slice(0, MAX_RECENTS);
-  localStorage.setItem(RECENTS_KEY, JSON.stringify(recents));
+  recentPlaces = [place, ...recentPlaces.filter((r) => r.label !== place.label)].slice(0, MAX_RECENTS);
 }
 
 export function loadSavedPlaces(): SavedPlace[] {
-  return readList<SavedPlace>(SAVED_KEY);
+  purgeLegacyStorage();
+  return [...savedPlaces];
 }
 
 /**
@@ -50,16 +52,16 @@ export function loadSavedPlaces(): SavedPlace[] {
 export function savePlace(name: string, place: Place): SavedPlace[] | null {
   const trimmed = name.trim().slice(0, 30);
   if (!trimmed) return null;
-  const existing = loadSavedPlaces().filter((s) => s.name.toLowerCase() !== trimmed.toLowerCase());
+  const existing = savedPlaces.filter((s) => s.name.toLowerCase() !== trimmed.toLowerCase());
   if (existing.length >= MAX_SAVED) return null;
   const updated = [...existing, { name: trimmed, label: place.label, lat: place.lat, lng: place.lng }];
-  localStorage.setItem(SAVED_KEY, JSON.stringify(updated));
+  savedPlaces = updated;
   return updated;
 }
 
 export function removeSavedPlace(name: string): SavedPlace[] {
-  const updated = loadSavedPlaces().filter((s) => s.name !== name);
-  localStorage.setItem(SAVED_KEY, JSON.stringify(updated));
+  const updated = savedPlaces.filter((s) => s.name !== name);
+  savedPlaces = updated;
   return updated;
 }
 
@@ -69,4 +71,10 @@ export function suggestPlaceName(): string {
   if (!taken.has('home')) return 'Home';
   if (!taken.has('work')) return 'Work';
   return '';
+}
+
+export function clearPlaces(): void {
+  recentPlaces = [];
+  savedPlaces = [];
+  purgeLegacyStorage();
 }

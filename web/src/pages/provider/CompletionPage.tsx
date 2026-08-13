@@ -12,6 +12,7 @@ import { recordJob } from '../../services/job-history';
 import { formatDistance, formatDuration } from '../../services/pricing';
 import { getAgreedRate } from '../../utils/agreed-rate';
 import { useT } from '../../i18n';
+import { clearPrivateItinerary } from '../../services/private-itinerary';
 
 export function CompletionPage() {
   const navigate = useNavigate();
@@ -74,6 +75,7 @@ export function CompletionPage() {
   };
 
   const handleDone = () => {
+    clearPrivateItinerary(task.id);
     clearCompletedTask();
     reset();
     navigate('/provide');
@@ -88,8 +90,12 @@ export function CompletionPage() {
         {/* Summary */}
         <div className="earnings-card text-center">
           <p className="text-donkey-green text-lg font-bold mb-2">{completedLabel}</p>
-          <p className="meta-label mb-1">{t('complete.earned')}</p>
-          <DualPrice sats={earned} size="lg" ratesOverride={getAgreedRate(task.id)} />
+          <p className="meta-label mb-1">
+            {task.settlementMode === 'none' ? t('settlement.title') : t('complete.earned')}
+          </p>
+          {task.settlementMode === 'none'
+            ? <p className="text-lg font-black text-donkey-green">{t('settlement.none')}</p>
+            : <DualPrice sats={earned} size="lg" ratesOverride={getAgreedRate(task.id)} />}
 
           {(task.distanceKm || task.durationMin) && (
             <p className="text-donkey-muted text-sm mt-2">
@@ -101,7 +107,9 @@ export function CompletionPage() {
         </div>
 
         {/* Non-custodial settlement: confirm the rider's direct payment */}
-        <ConfirmReceipt task={task} settlement={task.settlement} />
+        {task.settlementMode !== 'none' && (
+          <ConfirmReceipt task={task} settlement={task.settlement} />
+        )}
 
         {/* Rating */}
         {!submitted ? (

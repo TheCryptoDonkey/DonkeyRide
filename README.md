@@ -40,8 +40,8 @@ git clone https://github.com/TheCryptoDonkey/DonkeyRide
 cd DonkeyRide
 nix develop
 
-# Start all services (PostgreSQL, Redis, Nostr relay, mock Lightning)
-nix run .#services
+# Start the database-free reference coordinator + relay
+docker compose -f docker-compose.demo.yml up --build
 
 # In another terminal
 npm install && npm run dev
@@ -51,7 +51,7 @@ npm install && npm run dev
 ```bash
 git clone https://github.com/TheCryptoDonkey/DonkeyRide
 cd DonkeyRide
-docker compose --profile dev up
+docker compose -f docker-compose.demo.yml up --build
 ```
 
 ### Run with a different domain
@@ -101,12 +101,15 @@ SETTLEMENT                    →  Peer-to-peer (cash / wallet-to-wallet). Opera
 The operator is a **thin compliance layer** — handling only what the law mandates. Everything else runs on decentralised rails:
 
 - **Stake custody** → operator-configured rail, from record-only cash (no custody at all) to hodl invoices; NIP-47 wallet-to-wallet planned
-- **PII exchange** → operator-held over authenticated HTTPS/WSS today; NIP-17 gift-wrapped P2P exchange is specified but not yet implemented in this server (no PII is published to relays either way)
+- **Exact itinerary (privacy-default)** → the browser sends exact points directly to a Valhalla router, then gives the coordinator only geohash-5 cells and routed distance/time totals. After a driver accepts, exact pickup, drop-off, stops, addresses and meeting notes travel to that driver in a signed NIP-17 gift wrap and are stored NIP-44-encrypted on each device.
+- **Managed operator mode** → `OPERATOR_DATA_MODE=managed` restores the authenticated HTTPS/WSS path for firms that deliberately want operator-readable journey data and accept the corresponding controller obligations.
 - **Coordination** → NIP-44 encrypted Nostr events
 - **Discovery** → Geohash-based on public relays
 - **Reputation** → Cryptographically signed on Nostr
 
 See the [architecture documentation](https://github.com/TheCryptoDonkey/trott/blob/main/docs/architecture.md) for the full analysis.
+The concrete runtime boundary is documented in
+[docs/PRIVACY-MODES.md](./docs/PRIVACY-MODES.md).
 
 ### Payments — pay the driver directly, any rail
 
@@ -115,6 +118,16 @@ operator never receives, holds, or transmits funds (see
 [docs/REGULATORY-POSTURE.md](./docs/REGULATORY-POSTURE.md)). It advertises the
 driver's accepted rails, produces something the rider can pay, and records or
 verifies the result.
+
+A journey may instead set `settlement_mode=none`. That is not a zero-priced
+payment: payment methods, stakes, settlement proofs and tips are disabled, so
+friends, neighbours and informal lift-sharing can coordinate a properly routed
+multi-stop journey without money changing hands or naming third parties.
+
+Encryption is not anonymity. The coordinator and relay can still observe
+metadata such as IP addresses, timing, task ids, coarse cells and pubkeys; the
+selected routing service necessarily sees the exact route request. Do not call
+this “no PII” or “no trace.”
 
 Settlement rails (`settlement/`, all custody `none`):
 
@@ -164,6 +177,8 @@ Copy `.env.example` for configuration. Key variables:
 | `DOMAIN` | Domain profile | `ridesharing` |
 | `PAYMENT_PROVIDER` | Payment backend | `demo` |
 | `NAVIGATION_PROVIDER` | Routing backend | `osrm` |
+| `OPERATOR_DATA_MODE` | `blind` participant-encrypted itinerary, or `managed` | `blind` in demo compose |
+| `PUBLIC_ROUTING_URL` | Browser-reachable Valhalla base for blind mode | `/routing` |
 | `OPERATOR_PUBKEY` | Operator Nostr identity | — |
 | `DATABASE_URL` | PostgreSQL connection | — |
 | `REDIS_URL` | Redis connection | — |

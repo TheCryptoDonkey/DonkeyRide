@@ -37,6 +37,10 @@ services:
       OPERATOR_ADMISSION_MODE: ${OPERATOR_ADMISSION_MODE:-open}
       OPERATOR_ALLOWED_DRIVERS: ${OPERATOR_ALLOWED_DRIVERS:-}
       OPERATOR_RECORD_MODE: ${OPERATOR_RECORD_MODE:-ephemeral}
+      # Privacy-default coordinator: exact itinerary points never enter this
+      # service. The browser routes directly, then sends coarse cells + totals.
+      OPERATOR_DATA_MODE: ${OPERATOR_DATA_MODE:-blind}
+      PUBLIC_ROUTING_URL: ${PUBLIC_ROUTING_URL:-/routing}
       OPERATOR_TERMS_URL: ${OPERATOR_TERMS_URL:-}
       OPERATOR_PRIVACY_URL: ${OPERATOR_PRIVACY_URL:-}
       OPERATOR_CONTACT: ${OPERATOR_CONTACT:-}

@@ -49,6 +49,20 @@ describe('trip history', () => {
     localStorage.setItem('donkeyride.trip-history', '{nope');
     expect(getTripHistory()).toEqual([]);
   });
+
+  it('does not persist exact places for a participant-encrypted trip', () => {
+    recordTrip(makeTask('private_ride', {
+      locationMode: 'participant_encrypted',
+      pickupAddress: '1 Exact Home Street',
+      dropoffAddress: '9 Exact Other Street',
+    }));
+    const [record] = getTripHistory();
+    expect(record.from).toBeUndefined();
+    expect(record.to).toBeUndefined();
+    expect(record.fromLoc).toBeUndefined();
+    expect(record.toLoc).toBeUndefined();
+    expect(localStorage.getItem('donkeyride.trip-history')).not.toContain('Exact Home');
+  });
 });
 
 describe('a settled receipt does not re-price', () => {

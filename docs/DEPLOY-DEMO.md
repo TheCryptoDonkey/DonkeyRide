@@ -1,13 +1,14 @@
 # Deploying a public demo instance
 
-The demo stack runs the operator with PostgreSQL persistence and Redis behind
-any TLS reverse proxy. Ports bind to loopback only — the proxy is the sole
-public surface.
+The privacy-default demo stack runs an ephemeral coordinator plus a Nostr
+relay behind any TLS reverse proxy. It has no PostgreSQL and no Redis. Ports
+bind to loopback only — the proxy is the sole public surface.
 
 ## 1. Start the stack
 
 ```bash
-docker compose -f docker-compose.demo.yml up -d --build
+docker compose -f docker-compose.demo.yml \
+  -f docker-compose.private-routing.yml up -d --build
 ```
 
 This exposes on the host:
@@ -15,9 +16,10 @@ This exposes on the host:
 - `127.0.0.1:3999` — HTTP API + built web app
 - `127.0.0.1:3998` — WebSocket
 
-The operator runs with `PAYMENT_PROVIDER=demo`, `ENABLE_NIP98_AUTH=true` and
-`ENABLE_RATE_LIMITING=true`. Persistence is PostgreSQL (tasks survive
-restarts and are rehydrated on startup).
+The operator runs with `OPERATOR_DATA_MODE=blind`, `ENABLE_NIP98_AUTH=true`
+and `ENABLE_RATE_LIMITING=true`. Active coordinator state is in memory;
+minimal NIP-44-sealed snapshots can rehydrate it through the configured Nostr
+relay. Exact itineraries remain encrypted to participant devices.
 
 ## 2. Front with Caddy (automatic TLS)
 
@@ -25,6 +27,9 @@ restarts and are rehydrated on startup).
 donkeyride.example.com {
 	@ws path /ws
 	reverse_proxy @ws localhost:3998
+	handle_path /routing/* {
+		reverse_proxy localhost:8002
+	}
 	handle_path /relay* {
 		reverse_proxy localhost:3997
 	}
@@ -85,10 +90,23 @@ curl -X POST https://donkeyride.example.com/api/rides/request   # expect 401 (au
 Then open the site on a phone, add to home screen, and run a ride end to end
 with two browsers (one rider, one driver going online).
 
+Also verify the advertised boundary and the road router:
+
+```bash
+curl https://donkeyride.example.com/info
+curl -X POST https://donkeyride.example.com/routing/route \
+  -H 'content-type: application/json' \
+  --data '{"locations":[{"lat":53.4808,"lon":-2.2426},{"lat":53.4774,"lon":-2.2309}],"costing":"auto","units":"kilometers"}'
+```
+
 ## Notes
 
-- This is a **demo** configuration: demo payment rail, throwaway Postgres
-  password, single node. For a real operator deployment see
+- This is a **demo** configuration: single node and ephemeral coordination.
+  For a real operator deployment see
   `DOCKER-SETUP.md` and the payment provider guide.
-- Routing falls back to straight-line estimates unless `OSRM_URL` points at
-  a routing engine covering your region.
+- Blind mode requires browser-reachable Valhalla tiles covering the operating
+  region. A missing road route fails visibly; no point-to-point distance is
+  substituted.
+- A firm that deliberately needs roster, credentials, special-category
+  matching or durable records selects `OPERATOR_DATA_MODE=managed` and may
+  add `DATABASE_URL` under its own data-protection policy.
