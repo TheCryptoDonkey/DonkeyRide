@@ -16,6 +16,7 @@ import { validCredentials } from '../utils/credentials';
 import type { DestinationMode } from '../utils/destination-mode';
 import { decodeGeohash, encodeGeohash } from '../utils/geohash';
 import { getCoordinationMode } from './network-mode';
+import { EphemeralShiftIdentity } from './shift-identity';
 
 const ONLINE_KEY = 'donkeyride.provider.online';
 const RECONNECT_DELAY_MS = 4000;
@@ -56,6 +57,7 @@ class DispatchService {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private presenceTimer: ReturnType<typeof setInterval> | null = null;
   private beaconTimer: ReturnType<typeof setInterval> | null = null;
+  private beaconIdentity = new EphemeralShiftIdentity();
   private taskHandlers: Set<TaskHandler> = new Set();
   private statusHandlers: Set<StatusHandler> = new Set();
   private availableHandlers: Set<AvailableHandler> = new Set();
@@ -640,11 +642,9 @@ class DispatchService {
    * TROTT-02 availability beacon — signed kind 20500 published direct to
    * public relays only, immediately on going online and every 15 seconds.
    *
-   * OFF by default (`p2pBeaconEnabled`): it publishes the driver's coarse
-   * whereabouts under their identity key for a whole shift, and while an
-   * operator coordinates, dispatch runs off the authenticated socket
-   * instead. `publishAvailabilityBeacon` refuses independently — this only
-   * saves running a timer that would do nothing.
+   * The event author is a random, memory-only key for this online shift —
+   * never the provider account/reputation identity. Managed coordination
+   * uses its authenticated socket instead unless explicitly opted in.
    */
   private startBeacon(): void {
     this.stopBeacon();
@@ -658,6 +658,7 @@ class DispatchService {
       clearInterval(this.beaconTimer);
       this.beaconTimer = null;
     }
+    this.beaconIdentity.clear();
   }
 
   /**
@@ -702,8 +703,11 @@ class DispatchService {
   }
 
   private async sendBeacon(): Promise<void> {
-    const key = getAuthPrivKey();
-    if (!this.online || !key || !this.location || !this.domainId) return;
+    if (!this.online || !this.location || !this.domainId) return;
+    const key = await this.beaconIdentity.privateKey();
+    // Key generation is asynchronous; going offline in the meantime must
+    // not leak one last beacon after the user has ended the shift.
+    if (!this.online || !this.location || !this.domainId) return;
     await publishAvailabilityBeacon(this.location, this.domainId, key);
   }
 

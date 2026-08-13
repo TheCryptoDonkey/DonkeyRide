@@ -16,21 +16,12 @@ import type { NostrEvent } from '../types/nostr';
  *
  * OFF unless `VITE_TROTT_P2P_BEACON=true`, and the default is the point.
  *
- * The beacon is the one public event a provider signs with their DURABLE
- * IDENTITY key — necessarily so: in operator-free discovery the pubkey IS
- * the contact address and the reputation anchor, so a throwaway key (the
- * fix applied to task announcements) would make it useless. That key also
- * carries their kind 0 name and avatar and is `p`-tagged by every kind
- * 30520 rating. So a beacon every 60 seconds for a whole shift is a live,
- * named, rated feed of where a working person is, published to relays
- * anyone may subscribe to. The ephemeral kind range means relays do not
- * STORE it — but nothing stops a subscriber storing it themselves, and
- * `{kinds:[20500]}` is a free, passive, permanently-open subscription.
- *
- * Direct-mode riders keep a live kind-20500 subscription and need this
- * contact/reputation anchor to discover nearby drivers. Managed dispatch
- * already has its own authenticated presence channel, so its beacon remains
- * off unless that operator build explicitly opts in.
+ * Its author is a random memory-only key reused only for one online shift.
+ * That lets riders replace a provider's previous beacon without exposing the
+ * account/reputation pubkey or linking separate shifts. The ephemeral kind
+ * range means conforming relays need not store it, but a subscriber can still
+ * retain and correlate a shift's coarse cells and timing. Managed dispatch
+ * already has presence, so its public beacon stays off unless opted in.
  */
 export function p2pBeaconEnabled(): boolean {
   if (getCoordinationMode() === 'direct') return true;
@@ -40,7 +31,7 @@ export function p2pBeaconEnabled(): boolean {
 
 /**
  * TROTT-02 availability beacon (kind 20500, ephemeral).
- * Announces that a provider is available near a geohash cell.
+ * Announces that an anonymous shift is available near a geohash cell.
  * Best-effort: returns the relay ack count, never throws.
  *
  * No-op unless `p2pBeaconEnabled()` — see the note there for why.

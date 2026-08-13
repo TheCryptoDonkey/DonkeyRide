@@ -2,6 +2,10 @@ import type { NostrIdentity, NostrEvent } from '../types/nostr';
 import {
   secureDeviceEnvelope, secureDeviceGet, secureDeviceSet,
 } from './secure-device-storage';
+import {
+  getIdentityKeyModel, loadIdentityTreePersona, restoreIdentityTree,
+  revealIdentityTreeRecoveryKey,
+} from './identity-tree';
 
 const REQUESTER_KEY = 'donkeyride.requesterPrivKey';
 const PROVIDER_KEY = 'donkeyride.providerPrivKey';
@@ -117,12 +121,14 @@ export async function loadOrCreateIdentity(
 
 /** Load requester identity */
 export function loadRequesterIdentity(): Promise<NostrIdentity> {
-  return loadOrCreateIdentity(REQUESTER_KEY, LEGACY_RIDER_KEY);
+  return loadIdentityTreePersona('requester').then((identity) =>
+    identity || loadOrCreateIdentity(REQUESTER_KEY, LEGACY_RIDER_KEY));
 }
 
 /** Load provider identity */
 export function loadProviderIdentity(): Promise<NostrIdentity> {
-  return loadOrCreateIdentity(PROVIDER_KEY, LEGACY_DRIVER_KEY);
+  return loadIdentityTreePersona('provider').then((identity) =>
+    identity || loadOrCreateIdentity(PROVIDER_KEY, LEGACY_DRIVER_KEY));
 }
 
 /** Sign an arbitrary event template with the given private key */
@@ -181,6 +187,19 @@ export async function encodeNsec(privKeyHex: string): Promise<string> {
 }
 
 /**
+ * The backup shown by the app. Tree installations expose the unpublished
+ * root, which restores every role/operator persona; legacy installations
+ * preserve their existing per-role nsec semantics.
+ */
+export async function encodeIdentityRecoveryKey(privKeyHex: string): Promise<string> {
+  if (getIdentityKeyModel() === 'tree') {
+    const recovery = await revealIdentityTreeRecoveryKey();
+    if (recovery) return recovery;
+  }
+  return encodeNsec(privKeyHex);
+}
+
+/**
  * Import an identity from an nsec (or raw hex) backup.
  * Overwrites the stored key for the given role. Returns the npub.
  */
@@ -188,6 +207,12 @@ export async function importIdentity(
   role: 'requester' | 'provider',
   secret: string,
 ): Promise<string> {
+  if (getIdentityKeyModel() === 'tree') {
+    await restoreIdentityTree(secret);
+    const identity = await loadIdentityTreePersona(role);
+    if (!identity) throw new Error('Identity tree could not be restored');
+    return identity.npub;
+  }
   const { getPublicKey, nip19 } = await import('nostr-tools');
   const trimmed = secret.trim();
 

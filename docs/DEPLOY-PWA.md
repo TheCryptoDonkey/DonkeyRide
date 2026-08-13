@@ -87,9 +87,10 @@ coordinator request. It never asks the test machine for a real location.
 Static hosting can still log visitor IPs and asset requests. A same-origin
 `/routing` proxy can log exact route points unless access/body logging is
 disabled and retention is controlled. Public relays can correlate timing,
-network address, durable driver availability keys, coarse cells and encrypted
-envelope traffic. NIP-40 expiration is advisory to relays and is not proof of
-deletion.
+network address, anonymous per-shift availability keys, coarse cells and
+encrypted envelope traffic. The shift key is not cryptographically linked to
+the account or another shift, but IP/timing can still correlate it. NIP-40
+expiration is advisory to relays and is not proof of deletion.
 
 If a firm chooses managed mode, deploy the reference operator separately and
 publish its policy. That firm decides whether PostgreSQL/Redis are enabled and

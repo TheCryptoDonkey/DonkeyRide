@@ -328,23 +328,17 @@ it?"** Three rules follow, and all three have been broken here before:
    announcement; `parseTaskAnnouncement` never reads the author, and drivers
    resolve jobs against the operator's authenticated API). Pinned by
    `web/src/services/events.test.ts`.
-3. **A publish with no reader is pure cost.** Rule 1 asks whether a kind
-   MAY be public; ask also whether anything actually READS it here. The
-   **kind 20500 availability beacon is therefore OFF by default**
-   (`VITE_TROTT_P2P_BEACON`, `p2pBeaconEnabled` in `web/src/services/events.ts`).
-   A provider on shift was signing one every 60 seconds under their
-   **durable identity key** — the key carrying their kind 0 name and every
-   30520 rating — so `{kinds:[20500]}` was a live, named, rated feed of a
-   working person's whereabouts. Ephemeral means relays do not *store* it;
-   it does not stop a subscriber storing it. And nothing in this codebase
-   has ever subscribed to 20500: while an operator coordinates, dispatch
-   runs off the authenticated task socket (`driver_location`, 30 s), riders
-   are matched by the operator, and federated jobs resolve through the
-   coordinating operator's API. Unlike the announcement in rule 2, the
-   beacon may NOT be moved to a throwaway key — with no operator to resolve
-   through, its author IS the contact address and the reputation anchor.
-   Default-off is the fix; the code stays for the operator-free mode it was
-   written for.
+3. **A publish needs a reader and a disposable join key where possible.**
+   Direct-mode riders subscribe to kind 20500 to count coarse nearby supply;
+   task acceptance uses the separate per-journey rendezvous path, so the
+   beacon author does not need to be the account or reputation anchor. The
+   provider therefore signs availability with a random memory-only key reused
+   for one online shift and discarded by Go Offline. This prevents a
+   cryptographic join to the account and other shifts, but does not stop a
+   subscriber correlating cells within that shift or using IP/timing across
+   shifts. Managed coordination has its authenticated presence socket and
+   keeps public beacons off unless explicitly opted in. Pinned by the direct
+   Playwright journey and `web/src/services/shift-identity.test.ts`.
 
 Applications of the same reasoning:
 

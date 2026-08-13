@@ -5,7 +5,8 @@ coordination. The normal product is the app, not an operator business.
 
 The default build joins an open Nostr network directly:
 
-- drivers publish short-lived, coarse availability beacons;
+- drivers publish short-lived, coarse availability beacons under a random
+  memory-only identity that changes every online shift;
 - riders publish coarse, per-journey rendezvous announcements;
 - matching, the exact itinerary, chat and lifecycle updates use NIP-17 gift
   wraps with NIP-44 encryption;
@@ -35,16 +36,22 @@ also device-local settings; changing them does not require rebuilding the app.
 | Service | What it can observe in direct mode |
 |---|---|
 | Static PWA host | Ordinary web request metadata, depending on its logging |
-| Nostr relays | IP/timing, durable driver pubkey on availability, coarse cells, rendezvous keys and encrypted envelope metadata |
+| Nostr relays | IP/timing, anonymous per-shift availability pubkeys, coarse cells, per-journey rendezvous keys and encrypted envelope metadata |
 | Road router | Exact ordered route points and request metadata, but no DonkeyRide identity or journey id |
 | Photon/search provider | The place text a person types and a coarse location bias |
 | Map tile provider | Requested map tiles and request metadata |
 | Participant devices | Exact journey state and identity secrets, encrypted at rest |
 
-The identity secret is AES-GCM encrypted under a non-exportable WebCrypto key
-held in IndexedDB. Exact journey records are separately NIP-44 encrypted. A
-compromised app origin executing code while the app is open can still use the
-loaded identity, so this is storage protection rather than an anonymity claim.
+Fresh installations keep one unpublished `nsec-tree` root, AES-GCM encrypted
+under a non-exportable WebCrypto key held in IndexedDB. Rider, driver and each
+selected managed operator get deterministic but cryptographically unlinkable
+child identities. Public availability uses a separate per-shift random key;
+journey rendezvous and gift-wrap keys remain random. Existing installations
+keep their current identity unless the human explicitly chooses the destructive
+"start fresh" migration in Account. Exact journey records are separately
+NIP-44 encrypted. A compromised app origin executing code while the app is open
+can still use the root and loaded identity, so this is storage protection and
+metadata minimisation, not an anonymity or "no PII" claim.
 See [privacy modes](./docs/PRIVACY-MODES.md).
 
 ## Develop the PWA

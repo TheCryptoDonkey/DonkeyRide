@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useIdentity } from '../../context/IdentityContext';
 import {
-  encodeNsec, importIdentity,
+  encodeIdentityRecoveryKey, importIdentity,
   getIdentityRecoveryNotice, clearIdentityRecoveryNotice,
 } from '../../services/nostr';
 import { PaymentMethodsEditor } from '../../components/payment/PaymentMethodsEditor';
@@ -21,6 +21,8 @@ import { ReputationBadge } from '../../components/common/ReputationBadge';
 import { OperatorPicker } from '../../components/operator/OperatorPicker';
 import { OpenNetworkSettings } from '../../components/operator/OpenNetworkSettings';
 import { DomainSwitcher } from '../../components/layout/DomainSwitcher';
+import { getIdentityKeyModel, startFreshIdentityTree } from '../../services/identity-tree';
+import { useTask } from '../../context/TaskContext';
 
 interface ProfilePageProps {
   role: 'requester' | 'provider';
@@ -34,16 +36,26 @@ interface ProfilePageProps {
 export function ProfilePage({ role }: ProfilePageProps) {
   const { t, locale, setLocale } = useT();
   const { identity } = useIdentity();
+  const { activeTask } = useTask();
+  const [keyModel, setKeyModel] = useState(getIdentityKeyModel);
   const [nsec, setNsec] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [manualCopy, setManualCopy] = useState<{ label: string; value: string } | null>(null);
   const [importValue, setImportValue] = useState('');
   const [importError, setImportError] = useState<string | null>(null);
   const [recoveryNotice, setRecoveryNotice] = useState<string | null>(getIdentityRecoveryNotice());
+  const [confirmFreshTree, setConfirmFreshTree] = useState(false);
+  const [treeBusy, setTreeBusy] = useState(false);
   // Provider: what this vehicle offers. Requester: what they need.
   const [accessFeatures, setAccessFeatures] = useState<string[]>(
     () => (role === 'provider' ? loadAccessFeatures() : loadAccessNeeds()),
   );
+
+  // Identity creation is asynchronous. Re-read the model once it arrives so
+  // a brand-new installation is never mislabeled as a legacy account.
+  useEffect(() => {
+    if (identity) setKeyModel(getIdentityKeyModel());
+  }, [identity]);
 
   const copy = async (label: string, value: string) => {
     try {
@@ -60,7 +72,7 @@ export function ProfilePage({ role }: ProfilePageProps) {
 
   const revealNsec = async () => {
     if (!identity) return;
-    setNsec(await encodeNsec(identity.privKeyHex));
+    setNsec(await encodeIdentityRecoveryKey(identity.privKeyHex));
   };
 
   const handleImport = async () => {
@@ -76,6 +88,22 @@ export function ProfilePage({ role }: ProfilePageProps) {
   const dismissRecovery = () => {
     clearIdentityRecoveryNotice();
     setRecoveryNotice(null);
+  };
+
+  const beginFreshTree = async () => {
+    if (!confirmFreshTree || activeTask) {
+      setConfirmFreshTree(true);
+      return;
+    }
+    setTreeBusy(true);
+    setImportError(null);
+    try {
+      await startFreshIdentityTree();
+      window.location.reload();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : t('profile.importFailed'));
+      setTreeBusy(false);
+    }
   };
 
   return (
@@ -119,6 +147,54 @@ export function ProfilePage({ role }: ProfilePageProps) {
       <OperatorPicker role={role} />
       <OpenNetworkSettings />
 
+      <div className="card space-y-3">
+        <div>
+          <p className="text-xs uppercase tracking-wider text-donkey-muted">
+            {t('profile.identitySeparation')}
+          </p>
+          <p className="font-semibold text-donkey-text mt-1">
+            {t(keyModel === 'tree' ? 'profile.treeActive' : 'profile.legacyActive')}
+          </p>
+        </div>
+        <p className="text-sm text-donkey-muted">
+          {t(keyModel === 'tree' ? 'profile.treeNote' : 'profile.legacyNote')}
+        </p>
+        {keyModel !== 'tree' && (
+          confirmFreshTree ? (
+            <div className="border border-donkey-orange rounded-lg p-3 space-y-3">
+              <p className="text-sm text-donkey-orange font-semibold">
+                {t('profile.treeFreshWarning')}
+              </p>
+              {activeTask && (
+                <p className="text-xs text-donkey-red">{t('profile.treeFinishFirst')}</p>
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="btn-secondary flex-1"
+                  onClick={() => setConfirmFreshTree(false)}
+                  disabled={treeBusy}
+                >
+                  {t('common.cancel')}
+                </button>
+                <button
+                  type="button"
+                  className="btn-danger flex-1"
+                  onClick={beginFreshTree}
+                  disabled={treeBusy || Boolean(activeTask)}
+                >
+                  {treeBusy ? t('common.connecting') : t('profile.treeConfirmFresh')}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" className="btn-secondary w-full" onClick={beginFreshTree}>
+              {t('profile.treeStartFresh')}
+            </button>
+          )
+        )}
+      </div>
+
       {/* Identity recovery notice — stored key was unreadable and replaced */}
       {recoveryNotice && (
         <div className="bg-donkey-orange/20 border border-donkey-orange rounded-lg p-4 space-y-2">
@@ -158,7 +234,7 @@ export function ProfilePage({ role }: ProfilePageProps) {
       <div className="card space-y-2">
         <p className="text-xs uppercase tracking-wider text-donkey-muted">{t('profile.accountId')}</p>
         <p className="text-sm text-donkey-muted">
-          {t('profile.accountIdNote')}
+          {t(keyModel === 'tree' ? 'profile.accountIdTreeNote' : 'profile.accountIdNote')}
         </p>
         <p className="font-mono text-xs break-all">{identity?.npub || '…'}</p>
         <button
@@ -173,7 +249,7 @@ export function ProfilePage({ role }: ProfilePageProps) {
       <div className="card space-y-3">
         <p className="text-xs uppercase tracking-wider text-donkey-muted">{t('profile.recoveryKey')}</p>
         <p className="text-sm text-donkey-muted">
-          {t('profile.recoveryNote')}
+          {t(keyModel === 'tree' ? 'profile.treeRecoveryNote' : 'profile.recoveryNote')}
         </p>
         {nsec ? (
           <>
@@ -193,7 +269,7 @@ export function ProfilePage({ role }: ProfilePageProps) {
       <div className="card space-y-3">
         <p className="text-xs uppercase tracking-wider text-donkey-muted">{t('profile.restore')}</p>
         <p className="text-sm text-donkey-muted">
-          {t('profile.restoreNote')}
+          {t(keyModel === 'tree' ? 'profile.treeRestoreNote' : 'profile.restoreNote')}
         </p>
         <textarea
           name="recovery-key-import"
@@ -209,7 +285,7 @@ export function ProfilePage({ role }: ProfilePageProps) {
           onClick={handleImport}
           disabled={!importValue.trim()}
         >
-          {t('profile.replace')}
+          {t(keyModel === 'tree' ? 'profile.treeReplace' : 'profile.replace')}
         </button>
       </div>
 

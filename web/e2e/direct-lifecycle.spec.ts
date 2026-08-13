@@ -1,6 +1,7 @@
 import {
   expect, test, type BrowserContext, type BrowserContextOptions, type WebSocketRoute,
 } from '@playwright/test';
+import { nip19 } from 'nostr-tools';
 import {
   ETIHAD_STADIUM, MANCHESTER, expectEasyTap, expectNamedFormControls,
   expectNoSeriousA11yViolations, expectNoViewportOverflow, installMapMocks, skipOnboarding,
@@ -136,6 +137,14 @@ test('the static PWA completes an encrypted no-money journey without an operator
   });
 
   try {
+    await driver.goto('/provide/profile');
+    await expect(driver.getByText('Private identity tree active')).toBeVisible();
+    const driverAccountNpub = await driver.getByText(/^npub1/).textContent();
+    expect(driverAccountNpub).toBeTruthy();
+    const decodedDriverAccount = nip19.decode(driverAccountNpub!);
+    expect(decodedDriverAccount.type).toBe('npub');
+    const driverAccountPubkey = decodedDriverAccount.data as string;
+
     await driver.goto('/provide');
     const goOnline = driver.getByRole('button', { name: 'Go Online' });
     await expectEasyTap(driver, goOnline);
@@ -146,7 +155,9 @@ test('the static PWA completes an encrypted no-money journey without an operator
       Object.keys(localStorage).map((key) => [key, localStorage.getItem(key)]),
     ));
     expect(driverStorage).not.toHaveProperty('donkeyride.providerPrivKey');
-    expect(driverStorage['donkeyride.secure.donkeyride.providerPrivKey']).toContain('"cipher"');
+    expect(driverStorage).not.toHaveProperty('donkeyride.secure.donkeyride.providerPrivKey');
+    expect(driverStorage['donkeyride.secure.donkeyride.identityTreeRoot']).toContain('"cipher"');
+    expect(driverStorage['donkeyride.identity.model']).toBe('tree');
 
     await rider.goto('/request');
     await expect(rider.getByText('Current location')).toBeVisible();
@@ -154,7 +165,9 @@ test('the static PWA completes an encrypted no-money journey without an operator
       Object.keys(localStorage).map((key) => [key, localStorage.getItem(key)]),
     ));
     expect(riderStorage).not.toHaveProperty('donkeyride.requesterPrivKey');
-    expect(riderStorage['donkeyride.secure.donkeyride.requesterPrivKey']).toContain('"cipher"');
+    expect(riderStorage).not.toHaveProperty('donkeyride.secure.donkeyride.requesterPrivKey');
+    expect(riderStorage['donkeyride.secure.donkeyride.identityTreeRoot']).toContain('"cipher"');
+    expect(riderStorage['donkeyride.identity.model']).toBe('tree');
     await rider.getByRole('textbox', { name: 'Where to?' }).fill('Old Trafford');
     await rider.getByRole('button', { name: /Old Trafford.*United Kingdom/ }).click();
     await expect(rider).toHaveURL(/\/request\/new$/);
@@ -212,6 +225,9 @@ test('the static PWA completes an encrypted no-money journey without an operator
     expect(publicWire).not.toContain(String(MANCHESTER.longitude));
     expect(relay.publicEvents.some((event) => event.kind === 37500)).toBe(true);
     expect(relay.publicEvents.some((event) => event.kind === 1059)).toBe(true);
+    const shiftBeacons = relay.publicEvents.filter((event) => event.kind === 20500);
+    expect(shiftBeacons.length).toBeGreaterThan(0);
+    expect(shiftBeacons.every((event) => event.pubkey !== driverAccountPubkey)).toBe(true);
     await expectNoViewportOverflow(rider);
     await expectNoViewportOverflow(driver);
   } finally {
@@ -259,6 +275,52 @@ test('denied location stays in one window and offers a usable manual pickup', as
     expect(popups).toEqual([]);
     expect(forbidden).toEqual([]);
     await expectNamedFormControls(page);
+    await expectNoViewportOverflow(page);
+    await expectNoSeriousA11yViolations(page);
+  } finally {
+    await context.close();
+  }
+});
+
+test('an existing identity is preserved until the human confirms a fresh private tree', async ({ browser }) => {
+  const relay = new EphemeralRelay();
+  const forbidden: string[] = [];
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 }, locale: 'en-GB', colorScheme: 'light',
+  });
+  await prepare(context, relay, forbidden);
+  await context.addInitScript(() => {
+    try {
+      // Simulate an installation from before identity trees. The ordinary
+      // loader first moves this record into protected device storage.
+      localStorage.setItem('donkeyride.providerPrivKey', '11'.repeat(32));
+    } catch { /* opaque origin */ }
+  });
+  const page = await context.newPage();
+
+  try {
+    await page.goto('/provide/profile');
+    await expect(page.getByText('Existing identity preserved')).toBeVisible();
+    const startFresh = page.getByRole('button', { name: 'Start fresh with private identities' });
+    await startFresh.scrollIntoViewIfNeeded();
+    await expectEasyTap(page, startFresh);
+    await startFresh.click();
+
+    await expect(page.getByText(/Back up your current recovery key first/)).toBeVisible();
+    const replace = page.getByRole('button', { name: 'Replace both identities' });
+    await replace.scrollIntoViewIfNeeded();
+    await expectEasyTap(page, replace);
+    await replace.click();
+
+    await expect(page.getByText('Private identity tree active')).toBeVisible();
+    const storage = await page.evaluate(() => Object.fromEntries(
+      Object.keys(localStorage).map((key) => [key, localStorage.getItem(key)]),
+    ));
+    expect(storage['donkeyride.identity.model']).toBe('tree');
+    expect(storage['donkeyride.secure.donkeyride.identityTreeRoot']).toContain('"cipher"');
+    expect(storage).not.toHaveProperty('donkeyride.providerPrivKey');
+    expect(storage).not.toHaveProperty('donkeyride.secure.donkeyride.providerPrivKey');
+    expect(forbidden).toEqual([]);
     await expectNoViewportOverflow(page);
     await expectNoSeriousA11yViolations(page);
   } finally {

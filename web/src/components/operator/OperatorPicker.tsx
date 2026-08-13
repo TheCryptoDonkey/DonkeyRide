@@ -30,7 +30,14 @@ export function OperatorPicker({ role }: { role: 'requester' | 'provider' }) {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => load(), []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    // Opening Account in the static PWA must not silently probe the current
+    // origin (or any remembered company). Operator discovery is an explicit
+    // user action in open-network mode; managed builds may refresh their
+    // already-selected directory entry on mount.
+    if (direct) setLoading(false);
+    else load();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const choose = (origin: string) => {
     if (locked || origin === selected) return;

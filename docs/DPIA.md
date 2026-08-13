@@ -111,7 +111,9 @@ tested, not merely intended:
 - Access needs, gender and pickup notes are **excluded from the snapshot
   entirely**. Blind mode also omits them from coordinator matching.
 - Payment receipts (kind 30535) are off by default and carry no `p` tags.
-- The availability beacon is off by default (`VITE_TROTT_P2P_BEACON`).
+- Direct-mode availability is signed by a random memory-only key per online
+  shift, never the provider account key. Managed mode leaves the beacon off
+  unless explicitly enabled (`VITE_TROTT_P2P_BEACON`).
 
 ---
 
@@ -173,10 +175,11 @@ Two real incidents, both fixed and both pinned by tests:
    to every pickup cell, dropoff cell, fare and driver they had ever had.
    → Snapshots sealed; **task announcements now signed by a throwaway key**
    (`web/src/services/events.test.ts`).
-2. **Kind 20500 availability beacons.** Providers signed one every 60
-   seconds for a whole shift under the identity key that carries their name
-   and every rating — a live, named, rated location feed. Nothing in the
-   codebase read it. → Off by default.
+2. **Kind 20500 availability beacons.** Providers signed repeated coarse
+   positions under the identity key that carries their name and every rating
+   — a live, named, rated location feed. → Direct-mode riders now read these
+   for coarse supply, but the author is a random memory-only key for one online
+   shift and is discarded offline. Managed mode remains off by default.
 
 **Measures:** every new published event must answer *"who reads this, and
 what can be joined to it?"* — the three rules in `CLAUDE.md` under "What may
@@ -184,8 +187,9 @@ be left on a public relay". Ephemeral kinds are not a defence (relays do not
 store them; subscribers can). `p` tags are a per-person index and are used
 only where indexing by subject is the point.
 
-**Residual:** requires ongoing discipline on every new event kind. Assign an
-owner.
+**Residual:** a relay can still correlate coarse cells within one shift, and
+network address/timing may correlate different shift keys. Every new event kind
+still requires a named reader and join-key review.
 
 ### 5.3 Logs as unaccounted storage
 

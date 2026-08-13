@@ -76,9 +76,8 @@ describe('the P2P availability beacon is off unless asked for', () => {
   });
 
   it('publishes NOTHING by default', async () => {
-    // A provider going on shift used to sign a kind 20500 under their
     // Managed dispatch uses its authenticated socket, so it must not also
-    // publish the driver's identity-linked coarse position to public relays.
+    // publish even an anonymous coarse position to public relays.
     const acks = await publishAvailabilityBeacon(PICKUP, 'ridesharing', RIDER_PRIV);
 
     expect(acks).toBe(0);
@@ -106,12 +105,7 @@ describe('the P2P availability beacon is off unless asked for', () => {
     expect(event.kind).toBeLessThan(30000);
   });
 
-  it('is signed by the provider IDENTITY key, deliberately', async () => {
-    // Unlike a task announcement, this one may NOT be moved to a throwaway
-    // key. With no operator to resolve through, the beacon's author IS the
-    // contact address and the reputation anchor — a fresh key per beacon
-    // would announce an unreachable stranger with no history. The privacy
-    // answer for the beacon is the default-off switch above, not anonymity.
+  it('signs with the supplied anonymous shift key', async () => {
     vi.stubEnv('VITE_TROTT_P2P_BEACON', 'true');
     await publishAvailabilityBeacon(PICKUP, 'ridesharing', RIDER_PRIV);
 

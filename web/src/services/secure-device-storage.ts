@@ -119,3 +119,8 @@ export async function secureDeviceGet(name: string): Promise<string | null> {
 export function secureDeviceEnvelope(name: string): string | null {
   return localStorage.getItem(ENVELOPE_PREFIX + name);
 }
+
+/** Remove one encrypted record without touching the non-exportable device key. */
+export function secureDeviceRemove(name: string): void {
+  localStorage.removeItem(ENVELOPE_PREFIX + name);
+}

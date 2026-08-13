@@ -50,7 +50,23 @@ test('the deployed PWA is usable without location access and has no coordinator'
     await expectNoViewportOverflow(rider);
     await expectNoSeriousA11yViolations(rider);
 
+    await rider.goto('/request/profile');
+    await expect(rider.getByText('Private identity tree active')).toBeVisible();
+    const riderNpub = await rider.getByText(/^npub1/).textContent();
+    const identityStorage = await rider.evaluate(() => Object.fromEntries(
+      Object.keys(localStorage).map((key) => [key, localStorage.getItem(key)]),
+    ));
+    expect(identityStorage['donkeyride.identity.model']).toBe('tree');
+    expect(identityStorage['donkeyride.secure.donkeyride.identityTreeRoot']).toContain('"cipher"');
+    expect(identityStorage).not.toHaveProperty('donkeyride.requesterPrivKey');
+    expect(identityStorage).not.toHaveProperty('donkeyride.secure.donkeyride.requesterPrivKey');
+
     const driver = await context.newPage();
+    await driver.goto('/provide/profile');
+    await expect(driver.getByText('Private identity tree active')).toBeVisible();
+    const driverNpub = await driver.getByText(/^npub1/).textContent();
+    expect(driverNpub).toBeTruthy();
+    expect(driverNpub).not.toBe(riderNpub);
     await driver.goto('/provide');
     const goOnline = driver.getByRole('button', { name: 'Go Online' });
     await expect(goOnline).toBeVisible();
