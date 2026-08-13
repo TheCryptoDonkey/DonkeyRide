@@ -64,7 +64,7 @@ Requires a real phone; the emulator has no distributor.
 2. Build and install the driver app:
    ```bash
    cd web
-   VITE_API_BASE=https://<operator> VITE_WS_URL=wss://<operator>/ws \
+   VITE_API_BASE=https://<bootstrap-operator> VITE_WS_URL=wss://<bootstrap-operator>/ws \
      npm run native:driver:prepare
    npx cap sync android
    cd android && ./gradlew assembleDebug

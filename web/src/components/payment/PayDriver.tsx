@@ -73,13 +73,13 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
 
   useEffect(() => {
     let mounted = true;
-    getPaymentOptions(task.id)
+    getPaymentOptions(task.id, task.operatorBase)
       .then((opts) => { if (mounted) setOptions(opts); })
       .catch((err) => {
         if (mounted) setOptionsError(err instanceof Error ? err.message : t('pay.optionsFailed'));
       });
     return () => { mounted = false; };
-  }, [task.id]);
+  }, [task.id, task.operatorBase]);
 
   // Settlement state: parent (WS/getTask) wins, local optimistic declare backs it.
   const confirmed = settlement?.status === 'confirmed' || settlement?.confirmedByProvider === true;
@@ -95,7 +95,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
     setError(null);
     setBusy('instruction');
     try {
-      const instr = await getPayInstruction(task.id, { rail });
+      const instr = await getPayInstruction(task.id, { rail }, task.operatorBase);
       setInstruction(instr);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('pay.buildFailed'));
@@ -108,7 +108,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
     setBusy('settle');
     setError(null);
     try {
-      const res = await settleRide(task.id, { rail, proof });
+      const res = await settleRide(task.id, { rail, proof }, task.operatorBase);
       // A supplied proof that did not check out (e.g. a mistyped preimage) comes
       // back as 'unverified' — surface it rather than claiming success.
       if (res.settlement?.status === 'unverified') {

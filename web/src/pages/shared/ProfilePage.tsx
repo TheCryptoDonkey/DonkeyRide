@@ -18,6 +18,7 @@ import { useT, LOCALES } from '../../i18n';
 import { ThemeToggle } from '../../components/common/ThemeToggle';
 import { WomenSafetyCard } from '../../components/safety/WomenSafetyCard';
 import { ReputationBadge } from '../../components/common/ReputationBadge';
+import { OperatorPicker } from '../../components/operator/OperatorPicker';
 
 interface ProfilePageProps {
   role: 'requester' | 'provider';
@@ -107,6 +108,9 @@ export function ProfilePage({ role }: ProfilePageProps) {
           ))}
         </div>
       </div>
+
+      {/* The app is portable: pick any compatible operator at runtime. */}
+      <OperatorPicker role={role} />
 
       {/* Identity recovery notice — stored key was unreadable and replaced */}
       {recoveryNotice && (

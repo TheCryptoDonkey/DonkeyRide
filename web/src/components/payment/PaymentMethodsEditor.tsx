@@ -13,6 +13,8 @@ interface RailRow {
 interface PaymentMethodsEditorProps {
   /** When set, a save also posts the methods to this ride for the rider */
   rideId?: string;
+  /** Operator coordinating that ride (needed for federated jobs). */
+  operatorBase?: string;
   /** Called after a successful save with the persisted methods */
   onSaved?: (methods: PaymentMethod[]) => void;
 }
@@ -25,7 +27,7 @@ interface PaymentMethodsEditorProps {
  * The operator is strictly non-custodial: every rail settles rider -> driver
  * with no platform in the middle. The copy here says so plainly.
  */
-export function PaymentMethodsEditor({ rideId, onSaved }: PaymentMethodsEditorProps) {
+export function PaymentMethodsEditor({ rideId, operatorBase, onSaved }: PaymentMethodsEditorProps) {
   const { t } = useT();
   const [rails, setRails] = useState<SettlementRail[]>([]);
   const [rows, setRows] = useState<Record<string, RailRow>>({});
@@ -38,7 +40,7 @@ export function PaymentMethodsEditor({ rideId, onSaved }: PaymentMethodsEditorPr
   // Load the rail catalogue and hydrate from any remembered methods.
   useEffect(() => {
     let mounted = true;
-    getSettlementRails()
+    getSettlementRails(operatorBase)
       .then((catalogue) => {
         if (!mounted) return;
         setRails(catalogue);
@@ -60,7 +62,7 @@ export function PaymentMethodsEditor({ rideId, onSaved }: PaymentMethodsEditorPr
         setLoading(false);
       });
     return () => { mounted = false; };
-  }, []);
+  }, [operatorBase]);
 
   const setRow = (railId: string, patch: Partial<RailRow>) => {
     setRows((prev) => ({ ...prev, [railId]: { ...prev[railId], ...patch } }));
@@ -102,7 +104,7 @@ export function PaymentMethodsEditor({ rideId, onSaved }: PaymentMethodsEditorPr
     try {
       savePaymentMethods(enabledMethods);
       if (rideId) {
-        await setPaymentMethods(rideId, { methods: enabledMethods });
+        await setPaymentMethods(rideId, { methods: enabledMethods }, operatorBase);
       }
       setSaved(true);
       onSaved?.(enabledMethods);

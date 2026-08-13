@@ -1,0 +1,20 @@
+# Optional production overlay for an operator-controlled Valhalla instance.
+# The routing network and service stay private; only the DonkeyRide operator
+# joins it. Override ROUTING_NETWORK or VALHALLA_URL when the local names differ.
+#
+# docker compose -f docker-compose.demo.yml \
+#   -f docker-compose.private-routing.yml up -d --build
+
+services:
+  operator:
+    environment:
+      NAVIGATION_PROVIDER: valhalla
+      VALHALLA_URL: ${VALHALLA_URL:-http://valhalla:8002}
+    networks:
+      - default
+      - private-routing
+
+networks:
+  private-routing:
+    external: true
+    name: ${ROUTING_NETWORK:-routing_default}

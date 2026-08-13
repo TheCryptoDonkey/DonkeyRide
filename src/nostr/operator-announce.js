@@ -112,6 +112,7 @@ async function publishAnnouncement({
   supportedCurrencies = [],
   serviceUrl,
   publicRelays = [],
+  policy = null,
   bondAmount = 0,
   bondCurrency = 'SAT'
 }) {
@@ -139,6 +140,12 @@ async function publishAnnouncement({
   if (serviceUrl) {
     tags.push(['service_url', serviceUrl]);
   }
+  if (policy?.schema) tags.push(['policy_schema', policy.schema]);
+  if (policy?.mode) tags.push(['policy_mode', policy.mode]);
+  if (policy?.admission?.mode) tags.push(['admission', policy.admission.mode]);
+  if (policy?.records?.mode) tags.push(['record_mode', policy.records.mode]);
+  if (policy?.termsUrl) tags.push(['terms_url', policy.termsUrl]);
+  if (policy?.privacyUrl) tags.push(['privacy_url', policy.privacyUrl]);
   publicRelays.forEach((relay) => tags.push(['relay', relay]));
 
   const event = await publishEvent(KINDS.OPERATOR_BOND, tags);

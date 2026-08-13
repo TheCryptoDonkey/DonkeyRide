@@ -170,7 +170,8 @@ export function DashboardPage() {
   // Paperwork the domain says is needed and this device has not declared.
   // An operator running ENFORCE_CREDENTIALS refuses the accept, and the
   // kerb is a bad place to discover that.
-  const missingCredentials = missingRequired(profile?.credentials || []);
+  const missingCredentials = profile?.enforceCredentials
+    ? missingRequired(profile.credentials || []) : [];
 
   return (
     <div className="h-full flex flex-col">
@@ -267,6 +268,18 @@ export function DashboardPage() {
               {t('dash.retryGps')}
             </button>
           </div>
+        )}
+
+        {online && dispatchState.admissionError && (
+          <button
+            className="w-full text-left bg-donkey-red/20 border border-donkey-red rounded-lg p-3"
+            onClick={() => navigate('/provide/profile')}
+          >
+            <p className="text-donkey-red text-sm font-semibold">
+              {t('dash.operatorDenied')}
+            </p>
+            <p className="text-donkey-red text-xs mt-1">{dispatchState.admissionError}</p>
+          </button>
         )}
 
         {missingCredentials.length > 0 && (

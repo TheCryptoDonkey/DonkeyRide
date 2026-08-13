@@ -5,7 +5,7 @@ import { LocationMarker } from '../../components/map/LocationMarker';
 import { useLocation } from '../../hooks/useLocation';
 import { useTask } from '../../context/TaskContext';
 import { useDomain } from '../../context/DomainContext';
-import { getAvailableProviders } from '../../services/api';
+import { discoverNetworkProviders } from '../../services/operators';
 import { AddressSearch } from '../../components/AddressSearch';
 import { reverseGeocode } from '../../utils/reverse-geocode';
 import { useT } from '../../i18n';
@@ -19,6 +19,7 @@ export function HomePage() {
   const { setOrigin, setDestination, activeTask } = useTask();
   const { profile } = useDomain();
   const [providers, setProviders] = useState<AvailableProvider[]>([]);
+  const [providerOperators, setProviderOperators] = useState(0);
   const [pickup, setPickup] = useState<LatLng | null>(null);
   const [pickupLabel, setPickupLabel] = useState<string | null>(null);
   // True while the rider is deliberately re-choosing the pickup: map taps
@@ -41,12 +42,9 @@ export function HomePage() {
   useEffect(() => {
     const fetchProviders = async () => {
       try {
-        const { drivers: d } = await getAvailableProviders({
-          lat: location.lat,
-          lng: location.lng,
-          radiusKm: 10,
-        });
-        setProviders(d);
+        const result = await discoverNetworkProviders(location, 10);
+        setProviders(result.providers);
+        setProviderOperators(new Set(result.providers.map((provider) => provider.operatorBase)).size);
       } catch {
         // Silently fail — providers are optional on this screen
       }
@@ -54,7 +52,7 @@ export function HomePage() {
     fetchProviders();
     const timer = setInterval(fetchProviders, 15000);
     return () => clearInterval(timer);
-  }, [location.lat, location.lng]);
+  }, [location.lat, location.lng]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Set when the rider named a destination before we had a pickup (GPS
   // denied or still resolving) — the moment they set one, we continue.
@@ -138,9 +136,9 @@ export function HomePage() {
         <div className="flex-1 relative">
           <MapView centre={pickup || location} zoom={pickup ? 15 : 13}>
             {/* Available providers */}
-            {providers.map((d) => (
+            {providers.map((d, index) => (
               <LocationMarker
-                key={d.pubkey}
+                key={`${d.operatorBase || ''}:${d.pubkey || index}:${index}`}
                 position={d.location}
                 label={d.rating != null ? `${providerLabel} (${d.rating.toFixed(1)})` : providerLabel}
                 colour="blue"
@@ -264,7 +262,13 @@ export function HomePage() {
 
         {providers.length > 0 && (
           <p className="text-xs text-donkey-muted text-center mt-3">
-            {t('home.nearby', { n: providers.length, label: providersLabel(providers.length) })}
+            {providerOperators > 1
+              ? t('home.nearbyNetwork', {
+                  n: providers.length,
+                  label: providersLabel(providers.length),
+                  operators: providerOperators,
+                })
+              : t('home.nearby', { n: providers.length, label: providersLabel(providers.length) })}
           </p>
         )}
 

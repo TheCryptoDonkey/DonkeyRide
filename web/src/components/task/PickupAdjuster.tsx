@@ -40,7 +40,9 @@ export function PickupAdjuster({
     setBusy(true);
     try {
       const named = address ?? await reverseGeocode(loc);
-      const updated = await updateTaskPickup(task.id, { location: loc, address: named });
+      const updated = await updateTaskPickup(
+        task.id, { location: loc, address: named }, task.operatorBase,
+      );
       onUpdated(updated);
       setOpen(false);
       showToast(t('active.pickupMoved', { label: originLabel }));
@@ -54,7 +56,7 @@ export function PickupAdjuster({
   const saveNote = async () => {
     setBusy(true);
     try {
-      onUpdated(await updateTaskPickup(task.id, { note }));
+      onUpdated(await updateTaskPickup(task.id, { note }, task.operatorBase));
       showToast(t('active.noteSaved'));
     } catch (err) {
       showToast(err instanceof Error ? err.message : t('active.pickupMoveFailed'), { type: 'error' });

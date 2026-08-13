@@ -19,23 +19,23 @@
     "docker:run": "docker run -p 3000:3000 -p 3001:3001 --env-file .env donkeyride-relay"
   },
   "dependencies": {
-    "axios": "^1.6.0",
+    "axios": "^1.19.0",
     "clightning-client": "^0.1.0",
-    "cors": "^2.8.5",
+    "cors": "^2.8.6",
     "dotenv": "^16.3.1",
-    "express": "^4.18.2",
-    "farrier-kit": "1.1.0",
-    "ln-service": "^56.0.0",
+    "express": "^4.22.2",
+    "farrier-kit": "^1.1.1",
+    "ln-service": "^59.2.5",
     "node-fetch": "^2.7.0",
     "nostr-tools": "^1.17.0",
-    "pg": "^8.11.0",
+    "pg": "^8.23.0",
     "redis": "^4.6.0",
-    "uuid": "^9.0.1",
+    "uuid": "^11.1.1",
     "web-push": "^3.6.7",
-    "ws": "^8.14.2"
+    "ws": "^8.21.3"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "nodemon": "^3.1.14"
   },
   "engines": {
     "node": ">=20.0.0"

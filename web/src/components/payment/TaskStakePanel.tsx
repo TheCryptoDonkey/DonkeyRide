@@ -76,15 +76,23 @@ export function TaskStakePanel({ task, role }: TaskStakePanelProps) {
 
   const handleLock = async () => {
     const res = role === 'requester'
-      ? await postRequesterStake(task.id, { requesterPubkey: identity.pubKeyHex })
-      : await postProviderStake(task.id, { providerPubkey: identity.pubKeyHex });
+      ? await postRequesterStake(
+          task.id, { requesterPubkey: identity.pubKeyHex }, task.operatorBase,
+        )
+      : await postProviderStake(
+          task.id, { providerPubkey: identity.pubKeyHex }, task.operatorBase,
+        );
     applyResponse(res);
   };
 
   const handleConfirmPaid = async () => {
     const res = role === 'requester'
-      ? await confirmRequesterStake(task.id, { requesterPubkey: identity.pubKeyHex })
-      : await confirmProviderStake(task.id, { providerPubkey: identity.pubKeyHex });
+      ? await confirmRequesterStake(
+          task.id, { requesterPubkey: identity.pubKeyHex }, task.operatorBase,
+        )
+      : await confirmProviderStake(
+          task.id, { providerPubkey: identity.pubKeyHex }, task.operatorBase,
+        );
     if (res.status === 'awaiting_payment') {
       throw new Error(t('stake.notDetected'));
     }

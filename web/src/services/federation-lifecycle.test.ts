@@ -1,5 +1,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { acceptTask, getTask, arriveAtOrigin, completeTask } from './api';
+import {
+  acceptTask,
+  getTask,
+  arriveAtOrigin,
+  completeTask,
+  postProviderStake,
+  submitQuote,
+  getPaymentOptions,
+  settleRide,
+} from './api';
 import { resolveForeignTask } from './federation';
 import { wsUrlForOrigin } from './websocket';
 
@@ -75,11 +84,31 @@ describe('lifecycle calls follow the job', () => {
     expect(fetchMock.mock.calls[1][0]).toBe(`${FOREIGN}/api/tasks/ride_abc/complete`);
   });
 
+  it('keeps stakes, quotes and settlement on the coordinating operator', async () => {
+    await postProviderStake('ride_abc', { providerPubkey: 'driverpub' }, FOREIGN);
+    await submitQuote('ride_abc', {
+      amountSats: 2_000,
+      description: 'Fixed job price',
+      providerPubkey: 'driverpub',
+    }, FOREIGN);
+    await getPaymentOptions('ride_abc', FOREIGN);
+    await settleRide('ride_abc', { rail: 'cash', proof: {} }, FOREIGN);
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      `${FOREIGN}/api/tasks/ride_abc/provider-stake`,
+      `${FOREIGN}/api/tasks/ride_abc/quote`,
+      `${FOREIGN}/api/rides/ride_abc/payment-options`,
+      `${FOREIGN}/api/rides/ride_abc/settle`,
+    ]);
+  });
+
   it('leaves our own jobs on our own operator', async () => {
     const task = await getTask('ride_abc');
 
     expect(fetchMock.mock.calls[0][0]).toBe('/api/tasks/ride_abc');
-    expect(task.operatorBase).toBeUndefined();
+    // Home-operator jobs now carry their origin too. That lets an active
+    // job survive a later runtime operator switch or app restart.
+    expect(task.operatorBase).toBe('http://localhost:3000');
   });
 });
 

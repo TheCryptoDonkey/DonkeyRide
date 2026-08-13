@@ -17,6 +17,9 @@
 #
 #   docker compose -f docker-compose.demo.yml up -d --build
 #
+# To join an existing private Valhalla network, also pass
+# docker-compose.private-routing.yml; see docs/OPERATOR-POLICY.md.
+#
 # Operators who WANT a database (e.g. a licensed Mode-B operator retaining PII
 # under GDPR controller obligations) can add a Postgres service and set
 # DATABASE_URL; the operator uses it automatically. It is not part of the
@@ -28,11 +31,21 @@ services:
     restart: unless-stopped
     environment:
       OPERATOR_NAME: "DonkeyRide Public Demo"
+      # Open reference market. A taxi company can set regulated plus an
+      # allowlist; see docs/OPERATOR-POLICY.md.
+      OPERATOR_POLICY_MODE: ${OPERATOR_POLICY_MODE:-open}
+      OPERATOR_ADMISSION_MODE: ${OPERATOR_ADMISSION_MODE:-open}
+      OPERATOR_ALLOWED_DRIVERS: ${OPERATOR_ALLOWED_DRIVERS:-}
+      OPERATOR_RECORD_MODE: ${OPERATOR_RECORD_MODE:-ephemeral}
+      OPERATOR_TERMS_URL: ${OPERATOR_TERMS_URL:-}
+      OPERATOR_PRIVACY_URL: ${OPERATOR_PRIVACY_URL:-}
+      OPERATOR_CONTACT: ${OPERATOR_CONTACT:-}
       DOMAIN: ridesharing
       # Non-custodial by default: the operator never touches funds.
       PAYMENT_PROVIDER: ${PAYMENT_PROVIDER:-cash}
       ENABLE_NIP98_AUTH: "true"
       ENABLE_RATE_LIMITING: "true"
+      FEDERATION_CORS: ${FEDERATION_CORS:-true}
       DISPATCH_RADIUS_KM: "15"
       NODE_ENV: ${NODE_ENV:-production}
       # Only needed if PAYMENT_PROVIDER is demo (mock rail) on a public demo.
@@ -43,6 +56,9 @@ services:
       NOSTR_RELAYS: ${NOSTR_RELAYS:-}
       PUBLIC_RELAY_URLS: ${PUBLIC_RELAY_URLS:-}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      OSRM_URL: ${OSRM_URL:-}
+      NAVIGATION_PROVIDER: ${NAVIGATION_PROVIDER:-osrm}
+      VALHALLA_URL: ${VALHALLA_URL:-}
       # Web Push job alerts — pin once with `npx web-push generate-vapid-keys`
       # (unset = ephemeral keys; driver push subscriptions die on restart)
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}

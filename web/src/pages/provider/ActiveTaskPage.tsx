@@ -224,7 +224,7 @@ export function ActiveTaskPage() {
             targetPubkey: activeTask.requesterPubkey,
             reporterRole: 'provider',
             domainId: profile?.id,
-          });
+          }, activeTask.operatorBase);
         }}
         onDone={() => { reset(); navigate('/provide'); }}
       />
@@ -294,7 +294,7 @@ export function ActiveTaskPage() {
       cancelledBy: identity.pubKeyHex,
       reason: noShowTarget ? 'no_show' : undefined,
       reasonCode: noShowTarget ? 'no_show' : cancelReason,
-    });
+    }, activeTask.operatorBase);
     // Signed by the driver, published to public relays. Fire-and-forget:
     // cancelling the job never blocks on relay reachability.
     if (noShowTarget) {
@@ -302,7 +302,7 @@ export function ActiveTaskPage() {
         targetPubkey: noShowTarget,
         reporterRole: 'provider',
         domainId: profile?.id,
-      }).catch(() => {});
+      }, activeTask.operatorBase).catch(() => {});
       showToast(t('active.noShowReported'));
     }
     reset();
@@ -316,7 +316,7 @@ export function ActiveTaskPage() {
     await triggerPanic(activeTask.id, {
       role: 'provider',
       location,
-    });
+    }, activeTask.operatorBase);
   };
 
   const status = activeTask.status;
@@ -544,7 +544,7 @@ export function ActiveTaskPage() {
                 amountSats,
                 description,
                 providerPubkey: identity.pubKeyHex,
-              });
+              }, activeTask.operatorBase);
               const updated = await getTask(activeTask.id, activeTask.operatorBase);
               setActiveTask(updated);
             }}
@@ -631,7 +631,7 @@ export function ActiveTaskPage() {
                     type: 'photo',
                     file,
                     providerPubkey: identity.pubKeyHex,
-                  });
+                  }, activeTask.operatorBase);
                 }}
               />
             )}
@@ -643,7 +643,7 @@ export function ActiveTaskPage() {
                   await submitSignatureProof(activeTask.id, {
                     dataUrl,
                     providerPubkey: identity.pubKeyHex,
-                  });
+                  }, activeTask.operatorBase);
                 }}
               />
             )}
@@ -671,7 +671,7 @@ export function ActiveTaskPage() {
         {/* How you get paid */}
         {!isTerminal && (
           <SheetSection title={t('sheet.payment')} icon="💷" rememberAs="driver-payment">
-            <PaymentMethodsEditor rideId={activeTask.id} />
+            <PaymentMethodsEditor rideId={activeTask.id} operatorBase={activeTask.operatorBase} />
             <TaskStakePanel task={activeTask} role="provider" />
           </SheetSection>
         )}

@@ -9,13 +9,11 @@ import { createNip98Auth, signNostrEvent } from './nostr';
 import { publishToRelays } from './relays';
 import { getCurrencySymbol } from './pricing';
 import { encodeGeohash } from '../utils/geohash';
-
-// Same-origin by default; native (Capacitor) builds bake in the operator URL
-const BASE = import.meta.env.VITE_API_BASE || '';
+import { getSelectedOperatorBase } from './operator-origin';
 
 /** The operator origin this app instance talks to (absolute) */
 export function getApiBase(): string {
-  return BASE || window.location.origin;
+  return getSelectedOperatorBase();
 }
 
 /** Error thrown for non-2xx responses — carries the HTTP status code */
@@ -52,7 +50,11 @@ export function getAuthPrivKey(): string | null {
  * verify the driver without knowing them — the signature is the account.
  */
 async function request<T>(path: string, init?: RequestInit, base?: string): Promise<T> {
-  const origin = base || BASE;
+  const origin = base || getApiBase();
+  // Keep ordinary same-origin browser requests relative (dev proxy, tests,
+  // subpath-compatible hosting). A selected foreign/native operator is
+  // necessarily absolute. NIP-98 below still signs the absolute URL.
+  const target = !base && origin === window.location.origin ? path : `${origin}${path}`;
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(init?.headers as Record<string, string> || {}),
@@ -61,7 +63,7 @@ async function request<T>(path: string, init?: RequestInit, base?: string): Prom
   // Add NIP-98 auth header if key is set
   if (_authPrivKey) {
     try {
-      const url = origin ? `${origin}${path}` : `${window.location.origin}${path}`;
+      const url = `${origin}${path}`;
       const method = init?.method || 'GET';
       const authToken = await createNip98Auth(url, method, _authPrivKey);
       headers['Authorization'] = `Nostr ${authToken}`;
@@ -70,7 +72,7 @@ async function request<T>(path: string, init?: RequestInit, base?: string): Prom
     }
   }
 
-  const res = await fetch(`${origin}${path}`, {
+  const res = await fetch(target, {
     ...init,
     headers,
   });
@@ -98,7 +100,7 @@ async function request<T>(path: string, init?: RequestInit, base?: string): Prom
  * every call site remembering.
  */
 function stampOrigin(task: Task, base?: string): Task {
-  return base ? { ...task, operatorBase: base } : task;
+  return { ...task, operatorBase: base || getApiBase() };
 }
 
 // ── Response normalisation ──────────────────────────
@@ -255,26 +257,31 @@ export function normaliseProviders(raw: any): AvailableProvider[] {
 // ── General ─────────────────────────────────────────
 
 /** GET /info — operator metadata */
-export async function getOperatorInfo(): Promise<OperatorInfo> {
+export async function getOperatorInfo(base?: string): Promise<OperatorInfo> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const raw: any = await request('/info');
+  const raw: any = await request('/info', undefined, base);
   if (raw?.payment && raw.payment.trustModel === undefined && raw.payment.trust_model !== undefined) {
     raw.payment.trustModel = raw.payment.trust_model;
   }
+  // Older clients expected `pubkey`; the server's canonical field is
+  // `operator`. Normalise once so directory/help screens show the identity.
+  raw.pubkey = raw.pubkey || raw.operator;
   return raw as OperatorInfo;
 }
 
-let _operatorInfoPromise: Promise<OperatorInfo> | null = null;
+const _operatorInfoPromises = new Map<string, Promise<OperatorInfo>>();
 
 /** Cached GET /info — one fetch shared by relays, stakes and payment copy */
-export function getOperatorInfoCached(): Promise<OperatorInfo> {
-  if (!_operatorInfoPromise) {
-    _operatorInfoPromise = getOperatorInfo().catch((err) => {
-      _operatorInfoPromise = null;
+export function getOperatorInfoCached(base?: string): Promise<OperatorInfo> {
+  const origin = base || getApiBase();
+  if (!_operatorInfoPromises.has(origin)) {
+    const pending = getOperatorInfo(origin).catch((err) => {
+      _operatorInfoPromises.delete(origin);
       throw err;
     });
+    _operatorInfoPromises.set(origin, pending);
   }
-  return _operatorInfoPromise;
+  return _operatorInfoPromises.get(origin)!;
 }
 
 /** GET /health */
@@ -427,7 +434,7 @@ export async function requestTask(params: {
       // Fall back to normalising whatever we got
     }
   }
-  return normaliseTask(raw);
+  return stampOrigin(normaliseTask(raw));
 }
 
 /** POST /api/tasks/:id/accept — provider accepts a task */
@@ -504,7 +511,7 @@ export async function updateTaskPickup(taskId: string, params: {
   address?: string | null;
   /** '' clears the meeting note; undefined leaves it untouched */
   note?: string | null;
-}): Promise<Task> {
+}, base?: string): Promise<Task> {
   const raw = await request<Record<string, unknown>>(`/api/tasks/${taskId}/pickup`, {
     method: 'POST',
     body: JSON.stringify({
@@ -512,8 +519,8 @@ export async function updateTaskPickup(taskId: string, params: {
       ...(params.address ? { address: params.address } : {}),
       ...(params.note !== undefined ? { note: params.note ?? '' } : {}),
     }),
-  });
-  return normaliseTask(raw);
+  }, base);
+  return stampOrigin(normaliseTask(raw), base);
 }
 
 /** POST /api/tasks/:id/arrive — provider arrives at origin */
@@ -671,7 +678,7 @@ export async function reportNonEvent(taskId: string, params: {
   targetPubkey: string;
   reporterRole: 'requester' | 'provider';
   domainId?: string;
-}): Promise<void> {
+}, base?: string): Promise<void> {
   if (!_authPrivKey) {
     throw new Error('No identity available to sign the report');
   }
@@ -697,7 +704,7 @@ export async function reportNonEvent(taskId: string, params: {
     await request(`/api/tasks/${taskId}/rate`, {
       method: 'POST',
       body: JSON.stringify({ event }),
-    });
+    }, base);
   } catch {
     // The relays are the primary rail; the operator copy is best-effort
   }
@@ -708,8 +715,8 @@ export function reportNoShow(taskId: string, params: {
   targetPubkey: string;
   reporterRole: 'requester' | 'provider';
   domainId?: string;
-}): Promise<void> {
-  return reportNonEvent(taskId, { ...params, kind: 'no_show' });
+}, base?: string): Promise<void> {
+  return reportNonEvent(taskId, { ...params, kind: 'no_show' }, base);
 }
 
 /** They committed, then dropped it. See reportNonEvent. */
@@ -717,22 +724,22 @@ export function reportLateCancel(taskId: string, params: {
   targetPubkey: string;
   reporterRole: 'requester' | 'provider';
   domainId?: string;
-}): Promise<void> {
-  return reportNonEvent(taskId, { ...params, kind: 'late_cancel' });
+}, base?: string): Promise<void> {
+  return reportNonEvent(taskId, { ...params, kind: 'late_cancel' }, base);
 }
 
 /** POST /api/tasks/:id/tip — send tip */
 export function sendTip(taskId: string, params: {
   amountSats: number;
   requesterPubkey: string;
-}): Promise<{ success: boolean }> {
+}, base?: string): Promise<{ success: boolean }> {
   return request(`/api/tasks/${taskId}/tip`, {
     method: 'POST',
     body: JSON.stringify({
       amount_sats: params.amountSats,
       riderPubkey: params.requesterPubkey,
     }),
-  });
+  }, base);
 }
 
 /**
@@ -755,7 +762,7 @@ export function sendTip(taskId: string, params: {
 export async function triggerPanic(taskId: string, params: {
   role: 'requester' | 'provider';
   location?: LatLng | null;
-}): Promise<{ success: boolean }> {
+}, base?: string): Promise<{ success: boolean }> {
   if (!_authPrivKey) {
     throw new Error('No identity available to sign the alert');
   }
@@ -786,7 +793,7 @@ export async function triggerPanic(taskId: string, params: {
         ? { lat: params.location.lat, lon: params.location.lng }
         : null,
     }),
-  });
+  }, base);
 
   void publishToRelays(event);
 
@@ -797,11 +804,11 @@ export async function triggerPanic(taskId: string, params: {
 export function respondToCheckIn(taskId: string, params: {
   respondedBy: string;
   status: 'ok' | 'help';
-}): Promise<{ success: boolean }> {
+}, base?: string): Promise<{ success: boolean }> {
   return request(`/api/tasks/${taskId}/check-in`, {
     method: 'POST',
     body: JSON.stringify(params),
-  });
+  }, base);
 }
 
 /** GET /api/tasks/:id — get task details */
@@ -819,7 +826,7 @@ export async function getActiveParticipantTask(pubkey: string): Promise<Task | n
   const raw = await request<{ task: Record<string, unknown> | null }>(
     `/api/participants/${pubkey}/active`,
   );
-  return raw.task ? normaliseTask(raw.task) : null;
+  return raw.task ? stampOrigin(normaliseTask(raw.task)) : null;
 }
 
 /**
@@ -893,53 +900,53 @@ export interface StakeResponse {
 /** POST /api/tasks/:id/requester-stake — post requester stake */
 export function postRequesterStake(taskId: string, params: {
   requesterPubkey: string;
-}): Promise<StakeResponse> {
+}, base?: string): Promise<StakeResponse> {
   return request(`/api/tasks/${taskId}/requester-stake`, {
     method: 'POST',
     body: JSON.stringify({
       requesterPubkey: params.requesterPubkey,
       riderPubkey: params.requesterPubkey,
     }),
-  });
+  }, base);
 }
 
 /** POST /api/tasks/:id/provider-stake — post provider stake */
 export function postProviderStake(taskId: string, params: {
   providerPubkey: string;
-}): Promise<StakeResponse> {
+}, base?: string): Promise<StakeResponse> {
   return request(`/api/tasks/${taskId}/provider-stake`, {
     method: 'POST',
     body: JSON.stringify({
       providerPubkey: params.providerPubkey,
       driverPubkey: params.providerPubkey,
     }),
-  });
+  }, base);
 }
 
 /** POST /api/tasks/:id/requester-stake/confirm — confirm a non-instant stake payment */
 export function confirmRequesterStake(taskId: string, params: {
   requesterPubkey: string;
-}): Promise<StakeResponse> {
+}, base?: string): Promise<StakeResponse> {
   return request(`/api/tasks/${taskId}/requester-stake/confirm`, {
     method: 'POST',
     body: JSON.stringify({
       requesterPubkey: params.requesterPubkey,
       riderPubkey: params.requesterPubkey,
     }),
-  });
+  }, base);
 }
 
 /** POST /api/tasks/:id/provider-stake/confirm — confirm a non-instant stake payment */
 export function confirmProviderStake(taskId: string, params: {
   providerPubkey: string;
-}): Promise<StakeResponse> {
+}, base?: string): Promise<StakeResponse> {
   return request(`/api/tasks/${taskId}/provider-stake/confirm`, {
     method: 'POST',
     body: JSON.stringify({
       providerPubkey: params.providerPubkey,
       driverPubkey: params.providerPubkey,
     }),
-  });
+  }, base);
 }
 
 // ── Non-custodial settlement ────────────────────────
@@ -948,8 +955,8 @@ export function confirmProviderStake(taskId: string, params: {
 // a payable artefact, and records/verifies proof. custody is always 'none'.
 
 /** GET /api/settlement/rails — the catalogue of rails a driver can offer */
-export async function getSettlementRails(): Promise<SettlementRail[]> {
-  const raw = await request<{ rails: SettlementRail[] }>('/api/settlement/rails');
+export async function getSettlementRails(base?: string): Promise<SettlementRail[]> {
+  const raw = await request<{ rails: SettlementRail[] }>('/api/settlement/rails', undefined, base);
   return raw.rails || [];
 }
 
@@ -978,11 +985,11 @@ export function getPaymentOptions(rideId: string, base?: string): Promise<Paymen
  */
 export function getPayInstruction(rideId: string, params: {
   rail: string;
-}): Promise<PayInstruction> {
+}, base?: string): Promise<PayInstruction> {
   return request(`/api/rides/${rideId}/pay-instruction`, {
     method: 'POST',
     body: JSON.stringify({ rail: params.rail }),
-  });
+  }, base);
 }
 
 /**
@@ -993,11 +1000,11 @@ export function getPayInstruction(rideId: string, params: {
 export function settleRide(rideId: string, params: {
   rail: string;
   proof: SettlementProof;
-}): Promise<{ success: boolean; settlement: SettlementRecord }> {
+}, base?: string): Promise<{ success: boolean; settlement: SettlementRecord }> {
   return request(`/api/rides/${rideId}/settle`, {
     method: 'POST',
     body: JSON.stringify({ rail: params.rail, proof: params.proof }),
-  });
+  }, base);
 }
 
 /** POST /api/rides/:id/confirm-received (driver, signed) — confirm funds arrived */
@@ -1102,13 +1109,13 @@ export async function getAvailableProviders(params?: {
   lat?: number;
   lng?: number;
   radiusKm?: number;
-}): Promise<{ drivers: AvailableProvider[] }> {
+}, base?: string): Promise<{ drivers: AvailableProvider[] }> {
   const qs = new URLSearchParams();
   if (params?.lat) qs.set('lat', String(params.lat));
   if (params?.lng) qs.set('lng', String(params.lng));
   if (params?.radiusKm) qs.set('radius', String(params.radiusKm));
   const suffix = qs.toString() ? `?${qs}` : '';
-  const raw = await request<Record<string, unknown>>(`/api/providers/available${suffix}`);
+  const raw = await request<Record<string, unknown>>(`/api/providers/available${suffix}`, undefined, base);
   return { drivers: normaliseProviders(raw) };
 }
 
@@ -1160,7 +1167,7 @@ export async function submitProof(taskId: string, params: {
   type: string;
   file: File;
   providerPubkey: string;
-}): Promise<{ success: boolean }> {
+}, base?: string): Promise<{ success: boolean }> {
   // Convert file to base64 data URL for JSON transport
   // (the reference server stores metadata only — real file storage is an operator concern)
   const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -1180,14 +1187,14 @@ export async function submitProof(taskId: string, params: {
       dataUrl,
       providerPubkey: params.providerPubkey,
     }),
-  });
+  }, base);
 }
 
 /** POST /api/tasks/:id/proof/signature — submit signature proof */
 export function submitSignatureProof(taskId: string, params: {
   dataUrl: string;
   providerPubkey: string;
-}): Promise<{ success: boolean }> {
+}, base?: string): Promise<{ success: boolean }> {
   return request(`/api/tasks/${taskId}/proof`, {
     method: 'POST',
     body: JSON.stringify({
@@ -1195,7 +1202,7 @@ export function submitSignatureProof(taskId: string, params: {
       signature: params.dataUrl,
       providerPubkey: params.providerPubkey,
     }),
-  });
+  }, base);
 }
 
 /** POST /api/tasks/:id/quote — provider submits a quote */
@@ -1203,7 +1210,7 @@ export function submitQuote(taskId: string, params: {
   amountSats: number;
   description: string;
   providerPubkey: string;
-}): Promise<{ success: boolean; quote: TaskQuote }> {
+}, base?: string): Promise<{ success: boolean; quote: TaskQuote }> {
   return request(`/api/tasks/${taskId}/quote`, {
     method: 'POST',
     body: JSON.stringify({
@@ -1211,30 +1218,30 @@ export function submitQuote(taskId: string, params: {
       description: params.description,
       providerPubkey: params.providerPubkey,
     }),
-  });
+  }, base);
 }
 
 /** POST /api/tasks/:id/quote/accept — requester accepts a quote */
 export function acceptQuote(taskId: string, params: {
   requesterPubkey: string;
-}): Promise<{ success: boolean }> {
+}, base?: string): Promise<{ success: boolean }> {
   return request(`/api/tasks/${taskId}/quote/accept`, {
     method: 'POST',
     body: JSON.stringify({
       requesterPubkey: params.requesterPubkey,
     }),
-  });
+  }, base);
 }
 
 /** POST /api/tasks/:id/quote/decline — requester declines a quote */
 export function declineQuote(taskId: string, params: {
   requesterPubkey: string;
   reason?: string;
-}): Promise<{ success: boolean }> {
+}, base?: string): Promise<{ success: boolean }> {
   return request(`/api/tasks/${taskId}/quote/decline`, {
     method: 'POST',
     body: JSON.stringify(params),
-  });
+  }, base);
 }
 
 // ── Earnings ────────────────────────────────────────

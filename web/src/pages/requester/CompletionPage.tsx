@@ -70,7 +70,7 @@ export function CompletionPage() {
     if (!task || settlementConfirmed) return;
     const timer = setInterval(async () => {
       try {
-        const fresh = await getTask(task.id);
+        const fresh = await getTask(task.id, task.operatorBase);
         if (fresh.settlement) setLiveSettlement(fresh.settlement);
       } catch {
         // Ignore — next tick retries
@@ -158,7 +158,7 @@ export function CompletionPage() {
         targetPubkey: task.providerPubkey,
         domainId: profile?.id || '',
         feedback,
-      });
+      }, task.operatorBase);
       setSubmitted(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('complete.rateFailed'));
@@ -172,7 +172,7 @@ export function CompletionPage() {
       await sendTip(task.id, {
         amountSats,
         requesterPubkey: identity.pubKeyHex,
-      });
+      }, task.operatorBase);
       setTipped(true);
     } catch (err) {
       setTipError(err instanceof Error ? err.message : t('tip.failed'));

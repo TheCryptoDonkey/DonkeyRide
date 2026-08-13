@@ -22,9 +22,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 API_BASE="${1:-${VITE_API_BASE:-}}"
 
 if [ -z "$API_BASE" ]; then
-  echo "usage: $0 <operator-base-url>" >&2
-  echo "  the API base is COMPILED IN — a wrapped app has no serving origin" >&2
-  echo "  to infer it from, so a new URL means a new build." >&2
+  echo "usage: $0 <bootstrap-operator-base-url>" >&2
+  echo "  native apps need an initial operator; drivers can switch at runtime." >&2
   exit 2
 fi
 
@@ -38,7 +37,7 @@ if [ ! -f "$ANDROID_DIR/keystore.properties" ]; then
   exit 1
 fi
 
-echo "==> building web bundle for $API_BASE (ws: $WS_URL)"
+echo "==> building web bundle with bootstrap $API_BASE (ws: $WS_URL)"
 ( cd "$REPO_ROOT/web" && VITE_API_BASE="$API_BASE" VITE_WS_URL="$WS_URL" npm run native:driver:android )
 
 echo "==> assembling signed release"

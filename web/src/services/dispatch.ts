@@ -12,6 +12,7 @@ import { loadDestinationMode, jobMovesToward } from '../utils/destination-mode';
 import { loadGender, loadWomenOnlyDriver, type Gender } from '../utils/gender';
 import { startShift, endShift } from '../utils/shift';
 import { loadAccessFeatures } from '../utils/access-needs';
+import { validCredentials } from '../utils/credentials';
 import type { DestinationMode } from '../utils/destination-mode';
 
 const ONLINE_KEY = 'donkeyride.provider.online';
@@ -23,6 +24,8 @@ const OPEN_POLL_INTERVAL_MS = 30_000;
 export interface DispatchState {
   online: boolean;
   connected: boolean;
+  /** Operator policy refused this identity/declaration set. */
+  admissionError: string | null;
 }
 
 type TaskHandler = (task: Task, distanceKm?: number) => void;
@@ -42,6 +45,7 @@ class DispatchService {
   private ws: WebSocket | null = null;
   private online = false;
   private connected = false;
+  private admissionError: string | null = null;
   private identity: { pubKeyHex: string; npub: string } | null = null;
   private domainId: string | null = null;
   private location: LatLng | null = null;
@@ -112,7 +116,9 @@ class DispatchService {
 
   isOnline(): boolean { return this.online; }
   isConnected(): boolean { return this.connected; }
-  getState(): DispatchState { return { online: this.online, connected: this.connected }; }
+  getState(): DispatchState {
+    return { online: this.online, connected: this.connected, admissionError: this.admissionError };
+  }
 
   setIdentity(identity: { pubKeyHex: string; npub: string } | null): void {
     this.identity = identity;
@@ -289,6 +295,7 @@ class DispatchService {
 
   goOnline(): void {
     if (this.online) return;
+    this.admissionError = null;
     this.online = true;
     localStorage.setItem(ONLINE_KEY, '1');
     // Start the driver's own shift clock — earnings per hour needs it
@@ -321,6 +328,7 @@ class DispatchService {
 
   goOffline(): void {
     this.online = false;
+    this.admissionError = null;
     localStorage.removeItem(ONLINE_KEY);
     endShift();
     this.stopTimers();
@@ -409,6 +417,11 @@ class DispatchService {
       }
 
       if (msg.type === 'error') {
+        if (msg.error === 'operator_admission_denied') {
+          this.admissionError = msg.details || 'This operator did not admit this driver.';
+          this.emitStatus();
+          return;
+        }
         if (msg.error === 'auth_required' && !this.authRetried) {
           this.authRetried = true;
           this.awaitingAuth = true;
@@ -473,6 +486,10 @@ class DispatchService {
       // What this vehicle can actually accommodate (ramp, child seat…).
       // Undeclared means jobs needing it never reach this driver.
       access_features: loadAccessFeatures(),
+      // Operators choose whether these self-attested declarations are only
+      // displayed or are part of admission. A roster-gated operator still
+      // checks the authenticated pubkey independently.
+      credentials: validCredentials(),
     };
   }
 

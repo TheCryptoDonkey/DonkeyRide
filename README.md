@@ -142,6 +142,7 @@ regtest-proven for those operators.
 - **[docs/API-STRESS-TEST.md](./docs/API-STRESS-TEST.md)** — API stress test results
 - **[DOCKER-SETUP.md](./DOCKER-SETUP.md)** — Docker deployment guide
 - **[MULTI-OPERATOR-SETUP.md](./MULTI-OPERATOR-SETUP.md)** — Multi-operator configuration
+- **[Operator policy](./docs/OPERATOR-POLICY.md)** — One network for open markets and operator-controlled fleets
 
 ### Protocol Docs (trott repo)
 - **[TROTT Specifications](https://github.com/TheCryptoDonkey/trott)** — Full protocol specification

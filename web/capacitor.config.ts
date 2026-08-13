@@ -5,7 +5,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
  * install friction); the driver app goes native because background
  * location and store presence matter for a working shift.
  *
- * Build: VITE_API_BASE=https://<operator> VITE_WS_URL=wss://<operator>/ws \
+ * Build: VITE_API_BASE=https://<bootstrap-operator> VITE_WS_URL=wss://<bootstrap-operator>/ws \
  *          npm run native:driver:prepare && npx cap sync android
  *          (or `npx cap sync ios`)
  *

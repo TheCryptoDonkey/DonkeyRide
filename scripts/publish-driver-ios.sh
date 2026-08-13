@@ -28,9 +28,8 @@ API_BASE="${1:-${VITE_API_BASE:-}}"
 
 fail() { echo "$*" >&2; exit 1; }
 
-[ -n "$API_BASE" ] || fail "usage: $0 <operator-base-url>
-  The API base is COMPILED IN — a wrapped app has no serving origin to infer
-  it from, so a new operator URL means a new build."
+[ -n "$API_BASE" ] || fail "usage: $0 <bootstrap-operator-base-url>
+  Native apps need an initial operator; drivers can switch at runtime."
 
 [ -n "${APPLE_TEAM_ID:-}" ] || fail "APPLE_TEAM_ID is not set (Apple Developer → Membership)."
 [ -n "${ASC_KEY_ID:-}" ]    || fail "ASC_KEY_ID is not set (App Store Connect → Users and Access → Integrations)."
@@ -45,7 +44,7 @@ APP_DIR="$IOS_DIR/App"
 BUILD_DIR="$REPO_ROOT/web/ios/build"
 ARCHIVE="$BUILD_DIR/App.xcarchive"
 
-echo "==> building web bundle for $API_BASE (ws: $WS_URL)"
+echo "==> building web bundle with bootstrap $API_BASE (ws: $WS_URL)"
 ( cd "$REPO_ROOT/web" && VITE_API_BASE="$API_BASE" VITE_WS_URL="$WS_URL" npm run native:driver:ios )
 
 # TestFlight refuses a build number it has already seen for this version, and

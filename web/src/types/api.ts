@@ -278,6 +278,8 @@ export interface AvailableProvider {
   rating?: number;
   totalRides?: number;
   vehicleType?: string;
+  /** Operator that reported this coarse availability marker. */
+  operatorBase?: string;
 }
 
 /** @deprecated Use AvailableProvider */
@@ -304,9 +306,16 @@ export interface OperatorPaymentInfo {
 /** Operator info response */
 export interface OperatorInfo {
   name: string;
-  pubkey: string;
+  pubkey?: string;
+  operator?: string;
   fee: string;
-  domain: string;
+  feePercent?: number;
+  domain: string | {
+    id: string;
+    name: string;
+    roles: { requester: string; provider: string };
+    features: Record<string, boolean>;
+  };
   domainProfile?: {
     id: string;
     name: string;
@@ -317,12 +326,29 @@ export interface OperatorInfo {
   public_relays?: string[];
   payment?: OperatorPaymentInfo;
   version?: string;
+  policy?: OperatorPolicy;
   /**
    * Free minutes at the pickup before waiting time joins the fare. Operator
    * config — never assume a default, or the countdown promises free minutes
    * the operator is already charging for.
    */
   freeWaitingMinutes?: number;
+}
+
+export interface OperatorPolicy {
+  schema: string;
+  mode: 'open' | 'regulated' | 'custom';
+  admission: {
+    mode: 'open' | 'allowlist' | 'credentials' | 'allowlist_and_credentials';
+    assurance: 'none' | 'operator_roster' | 'self_attested' | 'operator_roster_and_self_attested';
+    requiredCredentials: string[];
+    allowlistSize: number | null;
+    note: string;
+  };
+  records: { mode: 'ephemeral' | 'durable'; backend: string };
+  termsUrl?: string | null;
+  privacyUrl?: string | null;
+  contact?: string | null;
 }
 
 /**
@@ -409,4 +435,4 @@ export type WsMessage =
   | { type: 'settlement_declared'; taskId?: string; rail?: string; verified?: boolean }
   | { type: 'settlement_confirmed'; taskId?: string; rail?: string }
   | { type: 'auth_ok'; pubkey: string }
-  | { type: 'error'; error: string };
+  | { type: 'error'; error: string; details?: string; missing?: string[] };

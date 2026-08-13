@@ -3,6 +3,9 @@ import { subscribeToRelays } from './relays';
 import { decodeGeohash } from '../utils/geohash';
 import type { Task, LatLng } from '../types/api';
 import type { NostrEvent } from '../types/nostr';
+import { safeOperatorOrigin } from './operator-origin';
+
+export { safeOperatorOrigin } from './operator-origin';
 
 /**
  * Federated job discovery — the decentralised answer to liquidity.
@@ -38,21 +41,6 @@ export interface TaskAnnouncement {
 
 function tag(event: NostrEvent, name: string): string | null {
   return event.tags.find((t) => t[0] === name)?.[1] ?? null;
-}
-
-/** Accept only https origins (or localhost http for dev); returns the origin */
-export function safeOperatorOrigin(raw: string | null): string | null {
-  if (!raw) return null;
-  try {
-    const url = new URL(raw);
-    const localhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
-    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && localhost)) {
-      return null;
-    }
-    return url.origin;
-  } catch {
-    return null;
-  }
 }
 
 export function parseTaskAnnouncement(event: NostrEvent): TaskAnnouncement | null {

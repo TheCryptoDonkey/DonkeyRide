@@ -1,6 +1,7 @@
 import type { WsMessage, LatLng } from '../types/api';
 import { getAuthPrivKey } from './api';
 import { createNip98Event } from './nostr';
+import { getBootstrapOperatorBase, getSelectedOperatorBase } from './operator-origin';
 
 type MessageHandler = (msg: WsMessage) => void;
 type StatusHandler = (connected: boolean) => void;
@@ -39,11 +40,14 @@ export function wsUrlForOrigin(origin: string): string | null {
 }
 
 export function getWsBaseUrl(): string {
-  // Native (Capacitor) builds bake in the operator's WebSocket URL
+  const selected = getSelectedOperatorBase();
+  // A bundled socket URL belongs only to the bundled bootstrap operator.
   const envUrl = import.meta.env.VITE_WS_URL;
-  if (envUrl) {
+  if (envUrl && selected === getBootstrapOperatorBase()) {
     return envUrl;
   }
+  const selectedUrl = wsUrlForOrigin(selected);
+  if (selectedUrl) return selectedUrl;
   // Behind TLS the WebSocket is reverse-proxied on the same origin at /ws;
   // local dev connects straight to the WS port.
   if (window.location.protocol === 'https:') {
@@ -225,7 +229,12 @@ export function normaliseWsMessage(raw: any): WsMessage | null {
       return { type: 'auth_ok', pubkey: raw.pubkey || '' };
 
     case 'error':
-      return { type: 'error', error: raw.error || 'unknown' };
+      return {
+        type: 'error',
+        error: raw.error || 'unknown',
+        ...(typeof raw.details === 'string' ? { details: raw.details } : {}),
+        ...(Array.isArray(raw.missing) ? { missing: raw.missing } : {}),
+      };
 
     default:
       return null;

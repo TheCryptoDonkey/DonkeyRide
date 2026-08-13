@@ -138,7 +138,7 @@ export function ActiveTaskPage() {
   const refreshTask = useCallback(async () => {
     if (!activeTask) return;
     try {
-      const updated = await getTask(activeTask.id);
+      const updated = await getTask(activeTask.id, activeTask.operatorBase);
       setActiveTask(updated);
       if (terminalStates.includes(updated.status)) routeTerminal(updated);
     } catch {
@@ -266,7 +266,7 @@ export function ActiveTaskPage() {
     if (!activeTask) return;
     const timer = setInterval(async () => {
       try {
-        const updated = await getTask(activeTask.id);
+        const updated = await getTask(activeTask.id, activeTask.operatorBase);
         setActiveTask(updated);
         if (terminalStates.includes(updated.status)) routeTerminal(updated);
       } catch {
@@ -304,7 +304,7 @@ export function ActiveTaskPage() {
             targetPubkey: target,
             reporterRole: 'requester',
             domainId: profile?.id,
-          });
+          }, activeTask.operatorBase);
         }}
         onDone={() => { reset(); navigate('/request'); }}
       />
@@ -327,7 +327,7 @@ export function ActiveTaskPage() {
     await triggerPanic(activeTask.id, {
       role: 'requester',
       location: currentLocation,
-    });
+    }, activeTask.operatorBase);
   };
 
   const dismissRideCheck = () => {
@@ -354,7 +354,7 @@ export function ActiveTaskPage() {
         cancelledBy: identity.pubKeyHex,
         reason: noShowTarget ? 'no_show' : undefined,
         reasonCode: noShowTarget ? 'no_show' : cancelReason,
-      });
+      }, activeTask.operatorBase);
       // Signed by the rider, published to public relays — the counterparty's
       // future matches see it. Fire-and-forget: cancel never blocks on relays.
       if (noShowTarget) {
@@ -362,7 +362,7 @@ export function ActiveTaskPage() {
           targetPubkey: noShowTarget,
           reporterRole: 'requester',
           domainId: profile?.id,
-        }).catch(() => {});
+        }, activeTask.operatorBase).catch(() => {});
         showToast(t('active.noShowReported'));
       }
       reset();
@@ -402,7 +402,9 @@ export function ActiveTaskPage() {
   const dragPickup = async (loc: LatLng) => {
     try {
       const named = await reverseGeocode(loc);
-      applyPickup(await updateTaskPickup(activeTask.id, { location: loc, address: named }));
+      applyPickup(await updateTaskPickup(
+        activeTask.id, { location: loc, address: named }, activeTask.operatorBase,
+      ));
       showToast(t('active.pickupMoved', { label: originLabel }));
     } catch (err) {
       showToast(err instanceof Error ? err.message : t('active.pickupMoveFailed'), { type: 'error' });
@@ -611,15 +613,15 @@ export function ActiveTaskPage() {
             onAccept={async () => {
               await acceptQuote(activeTask.id, {
                 requesterPubkey: identity.pubKeyHex,
-              });
-              const updated = await getTask(activeTask.id);
+              }, activeTask.operatorBase);
+              const updated = await getTask(activeTask.id, activeTask.operatorBase);
               setActiveTask(updated);
             }}
             onDecline={async () => {
               await declineQuote(activeTask.id, {
                 requesterPubkey: identity.pubKeyHex,
-              });
-              const updated = await getTask(activeTask.id);
+              }, activeTask.operatorBase);
+              const updated = await getTask(activeTask.id, activeTask.operatorBase);
               setActiveTask(updated);
             }}
           />

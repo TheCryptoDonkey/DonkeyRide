@@ -44,6 +44,12 @@ const { loadProfile, listProfiles } = require('./src/domain-profiles');
 const { getRoute } = require('./src/osrm-routing');
 const { safeErrorMessage } = require('./src/log-redact');
 const { createTaskStore } = require('./src/storage/task-store');
+const {
+    createOperatorPolicy,
+    evaluateDriverAdmission,
+    publicOperatorPolicy,
+    admissionNeedsCredentials
+} = require('./src/operator-policy');
 
 const app = express();
 
@@ -51,20 +57,22 @@ const app = express();
 // trust proxy every user shares the proxy's IP in one rate-limit bucket.
 app.set('trust proxy', 1);
 
-// CORS: same-origin web apps need nothing; the native (Capacitor) driver
-// app and local dev do. Explicit allowlist via ALLOWED_ORIGINS, with the
-// Capacitor origins included by default. Never a bare wildcard: the API
-// serves per-user PII behind NIP-98 auth.
+// CORS: operator switching means a PWA served by operator A must be able to
+// call operator B. This API uses no cookies; participant data is protected
+// by a request signature, so allowing a browser origin does not grant it an
+// identity. Operators can disable federation CORS and use ALLOWED_ORIGINS.
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || 'capacitor://localhost,http://localhost,https://localhost,http://localhost:5173,http://localhost:3000')
     .split(',').map(o => o.trim()).filter(Boolean);
+const federationCorsEnabled = (process.env.FEDERATION_CORS || 'true').toLowerCase() !== 'false';
 app.use(cors({
     origin: (origin, callback) => {
         // Non-browser clients and same-origin requests send no Origin header
-        if (!origin || allowedOrigins.includes(origin)) {
+        if (!origin || federationCorsEnabled || allowedOrigins.includes(origin)) {
             return callback(null, true);
         }
         return callback(null, false);
-    }
+    },
+    maxAge: 86400
 }));
 
 // Minimal security headers (no external dependency)
@@ -1320,6 +1328,24 @@ if (wss) {
                         const location = data.location && validLatLon(data.location.lat, data.location.lon)
                             ? { lat: data.location.lat, lon: data.location.lon }
                             : null;
+                        const credentials = sanitiseCredentials(data.credentials, domainProfile);
+                        const admission = evaluateDriverAdmission(operatorPolicy, {
+                            pubkey,
+                            npub,
+                            credentials,
+                            requiredCredentials: requiredCredentialIds(domainProfile)
+                        });
+                        if (!admission.allowed) {
+                            ws.send(JSON.stringify({
+                                type: 'error',
+                                error: 'operator_admission_denied',
+                                details: admission.missingAllowlist
+                                    ? 'This driver identity is not on this operator\'s roster.'
+                                    : 'This operator requires current credential declarations.',
+                                missing: admission.missingCredentials
+                            }));
+                            break;
+                        }
                         ws.driverNpub = npub;
                         ws.driverPubkey = pubkey;
                         ws.clientType = 'driver';
@@ -1333,7 +1359,8 @@ if (wss) {
                             womenOnly: data.women_only,
                             accessFeatures: sanitiseAccessNeeds(data.access_features, domainProfile),
                             // Vehicle classes this driver can serve
-                            serviceOptions: sanitiseServiceOptions(data.service_options)
+                            serviceOptions: sanitiseServiceOptions(data.service_options),
+                            credentials
                         });
                         sendPendingRideRequests(ws);
                         break;
@@ -1622,14 +1649,19 @@ function resolveServiceOption(requested, profile) {
 //      copy says "declared", not "verified".
 //   2. EXPIRY IS PART OF THE CLAIM. A licence that ran out in March is not
 //      a licence, so an expired declaration is dropped rather than shown.
-//   3. NOT A GATE BY DEFAULT. ENFORCE_CREDENTIALS=true makes required
-//      credentials fail closed at accept. Off by default: a licensed
-//      private hire operator and a lift-sharing co-op run the same code
-//      and have genuinely different obligations, and silently refusing
-//      every existing driver on upgrade would be worse than either.
+//   3. NOT A GATE BY DEFAULT. OPERATOR_ADMISSION_MODE=credentials (or the
+//      combined roster mode) makes required credentials fail closed. An
+//      open operator and a fleet operator run the same code with different
+//      policy, and the client reads that policy before a shift.
 // ==========================================
 
-const ENFORCE_CREDENTIALS = (process.env.ENFORCE_CREDENTIALS || '').toLowerCase() === 'true';
+const operatorPolicy = createOperatorPolicy(process.env);
+const ENFORCE_CREDENTIALS = admissionNeedsCredentials(operatorPolicy);
+if (operatorPolicy.admissionMode !== 'open' && !nip98Enabled) {
+    throw new Error(
+        'Non-open OPERATOR_ADMISSION_MODE requires ENABLE_NIP98_AUTH=true; an unsigned driver identity can be spoofed'
+    );
+}
 const MAX_CREDENTIAL_REF_CHARS = 60;
 
 /**
@@ -1894,7 +1926,7 @@ const presenceSweep = setInterval(() => {
 }, 60000);
 presenceSweep.unref();
 
-function updateDriverPresence({ npub, pubkey, location, areas, gender, womenOnly, serviceOptions, accessFeatures }) {
+function updateDriverPresence({ npub, pubkey, location, areas, gender, womenOnly, serviceOptions, accessFeatures, credentials }) {
     const key = (npub || pubkey || '').toLowerCase();
     if (!key) {
         return null;
@@ -1920,6 +1952,10 @@ function updateDriverPresence({ npub, pubkey, location, areas, gender, womenOnly
         // the safe default: they simply never see jobs that need it.
         accessFeatures: Array.isArray(accessFeatures)
             ? accessFeatures : (existing.accessFeatures || []),
+        // Sanitised declarations are retained only in live memory, so an
+        // operator can apply its admission rule on reconnect and accept.
+        credentials: Array.isArray(credentials)
+            ? credentials : (existing.credentials || []),
         lastSeen: Date.now()
     };
     driverPresence.set(key, entry);
@@ -2531,6 +2567,10 @@ app.get('/info', publicRateLimiter, (req, res) => {
         // Relay URLs reachable by CLIENTS (the internal NOSTR_RELAY hostname
         // is meaningless outside the Docker network)
         public_relays: config.publicRelays,
+        policy: publicOperatorPolicy(operatorPolicy, {
+            requiredCredentials: requiredCredentialIds(domainProfile),
+            storageBackend: taskStore?.backend || null
+        }),
         payment: {
             provider: paymentProvider.providerName,
             trust_model: caps.trustModel,
@@ -4796,11 +4836,21 @@ app.post('/api/rides/:rideId/accept', async (req, res) => {
         const credentials = sanitiseCredentials(
             req.body.credentials, acceptProfileForCreds
         );
-        if (ENFORCE_CREDENTIALS) {
-            const held = new Set(credentials.map((c) => c.id));
-            const missing = requiredCredentialIds(acceptProfileForCreds)
-                .filter((id) => !held.has(id));
-            if (missing.length > 0) {
+        const admission = evaluateDriverAdmission(operatorPolicy, {
+            pubkey: driver_pubkey,
+            npub: driver_npub,
+            credentials,
+            requiredCredentials: requiredCredentialIds(acceptProfileForCreds)
+        });
+        if (!admission.allowed) {
+            if (admission.missingAllowlist) {
+                return res.status(403).json({
+                    error: 'Driver not admitted by this operator',
+                    details: 'This operator accepts drivers from its own roster. Ask the operator to add this driver identity.'
+                });
+            }
+            if (admission.missingCredentials.length > 0) {
+                const missing = admission.missingCredentials;
                 const labels = (acceptProfileForCreds.credentials || [])
                     .filter((c) => missing.includes(c.id))
                     .map((c) => c.label);
@@ -7626,6 +7676,10 @@ app.get('/api/domains/current', publicRateLimiter, (req, res) => {
         // Self-attested and shown to the requester; never operator-verified.
         credentials: domainProfile.credentials || [],
         enforceCredentials: ENFORCE_CREDENTIALS,
+        operatorPolicy: publicOperatorPolicy(operatorPolicy, {
+            requiredCredentials: requiredCredentialIds(domainProfile),
+            storageBackend: taskStore?.backend || null
+        }),
         stakingModel: domainProfile.stakingModel,
         completionProofTypes: domainProfile.completionProofTypes,
         ratingCriteria: domainProfile.ratingCriteria,
@@ -7835,6 +7889,11 @@ async function startServer(options = {}) {
 
     // Task persistence first \u2014 providers restore persisted stakes from it
     await initializeTaskStore();
+    if (operatorPolicy.recordMode === 'durable' && !taskStore) {
+        throw new Error(
+            'OPERATOR_RECORD_MODE=durable requires a working DATABASE_URL; refusing to advertise durable records while running in memory'
+        );
+    }
 
     await initializeStakeManager();
     adoptPaymentProvider();
@@ -7872,7 +7931,11 @@ async function startServer(options = {}) {
             trustModels: [caps.trustModel],
             supportedCurrencies: ['SAT', 'GBP', 'USD', 'EUR'],
             serviceUrl: process.env.PUBLIC_BASE_URL || null,
-            publicRelays: config.publicRelays
+            publicRelays: config.publicRelays,
+            policy: publicOperatorPolicy(operatorPolicy, {
+                requiredCredentials: requiredCredentialIds(domainProfile),
+                storageBackend: taskStore?.backend || null
+            })
         }).catch((err) => console.warn('Operator announcement failed:', err.message));
 
         const heartbeatTimer = setInterval(() => {

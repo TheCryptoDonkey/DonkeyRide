@@ -9,9 +9,15 @@ entry point renamed to `index.html`) with appId `app.donkeyride.driver`.
 
 ```bash
 cd web
-VITE_API_BASE=https://<operator> VITE_WS_URL=wss://<operator>/ws \
+VITE_API_BASE=https://<bootstrap-operator> VITE_WS_URL=wss://<bootstrap-operator>/ws \
   npm run native:driver:android     # or native:driver:ios
 ```
+
+The URL is a bootstrap, not a permanent binding. A driver can open
+Profile → Operator network, discover signed operator announcements, or enter
+another compatible HTTPS backend directly. The selected operator and active
+task origin persist on the device; changing operator does not require a new
+APK. Rebuild only when you want to change the out-of-box bootstrap.
 
 ## What each platform actually does
 
