@@ -67,7 +67,7 @@ jobs:
             echo "::group::$f"
             # A test that leaks a handle would otherwise hang the job until
             # the 6h GitHub limit. Fail it in 5 minutes instead.
-            timeout 300 node "$f" || FAILED="$FAILED $f"
+            timeout 300 node tests/helpers/run-with-road-router.js -- node "$f" || FAILED="$FAILED $f"
             echo "::endgroup::"
           done
 
