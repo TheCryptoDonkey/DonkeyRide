@@ -24,8 +24,10 @@ process.env.SURGE_MAX = '2';
 process.env.SURGE_MIN_DEMAND = '3';
 process.env.SURGE_RADIUS_KM = '5';
 process.env.REPUTATION_RELAYS = 'ws://127.0.0.1:1';
-const WS_PORT = 47900 + Math.floor(Math.random() * 400);
-process.env.WS_PORT = String(WS_PORT);
+// Pricing never opens a client socket. Do not reserve a guessed high port:
+// Linux may already be using it as an ephemeral client port, which made this
+// otherwise deterministic test fail intermittently with EADDRINUSE in CI.
+process.env.DISABLE_WS = 'true';
 // No relay: boot rehydrates non-terminal tasks from Nostr snapshots, so a
 // developer with a relay in their .env would start this test with their own
 // live jobs already loaded. Durability is not what is under test here.
