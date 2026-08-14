@@ -46,6 +46,7 @@ let listeners: ((data: { subscription: unknown }) => void)[] = [];
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.setItem('donkeyride.coordination.mode', 'managed');
   listeners = [];
   pushPlugin.requestNotificationPermission.mockResolvedValue({ granted: true });
   pushPlugin.getSubscription.mockResolvedValue({ subscription: null });
@@ -62,6 +63,22 @@ async function freshModule() {
 }
 
 describe('native job push', () => {
+  it('uses the on-shift foreground service in direct mode without contacting an operator', async () => {
+    localStorage.setItem('donkeyride.coordination.mode', 'direct');
+
+    const { enableJobPush, disableJobPush, getPushState } = await freshModule();
+    expect(await enableJobPush('driverpubkey', ['gcw2'], null)).toBe(true);
+    expect(getPushState()).toBe('direct_shift');
+    expect(getVapidKey).not.toHaveBeenCalled();
+    expect(subscribePush).not.toHaveBeenCalled();
+    expect(pushPlugin.register).not.toHaveBeenCalled();
+
+    await disableJobPush('driverpubkey');
+    expect(getPushState()).toBe('idle');
+    expect(unsubscribePush).not.toHaveBeenCalled();
+    expect(pushPlugin.unregister).not.toHaveBeenCalled();
+  });
+
   it('sends the operator the UnifiedPush endpoint in the ordinary Web Push shape', async () => {
     pushPlugin.register.mockResolvedValue({ status: 'registering', distributor: 'io.heckel.ntfy' });
     pushPlugin.getSubscription.mockResolvedValue({ subscription: NATIVE_SUBSCRIPTION });

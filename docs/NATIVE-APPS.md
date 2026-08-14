@@ -8,16 +8,17 @@ Both platforms wrap the same web build (`dist-native-driver`, the driver
 entry point renamed to `index.html`) with appId `app.donkeyride.driver`.
 
 ```bash
-cd web
-VITE_API_BASE=https://<bootstrap-operator> VITE_WS_URL=wss://<bootstrap-operator>/ws \
-  npm run native:driver:android     # or native:driver:ios
+# Direct Android release for a static PWA
+scripts/publish-driver-apk.sh direct https://ride.example.com
+
+# Optional operator-bound Android release
+scripts/publish-driver-apk.sh https://operator.example.com
 ```
 
-The URL is a bootstrap, not a permanent binding. A driver can open
-Profile → Operator network, discover signed operator announcements, or enter
-another compatible HTTPS backend directly. The selected operator and active
-task origin persist on the device; changing operator does not require a new
-APK. Rebuild only when you want to change the out-of-box bootstrap.
+The direct build has no DonkeyRide API or operator subscription. Its routing
+URL must be absolute because a Capacitor WebView has no public web origin. A
+managed URL is only a bootstrap: a driver can explicitly switch network from
+Profile, and changing a selected operator does not require a new APK.
 
 ## What each platform actually does
 
@@ -25,14 +26,17 @@ APK. Rebuild only when you want to change the out-of-box bootstrap.
 |---|---|---|
 | Background location on shift | Foreground service, persistent notification | `CLLocationManager` with the `location` background mode |
 | Process stays alive mid-shift | Yes (foreground service) | Not guaranteed — iOS may suspend the WebView |
-| Off-shift job alerts | UnifiedPush ([docs](ANDROID-PUSH.md)) | **None** |
+| Off-shift job alerts | Managed mode only: UnifiedPush ([docs](ANDROID-PUSH.md)) | **None** |
 | Store presence | Signed APK, direct download | Not submitted |
 
 **The platforms are not equal, and the app should not pretend they are.** An
-Android driver can close the app and still be offered work. An iOS driver is
-reachable while on shift with the app running or backgrounded, and not
-otherwise. Closing that gap needs APNs, which needs a paid Apple developer
-account and a push service keyed to it — a decision, not an oversight.
+Android direct mode stays reachable while **Go Online** remains active because
+the foreground service keeps its WebView and Nostr subscription alive. Going
+offline or force-stopping the app ends that shift; direct mode has no off-shift
+push. A managed Android build can additionally use UnifiedPush. An iOS driver
+is reachable while on shift with the app running or backgrounded, and not
+otherwise. Closing that gap needs APNs, a paid Apple developer account and a
+push service keyed to it — a decision, not an oversight.
 
 ## iOS specifics
 
@@ -78,6 +82,8 @@ are unverified on hardware. Treat the iOS wrap as buildable, not shipped.
 
 ## Android specifics
 
-See [ANDROID-PUSH.md](ANDROID-PUSH.md) for the UnifiedPush rail, and the
-release keystore notes in the repo history. The release APK is distributed
-from the operator itself (`/download.html`), never from git.
+See [ANDROID-PUSH.md](ANDROID-PUSH.md) for the optional managed-mode
+UnifiedPush rail. Releases are distributed from `/download.html`, never from
+git. The static page reads `/downloads/driver-app.json`; that metadata contains
+the exact APK byte count, SHA-256, signing-certificate fingerprint and source
+commit. A missing file must return 404 rather than falling back to HTML.

@@ -7380,6 +7380,7 @@ result
 # Signed driver builds are per-operator and dropped in after deploy. They are
 # release artefacts, not source, and an 8 MB binary has no business in git.
 public/downloads/
+/web/public/downloads/
 
 # Playwright MCP session artefacts (snapshots, console logs)
 .playwright-mcp/

@@ -150,6 +150,7 @@ export const sw: Record<string, string> = {
   'dash.pushChoose': 'Kuna programu zaidi ya moja ya arifa. Fungua ile unayotaka na uiweke kama msambazaji wako wa UnifiedPush, kisha ingia mtandaoni tena.',
   'dash.pushDenied': 'Arifa zimezimwa, kwa hivyo utaona kazi tu wakati programu imefunguliwa.',
   'dash.pushGetNtfy': 'Pakua ntfy',
+  'dash.directBackground': 'Huduma ya zamu inafanya kazi. Maombi yanaweza kufika skrini ikiwa imezimwa mradi uendelee kuwa mtandaoni. Kulazimisha programu isimame kunamaliza zamu.',
   'dash.ready': 'Tayari kupokea maombi ya {noun}',
 
   // Incoming job

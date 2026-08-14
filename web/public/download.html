@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0b1220" />
+  <title>DonkeyRide Driver for Android</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #080d18; color: #f3f6fb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: radial-gradient(circle at 50% -20%, #23385f 0, #080d18 55%); }
+    main { width: min(720px, calc(100% - 32px)); margin: 0 auto; padding: 48px 0 64px; }
+    h1 { margin: 12px 0; font-size: clamp(2rem, 8vw, 3.5rem); line-height: 1.02; letter-spacing: -.04em; }
+    h2 { margin-top: 32px; font-size: 1.25rem; }
+    p, li { color: #bdc7d9; font-size: 1rem; line-height: 1.6; }
+    .eyebrow { color: #7dd3fc; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; font-size: .75rem; }
+    .card { margin-top: 28px; border: 1px solid #31415f; border-radius: 18px; padding: 22px; background: rgba(15, 24, 42, .9); box-shadow: 0 18px 60px rgba(0, 0, 0, .28); }
+    .button { display: inline-flex; min-height: 48px; align-items: center; justify-content: center; margin: 8px 0; padding: 12px 20px; border-radius: 12px; background: #38bdf8; color: #07111e; font-weight: 850; text-decoration: none; }
+    .button.secondary { background: transparent; color: #7dd3fc; border: 1px solid #3b82a5; }
+    .button:focus-visible, a:focus-visible { outline: 3px solid #fbbf24; outline-offset: 3px; }
+    .release { display: grid; gap: 8px; margin-top: 12px; }
+    .release p { margin: 0; }
+    code { overflow-wrap: anywhere; color: #dbeafe; font-size: .82rem; }
+    .status { color: #fbbf24; font-weight: 700; }
+    .privacy { border-left: 4px solid #22c55e; padding-left: 16px; }
+    ol { padding-left: 22px; }
+    footer { margin-top: 34px; color: #7f8da5; font-size: .88rem; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">Direct, portable driver app</p>
+    <h1>DonkeyRide Driver for Android</h1>
+    <p>Go online without creating a DonkeyRide account or joining a central operator. The direct app discovers work over open Nostr relays and uses road routing for real journey distance and time.</p>
+
+    <section class="card" aria-labelledby="download-heading">
+      <h2 id="download-heading">Download the signed Android app</h2>
+      <p id="release-status" class="status" role="status">Checking the current release…</p>
+      <a id="apk-download" class="button" href="#" download hidden>Download APK</a>
+      <div id="release-details" class="release" hidden>
+        <p>Version <strong id="version"></strong> · <span id="size"></span></p>
+        <p>APK SHA-256<br /><code id="sha256"></code></p>
+        <p>Signing certificate SHA-256<br /><code id="certificate"></code></p>
+      </div>
+      <p>If you prefer not to install an APK, use the <a class="button secondary" href="/provide">driver PWA</a>.</p>
+    </section>
+
+    <section aria-labelledby="install-heading">
+      <h2 id="install-heading">Install in three steps</h2>
+      <ol>
+        <li>Download the APK and allow your browser to install this app from this source when Android asks.</li>
+        <li>Open DonkeyRide Driver and allow location while you are working.</li>
+        <li>Tap <strong>Go Online</strong>. A persistent on-shift notification means the app can keep receiving work with the screen off.</li>
+      </ol>
+      <p>Going Offline stops shift tracking. Force-stopping the app also ends the live shift. Direct mode does not provide off-shift push alerts.</p>
+    </section>
+
+    <section class="privacy" aria-labelledby="privacy-heading">
+      <h2 id="privacy-heading">Your phone holds your identity</h2>
+      <p>Rider, driver, trip and shift identities are derived locally from an encrypted identity tree. The public app has no DonkeyRide database. Relays and routing services can still observe network timing, IP addresses and the route data sent to them, so this is privacy-minimised rather than anonymous.</p>
+    </section>
+    <footer>Verify the APK checksum before installing if you received the file from somewhere else.</footer>
+  </main>
+  <script>
+    const status = document.getElementById('release-status');
+    const download = document.getElementById('apk-download');
+    const details = document.getElementById('release-details');
+    const showUnavailable = () => {
+      status.textContent = 'The Android release is not currently published. The driver PWA remains available.';
+      download.hidden = true;
+      details.hidden = true;
+    };
+    fetch('/downloads/driver-app.json', { cache: 'no-store' })
+      .then((response) => {
+        if (!response.ok) throw new Error('release unavailable');
+        return response.json();
+      })
+      .then((metadata) => {
+        const app = metadata && metadata.android;
+        if (!app || app.available !== true || !/^[0-9A-Za-z._-]+$/.test(String(app.version))
+            || !Number.isSafeInteger(Number(app.bytes)) || Number(app.bytes) < 1
+            || !/^\/downloads\/[A-Za-z0-9._-]+\.apk(?:\?[A-Za-z0-9=&._-]+)?$/.test(app.url)
+            || !/^[a-f0-9]{64}$/.test(app.sha256) || !/^[a-f0-9]{64}$/.test(app.certificateSha256)) {
+          throw new Error('invalid release metadata');
+        }
+        status.textContent = 'Current signed release is ready.';
+        download.href = app.url;
+        download.textContent = `Download APK · v${String(app.version)}`;
+        document.getElementById('version').textContent = String(app.version);
+        document.getElementById('size').textContent = `${(Number(app.bytes) / 1048576).toFixed(1)} MB`;
+        document.getElementById('sha256').textContent = app.sha256;
+        document.getElementById('certificate').textContent = app.certificateSha256;
+        download.hidden = false;
+        details.hidden = false;
+      })
+      .catch(showUnavailable);
+  </script>
+</body>
+</html>

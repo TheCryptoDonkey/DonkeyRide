@@ -435,7 +435,7 @@ export function DashboardPage() {
             is backgrounded, so the dispatch socket goes with it), and used to
             be told nothing at all. The distributor prompts below stay Android
             -only, because UnifiedPush is an Android concept. */}
-        {online && pushState !== 'enabled' && pushState !== 'idle' && (
+        {online && ['unsupported', 'denied', 'no_distributor', 'choose_distributor', 'failed'].includes(pushState) && (
           <div className="bg-donkey-orange/20 border border-donkey-orange rounded-lg p-3">
             <p className="text-donkey-orange text-sm">
               {pushState === 'no_distributor' && t('dash.pushNoDistributor')}
@@ -457,6 +457,12 @@ export function DashboardPage() {
                 {t('dash.pushGetNtfy')}
               </a>
             )}
+          </div>
+        )}
+
+        {online && pushState === 'direct_shift' && (
+          <div className="bg-donkey-green/15 border border-donkey-green rounded-lg p-3">
+            <p className="text-donkey-text text-sm">{t('dash.directBackground')}</p>
           </div>
         )}
 

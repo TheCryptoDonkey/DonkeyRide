@@ -13,7 +13,7 @@
     "test:ui:headed": "playwright test --headed",
     "test:ui:direct": "playwright test --config playwright.direct.config.ts",
     "test:ui:live": "playwright test --config playwright.live.config.ts",
-    "native:driver:prepare": "npm run build && rm -rf dist-native-driver && cp -r dist dist-native-driver && cp dist-native-driver/driver.html dist-native-driver/index.html",
+    "native:driver:prepare": "npm run build && rm -rf dist-native-driver && cp -r dist dist-native-driver && rm -rf dist-native-driver/downloads && rm -f dist-native-driver/download.html && cp dist-native-driver/driver.html dist-native-driver/index.html",
     "native:driver:android": "npm run native:driver:prepare && npx cap sync android",
     "native:driver:ios": "npm run native:driver:prepare && npx cap sync ios"
   },

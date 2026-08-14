@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import {
   expectEasyTap, expectNamedFormControls, expectNoSeriousA11yViolations,
   expectNoViewportOverflow, installMapMocks, skipOnboarding,
@@ -99,4 +100,41 @@ test('the deployed PWA is usable without location access and has no coordinator'
   } finally {
     await context.close();
   }
+});
+
+test('the deployed Android download is the signed binary described by the human-facing page', async ({ page, request }) => {
+  await page.goto('/download.html');
+  await expect(page.getByRole('heading', { name: 'DonkeyRide Driver for Android' })).toBeVisible();
+  await expect(page.getByText('Current signed release is ready.')).toBeVisible();
+  const download = page.getByRole('link', { name: 'Download APK · v1.0.3' });
+  await expect(download).toBeVisible();
+  await expectEasyTap(page, download);
+  await expectNoViewportOverflow(page);
+  await expectNoSeriousA11yViolations(page);
+
+  const metadataResponse = await request.get('/downloads/driver-app.json');
+  expect(metadataResponse.status()).toBe(200);
+  const metadata = await metadataResponse.json() as {
+    android: {
+      available: boolean; version: string; versionCode: number; url: string;
+      bytes: number; sha256: string; certificateSha256: string; sourceCommit: string;
+    };
+  };
+  expect(metadata.android.available).toBe(true);
+  expect(metadata.android.version).toBe('1.0.3');
+  expect(metadata.android.versionCode).toBe(4);
+  expect(metadata.android.sha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(metadata.android.certificateSha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(metadata.android.sourceCommit).toMatch(/^[a-f0-9]{40}$/);
+
+  const apkResponse = await request.get(metadata.android.url);
+  expect(apkResponse.status()).toBe(200);
+  expect(apkResponse.headers()['content-type']).toContain('application/vnd.android.package-archive');
+  const apk = await apkResponse.body();
+  expect(apk.byteLength).toBe(metadata.android.bytes);
+  expect(createHash('sha256').update(apk).digest('hex')).toBe(metadata.android.sha256);
+
+  const missing = await request.get('/downloads/not-a-release.apk');
+  expect(missing.status()).toBe(404);
+  expect(await missing.text()).not.toContain('<!doctype html>');
 });

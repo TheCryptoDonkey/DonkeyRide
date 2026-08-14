@@ -9,6 +9,7 @@ import {
   unregisterUnifiedPush,
 } from './unified-push';
 import type { LatLng } from '../types/api';
+import { getCoordinationMode } from './network-mode';
 
 /**
  * Web Push job alerts (VAPID — the operator's own keys, no Firebase).
@@ -31,6 +32,7 @@ import type { LatLng } from '../types/api';
 export type PushState =
   | 'idle'
   | 'enabled'
+  | 'direct_shift'
   | 'unsupported'
   | 'denied'
   | 'no_distributor'
@@ -89,6 +91,15 @@ export async function enableJobPush(
   location: LatLng | null,
   includeSensitiveMatching = false,
 ): Promise<boolean> {
+  // Direct Android has no operator push endpoint to register with. While the
+  // driver is online, its foreground location service keeps the WebView and
+  // Nostr subscription alive instead. Do not ask for a VAPID key or tell the
+  // driver to install a UnifiedPush distributor that cannot help this mode.
+  if (getCoordinationMode() === 'direct' && unifiedPushSupported()) {
+    lastJobSubscribe = null;
+    setPushState('direct_shift');
+    return true;
+  }
   if (unifiedPushSupported()) {
     return enableNativeJobPush(pubkey, areas, location, includeSensitiveMatching);
   }
@@ -276,6 +287,12 @@ export async function enableTaskPush(pubkey: string): Promise<boolean> {
  *  off-shift driver is a battery cost with nothing on the other end. */
 export async function disableJobPush(pubkey: string): Promise<void> {
   lastJobSubscribe = null;
+  if (getCoordinationMode() === 'direct') {
+    // No coordinator learned a subscription, so there is nothing remote (or
+    // in a UnifiedPush distributor) to remove.
+    setPushState('idle');
+    return;
+  }
   try {
     await unsubscribePush(pubkey);
   } catch {

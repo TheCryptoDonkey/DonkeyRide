@@ -6,6 +6,7 @@ import { extname, join, normalize } from 'node:path';
 const root = join(process.cwd(), 'dist');
 const port = Number(process.env.STATIC_PWA_PORT || 4180);
 const types = {
+  '.apk': 'application/vnd.android.package-archive',
   '.css': 'text/css; charset=utf-8',
   '.html': 'text/html; charset=utf-8',
   '.ico': 'image/x-icon',
@@ -25,6 +26,13 @@ createServer(async (request, response) => {
     if ((await stat(file)).isDirectory()) file = join(file, 'index.html');
     await stat(file);
   } catch {
+    if (extname(pathname)) {
+      response.statusCode = 404;
+      response.setHeader('content-type', types[extname(pathname)] || 'text/plain; charset=utf-8');
+      response.setHeader('cache-control', 'no-store');
+      response.end('Not found');
+      return;
+    }
     file = join(root, pathname.startsWith('/provide') || pathname.startsWith('/drive')
       ? 'driver.html'
       : 'index.html');

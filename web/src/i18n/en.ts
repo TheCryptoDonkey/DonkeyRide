@@ -139,6 +139,7 @@ export const en: Record<string, string> = {
   'dash.pushChoose': 'More than one notification app is installed. Open the one you want and set it as your UnifiedPush distributor, then go online again.',
   'dash.pushDenied': 'Notifications are switched off, so you will only see jobs while the app is open.',
   'dash.pushGetNtfy': 'Get ntfy',
+  'dash.directBackground': 'On-shift service active. Jobs can arrive with the screen off while Go Online remains active. Force-stopping the app ends the shift.',
   'dash.ready': 'Ready to receive {noun} requests',
 
   // Incoming job

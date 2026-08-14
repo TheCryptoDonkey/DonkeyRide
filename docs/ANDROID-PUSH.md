@@ -1,5 +1,9 @@
 # Job alerts in the Android driver app (UnifiedPush)
 
+This is the **managed-operator** off-shift notification rail. Direct mode does
+not contact an operator or register a push endpoint: its Android foreground
+service keeps the Nostr subscription alive while Go Online is active.
+
 The browser gets Web Push. The Android WebView does not implement the Push
 API at all, so the wrapped driver app would go silent the moment it is
 backgrounded and the dispatch WebSocket drops. UnifiedPush closes that gap
@@ -39,8 +43,9 @@ relayed).
 | "No distributor installed" notice | `web/src/pages/provider/DashboardPage.tsx` |
 | Connector dependency (`3.3.3`) | `web/android/variables.gradle`, `web/android/app/build.gradle` |
 
-`dispatch.ts` is untouched: it still calls `enableJobPush` on Go online and
-`disableJobPush` on Go offline, and the branch happens inside `push.ts`.
+`dispatch.ts` still calls `enableJobPush` on Go online and `disableJobPush` on
+Go offline. `push.ts` first separates direct foreground shifts from managed
+UnifiedPush, so direct mode never requests VAPID or recommends ntfy.
 
 ## Deliberate refusals
 
@@ -57,7 +62,7 @@ relayed).
 
 ## Testing it on a device
 
-Requires a real phone; the emulator has no distributor.
+Requires a real phone and a managed build; the emulator has no distributor.
 
 1. Install a distributor — [ntfy](https://f-droid.org/packages/io.heckel.ntfy/)
    from F-Droid is the usual one. Open it once so it registers itself.

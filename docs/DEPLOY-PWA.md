@@ -40,6 +40,13 @@ ride.example.com {
 	@coordinator path /api/* /info /health /ws
 	respond @coordinator 404
 
+	# A missing APK must be a real 404, never the PWA shell renamed .apk.
+	@downloads path /download.html /downloads/*
+	handle @downloads {
+		root * /srv/donkeyride-pwa
+		file_server
+	}
+
 	@driver path /provide /provide/* /drive /drive/*
 	handle @driver {
 		root * /srv/donkeyride-pwa
@@ -59,6 +66,24 @@ Copy `web/dist/` to `/srv/donkeyride-pwa` using an atomic release directory or
 equivalent deployment mechanism, then reload Caddy. Do not route `/api`,
 `/info` or `/ws` to the reference operator on a direct-only host.
 
+To ship the native direct Android driver too, build it before the final PWA
+build so Vite copies the gitignored release artifacts into `web/dist/`:
+
+```bash
+scripts/publish-driver-apk.sh direct https://ride.example.com
+cd web
+VITE_COORDINATION_MODE=direct \
+VITE_NOSTR_RELAYS=wss://relay.damus.io,wss://nos.lol \
+VITE_PUBLIC_ROUTING_URL=https://ride.example.com/routing \
+npm run build
+```
+
+`apksigner` is mandatory: the publish script refuses to advertise an unsigned
+or unverifiable file. Preserve and back up `web/android/keystore.properties`
+and its keystore; changing the signing key prevents Android updating existing
+installs. The public page is `/download.html` and its machine-readable contract
+is `/downloads/driver-app.json`.
+
 ## Verify
 
 ```bash
@@ -66,6 +91,9 @@ curl -fsS https://ride.example.com/ >/dev/null
 curl -fsS https://ride.example.com/provide >/dev/null
 test "$(curl -sS -o /dev/null -w '%{http_code}' https://ride.example.com/info)" = 404
 test "$(curl -sS -o /dev/null -w '%{http_code}' https://ride.example.com/api/tasks/open)" = 404
+curl -fsS https://ride.example.com/download.html | grep -q 'DonkeyRide Driver for Android'
+curl -fsS https://ride.example.com/downloads/driver-app.json
+test "$(curl -sS -o /dev/null -w '%{http_code}' https://ride.example.com/downloads/missing.apk)" = 404
 ```
 
 Then run the direct Playwright contract locally before publishing:

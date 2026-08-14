@@ -83,6 +83,17 @@ Serve `web/dist/` from any HTTPS static host. Rider routes use `index.html`;
 browser geolocation, secure storage and service workers. The complete Caddy
 example is in [static PWA deployment](./docs/DEPLOY-PWA.md).
 
+Android drivers can use the PWA or a signed native app whose foreground shift
+service keeps the direct Nostr subscription and location watcher alive with the
+screen off. Build and publish it alongside the static PWA with:
+
+```bash
+scripts/publish-driver-apk.sh direct https://ride.example.com
+```
+
+The build writes a versioned APK, checksum and signed-release metadata into the
+gitignored `web/public/downloads/` directory. See [native driver apps](./docs/NATIVE-APPS.md).
+
 ## Optional managed operator
 
 The Node.js reference operator remains available for a firm that wants to run
