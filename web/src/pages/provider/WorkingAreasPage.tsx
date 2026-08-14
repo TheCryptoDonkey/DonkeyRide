@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import type { GeoJsonObject } from 'geojson';
+import L, { type LeafletMouseEvent, type PathOptions } from 'leaflet';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Polygon, GeoJSON, CircleMarker, useMapEvents } from 'react-leaflet';
-import { MapView } from '../../components/map/MapView';
+import { MapView, useLeafletMap } from '../../components/map/MapView';
 import { showToast } from '../../components/common/Toast';
 import { useLocation } from '../../hooks/useLocation';
 import { useDomain } from '../../context/DomainContext';
@@ -18,9 +19,46 @@ import type { LatLng } from '../../types/api';
 
 /** Forward map taps to the polygon being drawn */
 function ClickCapture({ onPoint }: { onPoint: (point: LatLng) => void }) {
-  useMapEvents({
-    click: (event) => onPoint({ lat: event.latlng.lat, lng: event.latlng.lng }),
-  });
+  const map = useLeafletMap();
+  useEffect(() => {
+    const handleClick = (event: LeafletMouseEvent) => {
+      onPoint({ lat: event.latlng.lat, lng: event.latlng.lng });
+    };
+    map.on('click', handleClick);
+    return () => { map.off('click', handleClick); };
+  }, [map, onPoint]);
+  return null;
+}
+
+function GeoJsonLayer({ data, style }: { data: GeoJsonObject; style: PathOptions }) {
+  const map = useLeafletMap();
+  useEffect(() => {
+    const layer = L.geoJSON(data, { style }).addTo(map);
+    return () => { layer.removeFrom(map); };
+  }, [map, data, style]);
+  return null;
+}
+
+function PolygonLayer({ positions, style }: { positions: [number, number][]; style: PathOptions }) {
+  const map = useLeafletMap();
+  useEffect(() => {
+    const layer = L.polygon(positions, style).addTo(map);
+    return () => { layer.removeFrom(map); };
+  }, [map, positions, style]);
+  return null;
+}
+
+function PointLayer({ point }: { point: LatLng }) {
+  const map = useLeafletMap();
+  useEffect(() => {
+    const layer = L.circleMarker([point.lat, point.lng], {
+      radius: 5,
+      color: '#f59e0b',
+      fillColor: '#f59e0b',
+      fillOpacity: 1,
+    }).addTo(map);
+    return () => { layer.removeFrom(map); };
+  }, [map, point.lat, point.lng]);
   return null;
 }
 
@@ -98,33 +136,31 @@ export function WorkingAreasPage() {
 
           {/* Saved coverage cells */}
           {savedGeoJSON && (
-            <GeoJSON
+            <GeoJsonLayer
               key={savedCells.join(',')}
-              data={savedGeoJSON}
+              data={savedGeoJSON as GeoJsonObject}
               style={{ color: '#22c55e', weight: 1, fillOpacity: 0.15 }}
             />
           )}
 
           {/* Draft polygon + its live coverage preview */}
           {draftGeoJSON && (
-            <GeoJSON
+            <GeoJsonLayer
               key={`draft-${draftCells?.join(',')}`}
-              data={draftGeoJSON}
+              data={draftGeoJSON as GeoJsonObject}
               style={{ color: '#f59e0b', weight: 1, fillOpacity: 0.1 }}
             />
           )}
           {draft.length >= 2 && (
-            <Polygon
+            <PolygonLayer
               positions={draft.map((p) => [p.lat, p.lng] as [number, number])}
-              pathOptions={{ color: '#f59e0b', weight: 2, fillOpacity: 0.05 }}
+              style={{ color: '#f59e0b', weight: 2, fillOpacity: 0.05 }}
             />
           )}
           {draft.map((point, i) => (
-            <CircleMarker
+            <PointLayer
               key={`${point.lat}-${point.lng}-${i}`}
-              center={[point.lat, point.lng]}
-              radius={5}
-              pathOptions={{ color: '#f59e0b', fillColor: '#f59e0b', fillOpacity: 1 }}
+              point={point}
             />
           ))}
         </MapView>

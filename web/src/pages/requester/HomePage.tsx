@@ -1,6 +1,7 @@
+import type { LeafletMouseEvent } from 'leaflet';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MapView } from '../../components/map/MapView';
+import { MapView, useLeafletMap } from '../../components/map/MapView';
 import { LocationMarker } from '../../components/map/LocationMarker';
 import { useLocation } from '../../hooks/useLocation';
 import { useTask } from '../../context/TaskContext';
@@ -282,12 +283,12 @@ function sameSpot(a: LatLng, b: LatLng): boolean {
   return Math.abs(a.lat - b.lat) < 1e-4 && Math.abs(a.lng - b.lng) < 1e-4;
 }
 
-// Helper component to capture map click events
-import { useMapEvents } from 'react-leaflet';
-
 function MapClickHandler({ onClick }: { onClick: (e: { latlng: { lat: number; lng: number } }) => void }) {
-  useMapEvents({
-    click: onClick,
-  });
+  const map = useLeafletMap();
+  useEffect(() => {
+    const handleClick = (event: LeafletMouseEvent) => onClick(event);
+    map.on('click', handleClick);
+    return () => { map.off('click', handleClick); };
+  }, [map, onClick]);
   return null;
 }

@@ -1,5 +1,7 @@
-import { Polyline } from 'react-leaflet';
+import L from 'leaflet';
+import { useEffect, useMemo } from 'react';
 import { routePositions } from '../../utils/geo';
+import { useLeafletMap } from './MapView';
 
 interface RoutePolylineProps {
   /** Encoded polyline string, or decoded [lat, lng] positions */
@@ -15,15 +17,22 @@ function getThemeRouteColour(): string {
 }
 
 export function RoutePolyline({ geometry, colour, opacity = 0.8 }: RoutePolylineProps) {
+  const map = useLeafletMap();
   const resolvedColour = colour || getThemeRouteColour();
+  const positions = useMemo(() => routePositions(geometry), [geometry]);
 
-  const positions = routePositions(geometry);
-  if (positions.length === 0) return null;
+  useEffect(() => {
+    if (positions.length === 0) return;
+    const line = L.polyline(positions, {
+      color: resolvedColour,
+      weight: 4,
+      opacity,
+    }).addTo(map);
 
-  return (
-    <Polyline
-      positions={positions}
-      pathOptions={{ color: resolvedColour, weight: 4, opacity }}
-    />
-  );
+    return () => {
+      line.removeFrom(map);
+    };
+  }, [map, positions, resolvedColour, opacity]);
+
+  return null;
 }

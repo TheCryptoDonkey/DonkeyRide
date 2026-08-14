@@ -1,6 +1,7 @@
-import { Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
+import { useEffect } from 'react';
 import type { LatLng } from '../../types/api';
+import { useLeafletMap } from './MapView';
 
 interface LocationMarkerProps {
   position: LatLng;
@@ -45,26 +46,38 @@ export function LocationMarker({
   draggable = false,
   onDragEnd,
 }: LocationMarkerProps) {
-  return (
-    <Marker
-      position={[position.lat, position.lng]}
-      icon={createIcon(colour, draggable)}
-      draggable={draggable}
-      // Leaflet renders every marker as a focusable role="button" div. Without
-      // this, each one lands in the tab order announced as an unnamed button —
-      // the only serious violation an axe scan of these screens turns up.
-      alt={draggable ? `${label} — drag to move` : label}
-      title={label}
-      eventHandlers={draggable && onDragEnd ? {
-        dragend: (e) => {
-          const { lat, lng } = e.target.getLatLng();
-          onDragEnd({ lat, lng });
-        },
-      } : undefined}
-    >
-      <Popup>
-        <span className="font-mono text-sm">{label}</span>
-      </Popup>
-    </Marker>
-  );
+  const map = useLeafletMap();
+
+  useEffect(() => {
+    const accessibleLabel = draggable ? `${label} — drag to move` : label;
+    const marker = L.marker([position.lat, position.lng], {
+      icon: createIcon(colour, draggable),
+      draggable,
+      alt: accessibleLabel,
+      title: label,
+    });
+
+    const popup = document.createElement('span');
+    popup.className = 'font-mono text-sm';
+    popup.textContent = label;
+    marker.bindPopup(popup);
+    marker.addTo(map);
+
+    const element = marker.getElement();
+    element?.setAttribute('aria-label', accessibleLabel);
+
+    const handleDragEnd = () => {
+      if (!onDragEnd) return;
+      const { lat, lng } = marker.getLatLng();
+      onDragEnd({ lat, lng });
+    };
+    if (draggable && onDragEnd) marker.on('dragend', handleDragEnd);
+
+    return () => {
+      marker.off('dragend', handleDragEnd);
+      marker.removeFrom(map);
+    };
+  }, [map, position.lat, position.lng, label, colour, draggable, onDragEnd]);
+
+  return null;
 }

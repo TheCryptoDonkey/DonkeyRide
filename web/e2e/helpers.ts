@@ -139,6 +139,11 @@ export async function expectNoFirstInstallUpdateToast(page: Page): Promise<void>
 }
 
 export async function expectFullyInViewport(page: Page, locator: ReturnType<Page['locator']>): Promise<void> {
+  // State-changing actions replace one primary control with the next after
+  // the signed API response arrives. Wait for that human-visible state before
+  // measuring it; boundingBox() alone returns null immediately instead of
+  // retrying like Playwright's web-first assertions do.
+  await expect(locator).toBeVisible();
   const box = await locator.boundingBox();
   const viewport = page.viewportSize();
   expect(box, 'expected the essential action to have a visible bounding box').not.toBeNull();

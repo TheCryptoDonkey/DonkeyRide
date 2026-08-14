@@ -154,4 +154,6 @@ points and address strings never appear in relay events.
 
 ## Licence
 
-MIT Licence — Copyright (c) 2025–2026 DonkeyRide Community. See [LICENCE](./LICENCE).
+MIT Licence — Copyright (c) 2025–2026 DonkeyRide Community. See [LICENSE](./LICENSE).
+Bundled third-party code remains under its own permissive terms; see
+[THIRD_PARTY_NOTICES](./THIRD_PARTY_NOTICES.md).

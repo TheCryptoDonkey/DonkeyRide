@@ -17,7 +17,6 @@ if (!window.NostrTools) {
 const bytesToHex = utils?.bytesToHex;
 const hexToBytes = utils?.hexToBytes;
 const DRIVER_PRIV_STORAGE_KEY = 'donkeyride.driverPrivKey';
-const DEMO_DRIVER_PRIVKEY = 'EXAMPLE_VALUE';
 
 function ensurePrivBytes(hexKey) {
   if (hexToBytes) {
@@ -33,28 +32,26 @@ if (!driverPrivKey) {
   if (generatePrivateKey && bytesToHex) {
     const raw = generatePrivateKey();
     driverPrivKey = typeof raw === 'string' ? raw : bytesToHex(raw);
+    window.localStorage.setItem(DRIVER_PRIV_STORAGE_KEY, driverPrivKey);
   } else {
-    driverPrivKey = DEMO_DRIVER_PRIVKEY;
+    console.warn('Driver identity unavailable — nostr-tools did not provide secure key generation');
   }
-  window.localStorage.setItem(DRIVER_PRIV_STORAGE_KEY, driverPrivKey);
 }
 
 let driverPrivBytes = null;
 let driverPubKey = null;
 
 try {
-  if (nostrGetPublicKey) {
+  if (nostrGetPublicKey && driverPrivKey) {
     driverPrivBytes = ensurePrivBytes(driverPrivKey);
     driverPubKey = nostrGetPublicKey(driverPrivBytes);
   }
 } catch (error) {
-  console.warn('Driver key derivation failed, falling back to demo key', error);
-  driverPrivKey = DEMO_DRIVER_PRIVKEY;
-  window.localStorage.setItem(DRIVER_PRIV_STORAGE_KEY, driverPrivKey);
-  if (nostrGetPublicKey) {
-    driverPrivBytes = ensurePrivBytes(driverPrivKey);
-    driverPubKey = nostrGetPublicKey(driverPrivBytes);
-  }
+  console.warn('Driver key derivation failed — clearing the invalid local identity', error);
+  window.localStorage.removeItem(DRIVER_PRIV_STORAGE_KEY);
+  driverPrivKey = null;
+  driverPrivBytes = null;
+  driverPubKey = null;
 }
 
 const driverNpub = driverPubKey && nip19 ? nip19.npubEncode(driverPubKey) : null;

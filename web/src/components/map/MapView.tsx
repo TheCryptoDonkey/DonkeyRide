@@ -1,7 +1,14 @@
-import { MapContainer, TileLayer, useMap, useMapEvents } from 'react-leaflet';
+import L, { type Map as LeafletMap } from 'leaflet';
 import type { LatLng } from '../../types/api';
 import 'leaflet/dist/leaflet.css';
-import { useEffect, useRef, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 
 interface MapViewProps {
   centre: LatLng;
@@ -21,17 +28,52 @@ interface MapViewProps {
 /** Threshold in degrees (~100m at London's latitude) */
 const SIGNIFICANT_MOVE = 0.001;
 
-function MapUpdater({ centre, zoom }: { centre: LatLng; zoom: number }) {
-  const map = useMap();
+const LeafletMapContext = createContext<LeafletMap | null>(null);
+
+export function useLeafletMap(): LeafletMap {
+  const map = useContext(LeafletMapContext);
+  if (!map) {
+    throw new Error('Leaflet layer must be rendered inside MapView');
+  }
+  return map;
+}
+
+export function MapView({
+  centre, zoom = 14, children, className, label = 'Map',
+}: MapViewProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<LeafletMap | null>(null);
+  const [map, setMap] = useState<LeafletMap | null>(null);
   const userDragged = useRef(false);
   const lastCentre = useRef(centre);
 
-  // Track user drag
-  useMapEvents({
-    dragstart: () => { userDragged.current = true; },
-  });
+  useEffect(() => {
+    if (!containerRef.current || mapRef.current) return;
+
+    const instance = L.map(containerRef.current, { zoomControl: false });
+    instance.setView([centre.lat, centre.lng], zoom);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(instance);
+
+    const markDragged = () => { userDragged.current = true; };
+    instance.on('dragstart', markDragged);
+    mapRef.current = instance;
+    setMap(instance);
+
+    return () => {
+      instance.off('dragstart', markDragged);
+      instance.remove();
+      mapRef.current = null;
+      setMap((current) => (current === instance ? null : current));
+    };
+    // Initial centre and zoom belong to this map instance. Later changes are
+    // handled below without destroying its tiles or interaction state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
+    if (!map) return;
     const latDiff = Math.abs(centre.lat - lastCentre.current.lat);
     const lngDiff = Math.abs(centre.lng - lastCentre.current.lng);
     const significantChange = latDiff > SIGNIFICANT_MOVE || lngDiff > SIGNIFICANT_MOVE;
@@ -46,28 +88,19 @@ function MapUpdater({ centre, zoom }: { centre: LatLng; zoom: number }) {
     }
   }, [map, centre.lat, centre.lng, zoom]);
 
-  return null;
-}
-
-export function MapView({
-  centre, zoom = 14, children, className, label = 'Map',
-}: MapViewProps) {
   return (
-    <MapContainer
-      center={[centre.lat, centre.lng]}
-      zoom={zoom}
-      className={className || 'h-full w-full'}
-      zoomControl={false}
-      // MapContainerProps has no role/aria-label, but Leaflet spreads
-      // unknown props onto the container element
-      {...({ role: 'img', 'aria-label': label } as Record<string, string>)}
-    >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+    <>
+      <div
+        ref={containerRef}
+        className={className || 'h-full w-full'}
+        role="region"
+        aria-label={label}
       />
-      <MapUpdater centre={centre} zoom={zoom} />
-      {children}
-    </MapContainer>
+      {map && (
+        <LeafletMapContext.Provider value={map}>
+          {children}
+        </LeafletMapContext.Provider>
+      )}
+    </>
   );
 }
