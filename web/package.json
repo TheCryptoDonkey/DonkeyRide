@@ -2,6 +2,16 @@
   "name": "donkeyride-web",
   "private": true,
   "version": "1.0.0",
+  "description": "Installable direct rider and driver PWA for peer-to-peer journey coordination",
+  "homepage": "https://ride.trotters.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TheCryptoDonkey/DonkeyRide.git",
+    "directory": "web"
+  },
+  "bugs": {
+    "url": "https://github.com/TheCryptoDonkey/DonkeyRide/issues"
+  },
   "license": "MIT",
   "author": "DonkeyRide Community",
   "type": "module",

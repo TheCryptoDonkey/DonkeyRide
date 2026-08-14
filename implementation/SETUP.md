@@ -1,49 +1,55 @@
 # DonkeyRide Setup Guide
 
+> This is the optional operator/developer setup. Riders and drivers normally
+> install or open the hosted PWA at <https://ride.trotters.dev>; no DonkeyRide
+> backend, PostgreSQL or Redis is required for direct mode. Start with the
+> repository [README](../README.md) for the current architecture.
+
 ## 🚀 Choose Your Path
 
 ### Path 1: Just a User (1 minute)
-Open `index.html` and start riding. That's it.
+Open <https://ride.trotters.dev> and install the PWA if you want it on your
+home screen. No DonkeyRide server or account approval is required.
 
-### Path 2: Taxi Driver (5 minutes) 
-Run your own relay, keep 100% of fares.
+### Path 2: Driver or Provider (1 minute)
+Open <https://ride.trotters.dev/provide>, or use the signed Android build at
+<https://ride.trotters.dev/download.html>.
 
-### Path 3: Relay Operator (10 minutes)
-Compete in the free market, earn 0.1-1% fees.
+### Path 3: Managed Operator
+Run the optional backend when a firm needs its own admission policy, records or
+regulated workflow. Direct-mode users do not need it.
 
 ### Path 4: Developer (15 minutes)
 Fork it, modify it, make it yours.
 
 ---
 
-## Quick Start (Frontend Demo Only)
+## Quick Start (PWA development)
 
-Just want to see the demo? Simply open `index.html` in your browser:
+The hosted app is the quickest way to try DonkeyRide. For local development:
 
 ```bash
 # Clone the repo
-git clone https://github.com/donkeyride/donkeyride
-cd donkeyride
+git clone https://github.com/TheCryptoDonkey/DonkeyRide.git
+cd DonkeyRide/web
+npm ci
 
-# Open in browser
-open index.html  # macOS
-xdg-open index.html  # Linux
-start index.html  # Windows
+# Point this at a browser-reachable Valhalla-compatible router.
+VITE_PUBLIC_ROUTING_URL=https://router.example npm run dev
 ```
 
 ## Full Setup (With Relay Server)
 
 ### Prerequisites
-- Node.js 18+ 
-- Strike API key (get free at https://strike.me/developer)
+- Node.js 20+
 - Docker (optional)
 
 ### Option 1: Docker (Recommended)
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/donkeyride/donkeyride
-cd donkeyride
+git clone https://github.com/TheCryptoDonkey/DonkeyRide.git
+cd DonkeyRide
 
 # 2. Create environment file
 cp .env.example .env
@@ -60,8 +66,8 @@ open http://localhost:3000
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/donkeyride/donkeyride
-cd donkeyride
+git clone https://github.com/TheCryptoDonkey/DonkeyRide.git
+cd DonkeyRide
 
 # 2. Install dependencies
 npm install
@@ -235,8 +241,8 @@ npm test
 ssh root@your-server
 
 # Clone and setup
-git clone https://github.com/donkeyride/donkeyride
-cd donkeyride
+git clone https://github.com/TheCryptoDonkey/DonkeyRide.git
+cd DonkeyRide
 cp .env.example .env
 # Edit .env with production values
 
@@ -328,7 +334,7 @@ docker push your-registry/donkeyride-relay
 
 ## Community & Support
 
-- **GitHub**: https://github.com/donkeyride/donkeyride
+- **GitHub**: https://github.com/TheCryptoDonkey/DonkeyRide
 - **Discord**: https://discord.gg/donkeyride
 - **Telegram**: https://t.me/donkeyride
 - **Nostr**: #donkeyride

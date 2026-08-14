@@ -1,12 +1,17 @@
 # DonkeyRide Operator Quick Start Guide
 
+Most people do not run this software: they open the hosted
+[rider PWA](https://ride.trotters.dev/) or
+[driver PWA](https://ride.trotters.dev/provide). This guide is only for a firm
+or community that deliberately wants the optional managed operator.
+
 ## Get Started in 5 Minutes
 
 ### Step 1: Install Dependencies
 
 ```bash
-git clone https://github.com/donkeyride/donkeyride.git
-cd donkeyride
+git clone https://github.com/TheCryptoDonkey/DonkeyRide.git
+cd DonkeyRide
 npm install
 ```
 

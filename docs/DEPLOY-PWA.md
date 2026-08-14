@@ -3,6 +3,9 @@
 The public DonkeyRide product is a static rider/driver PWA. It does not need a
 DonkeyRide operator, PostgreSQL, Redis or a DonkeyRide WebSocket server.
 
+The reference deployment is <https://ride.trotters.dev>; its public source and
+release checks are at <https://github.com/TheCryptoDonkey/DonkeyRide>.
+
 It does need independently selectable network services:
 
 - one or more Nostr relays for discovery and encrypted message delivery;
@@ -43,28 +46,42 @@ ride.example.com {
 	# A missing APK must be a real 404, never the PWA shell renamed .apk.
 	@downloads path /download.html /downloads/*
 	handle @downloads {
-		root * /srv/donkeyride-pwa
+		root * /srv/donkeyride-pwa/current
 		file_server
 	}
 
 	@driver path /provide /provide/* /drive /drive/*
 	handle @driver {
-		root * /srv/donkeyride-pwa
+		root * /srv/donkeyride-pwa/current
 		rewrite * /driver.html
 		file_server
 	}
 
 	handle {
-		root * /srv/donkeyride-pwa
+		root * /srv/donkeyride-pwa/current
 		try_files {path} /index.html
 		file_server
 	}
 }
 ```
 
-Copy `web/dist/` to `/srv/donkeyride-pwa` using an atomic release directory or
-equivalent deployment mechanism, then reload Caddy. Do not route `/api`,
-`/info` or `/ws` to the reference operator on a direct-only host.
+Copy `web/dist/` into an immutable release directory and switch the `current`
+symlink only after Caddy validates. Keep the previous release directory for a
+fast rollback:
+
+```bash
+release_id=$(date -u +%Y%m%dT%H%M%SZ)
+release_dir="/srv/donkeyride-pwa/releases/$release_id"
+sudo install -d -m 0755 "$release_dir"
+sudo rsync -a --delete web/dist/ "$release_dir/"
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo ln -sfn "$release_dir" /srv/donkeyride-pwa/current
+sudo systemctl reload caddy
+```
+
+Do not route `/api`, `/info` or `/ws` to the reference operator on a
+direct-only host. The reference deployment also explicitly returns 404 for
+`/relay` so a stale coordinator or relay cannot be discovered accidentally.
 
 To ship the native direct Android driver too, build it before the final PWA
 build so Vite copies the gitignored release artifacts into `web/dist/`:

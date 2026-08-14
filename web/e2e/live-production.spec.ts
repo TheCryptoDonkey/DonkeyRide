@@ -106,7 +106,7 @@ test('the deployed Android download is the signed binary described by the human-
   await page.goto('/download.html');
   await expect(page.getByRole('heading', { name: 'DonkeyRide Driver for Android' })).toBeVisible();
   await expect(page.getByText('Current signed release is ready.')).toBeVisible();
-  const download = page.getByRole('link', { name: 'Download APK · v1.0.3' });
+  const download = page.getByRole('link', { name: 'Download APK · v1.0.4' });
   await expect(download).toBeVisible();
   await expectEasyTap(page, download);
   await expectNoViewportOverflow(page);
@@ -121,8 +121,8 @@ test('the deployed Android download is the signed binary described by the human-
     };
   };
   expect(metadata.android.available).toBe(true);
-  expect(metadata.android.version).toBe('1.0.3');
-  expect(metadata.android.versionCode).toBe(4);
+  expect(metadata.android.version).toBe('1.0.4');
+  expect(metadata.android.versionCode).toBe(5);
   expect(metadata.android.sha256).toMatch(/^[a-f0-9]{64}$/);
   expect(metadata.android.certificateSha256).toMatch(/^[a-f0-9]{64}$/);
   expect(metadata.android.sourceCommit).toMatch(/^[a-f0-9]{40}$/);

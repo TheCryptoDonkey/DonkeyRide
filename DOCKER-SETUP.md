@@ -57,8 +57,8 @@ Download Docker Desktop from https://docker.com/products/docker-desktop
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/donkeyride/donkeyride
-cd donkeyride
+git clone https://github.com/TheCryptoDonkey/DonkeyRide.git
+cd DonkeyRide
 ```
 
 ### 2. Configure Environment
@@ -724,7 +724,7 @@ environment:
 
 ## Support
 
-- **GitHub Issues**: https://github.com/donkeyride/donkeyride/issues
+- **GitHub Issues**: https://github.com/TheCryptoDonkey/DonkeyRide/issues
 - **Documentation**: Check the `guides/` folder
 - **Nostr**: Search for #donkeyride
 

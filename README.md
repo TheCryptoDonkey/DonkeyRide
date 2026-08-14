@@ -1,5 +1,9 @@
 # DonkeyRide
 
+[![CI](https://github.com/TheCryptoDonkey/DonkeyRide/actions/workflows/ci.yml/badge.svg)](https://github.com/TheCryptoDonkey/DonkeyRide/actions/workflows/ci.yml)
+
+**Use it:** [request a journey](https://ride.trotters.dev/) · [drive or provide](https://ride.trotters.dev/provide) · [get the signed Android driver app](https://ride.trotters.dev/download.html) · [view the source](https://github.com/TheCryptoDonkey/DonkeyRide)
+
 DonkeyRide is an installable rider/driver PWA for peer-to-peer journey
 coordination. The normal product is the app, not an operator business.
 

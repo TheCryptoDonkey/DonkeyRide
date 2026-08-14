@@ -60,8 +60,8 @@ Operators:                          Nostr Relays:
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/donkeyride/donkeyride.git
-cd donkeyride
+git clone https://github.com/TheCryptoDonkey/DonkeyRide.git
+cd DonkeyRide
 npm install
 
 # 2. Configure
