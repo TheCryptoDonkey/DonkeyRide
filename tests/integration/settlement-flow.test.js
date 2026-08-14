@@ -132,7 +132,7 @@ test('Cashu instructions route the token through the chat, never the operator', 
 
 test('Cashu REFUSES a token pasted to the operator (custody hazard)', async () => {
   const rail = settlement.getRail('cashu');
-  const pasted = await rail.verify({ proof: { token: 'EXAMPLE_VALUE' } });
+  const pasted = await rail.verify({ proof: { token: `cashu${'A'.repeat(18)}` } });
   assert.equal(pasted.failed, true, 'a pasted token must be refused, not recorded');
   assert.match(pasted.detail, /never send the Cashu token to the operator/);
 

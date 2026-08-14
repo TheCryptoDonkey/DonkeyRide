@@ -14,7 +14,7 @@ const { loadProfile } = require('../../src/domain-profiles');
 
 // Deterministic test keys
 const RIDER_PRIV_HEX = 'f4b31f1248bfa5e603a1c1d73c6f9d1286f5fb7c1d3aa4c9bd4a62d2a6a4a2f1';
-const DRIVER_PRIV_HEX = 'EXAMPLE_VALUE';
+const DRIVER_PRIV_HEX = '1'.padStart(64, '0');
 const GUARDIAN1_PRIV_HEX = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2';
 const GUARDIAN2_PRIV_HEX = 'b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3';
 const GUARDIAN3_PRIV_HEX = 'd4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5';
