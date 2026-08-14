@@ -14,7 +14,7 @@ import { showToast } from '../../components/common/Toast';
 import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { useDomain } from '../../context/DomainContext';
-import { useLocation } from '../../hooks/useLocation';
+import { hasLocationConsent, useLocation } from '../../hooks/useLocation';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import { useLiveTracking } from '../../modules/pii';
 import {
@@ -81,7 +81,10 @@ export function ActiveTaskPage() {
   const { identity } = useIdentity();
   const { profile } = useDomain();
   const { t } = useT();
-  const { location, hasFix } = useLocation(true);
+  const { location, hasFix } = useLocation({
+    watch: true,
+    enabled: dispatchService.isOnline() || hasLocationConsent(),
+  });
   const loadedPrivateTaskRef = useRef<string | null>(null);
   // Keep using the app-level listener's last genuine fix while this freshly
   // mounted watcher starts. Its initial London value is map framing only and

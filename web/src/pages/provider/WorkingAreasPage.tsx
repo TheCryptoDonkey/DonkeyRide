@@ -33,7 +33,8 @@ function ClickCapture({ onPoint }: { onPoint: (point: LatLng) => void }) {
  */
 export function WorkingAreasPage() {
   const navigate = useNavigate();
-  const { location } = useLocation();
+  // Drawing an area does not require revealing the device position.
+  const { location } = useLocation({ enabled: false });
   const { profile } = useDomain();
   const [areas, setAreas] = useState<WorkingArea[]>(loadWorkingAreas());
   const [draft, setDraft] = useState<LatLng[]>([]);

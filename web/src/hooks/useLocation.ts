@@ -4,6 +4,15 @@ import type { LatLng } from '../types/api';
 // Default: London. A PLACEHOLDER for map framing only — never a position to
 // act on. `hasFix` is the only thing that says whether it is real.
 const DEFAULT_LOCATION: LatLng = { lat: 51.5074, lng: -0.1278 };
+const CONSENT_KEY = 'donkeyride.location-consent';
+
+export function hasLocationConsent(): boolean {
+  try {
+    return localStorage.getItem(CONSENT_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
 
 /**
  * How long to wait before asking again after a failed one-shot fix. A driver
@@ -33,17 +42,23 @@ const GEO_ERROR: Record<number, string> = {
  * driver was then advertised to the operator at Charing Cross, invisible to
  * every job around them, with the app still saying "listening for requests".
  *
- * @param watch - When true, uses watchPosition for continuous updates.
+ * Location access is enabled explicitly. Screens that only need a map frame
+ * can render without triggering a browser/native permission sheet; their
+ * user-facing action calls `refresh()` instead.
  */
-export function useLocation(watch = false) {
+export function useLocation({
+  watch = false,
+  enabled = false,
+}: { watch?: boolean; enabled?: boolean } = {}) {
   const [location, setLocation] = useState<LatLng>(DEFAULT_LOCATION);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const [hasFix, setHasFix] = useState(false);
   const watchIdRef = useRef<number | null>(null);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handlePosition = useCallback((pos: GeolocationPosition) => {
+    try { localStorage.setItem(CONSENT_KEY, 'true'); } catch { /* device-only state */ }
     setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
     setError(null);
     setLoading(false);
@@ -51,6 +66,9 @@ export function useLocation(watch = false) {
   }, []);
 
   const handleError = useCallback((err: GeolocationPositionError) => {
+    if (err.code === 1) {
+      try { localStorage.removeItem(CONSENT_KEY); } catch { /* device-only state */ }
+    }
     // Never store an empty message — a falsy error reads as "no error" to
     // any caller testing truthiness
     setError(err.message || GEO_ERROR[err.code] || 'Location unavailable');
@@ -73,6 +91,10 @@ export function useLocation(watch = false) {
   }, [handlePosition, handleError]);
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
     if (!navigator.geolocation) {
       setError('Geolocation not supported');
       setLoading(false);
@@ -117,7 +139,7 @@ export function useLocation(watch = false) {
         retryRef.current = null;
       }
     };
-  }, [watch, handlePosition, handleError]);
+  }, [enabled, watch, handlePosition, handleError]);
 
   return { location, error, loading, hasFix, refresh };
 }

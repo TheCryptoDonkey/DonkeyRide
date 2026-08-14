@@ -25,7 +25,7 @@ import { showToast } from '../../components/common/Toast';
 import { useTask } from '../../context/TaskContext';
 import { useIdentity } from '../../context/IdentityContext';
 import { useDomain } from '../../context/DomainContext';
-import { useLocation } from '../../hooks/useLocation';
+import { hasLocationConsent, useLocation } from '../../hooks/useLocation';
 import { useWebSocket } from '../../hooks/useWebSocket';
 import {
   triggerPanic, cancelTask, getTask, acceptQuote, declineQuote, reportNoShow,
@@ -62,7 +62,9 @@ export function ActiveTaskPage() {
   const { identity } = useIdentity();
   const { profile } = useDomain();
   const { t } = useT();
-  const { location: currentLocation, error: locationError, loading: locationLoading } = useLocation(true);
+  const {
+    location: currentLocation, error: locationError, loading: locationLoading,
+  } = useLocation({ watch: true, enabled: hasLocationConsent() });
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [reportProviderNoShow, setReportProviderNoShow] = useState(false);

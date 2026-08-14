@@ -93,6 +93,8 @@ scripts/publish-driver-apk.sh direct https://ride.example.com
 
 The build writes a versioned APK, checksum and signed-release metadata into the
 gitignored `web/public/downloads/` directory. See [native driver apps](./docs/NATIVE-APPS.md).
+Neither rider nor driver asks for device location merely on opening: riders
+choose **Use my current location**, while drivers start it with **Go Online**.
 
 ## Optional managed operator
 

@@ -123,6 +123,7 @@ export const en: Record<string, string> = {
   'dash.retryGps': 'Try again',
   'dash.goOnline': 'Go Online',
   'dash.goOffline': 'Go Offline',
+  'dash.findingLocation': 'Finding your location…',
   'dash.earnings': 'Earnings',
   'dash.areas': 'Working Areas',
   'dash.headingTo': 'Heading to',

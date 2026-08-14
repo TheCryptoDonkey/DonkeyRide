@@ -19,7 +19,7 @@ export function HomePage() {
     loading: locationLoading,
     hasFix,
     refresh,
-  } = useLocation();
+  } = useLocation({ enabled: false });
   const { setOrigin, setDestination, activeTask } = useTask();
   const { profile } = useDomain();
   const [providers, setProviders] = useState<AvailableProvider[]>([]);

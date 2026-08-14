@@ -38,6 +38,12 @@ is reachable while on shift with the app running or backgrounded, and not
 otherwise. Closing that gap needs APNs, a paid Apple developer account and a
 push service keyed to it — a decision, not an oversight.
 
+Opening either app does not request device location. Rider location begins
+only after **Use my current location**; driver location begins from **Go
+Online** (or resumes an already-active shift). Manual map/search pickup remains
+usable when permission is withheld. This is enforced by unit and mobile UI
+tests so a denied permission cannot trap the app behind repeated prompts.
+
 ## iOS specifics
 
 - `web/ios/App/App/ShiftLocationPlugin.swift` is the app's own location

@@ -29,8 +29,8 @@ export function PickupAdjuster({
   task, originLabel, providerLabel, matched, onUpdated,
 }: PickupAdjusterProps) {
   const { t } = useT();
-  const { location, error: locationError, loading: locationLoading } = useLocation();
   const [open, setOpen] = useState(false);
+  const { location, error: locationError, loading: locationLoading } = useLocation({ enabled: open });
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState(task.pickupNote || '');
 

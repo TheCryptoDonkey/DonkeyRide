@@ -39,7 +39,7 @@ export function LocationProvider({ children }: { children: ReactNode }) {
   });
 
   // Only activate geolocation when consent is granted
-  const { location, loading, error } = useLocation(consented);
+  const { location, loading, error } = useLocation({ watch: consented, enabled: consented });
 
   const grantConsent = useCallback(() => {
     localStorage.setItem(CONSENT_KEY, 'true');

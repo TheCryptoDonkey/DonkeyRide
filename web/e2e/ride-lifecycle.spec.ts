@@ -65,6 +65,9 @@ test('a rider and driver can complete a real mobile journey', async ({ browser }
 
     await rider.goto('/request');
     await expectNoFirstInstallUpdateToast(rider);
+    await expect(rider.getByText('Set your pickup')).toBeVisible();
+    await rider.getByRole('button', { name: 'Change' }).click();
+    await rider.getByRole('button', { name: 'Use my current location' }).click();
     await expect(rider.getByText('Current location')).toBeVisible();
     await rider.getByRole('textbox', { name: 'Where to?' }).fill('Old Trafford');
     await rider.getByRole('button', { name: /Old Trafford.*United Kingdom/ }).click();

@@ -42,7 +42,9 @@ const NTFY_INSTALL_URL = 'https://f-droid.org/packages/io.heckel.ntfy/';
 export function DashboardPage() {
   const navigate = useNavigate();
   const { t, td } = useT();
-  const { location, hasFix, error: geoError, refresh: refreshLocation } = useLocation();
+  const {
+    location, hasFix, error: geoError, loading: geoLoading, refresh: refreshLocation,
+  } = useLocation({ enabled: dispatchService.wasOnline() });
   const { identity } = useIdentity();
   const { activeTask, setActiveTask } = useTask();
   const { profile } = useDomain();
@@ -54,6 +56,7 @@ export function DashboardPage() {
   const [declined, setDeclined] = useState(dispatchService.declinedCount());
   const [destMode, setDestMode] = useState<DestinationMode | null>(dispatchService.getDestinationMode());
   const [pickingDest, setPickingDest] = useState(false);
+  const [onlineRequested, setOnlineRequested] = useState(false);
   // Push can fail quietly, and a driver reads silence as "no jobs tonight"
   const [pushState, setPushState] = useState<PushState>(getPushState);
   useEffect(() => onPushStateChange(setPushState), []);
@@ -144,11 +147,24 @@ export function DashboardPage() {
 
   const toggleOnline = useCallback(() => {
     if (dispatchService.isOnline()) {
+      setOnlineRequested(false);
       dispatchService.goOffline();
-    } else if (!geoError) {
+    } else if (geoReady) {
+      setOnlineRequested(false);
       dispatchService.goOnline();
+    } else {
+      setOnlineRequested(true);
+      refreshLocation();
     }
-  }, [geoError]);
+  }, [geoReady, refreshLocation]);
+
+  // The original Go Online tap is the consent gesture. Once its location
+  // request succeeds, finish that same action without demanding a second tap.
+  useEffect(() => {
+    if (!onlineRequested || !geoReady || online) return;
+    setOnlineRequested(false);
+    dispatchService.goOnline();
+  }, [onlineRequested, geoReady, online]);
 
   const providerLabel = td(profile?.roles.provider || 'Provider');
   const taskNoun = td(profile?.labels?.taskNoun || 'task');
@@ -484,9 +500,9 @@ export function DashboardPage() {
         <button
           className={online ? 'btn-danger w-full' : 'btn-primary w-full'}
           onClick={toggleOnline}
-          disabled={!online && !!geoError}
         >
-          {online ? t('dash.goOffline') : t('dash.goOnline')}
+          {online ? t('dash.goOffline') : onlineRequested && geoLoading
+            ? t('dash.findingLocation') : t('dash.goOnline')}
         </button>
       </div>
     </div>

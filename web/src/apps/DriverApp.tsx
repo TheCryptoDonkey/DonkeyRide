@@ -29,7 +29,9 @@ function DispatchTaskListener() {
   const { activeTask, setActiveTask } = useTask();
   const { profile } = useDomain();
   const { identity } = useIdentity();
-  const { location, hasFix } = useLocation();
+  // A fresh app opens without a permission sheet. A previously active shift
+  // is the only reason to resume location without another tap.
+  const { location, hasFix } = useLocation({ enabled: dispatchService.wasOnline() });
   const activeTaskRef = useRef(activeTask);
   activeTaskRef.current = activeTask;
   const profileRef = useRef(profile);

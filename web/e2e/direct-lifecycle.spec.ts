@@ -160,6 +160,9 @@ test('the static PWA completes an encrypted no-money journey without an operator
     expect(driverStorage['donkeyride.identity.model']).toBe('tree');
 
     await rider.goto('/request');
+    await expect(rider.getByText('Set your pickup')).toBeVisible();
+    await rider.getByRole('button', { name: 'Change' }).click();
+    await rider.getByRole('button', { name: 'Use my current location' }).click();
     await expect(rider.getByText('Current location')).toBeVisible();
     const riderStorage = await rider.evaluate(() => Object.fromEntries(
       Object.keys(localStorage).map((key) => [key, localStorage.getItem(key)]),

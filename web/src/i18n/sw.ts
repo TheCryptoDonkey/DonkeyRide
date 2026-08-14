@@ -134,6 +134,7 @@ export const sw: Record<string, string> = {
   'dash.retryGps': 'Jaribu tena',
   'dash.goOnline': 'Ingia mtandaoni',
   'dash.goOffline': 'Toka mtandaoni',
+  'dash.findingLocation': 'Inatafuta mahali ulipo…',
   'dash.earnings': 'Mapato',
   'dash.areas': 'Maeneo ya kazi',
   'dash.headingTo': 'Unaelekea',
