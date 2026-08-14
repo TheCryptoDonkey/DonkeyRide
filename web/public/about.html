@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#07111f" />
+  <meta name="description" content="DonkeyRide is open, payment-optional ride coordination for riders, drivers and firms." />
+  <link rel="canonical" href="https://ride.trotters.dev/about.html" />
+  <title>About DonkeyRide — Open ride coordination</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #07111f;
+      color: #f8fafc;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; min-width: 320px; background: #07111f; }
+    a { color: inherit; }
+    a:focus-visible { outline: 3px solid #fbbf24; outline-offset: 4px; }
+    .wrap { width: min(1120px, calc(100% - 32px)); margin: 0 auto; }
+    .hero {
+      position: relative;
+      overflow: hidden;
+      border-bottom: 1px solid #22304a;
+      background:
+        radial-gradient(circle at 16% 4%, rgba(56, 189, 248, .2), transparent 35%),
+        radial-gradient(circle at 88% 85%, rgba(52, 211, 153, .14), transparent 34%),
+        #07111f;
+    }
+    .hero-grid { display: grid; gap: 48px; align-items: center; padding: 72px 0 80px; }
+    .eyebrow { margin: 0; color: #7dd3fc; font-size: .75rem; font-weight: 850; letter-spacing: .18em; text-transform: uppercase; }
+    h1 { max-width: 780px; margin: 18px 0; font-size: clamp(2.8rem, 11vw, 5.75rem); line-height: .96; letter-spacing: -.055em; }
+    .lead { max-width: 700px; margin: 0; color: #c5d0df; font-size: clamp(1.08rem, 3vw, 1.3rem); line-height: 1.65; }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+    .button {
+      display: inline-flex; min-height: 48px; align-items: center; justify-content: center;
+      padding: 12px 20px; border: 1px solid transparent; border-radius: 12px;
+      background: #f8fafc; color: #07111f; font-weight: 850; text-decoration: none;
+    }
+    .button:hover { background: #dbeafe; }
+    .button.secondary { border-color: #50617c; background: transparent; color: #f8fafc; }
+    .button.secondary:hover { background: rgba(255, 255, 255, .08); }
+    .consent { margin: 20px 0 0; color: #91a0b6; font-size: .92rem; }
+    .route-card { position: relative; border: 1px solid #33445f; border-radius: 24px; padding: 24px; background: rgba(12, 24, 43, .88); box-shadow: 0 30px 80px rgba(0, 0, 0, .32); }
+    .route-head { display: flex; justify-content: space-between; gap: 14px; align-items: center; }
+    .brand { color: #bae6fd; font-weight: 800; }
+    .mode { border: 1px solid rgba(110, 231, 183, .3); border-radius: 999px; padding: 6px 10px; background: rgba(52, 211, 153, .08); color: #a7f3d0; font-size: .75rem; font-weight: 800; }
+    .route { display: grid; grid-template-columns: 24px 1fr; gap: 0 16px; margin-top: 30px; }
+    .line { display: flex; flex-direction: column; align-items: center; }
+    .dot { width: 14px; height: 14px; border: 3px solid #7dd3fc; border-radius: 50%; background: #07111f; }
+    .dot.stop { width: 10px; height: 10px; border: 0; background: #fcd34d; box-shadow: 0 0 0 4px rgba(252, 211, 77, .12); }
+    .dot.end { border-color: #6ee7b7; }
+    .dash { height: 52px; border-left: 2px dashed #526078; }
+    .route-copy { padding-bottom: 18px; }
+    .route-copy small { color: #8290a7; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; }
+    .route-copy p { margin: 4px 0 0; color: #f8fafc; font-weight: 700; }
+    section { padding: 72px 0; }
+    .light { background: #f8fafc; color: #0f172a; }
+    .muted { background: #eef3f8; color: #0f172a; }
+    h2 { margin: 0; max-width: 780px; font-size: clamp(2rem, 7vw, 3.5rem); line-height: 1.08; letter-spacing: -.04em; }
+    .section-intro { max-width: 730px; margin: 18px 0 0; color: #526077; font-size: 1.08rem; line-height: 1.7; }
+    .grid { display: grid; gap: 18px; margin-top: 36px; }
+    .card { border: 1px solid #dbe3ed; border-radius: 20px; padding: 24px; background: white; }
+    .card h3 { margin: 0; font-size: 1.18rem; }
+    .card p { margin: 10px 0 0; color: #59687e; line-height: 1.65; }
+    .dark-grid .card { border-color: #2b3b55; background: #0d1a2e; }
+    .dark-grid .card p { color: #afbdd0; }
+    .mode-grid { display: grid; gap: 1px; overflow: hidden; margin-top: 36px; border: 1px solid #dbe3ed; border-radius: 22px; background: #dbe3ed; }
+    .mode-panel { padding: 28px; background: white; }
+    .mode-panel:first-child { background: #ecfdf5; }
+    .mode-panel h3 { margin: 0; font-size: 1.35rem; }
+    .mode-panel ul { margin: 18px 0 0; padding-left: 20px; color: #526077; line-height: 1.8; }
+    .final { text-align: center; }
+    .final h2, .final .section-intro { margin-left: auto; margin-right: auto; }
+    footer { border-top: 1px solid #22304a; padding: 28px 16px; color: #8290a7; text-align: center; font-size: .88rem; }
+    footer a { color: #bae6fd; }
+    @media (min-width: 760px) {
+      .hero-grid { grid-template-columns: 1.08fr .92fr; padding: 104px 0 112px; }
+      .grid { grid-template-columns: repeat(3, 1fr); }
+      .dark-grid { grid-template-columns: repeat(2, 1fr); }
+      .mode-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <p class="eyebrow">Open ride coordination</p>
+        <h1>Journeys without one gatekeeper</h1>
+        <p class="lead">DonkeyRide helps riders and drivers find each other, agree a real road route and complete a journey. No DonkeyRide account, central operator or payment is required.</p>
+        <nav class="actions" aria-label="Start using DonkeyRide">
+          <a class="button" href="/request">Request a ride</a>
+          <a class="button secondary" href="/provide">Drive or provide</a>
+        </nav>
+        <p class="consent">This page does not request your location. The rider and driver apps ask only after you choose a location action.</p>
+      </div>
+      <div class="route-card" role="img" aria-label="A road-routed journey with pickup, optional stops and drop-off">
+        <div class="route-head"><span class="brand">🚙 DonkeyRide</span><span class="mode">Direct mode</span></div>
+        <div class="route">
+          <div class="line" aria-hidden="true"><span class="dot"></span><span class="dash"></span></div>
+          <div class="route-copy"><small>Pickup</small><p>Chosen by the rider</p></div>
+          <div class="line" aria-hidden="true"><span class="dot stop"></span><span class="dash"></span></div>
+          <div class="route-copy"><small>Optional stops</small><p>Kept in route order</p></div>
+          <div class="line" aria-hidden="true"><span class="dot end"></span></div>
+          <div class="route-copy"><small>Drop-off</small><p>Road distance, time and geometry</p></div>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="light">
+      <div class="wrap">
+        <p class="eyebrow" style="color:#1d4ed8">Built for real journeys</p>
+        <h2>One app, different ways to travel</h2>
+        <p class="section-intro">A journey can be a paid job, an informal lift or an ordered multi-stop route. The software does not force every community or market into the same commercial model.</p>
+        <div class="grid">
+          <article class="card"><h3>Informal or shared lift</h3><p>Choose no settlement when no money changes hands, and include each intermediate pickup or drop-off.</p></article>
+          <article class="card"><h3>Independent driver</h3><p>Use the installable PWA or signed Android app and discover nearby requests over open Nostr relays.</p></article>
+          <article class="card"><h3>Licensed operator</h3><p>A firm can deliberately run the optional managed backend for admission, records, policy and payment integrations.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <p class="eyebrow" style="color:#6ee7b7">Private by design, honest about metadata</p>
+        <h2>Less central data is not the same as anonymity</h2>
+        <p class="section-intro" style="color:#aebbd0">Direct mode removes the DonkeyRide database. Exact journey coordination is encrypted between matched participants, while public discovery is coarse and short-lived. Supporting network services still see some metadata.</p>
+        <div class="grid dark-grid">
+          <article class="card"><h3>Your device holds your identity</h3><p>Role and operator identities are derived from a locally encrypted identity tree. Public driver discovery uses a separate per-shift key.</p></article>
+          <article class="card"><h3>The router sees route points</h3><p>The road service receives ordered coordinates so it can return real distance, time and geometry, but not a DonkeyRide identity or journey ID.</p></article>
+          <article class="card"><h3>Relays see network metadata</h3><p>Nostr relays can observe IP addresses, timing, short-lived public keys, coarse cells and encrypted envelope metadata.</p></article>
+          <article class="card"><h3>Maps and search see requests</h3><p>Map hosts receive tile requests; the search provider sees the place text a person types and a coarse location bias.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="muted">
+      <div class="wrap">
+        <p class="eyebrow" style="color:#1d4ed8">Deployment choice</p>
+        <h2>Direct by default. Managed by choice.</h2>
+        <div class="mode-grid">
+          <article class="mode-panel"><h3>Direct mode</h3><ul><li>No DonkeyRide REST API, WebSocket operator, PostgreSQL or Redis</li><li>Coarse public discovery; exact details encrypted participant-to-participant</li><li>Payment can explicitly be “none”</li></ul></article>
+          <article class="mode-panel"><h3>Managed mode</h3><ul><li>A selected firm runs the coordination backend</li><li>Its published policy decides data handling and retention</li><li>Optional admission, records and payment integrations</li></ul></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="light final">
+      <div class="wrap">
+        <h2>Pick up the app and start</h2>
+        <p class="section-intro">The rider and driver PWAs work in a browser and can be installed to a home screen. Android drivers can also use the signed native app for a persistent on-shift service.</p>
+        <nav class="actions" style="justify-content:center" aria-label="DonkeyRide downloads and source">
+          <a class="button" style="background:#0f172a;color:#fff" href="/request">Open rider app</a>
+          <a class="button secondary" style="border-color:#94a3b8;color:#0f172a" href="/provide">Open driver app</a>
+          <a class="button secondary" style="border-color:#94a3b8;color:#0f172a" href="/download.html">Android driver app</a>
+          <a class="button secondary" style="border-color:#94a3b8;color:#0f172a" href="https://github.com/TheCryptoDonkey/DonkeyRide">View source</a>
+        </nav>
+      </div>
+    </section>
+  </main>
+  <footer>DonkeyRide is open-source software. Read the fuller overview at <a href="https://www.trotters.cc/donkeyride">Trotters</a>.</footer>
+</body>
+</html>

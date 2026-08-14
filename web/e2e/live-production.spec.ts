@@ -138,3 +138,29 @@ test('the deployed Android download is the signed binary described by the human-
   expect(missing.status()).toBe(404);
   expect(await missing.text()).not.toContain('<!doctype html>');
 });
+
+test('the deployed marketing page is static, honest and mobile-usable', async ({ page }) => {
+  let locationRequests = 0;
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: {
+        getCurrentPosition() { throw new Error('marketing requested location'); },
+        watchPosition() { throw new Error('marketing watched location'); },
+        clearWatch() {},
+      },
+    });
+  });
+  page.on('pageerror', (error) => {
+    if (/marketing (requested|watched) location/.test(error.message)) locationRequests += 1;
+  });
+
+  await page.goto('/about.html');
+  await expect(page.getByRole('heading', { name: 'Journeys without one gatekeeper' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Request a ride' })).toHaveAttribute('href', '/request');
+  await expect(page.getByRole('heading', { name: 'Direct mode' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Managed mode' })).toBeVisible();
+  await expectNoViewportOverflow(page);
+  await expectNoSeriousA11yViolations(page);
+  expect(locationRequests).toBe(0);
+});

@@ -55,3 +55,31 @@ test('the download page offers the PWA honestly when no Android artifact is publ
   await expect(page.getByRole('link', { name: 'driver PWA' })).toHaveAttribute('href', '/provide');
   await expect(page.getByRole('link', { name: /Download APK/ })).toHaveCount(0);
 });
+
+test('the public about page explains both operating modes without requesting location', async ({ page }) => {
+  let locationRequests = 0;
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'geolocation', {
+      configurable: true,
+      value: {
+        getCurrentPosition() { throw new Error('about page requested location'); },
+        watchPosition() { throw new Error('about page watched location'); },
+        clearWatch() {},
+      },
+    });
+  });
+  page.on('pageerror', (error) => {
+    if (/about page (requested|watched) location/.test(error.message)) locationRequests += 1;
+  });
+
+  await page.goto('/about.html');
+  await expect(page.getByRole('heading', { name: 'Journeys without one gatekeeper' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Request a ride' })).toHaveAttribute('href', '/request');
+  await expect(page.getByRole('link', { name: 'Drive or provide' })).toHaveAttribute('href', '/provide');
+  await expect(page.getByRole('heading', { name: 'Direct mode' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Managed mode' })).toBeVisible();
+  await expect(page.getByText(/Relays see network metadata/)).toBeVisible();
+  await expectNoViewportOverflow(page);
+  await expectNoSeriousA11yViolations(page);
+  expect(locationRequests).toBe(0);
+});
