@@ -74,6 +74,20 @@
     .mode-panel ul { margin: 18px 0 0; padding-left: 20px; color: #526077; line-height: 1.8; }
     .final { text-align: center; }
     .final h2, .final .section-intro { margin-left: auto; margin-right: auto; }
+    .support { background: #0d1a2e; }
+    .support-grid { display: grid; gap: 28px; align-items: start; }
+    .support-copy { max-width: 700px; color: #afbdd0; font-size: 1.05rem; line-height: 1.7; }
+    .support-links { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+    .support-links a { min-height: 44px; padding: 11px 16px; border: 1px solid #50617c; border-radius: 10px; color: #f8fafc; font-weight: 800; text-decoration: none; }
+    .support-links a:first-child { border-color: #bae6fd; background: #f8fafc; color: #07111f; }
+    .provenance { border: 1px solid #2b3b55; border-radius: 18px; padding: 22px; background: rgba(7, 17, 31, .55); }
+    .provenance h3 { margin: 0; font-size: 1.15rem; }
+    .provenance p, .provenance dd { color: #afbdd0; line-height: 1.6; }
+    .provenance p { margin: 10px 0 0; font-size: .92rem; }
+    .provenance dl { margin: 18px 0 0; }
+    .provenance dt { margin-top: 14px; font-weight: 800; }
+    .provenance dd { margin: 4px 0 0; font-size: .92rem; }
+    .provenance a { color: #bae6fd; }
     footer { border-top: 1px solid #22304a; padding: 28px 16px; color: #8290a7; text-align: center; font-size: .88rem; }
     footer a { color: #bae6fd; }
     @media (min-width: 760px) {
@@ -81,6 +95,7 @@
       .grid { grid-template-columns: repeat(3, 1fr); }
       .dark-grid { grid-template-columns: repeat(2, 1fr); }
       .mode-grid { grid-template-columns: repeat(2, 1fr); }
+      .support-grid { grid-template-columns: 1.1fr .9fr; }
     }
     @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
   </style>
@@ -161,6 +176,32 @@
           <a class="button secondary" style="border-color:#94a3b8;color:#0f172a" href="/download.html">Android driver app</a>
           <a class="button secondary" style="border-color:#94a3b8;color:#0f172a" href="https://github.com/TheCryptoDonkey/DonkeyRide">View source</a>
         </nav>
+      </div>
+    </section>
+
+    <section class="support" aria-labelledby="support-heading">
+      <div class="wrap support-grid">
+        <div>
+          <p class="eyebrow">Open source, openly supported</p>
+          <h2 id="support-heading">Help keep the work independent</h2>
+          <p class="support-copy">DonkeyRide is open-source software maintained alongside the ForgeSworn privacy and coordination libraries. If it is useful to your family, community or operation, you can support its continued development and hosting.</p>
+          <nav class="support-links" aria-label="Support DonkeyRide and ForgeSworn">
+            <a href="https://github.com/sponsors/TheCryptoDonkey" target="_blank" rel="noreferrer">GitHub Sponsors</a>
+            <a href="https://ko-fi.com/brays" target="_blank" rel="noreferrer">Ko-fi</a>
+            <a href="https://geyser.fund/project/forgesworn" target="_blank" rel="noreferrer">ForgeSworn on Geyser</a>
+          </nav>
+        </div>
+        <aside class="provenance" aria-labelledby="provenance-heading">
+          <h3 id="provenance-heading">If you want the technical details</h3>
+          <p>These are the ForgeSworn libraries directly used by the current web app:</p>
+          <dl>
+            <dt><a href="https://github.com/forgesworn/nsec-tree" target="_blank" rel="noreferrer">nsec-tree</a></dt>
+            <dd>Derives separate local rider, driver and operator identities from one encrypted root.</dd>
+            <dt><a href="https://github.com/forgesworn/geohash-kit" target="_blank" rel="noreferrer">geohash-kit</a></dt>
+            <dd>Represents service areas as compact geographic cells instead of publishing continuous exact locations.</dd>
+          </dl>
+          <p>Other dependencies, including nostr-tools, are listed in the source repository. This page names only the ForgeSworn libraries wired into the current web app.</p>
+        </aside>
       </div>
     </section>
   </main>

@@ -79,6 +79,9 @@ test('the public about page explains both operating modes without requesting loc
   await expect(page.getByRole('heading', { name: 'Direct mode' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Managed mode' })).toBeVisible();
   await expect(page.getByText(/Relays see network metadata/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Help keep the work independent' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'GitHub Sponsors' })).toHaveAttribute('href', 'https://github.com/sponsors/TheCryptoDonkey');
+  await expect(page.getByRole('link', { name: 'nsec-tree' })).toHaveAttribute('href', 'https://github.com/forgesworn/nsec-tree');
   await expectNoViewportOverflow(page);
   await expectNoSeriousA11yViolations(page);
   expect(locationRequests).toBe(0);
