@@ -86,6 +86,11 @@ export function ActiveTaskPage() {
     enabled: dispatchService.isOnline() || hasLocationConsent(),
   });
   const loadedPrivateTaskRef = useRef<string | null>(null);
+  // Relay/device callbacks can arrive after a lifecycle action has advanced
+  // the task. Merge private points into the newest React snapshot so a late
+  // itinerary can never roll "Start" back to "I'm here" (or similar).
+  const activeTaskRef = useRef(activeTask);
+  activeTaskRef.current = activeTask;
   // Keep using the app-level listener's last genuine fix while this freshly
   // mounted watcher starts. Its initial London value is map framing only and
   // must never become a live-tracking update or panic location.
@@ -125,7 +130,10 @@ export function ActiveTaskPage() {
     if (loadedPrivateTaskRef.current !== activeTask.id) {
       loadedPrivateTaskRef.current = activeTask.id;
       void loadPrivateItinerary(identity.privKeyHex, activeTask.id).then((itinerary) => {
-        if (!closed && itinerary) setActiveTask(mergePrivateItinerary(activeTask, itinerary));
+        const current = activeTaskRef.current;
+        if (!closed && itinerary && current?.id === activeTask.id) {
+          setActiveTask(mergePrivateItinerary(current, itinerary));
+        }
       });
     }
     void subscribePrivateItinerary(
@@ -135,7 +143,10 @@ export function ActiveTaskPage() {
       activeTask.id,
       (itinerary) => {
         void savePrivateItinerary(identity.privKeyHex, itinerary);
-        setActiveTask(mergePrivateItinerary(activeTask, itinerary));
+        const current = activeTaskRef.current;
+        if (current?.id === activeTask.id) {
+          setActiveTask(mergePrivateItinerary(current, itinerary));
+        }
       },
     ).then((handle) => {
       if (closed) handle.close();
@@ -176,10 +187,10 @@ export function ActiveTaskPage() {
   const handleWsMessage = useCallback((msg: WsMessage) => {
     switch (msg.type) {
       case 'status_change':
-        if (activeTask) {
-          setActiveTask({ ...activeTask, status: msg.status });
-          if (terminalStates.includes(msg.status)) navigate('/provide/complete');
-        }
+        // Socket frames and signed action responses can cross in flight. Read
+        // the authoritative current task instead of applying a late frame to
+        // an older React snapshot and regressing the driver's controls.
+        void refreshTask();
         break;
       case 'task_started':
       case 'task_completed':

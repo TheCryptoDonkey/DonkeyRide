@@ -138,7 +138,7 @@ export async function expectNoFirstInstallUpdateToast(page: Page): Promise<void>
   await expect(page.getByText('New version available, tap to refresh')).toHaveCount(0);
 }
 
-export async function expectFullyInViewport(page: Page, locator: ReturnType<Page['locator']>): Promise<void> {
+export async function expectFullyInViewport(page: Page, locator: ReturnType<Page['locator']>) {
   // State-changing actions replace one primary control with the next after
   // the signed API response arrives. Wait for that human-visible state before
   // measuring it; boundingBox() alone returns null immediately instead of
@@ -152,11 +152,14 @@ export async function expectFullyInViewport(page: Page, locator: ReturnType<Page
   expect(box!.y).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width + 1);
   expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height + 1);
+  return box!;
 }
 
 export async function expectEasyTap(page: Page, locator: ReturnType<Page['locator']>): Promise<void> {
-  await expectFullyInViewport(page, locator);
-  const box = await locator.boundingBox();
-  expect(box!.width, 'essential action should be easy to tap').toBeGreaterThanOrEqual(44);
-  expect(box!.height, 'essential action should be easy to tap').toBeGreaterThanOrEqual(44);
+  // Use the same layout snapshot for viewport and touch-target assertions.
+  // A React state transition may legitimately replace the control between
+  // two separate boundingBox() calls.
+  const box = await expectFullyInViewport(page, locator);
+  expect(box.width, 'essential action should be easy to tap').toBeGreaterThanOrEqual(44);
+  expect(box.height, 'essential action should be easy to tap').toBeGreaterThanOrEqual(44);
 }

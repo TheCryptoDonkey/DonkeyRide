@@ -73,6 +73,10 @@ export function ActiveTaskPage() {
   const [payment, setPayment] = useState<OperatorPaymentInfo | null>(null);
   const loadedPrivateTaskRef = useRef<string | null>(null);
   const sentPrivateTaskRef = useRef<string | null>(null);
+  // Loading the encrypted itinerary is asynchronous. Preserve any newer
+  // lifecycle status that arrives while the device record is being opened.
+  const activeTaskRef = useRef(activeTask);
+  activeTaskRef.current = activeTask;
 
   const originLabel = profile?.labels?.originLabel || 'Pickup';
   const destinationLabel = profile?.labels?.destinationLabel || 'Dropoff';
@@ -90,7 +94,10 @@ export function ActiveTaskPage() {
         || loadedPrivateTaskRef.current === activeTask.id) return;
     loadedPrivateTaskRef.current = activeTask.id;
     void loadPrivateItinerary(identity.privKeyHex, activeTask.id).then((itinerary) => {
-      if (itinerary) setActiveTask(mergePrivateItinerary(activeTask, itinerary));
+      const current = activeTaskRef.current;
+      if (itinerary && current?.id === activeTask.id) {
+        setActiveTask(mergePrivateItinerary(current, itinerary));
+      }
     });
   }, [activeTask?.id, activeTask?.locationMode, identity?.privKeyHex]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -208,11 +215,10 @@ export function ActiveTaskPage() {
         void refreshTask();
         break;
       case 'status_change':
-        if (activeTask) {
-          const updated = { ...activeTask, status: msg.status };
-          setActiveTask(updated);
-          if (terminalStates.includes(msg.status)) routeTerminal(updated);
-        }
+        // Status frames may arrive out of order with action responses. Fetch
+        // the latest signed/operator view so an old frame cannot move the
+        // rider backwards through the journey.
+        void refreshTask();
         break;
       case 'task_matched':
       case 'provider_arrived':
