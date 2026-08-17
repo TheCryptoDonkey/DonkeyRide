@@ -103,15 +103,11 @@ test('the deployed PWA is usable without location access and has no coordinator'
 });
 
 test('the deployed Android download is the signed binary described by the human-facing page', async ({ page, request }) => {
-  await page.goto('/download.html');
-  await expect(page.getByRole('heading', { name: 'DonkeyRide Driver for Android' })).toBeVisible();
-  await expect(page.getByText('Current signed release is ready.')).toBeVisible();
-  const download = page.getByRole('link', { name: 'Download APK · v1.0.4' });
-  await expect(download).toBeVisible();
-  await expectEasyTap(page, download);
-  await expectNoViewportOverflow(page);
-  await expectNoSeriousA11yViolations(page);
-
+  // The published metadata is what is actually on the host, so it is the source
+  // of truth and the page has to describe THAT. Pinning a release number in
+  // here instead asserts nothing about the deployment: it fails on every ship
+  // and the cheap way to make it pass is to edit the number, which is exactly
+  // the drift this test exists to catch.
   const metadataResponse = await request.get('/downloads/driver-app.json');
   expect(metadataResponse.status()).toBe(200);
   const metadata = await metadataResponse.json() as {
@@ -121,8 +117,19 @@ test('the deployed Android download is the signed binary described by the human-
     };
   };
   expect(metadata.android.available).toBe(true);
-  expect(metadata.android.version).toBe('1.0.4');
-  expect(metadata.android.versionCode).toBe(5);
+  expect(metadata.android.version).toMatch(/^\d+\.\d+\.\d+$/);
+  expect(Number.isInteger(metadata.android.versionCode)).toBe(true);
+  expect(metadata.android.versionCode).toBeGreaterThan(0);
+
+  await page.goto('/download.html');
+  await expect(page.getByRole('heading', { name: 'DonkeyRide Driver for Android' })).toBeVisible();
+  await expect(page.getByText('Current signed release is ready.')).toBeVisible();
+  const download = page.getByRole('link', { name: `Download APK · v${metadata.android.version}` });
+  await expect(download).toBeVisible();
+  await expectEasyTap(page, download);
+  await expectNoViewportOverflow(page);
+  await expectNoSeriousA11yViolations(page);
+
   expect(metadata.android.sha256).toMatch(/^[a-f0-9]{64}$/);
   expect(metadata.android.certificateSha256).toMatch(/^[a-f0-9]{64}$/);
   expect(metadata.android.sourceCommit).toMatch(/^[a-f0-9]{40}$/);
