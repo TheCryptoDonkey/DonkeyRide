@@ -46,10 +46,15 @@ before(async () => {
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 });
 
-after(() => {
-  if (server) server.close();
+after(async () => {
+  // Awaited, unlike the fire-and-forget close most integration files use: the
+  // suite relies on --test-force-exit (server.js leaves six intervals running,
+  // see the CI flake issue), and force-exit racing a child's final IPC flush is
+  // what produces "Unable to deserialize cloned data". Closing before the
+  // process is killed is one fewer thing in flight.
   rail.getPayInstructions = realGetPayInstructions;
   rail.verify = realVerify;
+  if (server) await new Promise((resolve) => server.close(resolve));
 });
 
 /**
