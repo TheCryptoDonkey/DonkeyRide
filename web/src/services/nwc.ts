@@ -8,8 +8,24 @@
  * back the preimage as proof.
  *
  * Encryption is NIP-44 by default (preferred), falling back to NIP-04 when the
- * wallet's info event advertises only legacy encryption. We never send the
- * same pay request twice, so there is no double-payment hazard.
+ * wallet's info event advertises only legacy encryption.
+ *
+ * That fallback is a DELIBERATE, NARROW exception to this project's rule that
+ * NIP-04 is deprecated and must not be used, and it is worth writing down so
+ * the next reader does not "tidy" it away or assume the rule was forgotten.
+ *
+ * The rule exists because NIP-04 has no MAC (its ciphertext is malleable) and
+ * leaks plaintext length. Here the payload rides inside a kind 23194 event
+ * SIGNED by the client key, so a relay cannot alter the invoice without
+ * invalidating that signature — the integrity NIP-04 lacks is supplied by the
+ * event, and the residual leak is the approximate length of a bolt11. Removing
+ * the fallback would therefore buy very little and would cost every rider whose
+ * wallet is NIP-04-only (LNbits `nwcprovider`, at time of writing) their
+ * one-tap payment path, leaving them the QR and deeplink.
+ *
+ * The rule stands unchanged for message and PII payloads, where NIP-04 has no
+ * signature backstop. If a NIP-44-only policy is wanted here too, that is a
+ * product decision about dropping wallets, not a cleanup.
  */
 import type { NostrEvent } from '../types/nostr';
 import { hexToBytes } from './nostr';
@@ -162,6 +178,62 @@ export interface NwcPayResult {
 }
 
 /**
+ * Raised when the payment's outcome is genuinely UNKNOWN.
+ *
+ * Once the request has been published to the relay, the wallet may have paid.
+ * A timeout, an unreadable response, or a "success" carrying no usable
+ * preimage all mean we cannot say either way — and telling the payer it
+ * failed invites them to pay a second time. Only failures raised BEFORE
+ * publication (a malformed connection string, an encryption failure) prove
+ * nothing was attempted; those stay ordinary Errors.
+ */
+export class NwcUnknownOutcomeError extends Error {
+  readonly ambiguous = true;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'NwcUnknownOutcomeError';
+  }
+}
+
+/** Whether an error from payInvoiceViaNwc left the payment outcome unknown */
+export function isUnknownOutcome(error: unknown): boolean {
+  return !!error && typeof error === 'object' && (error as { ambiguous?: boolean }).ambiguous === true;
+}
+
+/**
+ * NIP-47 error codes that genuinely mean the payment was not attempted, or was
+ * abandoned before any HTLC left the wallet. Everything else — INTERNAL, OTHER,
+ * anything unrecognised — is an unknown outcome, because a wallet that started
+ * paying and then failed to report reports it the same way.
+ */
+const DEFINITE_FAILURE_CODES = new Set([
+  'PAYMENT_FAILED',
+  'INSUFFICIENT_BALANCE',
+  'QUOTA_EXCEEDED',
+  'UNAUTHORIZED',
+  'RESTRICTED',
+  'NOT_IMPLEMENTED',
+  'RATE_LIMITED',
+]);
+
+/**
+ * Turn a wallet's NIP-47 error into either a definite failure or an unknown
+ * outcome. Exported so the classification is testable on its own: getting it
+ * wrong the safe way costs a confusing message, and the unsafe way costs a
+ * second payment.
+ */
+export function walletErrorToThrowable(
+  code: unknown,
+  message: string,
+): Error {
+  const normalised = String(code ?? '').toUpperCase();
+  return DEFINITE_FAILURE_CODES.has(normalised)
+    ? new Error(message)
+    : new NwcUnknownOutcomeError(message);
+}
+
+/**
  * Pay a bolt11 invoice via the connected wallet. Resolves with the preimage
  * (proof of payment) or rejects with the wallet's error / a timeout.
  */
@@ -190,8 +262,10 @@ export async function payInvoiceViaNwc(
         fn();
       };
 
+      // The request is already on the relay by the time this fires, so the
+      // wallet may well have paid. Unknown, never "failed".
       const timer = setTimeout(
-        () => finish(() => reject(new Error('Wallet did not respond in time'))),
+        () => finish(() => reject(new NwcUnknownOutcomeError('Wallet did not respond in time'))),
         timeoutMs,
       );
 
@@ -209,17 +283,31 @@ export async function payInvoiceViaNwc(
               const decrypted = await decryptContent(conn, event.content);
               const parsed = JSON.parse(decrypted);
               if (parsed.error) {
-                finish(() => reject(new Error(parsed.error.message || parsed.error.code || 'Wallet rejected the payment')));
+                const message = parsed.error.message || parsed.error.code
+                  || 'Wallet rejected the payment';
+                // Only some NIP-47 errors mean "definitely not paid" — see
+                // walletErrorToThrowable.
+                finish(() => reject(walletErrorToThrowable(parsed.error.code, message)));
                 return;
               }
+              // A preimage is 32 bytes of hex or it is not a preimage. A
+              // wallet answering "success" with anything else has told us
+              // nothing we can act on — notably a bridge whose node could not
+              // route, which reports the failure as a 200 with an empty
+              // preimage. That is an unknown outcome, not a failure.
               const preimage = parsed.result?.preimage;
-              if (typeof preimage === 'string' && preimage) {
-                finish(() => resolve({ preimage }));
+              if (typeof preimage === 'string' && /^[0-9a-f]{64}$/i.test(preimage)) {
+                finish(() => resolve({ preimage: preimage.toLowerCase() }));
               } else {
-                finish(() => reject(new Error('Wallet response did not include a preimage')));
+                finish(() => reject(new NwcUnknownOutcomeError(
+                  'Wallet reported success without a usable payment proof',
+                )));
               }
             } catch (err) {
-              finish(() => reject(err instanceof Error ? err : new Error('Failed to read wallet response')));
+              // Decrypt or parse failure, after publication: also unknown.
+              finish(() => reject(new NwcUnknownOutcomeError(
+                err instanceof Error ? err.message : 'Failed to read wallet response',
+              )));
             }
           },
         },

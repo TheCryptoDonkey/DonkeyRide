@@ -152,6 +152,14 @@ function normaliseSettlement(raw: any): SettlementInfo | undefined {
     status: raw.status ?? undefined,
     verified: raw.verified === true,
     confirmedByProvider: raw.confirmedByProvider === true,
+    // This is an allowlist, so anything not named here is dropped silently.
+    // `detail` carries why a proof was refused, and the two amounts are what a
+    // 'short' status MEANS — without them the provider's shortfall notice
+    // renders "covers ? sats, but the fare is ? sats", which alarms without
+    // informing. The party losing money is the one reading it.
+    detail: typeof raw.detail === 'string' ? raw.detail : undefined,
+    paidAmountSats: typeof raw.paidAmountSats === 'number' ? raw.paidAmountSats : undefined,
+    expectedAmountSats: typeof raw.expectedAmountSats === 'number' ? raw.expectedAmountSats : undefined,
   };
 }
 

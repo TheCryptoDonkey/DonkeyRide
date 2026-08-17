@@ -110,7 +110,7 @@ export interface SettlementInfo {
   method?: string;
   /** Non-custodial rail id (lnaddress|tando|mpesa|cash) */
   rail?: string;
-  /** verified | declared | unverified | confirmed */
+  /** verified | declared | unverified | short | confirmed */
   status?: string;
   /** True when the operator cryptographically verified the payment (e.g. preimage) */
   verified?: boolean;
@@ -118,6 +118,14 @@ export interface SettlementInfo {
   detail?: string;
   /** True once the driver has confirmed they received the funds */
   confirmedByProvider?: boolean;
+  /**
+   * On status 'short': what a valid preimage actually proved, against the fare
+   * at the moment it was checked. The fare moves after an invoice is minted
+   * (waiting time, a changed destination), so proof of payment is not proof the
+   * fare was met — and the provider is the one out of pocket.
+   */
+  paidAmountSats?: number | null;
+  expectedAmountSats?: number | null;
 }
 
 // ── Non-custodial settlement (rider pays the driver directly) ──
@@ -196,6 +204,10 @@ export interface SettlementRecord {
   confirmationCode?: string | null;
   confirmedByProvider?: boolean;
   declaredBy?: string;
+  /** What a verified preimage actually proved, when one did (status 'short') */
+  paidAmountSats?: number | null;
+  /** The fare at the moment that proof was checked */
+  expectedAmountSats?: number | null;
 }
 
 export interface TaskQuote {

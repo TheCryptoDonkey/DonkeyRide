@@ -1123,6 +1123,22 @@ function buildTaskSnapshot(task) {
             locationMode: task.locationMode || 'operator_memory',
             stopCount: task.stopCount ?? (task.stops?.length || 0),
             scheduledFor: task.scheduledFor || null,
+            // Deliberately NOT the payment hashes of invoices issued for this
+            // task. Carrying them looks like it would let a restart mid-payment
+            // still verify a rider's preimage, but rehydrateFromNostr skips
+            // terminal tasks and `completed` is terminal — settlement happens
+            // after /complete, so a completed task is never restored and there
+            // would be no reader. A publish needs a reader; this one has none.
+            //
+            // The real limitation is broader and by design: a completed task
+            // does not survive a restart at all, so /settle and
+            // /confirm-received are both gone for it. Both parties keep their
+            // own device-local record, and the operator holds no money, so
+            // nothing is lost but the operator's note of it. Widening
+            // rehydration to settlement-pending tasks would resurrect their
+            // participants and geohashes, which is exactly what the
+            // ephemerality protects, so it is a design decision and not a
+            // gap to paper over here.
             geohashPickup,
             geohashDropoff,
             geohashStops: geohashStops.length > 0 ? geohashStops : undefined,
@@ -3603,6 +3619,125 @@ app.post('/api/rides/:rideId/provider-stake/confirm', (req, res) => confirmTaskS
 // resolves a payable artefact, records/verifies proof, and moves nothing.
 // ==========================================
 const settlement = require('./settlement');
+const { tryDecodeBolt11 } = require('farrier-kit/bolt11');
+
+// Every invoice this operator has handed the rider for a ride, newest first.
+//
+// A preimage only ever matches the ONE invoice it paid. Verifying proof
+// against just the most recent instruction therefore tells a rider who
+// genuinely did pay that their proof is bad, as soon as anything caused a
+// second instruction to be issued — re-selecting the rail is enough, because
+// each call mints a fresh bolt11 with a fresh payment hash. The paste-your-
+// preimage field exists precisely to rescue a payment the app lost track of,
+// so it is the one path that must not be broken by the operator forgetting
+// which invoices it issued.
+const MAX_RECORDED_INSTRUCTIONS = 5;
+// Reuse an invoice only while comfortably live; a rider paying one that
+// expires mid-flight is the failure this is meant to avoid.
+const INVOICE_REUSE_MARGIN_MS = 60 * 1000;
+
+// When a bolt11 stops being payable, in ms — decoded locally, no network.
+function invoiceExpiresAt(invoice) {
+    if (!invoice) return null;
+    const decoded = tryDecodeBolt11(invoice);
+    if (!decoded) return null;
+    return (decoded.timestamp + decoded.expirySeconds) * 1000;
+}
+
+// The ledger is deliberately NON-ENUMERABLE. GET /api/rides/:id serialises the
+// ride object wholesale, and while that endpoint is participant-gated, the
+// narrow `{rail, paymentHash, verifyUrl}` shape `pendingInstruction` has always
+// had was a deliberate minimisation — nothing outside this file reads either
+// field, so an internal ledger carrying whole invoices has no business
+// appearing in an API response. Hidden from JSON.stringify rather than deleted
+// per-endpoint, so it stays hidden from any future serialiser too, and still
+// lives on the ride so it is garbage-collected with it.
+function setLedger(ride, records) {
+    Object.defineProperty(ride, 'paymentInstructions', {
+        value: records,
+        enumerable: false,
+        writable: true,
+        configurable: true
+    });
+}
+
+function recordInstruction(ride, rail, instruction) {
+    const record = {
+        rail,
+        paymentHash: instruction.paymentHash || null,
+        verifyUrl: instruction.verifyUrl || null,
+        invoice: instruction.invoice || null,
+        expiresAt: invoiceExpiresAt(instruction.invoice),
+        // What this invoice actually asks for. A real LNURL service issues
+        // invoices valid for many hours (24 on the one this was verified
+        // against), so an invoice can easily outlive the fare it was built
+        // for — waiting time is added on start, for instance. Reuse must
+        // never hand back an invoice for a different amount.
+        amountSats: Number(instruction.amountSats) || null,
+        // Who this invoice actually pays. A driver may correct a mistyped
+        // Lightning Address or M-Pesa number from their own active screen
+        // (PaymentMethodsEditor -> POST /payment-methods replaces
+        // ride.paymentMethods wholesale), and an invoice minted for the old
+        // handle stays live for hours. Reusing on rail and amount alone would
+        // hand the rider a stale invoice that pays a stranger.
+        handle: instruction.lnAddress || instruction.mpesaNumber || null,
+        issuedAt: Date.now(),
+        // Kept only for rails whose instruction IS an invoice, so a repeat
+        // request can be answered with the same one rather than a new hash.
+        payload: instruction.invoice ? instruction : null
+    };
+    const previous = (ride.paymentInstructions || [])
+        .filter((i) => !record.paymentHash || i.paymentHash !== record.paymentHash);
+    setLedger(ride, [record, ...previous].slice(0, MAX_RECORDED_INSTRUCTIONS));
+    // Keeps exactly the shape it had before this ledger existed: the rail
+    // default and single-candidate fallback on /settle need nothing more, and
+    // this one IS serialised with the ride.
+    ride.pendingInstruction = narrowInstruction(record);
+    return record;
+}
+
+/** The three fields /settle needs, and nothing that carries an invoice. */
+function narrowInstruction(record) {
+    return {
+        rail: record.rail,
+        paymentHash: record.paymentHash || null,
+        verifyUrl: record.verifyUrl || null,
+        // Carried so the shortfall check works on the LUD-21 path too, where
+        // this projection is the only candidate. It is a number, not the
+        // invoice, and the fare is on the ride already, so it discloses
+        // nothing the narrowing was protecting.
+        amountSats: typeof record.amountSats === 'number' ? record.amountSats : null
+    };
+}
+
+// Two taps in the same second must not each mint an invoice. liveInstruction
+// can only see instructions that have already RESOLVED, and building one takes
+// a network round trip, so without this both requests find nothing recorded
+// and both mint — handing the rider two payable invoices, which is the double
+// payment the reuse rule exists to prevent. Keyed by ride and rail, dropped as
+// soon as the build settles.
+const inFlightInstructions = new Map();
+
+function instructionOnce(key, build) {
+    const existing = inFlightInstructions.get(key);
+    if (existing) return existing;
+    const pending = (async () => build())().finally(() => inFlightInstructions.delete(key));
+    inFlightInstructions.set(key, pending);
+    return pending;
+}
+
+// An invoice already issued for this rail, still safely payable, still for the
+// right amount, and still paying the same person.
+function liveInstruction(ride, rail, amountSats, handle) {
+    return (ride.paymentInstructions || []).find((i) => (
+        i.rail === rail
+        && i.payload
+        && i.expiresAt
+        && i.expiresAt > Date.now() + INVOICE_REUSE_MARGIN_MS
+        && i.amountSats === amountSats
+        && i.handle === handle
+    )) || null;
+}
 
 // Public catalogue of rails a driver can offer.
 app.get('/api/settlement/rails', publicRateLimiter, (req, res) => {
@@ -3796,6 +3931,16 @@ app.post('/api/rides/:rideId/pay-instruction', async (req, res) => {
         }
         const railImpl = settlement.getRail(method.rail);
         const fareSats = Number(ride.fare) || 0;
+        // Hand back the invoice already issued for this ride while it is still
+        // live and still for this fare, rather than minting another. A fresh
+        // invoice means a fresh payment hash, which is exactly what turns
+        // "the rider tapped again" into "the rider paid twice": bolt11's own
+        // replay protection only covers re-paying the SAME invoice.
+        const reusable = liveInstruction(ride, method.rail, fareSats, method.handle || null);
+        if (reusable) {
+            ride.pendingInstruction = narrowInstruction(reusable);
+            return res.json(reusable.payload);
+        }
         // Lightning rails (incl. Tando) are paid in sats — the invoice IS the
         // amount. Fiat rails (M-Pesa, cash) need the human fiat figure, derived
         // from the sats fare via the live BTC price so it survives rehydration
@@ -3811,15 +3956,28 @@ app.post('/api/rides/:rideId/pay-instruction', async (req, res) => {
                 fiatAmount = undefined; // price unavailable — rail falls back gracefully
             }
         }
-        const instruction = await railImpl.getPayInstructions({
-            handle: method.handle,
-            amountSats: fareSats,
-            amount: fiatAmount,
-            currency: isLightningRail ? 'SAT' : fiatCurrency,
-            memo: `DonkeyRide ${rideId}`
-        });
-        // Remember the instruction so /settle can verify against it.
-        ride.pendingInstruction = { rail: method.rail, paymentHash: instruction.paymentHash || null, verifyUrl: instruction.verifyUrl || null };
+        // Concurrent taps share one build (see instructionOnce), so a rider
+        // double-tapping is handed the same invoice rather than two payable
+        // ones. recordInstruction dedupes by payment hash, so both callers
+        // recording the shared result leaves a single entry.
+        // The amount and handle are part of the key for the same reason
+        // liveInstruction checks them: a shared in-flight build bypasses that
+        // predicate entirely, so two concurrent calls straddling a fare change
+        // or a corrected payment handle would both be answered with the first
+        // one's invoice — for the wrong number, or the wrong person.
+        const instruction = await instructionOnce(
+            `${rideId}:${method.rail}:${fareSats}:${method.handle || ''}`,
+            () => railImpl.getPayInstructions({
+                handle: method.handle,
+                amountSats: fareSats,
+                amount: fiatAmount,
+                currency: isLightningRail ? 'SAT' : fiatCurrency,
+                memo: `DonkeyRide ${rideId}`
+            })
+        );
+        // Remember the instruction so /settle can verify against it — and
+        // against every earlier one still on record (see recordInstruction).
+        recordInstruction(ride, method.rail, instruction);
         res.json(instruction);
     } catch (error) {
         console.error('Error building pay instruction:', error.message);
@@ -3848,17 +4006,92 @@ app.post('/api/rides/:rideId/settle', async (req, res) => {
             return res.status(400).json({ error: `Unknown rail: ${rail}` });
         }
         const railImpl = settlement.getRail(railId);
-        const result = await railImpl.verify({
-            instruction: ride.pendingInstruction || {},
-            proof: proof || {}
-        });
+        // Check a supplied preimage against EVERY invoice still on record for
+        // this rail, newest first — a rider who paid an earlier one is not
+        // wrong, the operator just moved on. This stays local: a rail that
+        // gets a well-formed preimage answers from crypto alone and never
+        // reaches its network fallback, so the loop costs nothing.
+        //
+        // With no preimage to check, behaviour is unchanged: verify once
+        // against the latest instruction, so a rail with a LUD-21 verify URL
+        // makes exactly one call, as before.
+        const hasPreimage = /^[0-9a-f]{64}$/i.test((proof?.preimage || '').trim());
+        // Only records that actually carry a hash: a preimage cannot be
+        // checked against nothing. A rail handed an instruction with no hash
+        // answers `recorded` rather than `failed` (it has no grounds to
+        // contradict the proof), so leaving one in the list would let it
+        // OVERWRITE a genuine mismatch from a hashed record and downgrade
+        // "this proof is wrong" to "declared, awaiting the driver" — the
+        // opposite of the never-silently-accepted rule below.
+        //
+        // Deliberately NOT restricted to the handle the driver accepts now. An
+        // earlier attempt filtered these to the current handle, so a preimage
+        // for an invoice minted before the driver corrected a mistyped address
+        // would not verify. That was wrong twice over.
+        //
+        // `verified` attests one thing: this preimage matches an invoice this
+        // operator issued. Whether the money reached the provider is a separate
+        // signal entirely — `confirmedByProvider`, which the provider sets
+        // themselves and which a misdirected payment simply never gets. So a
+        // typo surfaces exactly where it should, as an unconfirmed settlement
+        // between the two of them, without the operator adjudicating anything
+        // it cannot see.
+        //
+        // And refusing the proof would charge the rider for the provider's
+        // mistake: they paid precisely the artefact this operator handed them.
+        // Blocking a stale invoice from being ISSUED (liveInstruction's handle
+        // check) prevents a new wrong payment and is right. Refusing to
+        // recognise one already made is not.
+        const candidates = hasPreimage
+            ? (ride.paymentInstructions || []).filter((i) => i.rail === railId && i.paymentHash)
+            : [];
+        if (candidates.length === 0) {
+            candidates.push(ride.pendingInstruction || {});
+        }
+        let result = { verified: false };
+        let proven = null;
+        for (const candidate of candidates) {
+            result = await railImpl.verify({ instruction: candidate, proof: proof || {} });
+            if (result.verified) {
+                proven = candidate;
+                break;
+            }
+        }
+        // A proven preimage says what was paid, not that the fare was met. The
+        // ledger deliberately keeps older invoices, and ride.fare genuinely
+        // moves after one is minted — waiting time is added on /start, and
+        // changing the destination re-prices mid-trip — so a rider can hold
+        // valid proof of paying LESS than they now owe. Treating that as
+        // `verified` would have the operator cryptographically assert a
+        // payment of an amount nobody ever paid, and publish a receipt for it.
+        // Only when the proven instruction actually states an amount. Coercing
+        // an absent one to 0 claimed a shortfall of the entire fare against
+        // every settlement whose amount we simply do not know — which silently
+        // downgraded every LUD-21 verified payment to `short`, since the
+        // no-preimage path verifies against a projection that had no amount on
+        // it. Not knowing what was paid is not evidence of underpayment.
+        const fareNow = Number(ride.fare) || 0;
+        const paidSats = typeof proven?.amountSats === 'number' ? proven.amountSats : null;
+        const short = paidSats !== null && paidSats < fareNow;
+        if (short) {
+            result = {
+                verified: false,
+                detail: `preimage proves payment of ${paidSats} sats, but the fare is now ${fareNow} sats`
+            };
+        }
         // verified: proof checked out (e.g. preimage matches the invoice).
         // unverified: a proof was supplied but did NOT check out (rail sets
         //             result.failed) — surfaced, never silently accepted.
         // declared: rider asserts they paid; awaits the driver's confirm-received
         //           (cash, M-Pesa, or a Lightning payment with no preimage yet).
         // In every case the driver's confirmation is the backstop for payout.
-        const settleStatus = result.verified ? 'verified' : (result.failed ? 'unverified' : 'declared');
+        // 'short' rather than 'declared': the proof is real and the operator
+        // knows exactly what was paid, so saying "awaiting confirmation" would
+        // hide a known shortfall from both parties. Not 'unverified' either —
+        // the preimage did check out, it just does not cover the fare.
+        const settleStatus = result.verified
+            ? 'verified'
+            : (short ? 'short' : (result.failed ? 'unverified' : 'declared'));
         ride.settlementRecord = {
             rail: railId,
             custody: 'none',
@@ -3868,6 +4101,10 @@ app.post('/api/rides/:rideId/settle', async (req, res) => {
             status: settleStatus,
             detail: result.detail || null,
             confirmationCode: result.confirmationCode || null,
+            // Present only when a preimage proved a specific amount, so both
+            // sides can see the gap rather than argue about it.
+            paidAmountSats: paidSats,
+            expectedAmountSats: proven ? fareNow : null,
             declaredBy: 'requester',
             timestamp: Date.now()
         };
