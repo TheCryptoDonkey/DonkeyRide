@@ -333,6 +333,16 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
                   <p className="text-xs text-donkey-muted">
                     {t('pay.connectPrompt')}
                   </p>
+                  {/* The connection string is a spending capability, and it is
+                      kept in localStorage where any script running on this
+                      origin could read it. Asking for it on every payment
+                      instead would be unusable, so the honest mitigation is to
+                      tell the payer to bound the loss in their own wallet —
+                      which is the only place a budget can actually be
+                      enforced. Said here, at the moment they paste it. */}
+                  <p className="text-[11px] text-donkey-muted">
+                    {t('pay.nwcBudgetWarning')}
+                  </p>
                   <input
                     type="text"
                     className="input-field w-full text-xs font-mono"

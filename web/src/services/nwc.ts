@@ -8,8 +8,24 @@
  * back the preimage as proof.
  *
  * Encryption is NIP-44 by default (preferred), falling back to NIP-04 when the
- * wallet's info event advertises only legacy encryption. We never send the
- * same pay request twice, so there is no double-payment hazard.
+ * wallet's info event advertises only legacy encryption.
+ *
+ * That fallback is a DELIBERATE, NARROW exception to this project's rule that
+ * NIP-04 is deprecated and must not be used, and it is worth writing down so
+ * the next reader does not "tidy" it away or assume the rule was forgotten.
+ *
+ * The rule exists because NIP-04 has no MAC (its ciphertext is malleable) and
+ * leaks plaintext length. Here the payload rides inside a kind 23194 event
+ * SIGNED by the client key, so a relay cannot alter the invoice without
+ * invalidating that signature — the integrity NIP-04 lacks is supplied by the
+ * event, and the residual leak is the approximate length of a bolt11. Removing
+ * the fallback would therefore buy very little and would cost every rider whose
+ * wallet is NIP-04-only (LNbits `nwcprovider`, at time of writing) their
+ * one-tap payment path, leaving them the QR and deeplink.
+ *
+ * The rule stands unchanged for message and PII payloads, where NIP-04 has no
+ * signature backstop. If a NIP-44-only policy is wanted here too, that is a
+ * product decision about dropping wallets, not a cleanup.
  */
 import type { NostrEvent } from '../types/nostr';
 import { hexToBytes } from './nostr';

@@ -83,6 +83,18 @@ export function ConfirmReceipt({ task, settlement, declaredRail }: ConfirmReceip
         {settlement?.verified && (
           <p className="text-xs text-donkey-green mt-1">{t('settle.verified')}</p>
         )}
+        {/* The operator proved a payment, and proved it was less than the fare
+            (the fare moved after the invoice was minted — waiting time, or a
+            changed destination). The driver is the one out of pocket, so they
+            are the one who has to be told BEFORE confirming receipt. */}
+        {settlement?.status === 'short' && (
+          <p className="text-xs text-donkey-red mt-1" role="alert">
+            {t('settle.short', {
+              paid: String(settlement.paidAmountSats ?? '?'),
+              owed: String(settlement.expectedAmountSats ?? '?'),
+            })}
+          </p>
+        )}
         <p className="text-[11px] text-donkey-muted mt-1">{t('settle.confirmWarning')}</p>
       </div>
       <button
