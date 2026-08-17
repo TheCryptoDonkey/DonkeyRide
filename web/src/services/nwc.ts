@@ -202,6 +202,22 @@ const DEFINITE_FAILURE_CODES = new Set([
 ]);
 
 /**
+ * Turn a wallet's NIP-47 error into either a definite failure or an unknown
+ * outcome. Exported so the classification is testable on its own: getting it
+ * wrong the safe way costs a confusing message, and the unsafe way costs a
+ * second payment.
+ */
+export function walletErrorToThrowable(
+  code: unknown,
+  message: string,
+): Error {
+  const normalised = String(code ?? '').toUpperCase();
+  return DEFINITE_FAILURE_CODES.has(normalised)
+    ? new Error(message)
+    : new NwcUnknownOutcomeError(message);
+}
+
+/**
  * Pay a bolt11 invoice via the connected wallet. Resolves with the preimage
  * (proof of payment) or rejects with the wallet's error / a timeout.
  */
@@ -253,17 +269,9 @@ export async function payInvoiceViaNwc(
               if (parsed.error) {
                 const message = parsed.error.message || parsed.error.code
                   || 'Wallet rejected the payment';
-                // Only some NIP-47 errors mean "definitely not paid". INTERNAL
-                // and OTHER are as ambiguous as a timeout: a wallet that
-                // launched the HTLC and then failed to report lands here, and
-                // calling that a failure invites a second payment. Anything
-                // unrecognised is treated the same way, since a code we do not
-                // know is a code we cannot rule out.
-                finish(() => reject(
-                  DEFINITE_FAILURE_CODES.has(String(parsed.error.code || '').toUpperCase())
-                    ? new Error(message)
-                    : new NwcUnknownOutcomeError(message),
-                ));
+                // Only some NIP-47 errors mean "definitely not paid" — see
+                // walletErrorToThrowable.
+                finish(() => reject(walletErrorToThrowable(parsed.error.code, message)));
                 return;
               }
               // A preimage is 32 bytes of hex or it is not a preimage. A
