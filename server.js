@@ -3674,6 +3674,13 @@ function recordInstruction(ride, rail, instruction) {
         // for — waiting time is added on start, for instance. Reuse must
         // never hand back an invoice for a different amount.
         amountSats: Number(instruction.amountSats) || null,
+        // Who this invoice actually pays. A driver may correct a mistyped
+        // Lightning Address or M-Pesa number from their own active screen
+        // (PaymentMethodsEditor -> POST /payment-methods replaces
+        // ride.paymentMethods wholesale), and an invoice minted for the old
+        // handle stays live for hours. Reusing on rail and amount alone would
+        // hand the rider a stale invoice that pays a stranger.
+        handle: instruction.lnAddress || instruction.mpesaNumber || null,
         issuedAt: Date.now(),
         // Kept only for rails whose instruction IS an invoice, so a repeat
         // request can be answered with the same one rather than a new hash.
@@ -3714,15 +3721,16 @@ function instructionOnce(key, build) {
     return pending;
 }
 
-// An invoice already issued for this rail, still safely payable, and still
-// for the right amount.
-function liveInstruction(ride, rail, amountSats) {
+// An invoice already issued for this rail, still safely payable, still for the
+// right amount, and still paying the same person.
+function liveInstruction(ride, rail, amountSats, handle) {
     return (ride.paymentInstructions || []).find((i) => (
         i.rail === rail
         && i.payload
         && i.expiresAt
         && i.expiresAt > Date.now() + INVOICE_REUSE_MARGIN_MS
         && i.amountSats === amountSats
+        && i.handle === handle
     )) || null;
 }
 
@@ -3923,7 +3931,7 @@ app.post('/api/rides/:rideId/pay-instruction', async (req, res) => {
         // invoice means a fresh payment hash, which is exactly what turns
         // "the rider tapped again" into "the rider paid twice": bolt11's own
         // replay protection only covers re-paying the SAME invoice.
-        const reusable = liveInstruction(ride, method.rail, fareSats);
+        const reusable = liveInstruction(ride, method.rail, fareSats, method.handle || null);
         if (reusable) {
             ride.pendingInstruction = narrowInstruction(reusable);
             return res.json(reusable.payload);
@@ -3947,12 +3955,13 @@ app.post('/api/rides/:rideId/pay-instruction', async (req, res) => {
         // double-tapping is handed the same invoice rather than two payable
         // ones. recordInstruction dedupes by payment hash, so both callers
         // recording the shared result leaves a single entry.
-        // The amount is part of the key: liveInstruction cannot guard a
-        // request that shares an in-flight build, so without it two concurrent
-        // calls straddling a fare change would both be answered with the
-        // first one's invoice, for the wrong number.
+        // The amount and handle are part of the key for the same reason
+        // liveInstruction checks them: a shared in-flight build bypasses that
+        // predicate entirely, so two concurrent calls straddling a fare change
+        // or a corrected payment handle would both be answered with the first
+        // one's invoice — for the wrong number, or the wrong person.
         const instruction = await instructionOnce(
-            `${rideId}:${method.rail}:${fareSats}`,
+            `${rideId}:${method.rail}:${fareSats}:${method.handle || ''}`,
             () => railImpl.getPayInstructions({
                 handle: method.handle,
                 amountSats: fareSats,
@@ -4016,9 +4025,29 @@ app.post('/api/rides/:rideId/settle', async (req, res) => {
             candidates.push(ride.pendingInstruction || {});
         }
         let result = { verified: false };
+        let proven = null;
         for (const candidate of candidates) {
             result = await railImpl.verify({ instruction: candidate, proof: proof || {} });
-            if (result.verified) break;
+            if (result.verified) {
+                proven = candidate;
+                break;
+            }
+        }
+        // A proven preimage says what was paid, not that the fare was met. The
+        // ledger deliberately keeps older invoices, and ride.fare genuinely
+        // moves after one is minted — waiting time is added on /start, and
+        // changing the destination re-prices mid-trip — so a rider can hold
+        // valid proof of paying LESS than they now owe. Treating that as
+        // `verified` would have the operator cryptographically assert a
+        // payment of an amount nobody ever paid, and publish a receipt for it.
+        const fareNow = Number(ride.fare) || 0;
+        const paidSats = proven ? (Number(proven.amountSats) || 0) : null;
+        const short = proven !== null && paidSats < fareNow;
+        if (short) {
+            result = {
+                verified: false,
+                detail: `preimage proves payment of ${paidSats} sats, but the fare is now ${fareNow} sats`
+            };
         }
         // verified: proof checked out (e.g. preimage matches the invoice).
         // unverified: a proof was supplied but did NOT check out (rail sets
@@ -4026,7 +4055,13 @@ app.post('/api/rides/:rideId/settle', async (req, res) => {
         // declared: rider asserts they paid; awaits the driver's confirm-received
         //           (cash, M-Pesa, or a Lightning payment with no preimage yet).
         // In every case the driver's confirmation is the backstop for payout.
-        const settleStatus = result.verified ? 'verified' : (result.failed ? 'unverified' : 'declared');
+        // 'short' rather than 'declared': the proof is real and the operator
+        // knows exactly what was paid, so saying "awaiting confirmation" would
+        // hide a known shortfall from both parties. Not 'unverified' either —
+        // the preimage did check out, it just does not cover the fare.
+        const settleStatus = result.verified
+            ? 'verified'
+            : (short ? 'short' : (result.failed ? 'unverified' : 'declared'));
         ride.settlementRecord = {
             rail: railId,
             custody: 'none',
@@ -4036,6 +4071,10 @@ app.post('/api/rides/:rideId/settle', async (req, res) => {
             status: settleStatus,
             detail: result.detail || null,
             confirmationCode: result.confirmationCode || null,
+            // Present only when a preimage proved a specific amount, so both
+            // sides can see the gap rather than argue about it.
+            paidAmountSats: paidSats,
+            expectedAmountSats: proven ? fareNow : null,
             declaredBy: 'requester',
             timestamp: Date.now()
         };

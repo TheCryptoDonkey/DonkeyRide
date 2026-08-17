@@ -186,6 +186,22 @@ export function isUnknownOutcome(error: unknown): boolean {
 }
 
 /**
+ * NIP-47 error codes that genuinely mean the payment was not attempted, or was
+ * abandoned before any HTLC left the wallet. Everything else — INTERNAL, OTHER,
+ * anything unrecognised — is an unknown outcome, because a wallet that started
+ * paying and then failed to report reports it the same way.
+ */
+const DEFINITE_FAILURE_CODES = new Set([
+  'PAYMENT_FAILED',
+  'INSUFFICIENT_BALANCE',
+  'QUOTA_EXCEEDED',
+  'UNAUTHORIZED',
+  'RESTRICTED',
+  'NOT_IMPLEMENTED',
+  'RATE_LIMITED',
+]);
+
+/**
  * Pay a bolt11 invoice via the connected wallet. Resolves with the preimage
  * (proof of payment) or rejects with the wallet's error / a timeout.
  */
@@ -235,7 +251,19 @@ export async function payInvoiceViaNwc(
               const decrypted = await decryptContent(conn, event.content);
               const parsed = JSON.parse(decrypted);
               if (parsed.error) {
-                finish(() => reject(new Error(parsed.error.message || parsed.error.code || 'Wallet rejected the payment')));
+                const message = parsed.error.message || parsed.error.code
+                  || 'Wallet rejected the payment';
+                // Only some NIP-47 errors mean "definitely not paid". INTERNAL
+                // and OTHER are as ambiguous as a timeout: a wallet that
+                // launched the HTLC and then failed to report lands here, and
+                // calling that a failure invites a second payment. Anything
+                // unrecognised is treated the same way, since a code we do not
+                // know is a code we cannot rule out.
+                finish(() => reject(
+                  DEFINITE_FAILURE_CODES.has(String(parsed.error.code || '').toUpperCase())
+                    ? new Error(message)
+                    : new NwcUnknownOutcomeError(message),
+                ));
                 return;
               }
               // A preimage is 32 bytes of hex or it is not a preimage. A

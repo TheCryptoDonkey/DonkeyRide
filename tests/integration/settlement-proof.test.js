@@ -57,9 +57,16 @@ after(() => {
  * invoice locally to learn when it expires, so a fake string would not do.
  * Returns the preimage too, which is what a payer's wallet hands back.
  */
+// One payee keypair for the whole file. Deriving a fresh point per invoice is
+// the expensive part, and the tests only ever need distinct payment hashes, not
+// distinct payees. This file mints ~25 invoices; under `npm test`'s parallel
+// run that cost was enough to make it the heaviest file in the suite.
+const PAYEE_PRIV = crypto.randomBytes(32);
+const PAYEE_PUB = Buffer.from(ecc.pointFromScalar(PAYEE_PRIV, true)).toString('hex');
+
 function mintInvoice({ sats = 5000, expirySeconds = 3600 } = {}) {
-  const priv = crypto.randomBytes(32);
-  const destination = Buffer.from(ecc.pointFromScalar(priv, true)).toString('hex');
+  const priv = PAYEE_PRIV;
+  const destination = PAYEE_PUB;
   const preimage = crypto.randomBytes(32);
   const id = crypto.createHash('sha256').update(preimage).digest('hex');
   const createdAt = new Date();
@@ -282,13 +289,54 @@ test('an invoice is never reused for a different fare', async () => {
   assert.notEqual(second.body.invoice, first.body.invoice);
   assert.equal(second.body.amountSats, originalFare + 500, 'the new invoice must ask for the new fare');
 
-  // The old invoice is still on record, so a rider who already paid it is
-  // not left holding unverifiable proof
+  // The old invoice is still on record, so a rider who already paid it is not
+  // told their proof is bad — but it proves payment of the OLD fare, and
+  // calling that 'verified' would have the operator assert a payment of an
+  // amount nobody made. Recognised, quantified, and short.
   const settled = await post(`/api/rides/${rideId}/settle`, {
     rail: 'lnaddress',
     proof: { preimage: issued[0].preimage }
   });
-  assert.equal(settled.body.settlement.verified, true);
+  assert.equal(settled.body.settlement.status, 'short');
+  assert.equal(settled.body.settlement.verified, false);
+  assert.equal(settled.body.settlement.paidAmountSats, originalFare);
+  assert.equal(settled.body.settlement.expectedAmountSats, originalFare + 500);
+});
+
+test('a short payment is never published as a verified receipt', async () => {
+  // publishPaymentReceipt is called with ride.fare and verified: true. A
+  // proven preimage for a cheaper invoice must not reach it, or the operator
+  // signs an assertion that the current fare was cryptographically settled.
+  const issued = stubRail();
+  const rideId = await completedRide();
+  const first = await post(`/api/rides/${rideId}/pay-instruction`, { rail: 'lnaddress' });
+  rideManager.getRide(rideId).fare = first.body.amountSats + 1;
+
+  const settled = await post(`/api/rides/${rideId}/settle`, {
+    rail: 'lnaddress',
+    proof: { preimage: issued[0].preimage }
+  });
+  assert.equal(settled.body.settlement.verified, false, 'a shortfall is not a verified settlement');
+  assert.match(settled.body.settlement.detail, /fare is now/);
+});
+
+test('an invoice for a superseded payment handle is never reused', async () => {
+  // A driver can correct a mistyped Lightning Address or M-Pesa number from
+  // their own active screen, and POST /payment-methods replaces the list
+  // wholesale. An invoice minted for the old handle stays payable for hours,
+  // so reusing on rail and amount alone would hand the rider a stale invoice
+  // that pays whoever the typo belonged to.
+  const issued = stubRail();
+  const rideId = await completedRide();
+  const first = await post(`/api/rides/${rideId}/pay-instruction`, { rail: 'lnaddress' });
+
+  await post(`/api/rides/${rideId}/payment-methods`, {
+    methods: [{ rail: 'lnaddress', handle: 'corrected@wallet.com' }]
+  });
+  const second = await post(`/api/rides/${rideId}/pay-instruction`, { rail: 'lnaddress' });
+
+  assert.equal(issued.length, 2, 'a corrected handle must mint a new invoice');
+  assert.notEqual(second.body.invoice, first.body.invoice);
 });
 
 test('an instruction with no payment hash cannot mask a bad proof', async () => {

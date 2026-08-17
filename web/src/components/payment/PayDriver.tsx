@@ -96,6 +96,12 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
     setSelectedRail(rail);
     setInstruction(null);
     setError(null);
+    // Cleared here or the NWC path is stranded for good: with a wallet
+    // connected and the outcome unknown, neither the pay button nor the
+    // connect form renders, while the copy tells the payer to try again.
+    // Re-selecting the rail is that retry, and the server hands back the same
+    // invoice, so it cannot become a second payment.
+    setOutcomeUnknown(false);
     setBusy('instruction');
     try {
       const instr = await getPayInstruction(task.id, { rail }, task.operatorBase);
@@ -116,6 +122,17 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
       // back as 'unverified' — surface it rather than claiming success.
       if (res.settlement?.status === 'unverified') {
         setError(res.settlement.detail || t('pay.proofFailed'));
+        return;
+      }
+      // The proof was real but covered less than the fare now owed — the fare
+      // moved after the invoice was minted (waiting time, a changed
+      // destination). Say so with both numbers rather than reporting it as
+      // recorded and leaving the shortfall to be discovered face to face.
+      if (res.settlement?.status === 'short') {
+        setError(t('pay.shortfall', {
+          paid: String(res.settlement.paidAmountSats ?? '?'),
+          owed: String(res.settlement.expectedAmountSats ?? '?'),
+        }));
         return;
       }
       setDeclaredRail(res.settlement?.rail || rail);

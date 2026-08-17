@@ -385,6 +385,7 @@ export const en: Record<string, string> = {
   'pay.optionsFailed': 'Could not load payment options',
   'pay.buildFailed': 'Could not build the payment',
   'pay.proofFailed': 'That payment proof did not check out. Please try again.',
+  'pay.shortfall': 'That payment proves {paid} sats, but the fare is now {owed} sats. Please pay the difference and record it again.',
   'pay.unknownTitle': 'We could not confirm that payment',
   'pay.unknownBody': 'Your wallet may still have paid. Check your wallet before trying again, because paying twice cannot be undone. If it shows the payment, copy the payment preimage and paste it below to record it.',
   'pay.recordFailed': 'Could not record the payment',

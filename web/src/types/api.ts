@@ -196,6 +196,10 @@ export interface SettlementRecord {
   confirmationCode?: string | null;
   confirmedByProvider?: boolean;
   declaredBy?: string;
+  /** What a verified preimage actually proved, when one did (status 'short') */
+  paidAmountSats?: number | null;
+  /** The fare at the moment that proof was checked */
+  expectedAmountSats?: number | null;
 }
 
 export interface TaskQuote {
