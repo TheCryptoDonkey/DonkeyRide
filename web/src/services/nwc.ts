@@ -162,6 +162,30 @@ export interface NwcPayResult {
 }
 
 /**
+ * Raised when the payment's outcome is genuinely UNKNOWN.
+ *
+ * Once the request has been published to the relay, the wallet may have paid.
+ * A timeout, an unreadable response, or a "success" carrying no usable
+ * preimage all mean we cannot say either way — and telling the payer it
+ * failed invites them to pay a second time. Only failures raised BEFORE
+ * publication (a malformed connection string, an encryption failure) prove
+ * nothing was attempted; those stay ordinary Errors.
+ */
+export class NwcUnknownOutcomeError extends Error {
+  readonly ambiguous = true;
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'NwcUnknownOutcomeError';
+  }
+}
+
+/** Whether an error from payInvoiceViaNwc left the payment outcome unknown */
+export function isUnknownOutcome(error: unknown): boolean {
+  return !!error && typeof error === 'object' && (error as { ambiguous?: boolean }).ambiguous === true;
+}
+
+/**
  * Pay a bolt11 invoice via the connected wallet. Resolves with the preimage
  * (proof of payment) or rejects with the wallet's error / a timeout.
  */
@@ -190,8 +214,10 @@ export async function payInvoiceViaNwc(
         fn();
       };
 
+      // The request is already on the relay by the time this fires, so the
+      // wallet may well have paid. Unknown, never "failed".
       const timer = setTimeout(
-        () => finish(() => reject(new Error('Wallet did not respond in time'))),
+        () => finish(() => reject(new NwcUnknownOutcomeError('Wallet did not respond in time'))),
         timeoutMs,
       );
 
@@ -212,14 +238,24 @@ export async function payInvoiceViaNwc(
                 finish(() => reject(new Error(parsed.error.message || parsed.error.code || 'Wallet rejected the payment')));
                 return;
               }
+              // A preimage is 32 bytes of hex or it is not a preimage. A
+              // wallet answering "success" with anything else has told us
+              // nothing we can act on — notably a bridge whose node could not
+              // route, which reports the failure as a 200 with an empty
+              // preimage. That is an unknown outcome, not a failure.
               const preimage = parsed.result?.preimage;
-              if (typeof preimage === 'string' && preimage) {
-                finish(() => resolve({ preimage }));
+              if (typeof preimage === 'string' && /^[0-9a-f]{64}$/i.test(preimage)) {
+                finish(() => resolve({ preimage: preimage.toLowerCase() }));
               } else {
-                finish(() => reject(new Error('Wallet response did not include a preimage')));
+                finish(() => reject(new NwcUnknownOutcomeError(
+                  'Wallet reported success without a usable payment proof',
+                )));
               }
             } catch (err) {
-              finish(() => reject(err instanceof Error ? err : new Error('Failed to read wallet response')));
+              // Decrypt or parse failure, after publication: also unknown.
+              finish(() => reject(new NwcUnknownOutcomeError(
+                err instanceof Error ? err.message : 'Failed to read wallet response',
+              )));
             }
           },
         },

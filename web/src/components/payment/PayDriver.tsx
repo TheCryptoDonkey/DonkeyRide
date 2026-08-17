@@ -7,7 +7,7 @@ import {
   getPaymentOptions, getPayInstruction, settleRide,
 } from '../../services/api';
 import {
-  getStoredNwcUri, setStoredNwcUri, payInvoiceViaNwc,
+  getStoredNwcUri, setStoredNwcUri, payInvoiceViaNwc, isUnknownOutcome,
 } from '../../services/nwc';
 import { formatFiatAmount } from '../../services/pricing';
 import type {
@@ -64,6 +64,9 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
   const [copied, setCopied] = useState(false);
   const [nwcUri, setNwcUri] = useState('');
   const [nwcConnected, setNwcConnected] = useState(false);
+  // The wallet may or may not have paid. Never offer a one-tap retry from
+  // here: paying twice is the harm this state exists to prevent.
+  const [outcomeUnknown, setOutcomeUnknown] = useState(false);
   // M-Pesa
   const [confirmationCode, setConfirmationCode] = useState('');
 
@@ -154,11 +157,24 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
     if (!uri || !instruction?.invoice || !selectedRail) return;
     setBusy('nwc');
     setError(null);
+    setOutcomeUnknown(false);
     try {
       const { preimage: pre } = await payInvoiceViaNwc(uri, instruction.invoice);
+      // Keep the proof where the payer can see and resubmit it. Recording it
+      // can fail on its own (the operator unreachable, say) long after the
+      // money has moved, and discarding the one piece of evidence that the
+      // payment happened would leave them unable to prove it.
+      setPreimage(pre);
       await doSettle(selectedRail, { preimage: pre });
     } catch (err) {
-      setError(err instanceof Error ? err.message : t('pay.walletFailed'));
+      // An unknown outcome is not a failure. Saying "payment failed" here is
+      // what leads a payer who DID pay to pay again.
+      if (isUnknownOutcome(err)) {
+        setOutcomeUnknown(true);
+        setError(null);
+      } else {
+        setError(err instanceof Error ? err.message : t('pay.walletFailed'));
+      }
       setBusy(null);
     }
   };
@@ -273,8 +289,20 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
                 {instruction.invoice}
               </div>
 
-              {/* Connected wallet (NWC) */}
-              {nwcConnected ? (
+              {/* Outcome unknown: the wallet may have paid. Do NOT offer a
+                  retry button here — the way out is to check the wallet and
+                  paste the preimage below, which the operator now verifies
+                  against every invoice issued for this journey. */}
+              {outcomeUnknown && (
+                <div className="meta-card border border-donkey-red" role="alert">
+                  <p className="font-bold text-donkey-text">{t('pay.unknownTitle')}</p>
+                  <p className="text-xs text-donkey-muted mt-1">{t('pay.unknownBody')}</p>
+                </div>
+              )}
+
+              {/* Connected wallet (NWC). Withheld once the outcome is
+                  unknown: re-tapping is how a paid journey gets paid twice. */}
+              {nwcConnected && !outcomeUnknown && (
                 <button
                   className="btn-primary w-full text-sm"
                   onClick={handlePayWithNwc}
@@ -282,7 +310,8 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
                 >
                   {busy === 'nwc' ? t('pay.payingWallet') : t('pay.payWithWallet')}
                 </button>
-              ) : (
+              )}
+              {!nwcConnected && (
                 <div className="space-y-2">
                   <p className="text-xs text-donkey-muted">
                     {t('pay.connectPrompt')}

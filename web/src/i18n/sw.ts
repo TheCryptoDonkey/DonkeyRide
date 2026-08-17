@@ -396,6 +396,8 @@ export const sw: Record<string, string> = {
   'pay.optionsFailed': 'Imeshindwa kupakia njia za malipo',
   'pay.buildFailed': 'Imeshindwa kuandaa malipo',
   'pay.proofFailed': 'Uthibitisho wa malipo haukukubalika. Tafadhali jaribu tena.',
+  'pay.unknownTitle': 'Hatukuweza kuthibitisha malipo hayo',
+  'pay.unknownBody': 'Pochi yako inaweza kuwa imelipa. Angalia pochi yako kabla ya kujaribu tena, kwa sababu malipo ya mara mbili hayawezi kurudishwa. Ikiwa inaonyesha malipo, nakili uthibitisho wa malipo (preimage) na uiweke hapa chini.',
   'pay.recordFailed': 'Imeshindwa kurekodi malipo',
   'pay.copyInvoice': 'Nakili ankara',
   'pay.preimage': 'preimage (herufi 64 za hex)',

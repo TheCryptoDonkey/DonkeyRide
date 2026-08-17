@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { generateSecretKey, getPublicKey, nip44, nip04 } from 'nostr-tools';
-import { parseNwcUri, buildNwcRequestEvent, decryptContent } from './nwc';
+import {
+  parseNwcUri, buildNwcRequestEvent, decryptContent,
+  NwcUnknownOutcomeError, isUnknownOutcome,
+} from './nwc';
 import { bytesToHex } from './nostr';
 
 const INVOICE = 'lnbc10n1pjabcdefgtestinvoice';
@@ -83,6 +86,26 @@ describe('decryptContent', () => {
     const payload = nip44.v2.encrypt(JSON.stringify({ result: { preimage: 'ab'.repeat(32) } }), key);
     const decrypted = await decryptContent(conn, payload);
     expect(JSON.parse(decrypted).result.preimage).toBe('ab'.repeat(32));
+  });
+});
+
+describe('unknown payment outcomes', () => {
+  // Once the request is on the relay the wallet may have paid, so a timeout
+  // or an unreadable answer must NOT read as "failed" — that is what leads a
+  // payer who did pay to pay again. PayDriver branches on exactly this, and
+  // hides its retry button when it is true.
+  it('marks an unknown outcome apart from an ordinary failure', () => {
+    expect(isUnknownOutcome(new NwcUnknownOutcomeError('Wallet did not respond in time'))).toBe(true);
+    // Pre-publication failures prove nothing was attempted, so they are plain
+    expect(isUnknownOutcome(new Error('Connection string is missing a relay'))).toBe(false);
+    expect(isUnknownOutcome(null)).toBe(false);
+    expect(isUnknownOutcome('timeout')).toBe(false);
+  });
+
+  it('keeps the message so the payer is told what happened', () => {
+    const err = new NwcUnknownOutcomeError('Wallet reported success without a usable payment proof');
+    expect(err).toBeInstanceOf(Error);
+    expect(err.message).toContain('usable payment proof');
   });
 });
 
