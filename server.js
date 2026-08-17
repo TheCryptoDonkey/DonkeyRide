@@ -4024,18 +4024,26 @@ app.post('/api/rides/:rideId/settle', async (req, res) => {
         // "this proof is wrong" to "declared, awaiting the driver" — the
         // opposite of the never-silently-accepted rule below.
         //
-        // Restricted to records issued for the handle the driver accepts NOW.
-        // Blocking a stale invoice from being handed out is not enough on its
-        // own: if one was already paid before the driver corrected a mistyped
-        // address, matching its preimage here would have the operator assert a
-        // verified settlement and publish a receipt for money that went to
-        // whoever the typo belonged to. The proof is real; what it proves is a
-        // payment to the wrong person, so it must not read as settlement.
-        const currentHandle = (ride.paymentMethods || []).find((m) => m.rail === railId)?.handle ?? null;
+        // Deliberately NOT restricted to the handle the driver accepts now. An
+        // earlier attempt filtered these to the current handle, so a preimage
+        // for an invoice minted before the driver corrected a mistyped address
+        // would not verify. That was wrong twice over.
+        //
+        // `verified` attests one thing: this preimage matches an invoice this
+        // operator issued. Whether the money reached the provider is a separate
+        // signal entirely — `confirmedByProvider`, which the provider sets
+        // themselves and which a misdirected payment simply never gets. So a
+        // typo surfaces exactly where it should, as an unconfirmed settlement
+        // between the two of them, without the operator adjudicating anything
+        // it cannot see.
+        //
+        // And refusing the proof would charge the rider for the provider's
+        // mistake: they paid precisely the artefact this operator handed them.
+        // Blocking a stale invoice from being ISSUED (liveInstruction's handle
+        // check) prevents a new wrong payment and is right. Refusing to
+        // recognise one already made is not.
         const candidates = hasPreimage
-            ? (ride.paymentInstructions || []).filter((i) => (
-                i.rail === railId && i.paymentHash && i.handle === currentHandle
-            ))
+            ? (ride.paymentInstructions || []).filter((i) => i.rail === railId && i.paymentHash)
             : [];
         if (candidates.length === 0) {
             candidates.push(ride.pendingInstruction || {});

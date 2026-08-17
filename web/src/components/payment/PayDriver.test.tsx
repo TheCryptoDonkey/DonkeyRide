@@ -103,10 +103,37 @@ describe('PayDriver, unknown NWC outcome', () => {
     expect(settleRide).not.toHaveBeenCalled();
   });
 
-  it('restores a route back when the rail is re-selected', async () => {
-    // Regression: outcomeUnknown was never cleared, so with a wallet connected
-    // neither the pay button nor the connect form rendered again for the rest
-    // of the component's life, while the copy said to try again.
+  it('does NOT re-arm one-tap pay when a different invoice is minted', async () => {
+    // The dangerous case: the old invoice was near expiry or the fare moved, so
+    // the server mints a NEW payable invoice. The journey may already be paid,
+    // and this button would pay it again. Previously the guard was both inert
+    // (cleared up front, so nothing was left to compare) and inverted (it
+    // withheld on a match and re-armed on a difference).
+    payInvoiceViaNwc.mockRejectedValue(new NwcUnknownOutcomeError('Wallet did not respond in time'));
+    await openLightning();
+    fireEvent.click(payButton()!);
+    await waitFor(() => expect(payButton()).toBeNull());
+
+    getPayInstruction.mockResolvedValue({
+      rail: 'lnaddress',
+      invoice: 'lnbc50u1pDIFFERENTinvoice',
+      payLink: 'lightning:lnbc50u1pDIFFERENTinvoice',
+      amountSats: 6200,
+    });
+    fireEvent.click(screen.getByText(/Choose a different method/i));
+    fireEvent.click(screen.getByText('Lightning'));
+
+    await waitFor(() => expect(getPayInstruction).toHaveBeenCalledTimes(2));
+    expect(payButton()).toBeNull();
+    // ...and they are still told what to do instead
+    expect(screen.getByRole('alert')).toBeTruthy();
+  });
+
+  it('re-arms one-tap pay when the SAME invoice comes back', async () => {
+    // Server-side reuse hands back the identical invoice, and Lightning itself
+    // refuses a second payment of one bolt11 — so this is the one safe re-arm.
+    // Without it the path is stranded: with a wallet connected the connect form
+    // does not render either, while the copy tells the payer to try again.
     payInvoiceViaNwc.mockRejectedValue(new NwcUnknownOutcomeError('Wallet did not respond in time'));
     await openLightning();
     fireEvent.click(payButton()!);

@@ -110,22 +110,23 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
     setSelectedRail(rail);
     setInstruction(null);
     setError(null);
-    // Cleared here or the NWC path is stranded for good: with a wallet
-    // connected and the outcome unknown, neither the pay button nor the connect
-    // form renders, while the copy tells the payer to try again.
-    //
-    // Safe only while the invoice is unchanged. Server-side reuse usually
-    // guarantees that, but not when the old invoice is near expiry or the fare
-    // has moved — then a NEW payable invoice is minted, and re-arming a one-tap
-    // button for a journey that may already be paid is the double payment this
-    // state exists to prevent. So remember which invoice was in flight and only
-    // re-arm against that same one.
-    setOutcomeUnknown(false);
-    setUnknownForHash(null);
+    // NOT cleared up front. Doing that made the guard inert, because the
+    // instruction is only ever set inside this function, so by the time a new
+    // invoice landed there was no unknown state left to compare against. It is
+    // cleared AFTER the fetch instead, and only when the same invoice comes
+    // back (below) — re-paying one bolt11 is refused by Lightning itself, so
+    // that is the only safe re-arm. A different invoice keeps the button
+    // withheld, because the journey may already be paid.
+    setShortfall(null);
     setBusy('instruction');
     try {
       const instr = await getPayInstruction(task.id, { rail }, task.operatorBase);
       setInstruction(instr);
+      const instrKey = instr.paymentHash ?? instr.invoice ?? null;
+      if (unknownForHash !== null && instrKey !== null && instrKey === unknownForHash) {
+        setOutcomeUnknown(false);
+        setUnknownForHash(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : t('pay.buildFailed'));
     } finally {
@@ -136,6 +137,8 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
   const doSettle = async (rail: string, proof: { preimage?: string; confirmationCode?: string }) => {
     setBusy('settle');
     setError(null);
+    // Stale figures from a previous attempt must not sit above a new error
+    setShortfall(null);
     try {
       const res = await settleRide(task.id, { rail, proof }, task.operatorBase);
       // A supplied proof that did not check out (e.g. a mistyped preimage) comes
@@ -256,11 +259,11 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
 
   // Either the settle response we just got, or the server's own record after a
   // refresh or reload. The second source is what makes this persist.
-  // Still unknown for the invoice currently on screen. A genuinely different
-  // invoice re-arms the button; the same one never does.
-  const unknownForThisInvoice = outcomeUnknown
-    && (unknownForHash === null
-      || unknownForHash === (instruction?.paymentHash ?? instruction?.invoice ?? null));
+  // Withheld for as long as an outcome is unknown. selectRail lifts this only
+  // when the payer deliberately re-selects the rail AND the same invoice comes
+  // back; a newly minted one leaves it withheld, and those payers use the QR,
+  // the deeplink or the preimage field, which is what pay.unknownBody says.
+  const unknownForThisInvoice = outcomeUnknown;
 
   const shownShortfall = shortfall
     || (parentShort

@@ -378,21 +378,21 @@ test('an invoice for a superseded payment handle is never reused', async () => {
   assert.equal(issued.length, 2, 'a corrected handle must mint a new invoice');
   assert.notEqual(second.body.invoice, first.body.invoice);
 
-  // ...and proof of having paid the SUPERSEDED invoice must not read as
-  // settlement: that money went to whoever the typo belonged to, so asserting
-  // it as verified would publish a receipt for a payment the driver never got.
+  // ...while proof of having paid the SUPERSEDED invoice is still recognised.
+  // `verified` attests that the preimage matches an invoice this operator
+  // issued, not that the money reached the provider — that is
+  // confirmedByProvider, which the provider sets and a misdirected payment
+  // never gets. Refusing the proof would charge the rider for the provider's
+  // typo, when they paid exactly the artefact they were handed.
   const stale = await post(`/api/rides/${rideId}/settle`, {
     rail: 'lnaddress',
     proof: { preimage: issued[0].preimage }
   });
-  assert.notEqual(stale.body.settlement.verified, true, 'a payment to the old handle is not settlement');
-
-  // ...while proof of the current invoice settles normally
-  const current = await post(`/api/rides/${rideId}/settle`, {
-    rail: 'lnaddress',
-    proof: { preimage: issued[1].preimage }
-  });
-  assert.equal(current.body.settlement.verified, true);
+  assert.equal(stale.body.settlement.verified, true, 'a payment the rider was told to make still counts as proof');
+  assert.notEqual(
+    stale.body.settlement.confirmedByProvider, true,
+    'but nothing asserts the provider received it'
+  );
 });
 
 test('an instruction with no payment hash cannot mask a bad proof', async () => {
