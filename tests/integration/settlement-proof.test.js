@@ -325,6 +325,41 @@ test('a short payment is never published as a verified receipt', async () => {
   assert.match(settled.body.settlement.detail, /fare is now/);
 });
 
+test('a LUD-21 verified payment with no preimage stays verified', async () => {
+  // The no-preimage path verifies against ride.pendingInstruction, which is a
+  // deliberately narrow projection. When that projection carried no amount, the
+  // shortfall check coerced it to 0 and declared every LUD-21 verified payment
+  // short by the whole fare — recording a genuinely settled journey as
+  // unverified and skipping its receipt. Not knowing the amount is not evidence
+  // of underpayment.
+  const issued = [];
+  rail.getPayInstructions = async ({ amountSats }) => {
+    const minted = mintInvoice({ sats: amountSats || 5000 });
+    issued.push(minted);
+    return {
+      rail: 'lnaddress', label: 'Lightning', custody: 'none', operator_transmitted: 0,
+      lnAddress: 'driver@wallet.com',
+      invoice: minted.invoice,
+      paymentHash: minted.paymentHash,
+      // The LUD-21 verify URL is what makes a no-preimage settlement checkable
+      verifyUrl: 'https://wallet.com/verify/abc',
+      payLink: `lightning:${minted.invoice}`,
+      amountSats: amountSats || 5000, currency: 'SAT', verifyMethod: 'preimage', instructions: 'test'
+    };
+  };
+  // The rail confirms settlement via the verify URL rather than a preimage
+  rail.verify = async () => ({ verified: true, detail: 'confirmed settled via LUD-21' });
+
+  const rideId = await completedRide();
+  await post(`/api/rides/${rideId}/pay-instruction`, { rail: 'lnaddress' });
+
+  const settled = await post(`/api/rides/${rideId}/settle`, { rail: 'lnaddress', proof: {} });
+
+  assert.equal(settled.body.settlement.verified, true, 'a LUD-21 confirmed payment is verified');
+  assert.equal(settled.body.settlement.status, 'verified');
+  rail.verify = realVerify;
+});
+
 test('an invoice for a superseded payment handle is never reused', async () => {
   // A driver can correct a mistyped Lightning Address or M-Pesa number from
   // their own active screen, and POST /payment-methods replaces the list
@@ -342,6 +377,22 @@ test('an invoice for a superseded payment handle is never reused', async () => {
 
   assert.equal(issued.length, 2, 'a corrected handle must mint a new invoice');
   assert.notEqual(second.body.invoice, first.body.invoice);
+
+  // ...and proof of having paid the SUPERSEDED invoice must not read as
+  // settlement: that money went to whoever the typo belonged to, so asserting
+  // it as verified would publish a receipt for a payment the driver never got.
+  const stale = await post(`/api/rides/${rideId}/settle`, {
+    rail: 'lnaddress',
+    proof: { preimage: issued[0].preimage }
+  });
+  assert.notEqual(stale.body.settlement.verified, true, 'a payment to the old handle is not settlement');
+
+  // ...while proof of the current invoice settles normally
+  const current = await post(`/api/rides/${rideId}/settle`, {
+    rail: 'lnaddress',
+    proof: { preimage: issued[1].preimage }
+  });
+  assert.equal(current.body.settlement.verified, true);
 });
 
 test('an instruction with no payment hash cannot mask a bad proof', async () => {
@@ -454,10 +505,14 @@ test('the invoice ledger never reaches the ride API response', async () => {
   assert.ok(!wire.includes('lnbc'), 'no invoice should appear in the ride response');
   assert.ok(!wire.includes('payload'), 'no cached instruction payload should appear');
 
-  // ...while the narrow record the settle fallback relies on is still there
+  // ...while the narrow record the settle fallback relies on is still there.
+  // Pinned as an exact key set so widening it is a deliberate act: `amountSats`
+  // earns its place because the shortfall check needs it on the LUD-21 path and
+  // it is a number the ride already carries as `fare`. An invoice, a payload or
+  // a handle would not.
   assert.deepEqual(
     Object.keys(body.ride.pendingInstruction).sort(),
-    ['paymentHash', 'rail', 'verifyUrl']
+    ['amountSats', 'paymentHash', 'rail', 'verifyUrl']
   );
 
   // ...and the ledger still works, invisible though it is

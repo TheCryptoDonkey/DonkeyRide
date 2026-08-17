@@ -67,6 +67,14 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
   // The wallet may or may not have paid. Never offer a one-tap retry from
   // here: paying twice is the harm this state exists to prevent.
   const [outcomeUnknown, setOutcomeUnknown] = useState(false);
+  // Held in its own state rather than in `error`, because a 'short' settlement
+  // also counts as declared: the declared branch below takes over and would
+  // discard an error message, and `settlement_declared` prompts a task refresh
+  // that re-renders within moments. The payer would see the shortfall for a
+  // fraction of a second and never again after a reload.
+  const [shortfall, setShortfall] = useState<{ paid: number | null; owed: number | null } | null>(null);
+  // Which invoice was in flight when the outcome became unknown (see selectRail)
+  const [unknownForHash, setUnknownForHash] = useState<string | null>(null);
   // M-Pesa
   const [confirmationCode, setConfirmationCode] = useState('');
 
@@ -86,7 +94,13 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
 
   // Settlement state: parent (WS/getTask) wins, local optimistic declare backs it.
   const confirmed = settlement?.status === 'confirmed' || settlement?.confirmedByProvider === true;
-  const parentDeclared = !!settlement?.status && !confirmed;
+  // A shortfall is NOT a clean declaration: the operator proved a payment and
+  // proved it did not cover the fare. Reading it as declared showed "payment
+  // recorded, waiting for your driver" over the top of the shortfall, which is
+  // the one thing the payer needs to act on. Server-side status wins over local
+  // optimism, so this also survives the task refresh that follows /settle.
+  const parentShort = settlement?.status === 'short';
+  const parentDeclared = !!settlement?.status && !confirmed && !parentShort;
   const declared = parentDeclared || (!!declaredRail && !confirmed);
   const settledRail = settlement?.rail || declaredRail || selectedRail || 'cash';
 
@@ -97,11 +111,17 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
     setInstruction(null);
     setError(null);
     // Cleared here or the NWC path is stranded for good: with a wallet
-    // connected and the outcome unknown, neither the pay button nor the
-    // connect form renders, while the copy tells the payer to try again.
-    // Re-selecting the rail is that retry, and the server hands back the same
-    // invoice, so it cannot become a second payment.
+    // connected and the outcome unknown, neither the pay button nor the connect
+    // form renders, while the copy tells the payer to try again.
+    //
+    // Safe only while the invoice is unchanged. Server-side reuse usually
+    // guarantees that, but not when the old invoice is near expiry or the fare
+    // has moved — then a NEW payable invoice is minted, and re-arming a one-tap
+    // button for a journey that may already be paid is the double payment this
+    // state exists to prevent. So remember which invoice was in flight and only
+    // re-arm against that same one.
     setOutcomeUnknown(false);
+    setUnknownForHash(null);
     setBusy('instruction');
     try {
       const instr = await getPayInstruction(task.id, { rail }, task.operatorBase);
@@ -129,10 +149,10 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
       // destination). Say so with both numbers rather than reporting it as
       // recorded and leaving the shortfall to be discovered face to face.
       if (res.settlement?.status === 'short') {
-        setError(t('pay.shortfall', {
-          paid: String(res.settlement.paidAmountSats ?? '?'),
-          owed: String(res.settlement.expectedAmountSats ?? '?'),
-        }));
+        setShortfall({
+          paid: res.settlement.paidAmountSats ?? null,
+          owed: res.settlement.expectedAmountSats ?? null,
+        });
         return;
       }
       setDeclaredRail(res.settlement?.rail || rail);
@@ -188,6 +208,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
       // what leads a payer who DID pay to pay again.
       if (isUnknownOutcome(err)) {
         setOutcomeUnknown(true);
+        setUnknownForHash(instruction?.paymentHash ?? instruction?.invoice ?? null);
         setError(null);
       } else {
         setError(err instanceof Error ? err.message : t('pay.walletFailed'));
@@ -233,6 +254,19 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
     );
   }
 
+  // Either the settle response we just got, or the server's own record after a
+  // refresh or reload. The second source is what makes this persist.
+  // Still unknown for the invoice currently on screen. A genuinely different
+  // invoice re-arms the button; the same one never does.
+  const unknownForThisInvoice = outcomeUnknown
+    && (unknownForHash === null
+      || unknownForHash === (instruction?.paymentHash ?? instruction?.invoice ?? null));
+
+  const shownShortfall = shortfall
+    || (parentShort
+      ? { paid: settlement?.paidAmountSats ?? null, owed: settlement?.expectedAmountSats ?? null }
+      : null);
+
   return (
     <div className="card space-y-4">
       <div>
@@ -240,6 +274,24 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
         <div className="mt-1"><DualPrice sats={amountSats} size="md" /></div>
         <p className="text-[11px] text-donkey-muted mt-1">{t('pay.honest')}</p>
       </div>
+
+      {/* A proven payment that did not cover the fare. Deliberately NOT phrased
+          as "pay the difference here": there is no partial-payment path, and
+          re-selecting the rail mints an invoice for the FULL new fare, so a
+          payer following that instruction would pay twice. */}
+      {shownShortfall && (
+        <div className="meta-card border border-donkey-red" role="alert">
+          <p className="text-sm text-donkey-text">
+            {t('pay.shortfall', {
+              paid: shownShortfall.paid == null ? '?' : shownShortfall.paid.toLocaleString(),
+              owed: shownShortfall.owed == null ? '?' : shownShortfall.owed.toLocaleString(),
+              diff: shownShortfall.paid == null || shownShortfall.owed == null
+                ? '?'
+                : Math.max(0, shownShortfall.owed - shownShortfall.paid).toLocaleString(),
+            })}
+          </p>
+        </div>
+      )}
 
       {optionsError && <p className="text-donkey-red text-sm">{optionsError}</p>}
 
@@ -310,7 +362,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
                   retry button here — the way out is to check the wallet and
                   paste the preimage below, which the operator now verifies
                   against every invoice issued for this journey. */}
-              {outcomeUnknown && (
+              {unknownForThisInvoice && (
                 <div className="meta-card border border-donkey-red" role="alert">
                   <p className="font-bold text-donkey-text">{t('pay.unknownTitle')}</p>
                   <p className="text-xs text-donkey-muted mt-1">{t('pay.unknownBody')}</p>
@@ -319,7 +371,7 @@ export function PayDriver({ task, settlement }: PayDriverProps) {
 
               {/* Connected wallet (NWC). Withheld once the outcome is
                   unknown: re-tapping is how a paid journey gets paid twice. */}
-              {nwcConnected && !outcomeUnknown && (
+              {nwcConnected && !unknownForThisInvoice && (
                 <button
                   className="btn-primary w-full text-sm"
                   onClick={handlePayWithNwc}

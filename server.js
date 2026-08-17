@@ -3701,7 +3701,12 @@ function narrowInstruction(record) {
     return {
         rail: record.rail,
         paymentHash: record.paymentHash || null,
-        verifyUrl: record.verifyUrl || null
+        verifyUrl: record.verifyUrl || null,
+        // Carried so the shortfall check works on the LUD-21 path too, where
+        // this projection is the only candidate. It is a number, not the
+        // invoice, and the fare is on the ride already, so it discloses
+        // nothing the narrowing was protecting.
+        amountSats: typeof record.amountSats === 'number' ? record.amountSats : null
     };
 }
 
@@ -4018,8 +4023,19 @@ app.post('/api/rides/:rideId/settle', async (req, res) => {
         // OVERWRITE a genuine mismatch from a hashed record and downgrade
         // "this proof is wrong" to "declared, awaiting the driver" — the
         // opposite of the never-silently-accepted rule below.
+        //
+        // Restricted to records issued for the handle the driver accepts NOW.
+        // Blocking a stale invoice from being handed out is not enough on its
+        // own: if one was already paid before the driver corrected a mistyped
+        // address, matching its preimage here would have the operator assert a
+        // verified settlement and publish a receipt for money that went to
+        // whoever the typo belonged to. The proof is real; what it proves is a
+        // payment to the wrong person, so it must not read as settlement.
+        const currentHandle = (ride.paymentMethods || []).find((m) => m.rail === railId)?.handle ?? null;
         const candidates = hasPreimage
-            ? (ride.paymentInstructions || []).filter((i) => i.rail === railId && i.paymentHash)
+            ? (ride.paymentInstructions || []).filter((i) => (
+                i.rail === railId && i.paymentHash && i.handle === currentHandle
+            ))
             : [];
         if (candidates.length === 0) {
             candidates.push(ride.pendingInstruction || {});
@@ -4040,9 +4056,15 @@ app.post('/api/rides/:rideId/settle', async (req, res) => {
         // valid proof of paying LESS than they now owe. Treating that as
         // `verified` would have the operator cryptographically assert a
         // payment of an amount nobody ever paid, and publish a receipt for it.
+        // Only when the proven instruction actually states an amount. Coercing
+        // an absent one to 0 claimed a shortfall of the entire fare against
+        // every settlement whose amount we simply do not know — which silently
+        // downgraded every LUD-21 verified payment to `short`, since the
+        // no-preimage path verifies against a projection that had no amount on
+        // it. Not knowing what was paid is not evidence of underpayment.
         const fareNow = Number(ride.fare) || 0;
-        const paidSats = proven ? (Number(proven.amountSats) || 0) : null;
-        const short = proven !== null && paidSats < fareNow;
+        const paidSats = typeof proven?.amountSats === 'number' ? proven.amountSats : null;
+        const short = paidSats !== null && paidSats < fareNow;
         if (short) {
             result = {
                 verified: false,
