@@ -6,9 +6,8 @@
 //
 // This is the inDrive model, and the default for cash-first markets.
 // "Stakes" under cash are commitments on record, not held funds: the
-// deterrent is reputational (the commitment and any forfeit are recorded
-// against the party's pubkey), which is exactly what a no-custody rail
-// can honestly offer.
+// deterrent is reputational: a late cancellation may be reported by the
+// other party. A reference operator cannot honestly call that a forfeiture.
 // ==========================================
 
 const PaymentProvider = require('./base');
@@ -93,22 +92,25 @@ class CashProvider extends PaymentProvider {
             return { success: false, error: `No cash commitment found for ${lockId}` };
         }
 
-        record.status = 'forfeited';
-        record.forfeitedAt = Date.now();
-        record.forfeitReason = reason;
+        record.status = 'late_cancellation_recorded';
+        record.lateCancellationRecordedAt = Date.now();
+        record.cancellationReason = reason;
+        record.cancellingParty = cancellingParty;
 
-        // No funds move — the forfeit is a reputational record against the
-        // cancelling party's pubkey, published as a stake event.
+        // Compatibility method only. No funds move, no amount is forfeited and
+        // the recorded reference exposure is not a debt or entitlement.
         return {
             success: true,
-            penalty: record.amount,
+            penalty: 0,
             refund: 0,
+            moneyMoved: 0,
+            recordedExposure: record.amount,
             reason,
-            settled: 'on_record_only',
-            event: this.createStakeEvent('forfeited', {
+            settled: 'reputation_only',
+            event: this.createStakeEvent('late_cancellation_recorded', {
                 rideId: record.rideId,
-                amount: record.amount,
-                penalty: record.amount,
+                amount: 0,
+                penalty: 0,
                 refund: 0,
                 reason,
                 providerTxId: lockId

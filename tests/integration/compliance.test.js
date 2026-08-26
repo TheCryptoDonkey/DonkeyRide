@@ -43,6 +43,17 @@ test('cash settlement records that the operator moved nothing', async () => {
   assert.ok(record, 'a settlement record is returned');
 });
 
+test('cash compatibility forfeit records reputation but reports zero money', async () => {
+  const cash = PaymentProviderFactory.create('cash');
+  const lock = await cash.lockStake('ride_cancel', 'rider_key', 500, 'rider');
+  const result = await cash.forfeitStake(lock.lockId, 'rider_key', 'late_cancel');
+  assert.equal(result.penalty, 0);
+  assert.equal(result.refund, 0);
+  assert.equal(result.moneyMoved, 0);
+  assert.equal(result.recordedExposure, 500);
+  assert.equal(result.settled, 'reputation_only');
+});
+
 test('geohash snapshots carry no exact coordinates but round-trip within the cell', () => {
   const hash = encodeGeohash(51.5074, -0.1278, 6);
   assert.equal(typeof hash, 'string');

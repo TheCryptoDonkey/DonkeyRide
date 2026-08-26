@@ -151,6 +151,9 @@ test('cancelling after the grace window IS late, and both parties are told', asy
     cancelled.body.ride.lateCancellation, true,
     'committing and then dropping past the grace window is a late cancellation'
   );
+  assert.equal(cancelled.body.ride.cancellationMoneyMoved, 0);
+  assert.equal(cancelled.body.ride.cancellationCompensationRecommendation, 0);
+  assert.equal(cancelled.body.ride.cancellationModel, 'reputation-only');
 });
 
 test('the wronged party can put a late cancellation on the public record', async () => {

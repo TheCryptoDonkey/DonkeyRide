@@ -78,10 +78,9 @@ REQUESTER DEVICE ──┐                        ┌── PROVIDER DEVICE
 | Reputation | Signed ratings | Art. 6(1)(f) legitimate interest (published by the *user*, not the operator) |
 | Abuse prevention | Rate-limit buckets keyed by pubkey or IP | Art. 6(1)(f) legitimate interest |
 
-**OPERATOR:** if you enable a custodial payment rail
-(`OPERATOR_LICENSED_CUSTODIAN=true`), you acquire AML/KYC obligations and a
-legal-obligation basis under Art. 6(1)(c) for records you must then keep.
-That changes this table substantially.
+The reference operator cannot enable a custodial payment rail. A separately
+reviewed regulated integration would acquire additional financial-crime,
+safeguarding and record-keeping obligations and requires a new DPIA.
 
 ---
 

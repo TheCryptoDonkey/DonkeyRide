@@ -11,6 +11,12 @@
 > removed entirely — riders now settle directly with drivers via the
 > non-custodial settlement rails (`settlement/`). Line numbers and verdicts
 > referring to streaming or surge no longer correspond to current code.
+> The same applies to every monetary stake, cancellation penalty and
+> forfeiture statement below: the reference operator now records commitments
+> and reputation evidence only, releases both records on cancellation, and
+> reports `moneyMoved: 0`. It has no active stake-forfeiture call or custodial
+> payment-provider override. See `docs/UK-RIDE-BOND-GATE.md` for the current
+> product boundary.
 
 ## Verdicts
 

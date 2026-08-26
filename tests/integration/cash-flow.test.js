@@ -118,8 +118,11 @@ test('CashProvider stake lifecycle is record-only', async () => {
   assert.equal(lock2.success, true);
   const forfeit = await provider.forfeitStake('ride_test2_driver', 'c'.repeat(64), 'no-show');
   assert.equal(forfeit.success, true);
-  assert.equal(forfeit.settled, 'on_record_only');
+  assert.equal(forfeit.settled, 'reputation_only');
+  assert.equal(forfeit.penalty, 0);
   assert.equal(forfeit.refund, 0);
+  assert.equal(forfeit.moneyMoved, 0);
+  assert.equal(forfeit.recordedExposure, 500);
 });
 
 test('factory rejects planned-but-unimplemented rails with a clear error', () => {

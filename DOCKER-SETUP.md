@@ -74,11 +74,11 @@ Edit `.env` with your values:
 OPERATOR_PUBKEY=npub1your_nostr_pubkey
 OPERATOR_NSEC=nsec1your_nostr_private_key
 OPERATOR_LIGHTNING=you@getalby.com
-OPERATOR_FEE_PERCENT=0.005
+OPERATOR_FEE_PERCENT=0
 
-# Payment Provider (for development, use mock)
-PAYMENT_PROVIDER=mock
-STRIKE_API_KEY=sk_test_your_strike_key
+# Reference payment provider: record-only, no operator custody
+PAYMENT_PROVIDER=cash
+PAYMENT_FALLBACKS=
 
 # Database
 DB_PASSWORD=secure_password_here
@@ -281,7 +281,7 @@ curl http://localhost:8080/balance
 
 ```env
 NODE_ENV=production
-PAYMENT_PROVIDER=lnd  # or strike, btcpay
+PAYMENT_PROVIDER=cash  # record-only; the reference operator refuses custody
 ENABLE_NIP98_AUTH=true
 ENABLE_RATE_LIMITING=true
 ```

@@ -109,7 +109,7 @@ test('full stake lifecycle: create → rider-stake → driver-accept → driver-
   }
 });
 
-test('rider cancellation forfeits 80% of the rider stake', async () => {
+test('rider cancellation releases both records and moves no money', async () => {
   const rideId = 'flowa_cancel';
   await driveToActive(rideId);
 
@@ -119,8 +119,10 @@ test('rider cancellation forfeits 80% of the rider stake', async () => {
   }, riderPriv);
   assert.equal(cancelled.status, 200, JSON.stringify(cancelled.body));
   assert.equal(cancelled.body.success, true);
-  assert.equal(cancelled.body.penalty, Math.floor(EXPECTED_RIDER_STAKE * 0.8));
-  assert.equal(cancelled.body.refund, EXPECTED_RIDER_STAKE - Math.floor(EXPECTED_RIDER_STAKE * 0.8));
+  assert.equal(cancelled.body.penalty, 0);
+  assert.equal(cancelled.body.refund, 0);
+  assert.equal(cancelled.body.moneyMoved, 0);
+  assert.equal(cancelled.body.cancellationModel, 'reputation-only');
 });
 
 test('create rejects a signer that does not match riderId', async () => {

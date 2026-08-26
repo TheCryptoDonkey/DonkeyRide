@@ -1,7 +1,7 @@
 // ==========================================
-// DONKEYRIDE RELAY OPERATOR SERVER
-// Anyone can run this to operate a stake relay
-// Operators earn 0.5% of ride value for providing infrastructure
+// DONKEYRIDE REFERENCE COORDINATION SERVER
+// Record-only commitments and direct participant settlement. The reference
+// operator cannot hold, forfeit or transmit participant funds.
 // ==========================================
 
 // Load environment variables
@@ -44,6 +44,12 @@ const { loadProfile, listProfiles } = require('./src/domain-profiles');
 const { getRoute } = require('./src/osrm-routing');
 const { safeErrorMessage } = require('./src/log-redact');
 const { createTaskStore } = require('./src/storage/task-store');
+const {
+    assertReferenceProviderNames,
+    assertReferencePaymentProvider,
+    referenceCancellationOutcome,
+    assertEvidenceOnlyDispute
+} = require('./src/payment-policy');
 const {
     createOperatorPolicy,
     evaluateDriverAdmission,
@@ -379,9 +385,9 @@ const config = {
     operatorPubkey: process.env.OPERATOR_PUBKEY,
     operatorPrivkey: resolveOperatorPrivkey(),
     operatorLightningAddress: process.env.OPERATOR_LIGHTNING,
-    // Default 0: the non-custodial operator takes NO cut of the fare (it never
-    // holds the fare, so it cannot). A licensed custodial operator may set a
-    // fee, which is only ever deducted on a custodial rail it is licensed for.
+    // Default 0: the reference operator takes no cut of the fare because it
+    // never holds the fare. A separate reviewed integration may charge for
+    // its own service; the reference operator never deducts that charge.
     operatorFeePercent: envNumber('OPERATOR_FEE_PERCENT', 0),
 
     // Fare rate card. Defaults are quoted in USD and auto-converted to the ride
@@ -670,7 +676,7 @@ if (config.operatorPrivkey) {
 // PAYMENT PROVIDER INITIALIZATION
 // ==========================================
 
-// Initialize payment provider with automatic fallbacks
+// Initialize payment provider with record-only fallbacks
 let paymentProvider;
 let stakeManager;
 let httpServer = null;
@@ -683,39 +689,23 @@ let httpServer = null;
 function adoptPaymentProvider() {
     paymentProvider = stakeManager.currentProvider;
 
-    // COMPLIANCE GATE: the reference operator is a coordinator, not a payment
-    // institution. A custodial rail (one where the operator receives, holds or
-    // can claim funds) makes the operator a money transmitter / EMI \u2014 a
-    // licensed activity. Refuse to run one unless the operator explicitly
-    // asserts it holds the requisite licence.
-    const custody = typeof paymentProvider.getCustodyModel === 'function'
-        ? paymentProvider.getCustodyModel()
-        : 'custodial';
-    const licensed = (process.env.OPERATOR_LICENSED_CUSTODIAN || '').toLowerCase() === 'true';
-    if (custody !== 'none' && !licensed) {
-        console.error(`\u274C Payment provider '${paymentProvider.providerName}' is CUSTODIAL \u2014 the operator would receive and control funds, making it a money transmitter.`);
-        console.error('   The reference operator is non-custodial by design. Use PAYMENT_PROVIDER=cash (record-only, settles peer-to-peer).');
-        console.error('   Only set OPERATOR_LICENSED_CUSTODIAN=true if you are a licensed payment institution and accept that regulatory burden.');
-        process.exit(1);
-    }
-
-    if (process.env.NODE_ENV === 'production'
-        && paymentProvider.getTrustModel() === 'demo'
-        && (process.env.ALLOW_DEMO_PAYMENTS || '').toLowerCase() !== 'true') {
-        console.error('\u274C Refusing to run the demo payment provider with NODE_ENV=production.');
-        console.error('   Set PAYMENT_PROVIDER=cash for a real non-custodial rail, or ALLOW_DEMO_PAYMENTS=true for a public demo.');
+    // Immutable product boundary: no environment flag turns the reference
+    // operator into a custodian. Regulated third-party custody belongs in a
+    // separate adapter and release after legal and security review.
+    let referencePolicy;
+    try {
+        referencePolicy = assertReferencePaymentProvider(paymentProvider, {
+            production: process.env.NODE_ENV === 'production'
+        });
+    } catch (error) {
+        console.error(`\u274C ${error.message}`);
         process.exit(1);
     }
 
     const caps = paymentProvider.getCapabilities();
-    console.log(`\u2705 Payment provider: ${paymentProvider.providerName} (trust: ${caps.trustModel}, custody: ${custody})`);
-    if (custody === 'none') {
-        console.log('\uD83D\uDEE1\uFE0F  Non-custodial: the operator never receives, holds, or transmits funds.');
-    } else {
-        console.log('\u26A0\uFE0F  CUSTODIAL rail active under OPERATOR_LICENSED_CUSTODIAN \u2014 the operator is acting as a licensed payment institution.');
-    }
+    console.log(`\u2705 Payment provider: ${paymentProvider.providerName} (trust: ${caps.trustModel}, custody: ${referencePolicy.custody})`);
+    console.log('\uD83D\uDEE1\uFE0F  Reference operator: record-only; it cannot receive, hold, forfeit or transmit participant funds.');
 }
-
 /**
  * Build provider configuration map from environment variables.
  * Mirrors PaymentProviderFactory.fromEnv so we can reuse configs for stake manager.
@@ -756,7 +746,7 @@ function parseProviderList(envValue, fallback) {
 async function initializeStakeManager() {
     const providerOrder = parseProviderList(
         process.env.STAKE_PROVIDERS,
-        parseProviderList(process.env.PAYMENT_PROVIDER, 'demo')
+        parseProviderList(process.env.PAYMENT_PROVIDER, 'cash')
     );
 
     // Allow explicit override of fallback order
@@ -768,7 +758,10 @@ async function initializeStakeManager() {
     });
 
     const configs = buildProviderConfigsFromEnv();
-    const normalized = providerOrder.length > 0 ? providerOrder : ['demo'];
+    const normalized = assertReferenceProviderNames(
+        providerOrder.length > 0 ? providerOrder : ['cash'],
+        { production: process.env.NODE_ENV === 'production' }
+    );
 
     stakeManager = new ResilientStakeManager(normalized, configs, PaymentProviderFactory);
     await stakeManager.initialize();
@@ -3200,7 +3193,8 @@ app.post('/rides/:rideId/complete', async (req, res) => {
     }
 });
 
-// Cancel ride with penalties
+// Cancel ride. The reference operator releases record-only commitments and
+// records reputation evidence; it never forfeits or reallocates money.
 app.post('/rides/:rideId/cancel', async (req, res) => {
     try {
         const { rideId } = req.params;
@@ -3218,49 +3212,22 @@ app.post('/rides/:rideId/cancel', async (req, res) => {
             ? (req.user.pubkey || '').toLowerCase()
             : (req.body.cancelledBy || 'unknown');
 
-        let penalty = { penalty: 0, refund: 0 };
-        let penaltyResult = null;
         let riderReleaseResult = null;
         let driverReleaseResult = null;
         
         if (ride.status === 'active') {
-            // Apply penalties based on who cancelled
-            if (cancelledBy === ride.driverId) {
-                // Driver cancelled - forfeit 80% of driver stake to rider
-                penaltyResult = await stakeManager.forfeitStake(
-                    `${rideId}_driver`,
-                    ride.driverId,
-                    'driver_cancelled'
-                );
-                
-                // Release rider stake
-                riderReleaseResult = await stakeManager.releaseStake(`${rideId}_rider`);
-            } else if (cancelledBy === ride.riderId) {
-                // Rider cancelled - forfeit 80% of rider stake to driver  
-                penaltyResult = await stakeManager.forfeitStake(
-                    `${rideId}_rider`,
-                    ride.riderId,
-                    'rider_cancelled'
-                );
-                
-                // Release driver stake
-                driverReleaseResult = await stakeManager.releaseStake(`${rideId}_driver`);
-            }
+            riderReleaseResult = await stakeManager.releaseStake(`${rideId}_rider`);
+            driverReleaseResult = await stakeManager.releaseStake(`${rideId}_driver`);
         } else if (ride.status === 'waiting_driver' || ride.status === 'waiting_rider_stake') {
             if (ride.riderStakeLocked) {
                 try {
                     riderReleaseResult = await stakeManager.releaseStake(`${rideId}_rider`);
-                    penalty.refund = ride.riderStake || 0;
                 } catch (releaseError) {
                     console.warn(`Failed to release rider stake for ${rideId}:`, releaseError.message);
                 }
             }
         }
-
-        if (penaltyResult) {
-            penalty.penalty = penaltyResult.penalty || 0;
-            penalty.refund = penaltyResult.refund || penalty.refund || 0;
-        }
+        const cancellation = referenceCancellationOutcome({ lateCancellation: ride.status === 'active' });
         
         ride.status = 'cancelled';
         ride.cancelledBy = cancelledBy;
@@ -3282,14 +3249,18 @@ app.post('/rides/:rideId/cancel', async (req, res) => {
             type: 'ride_cancelled',
             ride_id: rideId,
             cancelledBy,
-            penalty: penalty.penalty || 0,
-            refund: penalty.refund || 0
+            penalty: 0,
+            refund: 0,
+            moneyMoved: cancellation.moneyMoved,
+            cancellationModel: cancellation.model
         });
         broadcastToDrivers({
             type: 'ride_cancelled',
             ride_id: rideId,
             cancelledBy,
-            penalty: penalty.penalty || 0
+            penalty: 0,
+            moneyMoved: cancellation.moneyMoved,
+            cancellationModel: cancellation.model
         });
 
         if (riderReleaseResult) {
@@ -3318,27 +3289,15 @@ app.post('/rides/:rideId/cancel', async (req, res) => {
                 console.warn(`Failed to publish driver stake release for ${rideId}:`, err.message);
             });
         }
-        if (penaltyResult) {
-            stakeEvents.publishStakePenalty({
-                rideId,
-                reason: reason || 'cancelled',
-                penalty: penaltyResult.penalty,
-                refund: penaltyResult.refund,
-                providerEvent: penaltyResult.event,
-                currency: ride.currency || 'SAT',
-                trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
-            }).catch((err) => {
-                console.warn(`Failed to publish stake penalty for ${rideId}:`, err.message);
-            });
-        }
-
         finalizeRideSession(rideId, 'cancelled');
         
         res.json({
             success: true,
             cancelledBy,
-            penalty: penalty.penalty || 0,
-            refund: penalty.refund || 0
+            penalty: 0,
+            refund: 0,
+            moneyMoved: cancellation.moneyMoved,
+            cancellationModel: cancellation.model
         });
         
     } catch (error) {
@@ -6095,8 +6054,8 @@ app.post('/api/rides/:rideId/cancel', async (req, res) => {
             return res.status(authErr.status).json(authErr);
         }
 
-        // With auth on, who cancelled is the signer — the body cannot pin
-        // the cancellation (and any stake penalty) on the other party.
+        // With auth on, who cancelled is the signer. The body cannot pin a
+        // reputation report on the other party.
         const actualCancelledBy = (nip98Enabled && req.user)
             ? (req.user.pubkey || '').toLowerCase()
             : (cancelledBy || 'unknown');
@@ -6113,47 +6072,28 @@ app.post('/api/rides/:rideId/cancel', async (req, res) => {
         const reasonCode = sanitiseCancellationReason(rawReasonCode, cancellingSide)
             || (reason === 'no_show' ? 'no_show' : null);
 
-        // Task-flow stakes: the cancelling party's stake is forfeited, the
-        // other party's is released. LND hodl stakes are all-or-nothing.
+        // Reference task commitments are record-only. Release every active
+        // record regardless of which side cancelled; reputation is separate.
         if (ride.stakes) {
-            const requesterHex = (ride.requester?.pubkey || ride.rider?.pubkey || '').toLowerCase();
-            const cancellerSide = actualCancelledBy === requesterHex ? 'requester' : 'provider';
             for (const [side, stake] of Object.entries(ride.stakes)) {
                 if (!stake?.locked || stake.released || stake.forfeited) {
                     continue;
                 }
                 const stakeType = side === 'requester' ? 'rider' : 'driver';
                 try {
-                    if (side === cancellerSide) {
-                        const forfeit = await stakeManager.forfeitStake(
-                            `${rideId}_${stakeType}`, actualCancelledBy, `${stakeType}_cancelled`
-                        );
-                        stake.forfeited = true;
-                        stakeEvents.publishStakePenalty({
-                            rideId,
-                            role: stakeType,
-                            reason: `${stakeType}_cancelled`,
-                            penalty: forfeit?.penalty || 0,
-                            refund: forfeit?.refund || 0,
-                            providerEvent: forfeit?.event,
-                            currency: 'SAT',
-                            trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
-                        }).catch((err) => console.warn(`Failed to publish ${side} stake penalty for ${rideId}:`, err.message));
-                    } else {
-                        const release = await stakeManager.releaseStake(`${rideId}_${stakeType}`);
-                        stake.released = true;
-                        stakeEvents.publishStakeRelease({
-                            rideId,
-                            role: stakeType,
-                            amount: stake.amount,
-                            providerEvent: release?.event,
-                            reason: 'cancelled',
-                            currency: 'SAT',
-                            trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
-                        }).catch((err) => console.warn(`Failed to publish ${side} stake release for ${rideId}:`, err.message));
-                    }
+                    const release = await stakeManager.releaseStake(`${rideId}_${stakeType}`);
+                    stake.released = true;
+                    stakeEvents.publishStakeRelease({
+                        rideId,
+                        role: stakeType,
+                        amount: stake.amount,
+                        providerEvent: release?.event,
+                        reason: 'cancelled_no_money_moved',
+                        currency: 'SAT',
+                        trustModel: stakeManager.currentProvider?.getTrustModel() || 'unknown'
+                    }).catch((err) => console.warn(`Failed to publish ${side} commitment release for ${rideId}:`, err.message));
                 } catch (stakeError) {
-                    console.error(`Stake handling failed during cancel of ${rideId} (${side}):`, stakeError.message);
+                    console.error(`Commitment release failed during cancel of ${rideId} (${side}):`, stakeError.message);
                 }
             }
         }
@@ -6186,6 +6126,9 @@ app.post('/api/rides/:rideId/cancel', async (req, res) => {
         // to tell the wronged party they may record it, not to build an
         // operator-held disciplinary record.
         cancelled.lateCancellation = lateCancellation;
+        cancelled.cancellationMoneyMoved = 0;
+        cancelled.cancellationCompensationRecommendation = 0;
+        cancelled.cancellationModel = 'reputation-only';
         if (reasonCode) {
             cancelled.cancellationReasonCode = reasonCode;
             cancelled.cancelledSide = cancellingSide;
@@ -6203,7 +6146,10 @@ app.post('/api/rides/:rideId/cancel', async (req, res) => {
             // Whether the OTHER party has grounds to record this against the
             // canceller. Reported, never asserted: the operator states the
             // fact, the wronged party decides whether to publish anything.
-            late_cancellation: cancelled.lateCancellation === true
+            late_cancellation: cancelled.lateCancellation === true,
+            cancellation_model: 'reputation-only',
+            compensation_recommendation: 0,
+            money_moved: 0
         };
         broadcastToRide(rideId, { type: 'ride_cancelled', ...cancelPayload });
         broadcastToRide(rideId, { type: 'task_cancelled', ...cancelPayload });
@@ -7009,8 +6955,8 @@ app.post('/api/disputes/:disputeId/assign', async (req, res) => {
         const { disputeId } = req.params;
         const { arbiterPubkey, arbiterType, deadline } = req.body || {};
 
-        // Only the operator installs arbiters — otherwise anyone could
-        // appoint themselves and forfeit the accused's stake.
+        // Only the operator installs evidence arbiters so an attacker cannot
+        // appoint themselves and manufacture an apparently official finding.
         if (nip98Enabled && (req.user?.pubkey || '').toLowerCase() !== (config.operatorPubkey || '').toLowerCase()) {
             return res.status(403).json({ error: 'Forbidden', details: 'Only the operator can assign arbiters' });
         }
@@ -7080,7 +7026,6 @@ app.post('/api/disputes/:disputeId/resolve', async (req, res) => {
             complainantStake,
             accusedStake,
             forfeitAmount,
-            forfeitCurrency,
             reasoning
         } = req.body || {};
 
@@ -7107,12 +7052,10 @@ app.post('/api/disputes/:disputeId/resolve', async (req, res) => {
             return res.status(400).json({ error: `Invalid outcome. Must be one of: ${disputeEvents.VALID_OUTCOMES.join(', ')}` });
         }
 
-        const plannedAccusedStake = accusedStake || (outcome === 'dismissed' ? 'released' : 'forfeited');
-        if (plannedAccusedStake === 'partial_forfeit'
-            && stakeManager?.currentProvider?.getCapabilities?.().features?.partialForfeit === false) {
-            return res.status(400).json({
-                error: 'partial_forfeit is not supported by the active payment rail (all-or-nothing stakes)'
-            });
+        try {
+            assertEvidenceOnlyDispute({ accusedStake, complainantStake, forfeitAmount });
+        } catch (policyError) {
+            return res.status(400).json({ error: policyError.message });
         }
 
         const arbiterPubkey = dispute.arbiter?.pubkey || config.operatorPubkey || 'unknown';
@@ -7123,22 +7066,24 @@ app.post('/api/disputes/:disputeId/resolve', async (req, res) => {
             arbiterPubkey,
             amount: amount || dispute.amount,
             currency: currency || dispute.currency,
-            complainantStake: complainantStake || 'released',
-            accusedStake: accusedStake || (outcome === 'dismissed' ? 'released' : 'forfeited'),
-            forfeitAmount,
+            complainantStake: 'released',
+            accusedStake: 'released',
+            forfeitAmount: null,
             reasoning: reasoning || ''
         });
 
         // Execute stake effects
         const rideId = dispute.taskId;
         const ride = rideManager.getRide(rideId);
-        const cStake = complainantStake || 'released';
-        const aStake = accusedStake || (outcome === 'dismissed' ? 'released' : 'forfeited');
+        const cStake = 'released';
+        const aStake = 'released';
 
         dispute.stakeEffects = {
             complainantStake: cStake,
             accusedStake: aStake,
-            forfeitAmount: forfeitAmount || null
+            forfeitAmount: null,
+            moneyMoved: 0,
+            model: 'evidence-only'
         };
 
         if (ride && stakeManager) {
@@ -7167,27 +7112,9 @@ app.post('/api/disputes/:disputeId/resolve', async (req, res) => {
                         }
                     }
 
-                    // Handle accused stake
-                    if (aStake === 'forfeited' || aStake === 'partial_forfeit') {
-                        try {
-                            const penaltyResult = await stakeManager.forfeitStake(
-                                `${rideId}_${accusedRole}`,
-                                dispute.accused?.pubkey || dispute.accusedPubkey || 'accused',
-                                `dispute_${outcome}`
-                            );
-                            await stakeEvents.publishStakePenalty({
-                                rideId,
-                                reason: `dispute_${outcome}`,
-                                penalty: penaltyResult?.penalty || forfeitAmount,
-                                refund: penaltyResult?.refund || 0,
-                                providerEvent: penaltyResult,
-                                currency: forfeitCurrency || currency || 'SAT',
-                                trustModel
-                            });
-                        } catch (stakeErr) {
-                            console.warn(`[Dispute] Failed to forfeit accused stake for ${rideId}:`, stakeErr.message);
-                        }
-                    } else if (aStake === 'released') {
+                    // The resolution is evidence only. Both record-only
+                    // commitments are released; no arbiter can move money.
+                    if (aStake === 'released') {
                         try {
                             const releaseResult = await stakeManager.releaseStake(`${rideId}_${accusedRole}`);
                             await stakeEvents.publishStakeRelease({
@@ -7230,7 +7157,9 @@ app.post('/api/disputes/:disputeId/resolve', async (req, res) => {
             success: true,
             outcome,
             event_id: resolutionEvent?.id || null,
-            status: dispute.status
+            status: dispute.status,
+            monetary_effect: 'none',
+            money_moved: 0
         });
     } catch (error) {
         console.error('Error resolving dispute:', error);

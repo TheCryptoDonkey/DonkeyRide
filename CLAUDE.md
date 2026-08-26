@@ -150,17 +150,17 @@ Each profile defines: state machine (states + valid transitions), role names (re
 
 ### Payment Providers (Factory Pattern)
 
-`payment-providers/factory.js` — Factory + fallback chain via `ResilientStakeManager`. All providers extend `payment-providers/base.js` with the interface: `lockStake()`, `releaseStake()`, `forfeitStake()`, `healthCheck()`, `getCapabilities()`.
+`payment-providers/factory.js` — Provider factory retained for protocol research. The reference server validates the complete primary/fallback chain before constructing `ResilientStakeManager`: only record-only `cash` is permitted in production, with `demo` available outside production. All providers extend `payment-providers/base.js` with the legacy interface: `lockStake()`, `releaseStake()`, `forfeitStake()`, `healthCheck()`, `getCapabilities()`.
 
-Providers: `cash` (record-only, no custody — fare settles face-to-face, inDrive model), `lnd` (hodl invoices, regtest-proven semantics: release = cancel/refund, forfeit = settle/claim penalty; `confirmStakePaid()` gates enforcement on the payment actually being held), `demo` (mock for testing). Experimental (never verified against their real APIs, legacy both-stakes key convention): `btcpay`, `alby`, `cln`. Planned, not yet implemented: `nwc` (NIP-47 hold invoices), `stripe` (pure fiat), Cashu, M-Pesa — the factory throws a clear error if these are selected.
+Reference providers: `cash` (record-only, no custody; fare settles directly between the people) and non-production `demo`. Custodial or experimental modules such as `lnd`, `btcpay`, `alby` and `cln` remain research code but are rejected by the reference server even when named as fallbacks. Planned rails are likewise not selectable.
 
 Stake interface is **per-stake**: `releaseStake`/`forfeitStake`/`getStakeStatus` take a stakeId of `${rideId}_${role}`. Non-instant rails (`instantLock: false`) return `awaiting_payment` from the stake endpoints and require a confirm call (`/rides/:id/{rider,driver}-stake/confirm` on the legacy flow, `/api/tasks/:id/{requester,provider}-stake/confirm` on the task flow), which calls the provider's `confirmStakePaid()`.
 
-**Stake persistence**: LND stake state (including hodl preimages) is persisted to the `stakes` table and restored via `setStakeStore()` on boot — a restart must never strand held HTLCs. **Provider unification**: `paymentProvider` IS the stake manager's primary provider (one instance, one state). Fallback providers must share the primary's trust model; per-stake operations route to the provider that created the stake.
+**Reference boundary**: `paymentProvider` is the stake manager's primary provider, and every configured fallback is checked against the immutable record-only allowlist before manager creation. There is no licence or environment override that enables custody.
 
 Every payment event includes explicit `amount`, `currency`, and `trust_model` tags. Amounts are in the smallest unit of the specified currency (pence for GBP, cents for USD, satoshis for SAT).
 
-Selected via `PAYMENT_PROVIDER` env var, with optional `PAYMENT_FALLBACKS` for resilience. The demo provider refuses to boot with `NODE_ENV=production` unless `ALLOW_DEMO_PAYMENTS=true`. **Domain-independent** — works identically across all use cases.
+Selected via `PAYMENT_PROVIDER`, defaulting to `cash`. `PAYMENT_FALLBACKS` may contain only allowlisted record-only rails. `demo` always fails closed with `NODE_ENV=production`; there is no `ALLOW_DEMO_PAYMENTS` bypass. **Domain-independent** — works identically across all use cases.
 
 ### Pricing
 
@@ -271,15 +271,16 @@ WEBSOCKET (ephemeral)         →  Real-time tracking + Live updates
 The default production operator runs with **no database and no Redis** and is
 **non-custodial** — it is a coordination service, not a payment institution:
 
-- **No money.** Every provider declares `getCustodyModel()`; the boot gate
-  (`adoptPaymentProvider`) refuses any `custodial` rail unless
-  `OPERATOR_LICENSED_CUSTODIAN=true`. Default rail is `cash` (record-only,
+- **No money.** Every provider declares `getCustodyModel()` and the boot gate
+  (`adoptPaymentProvider`) additionally enforces a name allowlist. It refuses
+  every custodial or unknown rail with no environment override. The default
+  rail is `cash` (record-only,
   custody `none`): fares settle peer-to-peer, the operator moves £0
   (`operator_transmitted: 0` on every settlement). `/info.regulatory` states
   the posture (`money_transmitter: false`, `settlement: peer-to-peer`).
   `OPERATOR_FEE_PERCENT` defaults to 0 — the operator takes no cut of a fare it
-  never holds. Custodial Lightning rails (lnd/btcpay/alby/cln) exist for
-  licensed Mode-B operators only.
+  never holds. Custodial Lightning provider classes are archived integration
+  research and cannot be selected by the reference operator.
 - **No database.** `DATABASE_URL` is optional. Durability comes from Nostr: the
   operator publishes a kind 30078 state snapshot on every task mutation via
   `setSnapshotPublisher`, and rehydrates non-terminal tasks from its own
@@ -490,13 +491,12 @@ Key test files:
 Copy `.env.example` for configuration. Key variables:
 - `DOMAIN` — Domain profile selection (ridesharing|locksmith|delivery|towing|emergency-trades|pet-services|security|cleaning|moving, default: ridesharing)
 - `OPERATOR_PUBKEY` / `OPERATOR_PRIVKEY` — Operator Nostr identity
-- `PAYMENT_PROVIDER` — Payment backend (cash|lnd|btcpay|alby|cln|demo)
+- `PAYMENT_PROVIDER` — `cash` in production; `demo` is allowed only outside production
 - `DEFAULT_FIAT_CURRENCY` — Ride pricing currency (USD|EUR|GBP|KES, default GBP; set KES for M-Pesa/Tando markets)
 - `FARE_BASE` / `FARE_PER_KM` / `FARE_PER_MINUTE` / `FARE_CURRENCY` — Rate card (USD-quoted default, auto-converted; set FARE_CURRENCY to price verbatim in a local currency)
 - `NAVIGATION_PROVIDER` — Routing backend (osrm|ors)
 - `DATABASE_URL` — PostgreSQL connection (OPTIONAL; omit for the default non-custodial, DB-free operator)
 - `REDIS_URL` — Redis connection (OPTIONAL; presence is in-memory. `DISABLE_REDIS=true` to skip)
-- `OPERATOR_LICENSED_CUSTODIAN` — set true ONLY if you are a licensed payment institution running a custodial rail
 - `PUBLIC_RELAY_URLS` / `PUBLIC_BASE_URL` — advertised to clients for Nostr discovery
 - `NOSTR_RELAY` — Relay URL for event publishing
 - `ENABLE_NIP98_AUTH` / `ENABLE_RATE_LIMITING` — Security toggles

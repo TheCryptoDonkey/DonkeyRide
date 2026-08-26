@@ -60,7 +60,7 @@ umask 077
 cat > .env <<ENV
 OPERATOR_PRIVKEY=$(openssl rand -hex 32)
 NODE_ENV=production
-ALLOW_DEMO_PAYMENTS=true
+PAYMENT_PROVIDER=cash
 NOSTR_RELAYS=wss://relay.trotters.cc
 PUBLIC_RELAY_URLS=wss://relay.trotters.cc,wss://donkeyride.example.com/relay,wss://relay.damus.io
 PUBLIC_BASE_URL=https://donkeyride.example.com
@@ -79,7 +79,7 @@ a driver's reputation invisible to anyone not pointed at you, which defeats
 the point of portable reputation.
 
 Without `OPERATOR_PRIVKEY` (or `OPERATOR_NSEC`) the operator cannot sign
-any public events — stake locks, settlements, its service announcement —
+any public events — coordination snapshots or its service announcement —
 and says so loudly at boot. With it, the operator publishes a TROTT kind
 30511 announcement at startup and a kind 30554 heartbeat every 5 minutes,
 making it discoverable from the relays alone.

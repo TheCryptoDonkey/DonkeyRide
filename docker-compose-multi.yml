@@ -80,9 +80,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: operator-a-fastr
-
-ides
+    container_name: operator-a-fastrides
     ports:
       - "3000:3000"  # HTTP API
       - "3001:3001"  # WebSocket
@@ -91,7 +89,7 @@ ides
       - OPERATOR_NAME=FastRides
       - OPERATOR_PUBKEY=${OPERATOR_A_PUBKEY:-npub1fastrideexample}
       - OPERATOR_LIGHTNING=fastr@getalby.com
-      - OPERATOR_FEE_PERCENT=0.003  # 0.3% fee (lowest!)
+      - OPERATOR_FEE_PERCENT=0
 
       # Server config
       - PORT=3000
@@ -104,7 +102,7 @@ ides
       - DATABASE_URL=postgresql://donkey:${POSTGRES_PASSWORD:-rideshare123}@postgres:5432/donkeyride
 
       # Payment provider
-      - PAYMENT_PROVIDER=mock
+      - PAYMENT_PROVIDER=cash
 
     depends_on:
       postgres:
@@ -139,7 +137,7 @@ ides
       - OPERATOR_NAME=CityRides
       - OPERATOR_PUBKEY=${OPERATOR_B_PUBKEY:-npub1cityridesexample}
       - OPERATOR_LIGHTNING=city@getalby.com
-      - OPERATOR_FEE_PERCENT=0.005  # 0.5% fee (standard)
+      - OPERATOR_FEE_PERCENT=0
 
       # Server config
       - PORT=3000
@@ -152,7 +150,7 @@ ides
       - DATABASE_URL=postgresql://donkey:${POSTGRES_PASSWORD:-rideshare123}@postgres:5432/donkeyride
 
       # Payment provider
-      - PAYMENT_PROVIDER=mock
+      - PAYMENT_PROVIDER=cash
 
     depends_on:
       postgres:
@@ -187,7 +185,7 @@ ides
       - OPERATOR_NAME=PremiumRides
       - OPERATOR_PUBKEY=${OPERATOR_C_PUBKEY:-npub1premiumridesexample}
       - OPERATOR_LIGHTNING=premium@getalby.com
-      - OPERATOR_FEE_PERCENT=0.010  # 1.0% fee (premium service)
+      - OPERATOR_FEE_PERCENT=0
 
       # Server config
       - PORT=3000
@@ -200,7 +198,7 @@ ides
       - DATABASE_URL=postgresql://donkey:${POSTGRES_PASSWORD:-rideshare123}@postgres:5432/donkeyride
 
       # Payment provider
-      - PAYMENT_PROVIDER=mock
+      - PAYMENT_PROVIDER=cash
 
     depends_on:
       postgres:

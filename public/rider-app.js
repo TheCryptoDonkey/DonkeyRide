@@ -927,26 +927,14 @@ async function cancelActiveRide(reason = 'rider_cancelled') {
     }
 
     const payload = await response.json().catch(() => ({}));
-    const penalty = Number(payload?.penalty || 0);
-    const refund = Number(payload?.refund || 0);
     forgetActiveRide();
     hideStreamPanel();
     stopSafetyMonitoring();
     setSafetyStatus('Ride cancelled.', 'info');
     let tone = 'info';
     let message = 'Ride cancelled.';
-    if (reason === 'stake_unpaid') {
-      message = 'Ride cancelled before stake payment — no sats locked.';
-    } else if (refund > 0 && penalty <= 0) {
-      message = `Ride cancelled. Stake refunded (${refund.toLocaleString()} sats).`;
-      tone = 'success';
-    } else if (penalty > 0) {
-      message = `Ride cancelled. ${penalty.toLocaleString()} sats forfeited.`;
-      if (refund > 0) {
-        message += ` Refund: ${refund.toLocaleString()} sats.`;
-      }
-      tone = 'warning';
-    }
+    if (reason === 'stake_unpaid') message = 'Ride cancelled before commitment confirmation.';
+    else message = 'Ride cancelled. The reference operator moved no money; a late cancellation may be reported by the other party.';
     updateStatus(message, tone);
     resetRide();
   } catch (error) {

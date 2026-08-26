@@ -20,22 +20,20 @@ operator does none of these:
   `0`. Because the operator never holds the fare, it cannot deduct from it.
   Every settlement record carries `operator_transmitted: 0` and
   `settlement: 'peer-to-peer'`.
-- **Custodial rails are gated.** Each payment provider declares a custody model
-  (`getCustodyModel()` → `none` | `custodial`). Lightning rails that route
-  funds through the operator's node or hold a hodl-invoice preimage it can
-  claim (`lnd`, `btcpay`, `alby`, `cln`) are **custodial**. The server refuses
-  to boot a custodial rail unless the operator explicitly sets
-  `OPERATOR_LICENSED_CUSTODIAN=true`, asserting it holds the requisite licence
-  and accepts that regulatory burden. The default (`custodial` for any
-  unrecognised provider) fails safe.
+- **Custodial rails are not available in the reference operator.** Runtime
+  policy allows only record-only `cash`, plus `demo` outside production. It
+  rejects `lnd`, `btcpay`, `alby`, `cln` and unknown providers regardless of
+  environment variables or self-declared licensing. Regulated custody belongs
+  in a separate, reviewed integration; it cannot be switched on here.
 - **`/info.regulatory`** advertises the posture in machine-readable form:
   `{ role: 'coordinator', money_transmitter: false, custody: 'none',
   settlement: 'peer-to-peer' }`.
 
-Stakes in the non-custodial model are **social/reputational commitments**
-recorded and enforced through public Nostr reputation (ratings, no-show
-reports), not funds the operator escrows. Operators who want custodial escrow
-must be licensed for it and opt in.
+Commitments in the reference model are **social/reputational records**, not
+funds the operator escrows. Cancellation and dispute routes release every
+record-only commitment, move zero money and may tell the non-cancelling party
+that a late cancellation is reportable. They do not impose a debt or execute a
+forfeiture.
 
 ### Settlement rails (all non-custodial)
 
@@ -102,21 +100,22 @@ settlement proofs and tips. Ordered stops and road routing still work. No
 passenger/child/third-party name field exists; legacy `passenger` input is
 ignored.
 
-## When an operator DOES take on more (Mode B)
+## Separate regulated products are separate software
 
-A firm or regulated-market operator that deliberately accepts the additional
-data and payment responsibilities may opt into:
+A firm that deliberately accepts additional data responsibilities may opt into:
 
 - `OPERATOR_DATA_MODE=managed` — exact journey points travel through the
   operator's authenticated API and are available to its lifecycle logic.
 - `DATABASE_URL` — durable operator-side storage (e.g. to retain PII for the
   legally required period). This is the operator's controller obligation.
-- `OPERATOR_LICENSED_CUSTODIAN=true` with a custodial rail — the operator then
-  acts as a payment institution and must hold the corresponding licence.
+There is no equivalent custody opt-in. A regulated custody, escrow or
+conditional-bond product requires a separate adapter and release, written
+jurisdiction-specific perimeter advice, consumer-terms review and independent
+security assessment. The reference operator cannot be converted by setting an
+environment flag.
 
-Neither is part of the default deployment. The software makes the compliant,
-non-custodial, database-free configuration the path of least resistance and the
-regulated configuration an explicit, deliberate opt-in.
+For a UK commercial ride-bond pilot, [UK-RIDE-BOND-GATE.md](UK-RIDE-BOND-GATE.md)
+is a blocking engineering release gate.
 
 ## Not legal advice
 

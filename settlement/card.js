@@ -16,9 +16,9 @@ const SettlementRail = require('./base');
  * custody 'none', operator_transmitted 0.
  *
  * What this rail is NOT: it is not "card on file, charged automatically at
- * drop-off". That requires a merchant of record in the middle, which is a
- * money-transmitter posture and belongs behind OPERATOR_LICENSED_CUSTODIAN
- * with a real acquirer relationship — not here.
+ * drop-off". That requires a merchant of record in the middle and belongs in
+ * a separate regulated integration with a real acquirer relationship — not
+ * behind an environment flag in this reference operator.
  */
 
 /** Terminals a driver might plausibly name. Free text, capped, never PII. */

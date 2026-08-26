@@ -252,8 +252,8 @@ Two distinct cases, and they are **not** the same:
 - WebSocket authentication; `subscribe_ride` is participant-only; the
   socket verifies participation whenever it has an identity
 - **Refuses to boot** with `NODE_ENV=production` and auth unset
-- **Refuses to boot** a custodial payment rail without
-  `OPERATOR_LICENSED_CUSTODIAN=true`
+- **Refuses to boot** every custodial or unknown payment provider; there is no
+  environment override in the reference operator
 - Rate limiting on all mutating routes; `trust proxy` set for correct
   per-IP buckets behind a reverse proxy
 - NIP-44 for encrypted payloads, NIP-17 gift wrap for private exchange.
