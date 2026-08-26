@@ -690,8 +690,8 @@ function adoptPaymentProvider() {
     paymentProvider = stakeManager.currentProvider;
 
     // Immutable product boundary: no environment flag turns the reference
-    // operator into a custodian. Regulated third-party custody belongs in a
-    // separate adapter and release after legal and security review.
+    // operator into a custodian. Third-party custody belongs in a separate
+    // adapter and release with its own security and deployment review.
     let referencePolicy;
     try {
         referencePolicy = assertReferencePaymentProvider(paymentProvider, {
@@ -2682,8 +2682,8 @@ app.get('/info', publicRateLimiter, (req, res) => {
         },
         // Non-custodial settlement rails riders can pay the driver on directly.
         settlement_rails: require('./settlement').listRails(),
-        // Regulatory posture, machine-readable. The reference operator is an
-        // information-society coordination service, not a payment institution.
+        // Machine-readable software posture. This reports configured payment
+        // authority; it does not determine the deployer's legal status.
         regulatory: {
             role: 'coordinator',
             money_transmitter: false,

@@ -39,7 +39,8 @@ notice, retention policy, incident plan, safety workflow and appropriate
 operator due diligence for the chosen jurisdiction. The coordinator processes
 IP addresses, timestamps, pubkeys and coarse location even in blind mode.
 
-A regulated custody or ride-bond product is a separate deployment, code path
-and legal/security review. It is not an environment configuration of this
-reference server. UK operators must treat
-[UK-RIDE-BOND-GATE.md](../docs/UK-RIDE-BOND-GATE.md) as blocking.
+A custody or ride-bond product is a separate deployment, code path and security
+review. It is not an environment configuration of this reference server. Its
+operator must define the customer terms and assess the legal position of its
+actual jurisdiction and business model. See
+[IMPLEMENTER-BOUNDARY.md](../docs/IMPLEMENTER-BOUNDARY.md).

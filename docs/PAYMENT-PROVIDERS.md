@@ -36,11 +36,12 @@ Do not add one to the reference allowlist. A custody, escrow, conditional bond
 or automatic forfeiture rail requires:
 
 1. a separate adapter and release;
-2. written jurisdiction-specific financial-services and consumer-law advice;
-3. an operator-control analysis proving who can move funds;
-4. safeguarding, insolvency, complaints and recovery design;
-5. independent security review and approved funded acceptance.
+2. an operator-control analysis proving who can move funds;
+3. explicit recovery behaviour for timeout, failure and insolvency;
+4. independent security review and approved funded acceptance; and
+5. a deployment owner who defines the customer terms and assesses its own
+   jurisdiction and legal position.
 
-For the UK, [UK-RIDE-BOND-GATE.md](UK-RIDE-BOND-GATE.md) is blocking. A hodl
-invoice is not “trustless” merely because it may refund on timeout: whoever
-controls settlement or cancellation still has material payment authority.
+See [IMPLEMENTER-BOUNDARY.md](IMPLEMENTER-BOUNDARY.md). A hodl invoice is not
+“trustless” merely because it may refund on timeout: whoever controls settlement
+or cancellation still has material payment authority.

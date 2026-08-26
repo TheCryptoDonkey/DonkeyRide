@@ -1,17 +1,19 @@
 # Regulatory Posture: Non-Custodial Coordinator
 
-**Applies to**: the default DonkeyRide reference operator.
+**Applies to**: the default DonkeyRide reference-source configuration.
 
-The reference operator is an **information-society coordination service**, not a
-payment institution, e-money institution, or money transmitter. This document
-states how the software enforces that, so an operator can assess its own
-position before deploying.
+DonkeyRide publishes a protocol and reference source. Publishing it does not
+make the project a ride operator, payment institution, e-money institution or
+money transmitter. If somebody deploys the reference server as a service, the
+software is designed to coordinate information without controlling participant
+money. This document describes that technical boundary so the actual operator
+can assess its own position.
 
-## The operator never touches money
+## The reference configuration never touches money
 
-A money transmitter / payment institution is defined by **receiving, holding,
-or controlling funds** for the purpose of transferring them. The reference
-operator does none of these:
+The reference software is designed not to receive, hold or control participant
+funds. That is a factual capability boundary, not by itself a legal
+classification of somebody else's deployment:
 
 - **Default rail is `cash` (record-only).** The fare settles directly between
   rider and driver (face to face, or wallet to wallet). The operator only
@@ -23,11 +25,12 @@ operator does none of these:
 - **Custodial rails are not available in the reference operator.** Runtime
   policy allows only record-only `cash`, plus `demo` outside production. It
   rejects `lnd`, `btcpay`, `alby`, `cln` and unknown providers regardless of
-  environment variables or self-declared licensing. Regulated custody belongs
-  in a separate, reviewed integration; it cannot be switched on here.
-- **`/info.regulatory`** advertises the posture in machine-readable form:
+  environment variables or self-declared licensing. Custodial rails belong in
+  a separate, reviewed integration; they cannot be switched on here.
+- **`/info.regulatory`** advertises the software posture in machine-readable form:
   `{ role: 'coordinator', money_transmitter: false, custody: 'none',
-  settlement: 'peer-to-peer' }`.
+  settlement: 'peer-to-peer' }`. This describes configured capabilities; it is
+  not a legal-status determination for whoever deploys the server.
 
 Commitments in the reference model are **social/reputational records**, not
 funds the operator escrows. Cancellation and dispute routes release every
@@ -100,7 +103,7 @@ settlement proofs and tips. Ordered stops and road routing still work. No
 passenger/child/third-party name field exists; legacy `passenger` input is
 ignored.
 
-## Separate regulated products are separate software
+## A custodial product is separate software
 
 A firm that deliberately accepts additional data responsibilities may opt into:
 
@@ -108,14 +111,14 @@ A firm that deliberately accepts additional data responsibilities may opt into:
   operator's authenticated API and are available to its lifecycle logic.
 - `DATABASE_URL` — durable operator-side storage (e.g. to retain PII for the
   legally required period). This is the operator's controller obligation.
-There is no equivalent custody opt-in. A regulated custody, escrow or
-conditional-bond product requires a separate adapter and release, written
-jurisdiction-specific perimeter advice, consumer-terms review and independent
-security assessment. The reference operator cannot be converted by setting an
-environment flag.
+There is no equivalent custody opt-in. A custody, escrow or conditional-bond
+product requires a separate adapter and release because it has a different
+security and control model. The reference operator cannot be converted by
+setting an environment flag. Whoever operates that separate product is
+responsible for its own terms, controls, jurisdiction and legal position.
 
-For a UK commercial ride-bond pilot, [UK-RIDE-BOND-GATE.md](UK-RIDE-BOND-GATE.md)
-is a blocking engineering release gate.
+See [IMPLEMENTER-BOUNDARY.md](IMPLEMENTER-BOUNDARY.md) for the distinction
+between publishing the protocol and operating a deployment.
 
 ## Not legal advice
 

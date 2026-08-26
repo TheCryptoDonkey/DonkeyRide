@@ -32,7 +32,7 @@ function assertReferencePaymentProvider(provider, options = {}) {
     if (custody !== 'none') {
         throw new Error(
             `Payment provider '${name || 'unknown'}' is not available in the reference operator. `
-            + 'Only record-only cash is allowed for a real deployment; regulated custody belongs in a separately reviewed integration.'
+            + 'Only record-only cash is allowed here; custodial rails belong in a separately designed and reviewed integration.'
         );
     }
     return Object.freeze({name, custody, operatorCanMoveFunds: false});

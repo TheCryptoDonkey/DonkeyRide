@@ -59,8 +59,8 @@ payment authority of the reference operator.
 ## Before a real deployment
 
 - Read [REGULATORY-POSTURE.md](../docs/REGULATORY-POSTURE.md).
-- Treat [UK-RIDE-BOND-GATE.md](../docs/UK-RIDE-BOND-GATE.md) as blocking for a
-  UK commercial monetary bond.
+- Read [IMPLEMENTER-BOUNDARY.md](../docs/IMPLEMENTER-BOUNDARY.md) and assess the
+  actual deployment rather than treating protocol publication as service operation.
 - Configure NIP-98, rate limiting, operator keys, Nostr relays, routing,
   retention and a DPIA appropriate to the actual deployment.
 - Keep the fare and any tip directly between requester and provider.

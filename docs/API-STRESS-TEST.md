@@ -15,8 +15,8 @@
 > forfeiture statement below: the reference operator now records commitments
 > and reputation evidence only, releases both records on cancellation, and
 > reports `moneyMoved: 0`. It has no active stake-forfeiture call or custodial
-> payment-provider override. See `docs/UK-RIDE-BOND-GATE.md` for the current
-> product boundary.
+> payment-provider override. See `docs/IMPLEMENTER-BOUNDARY.md` for the current
+> protocol publisher and deployment boundary.
 
 ## Verdicts
 
