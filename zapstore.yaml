@@ -4,16 +4,21 @@
 #   SIGN_WITH=<publisher nsec or bunker://…> zsp publish
 #
 # The signing key becomes the app's PERMANENT publisher identity on
-# Zapstore — every future update must be signed by the same key. Choose
-# it deliberately (dedicated forgesworn publisher key, backed up) before
-# the first publish. See docs/ZAPSTORE.md.
+# Zapstore. DonkeyRide uses the existing Heartwood-backed ForgeSworn
+# publisher identity already used for Cambium and My Signet. See
+# docs/ZAPSTORE.md.
 
 name: DonkeyRide Driver
+summary: Direct rider and driver coordination over Nostr, without platform commission
 description: >-
-  Drive with no sign-up, no commission and no company in the middle.
-  Jobs arrive over Nostr; riders pay you directly — cash, M-Pesa or
-  Lightning. Non-custodial reference implementation of the TROTT
-  protocol.
+  DonkeyRide Driver is a non-custodial reference implementation of the
+  TROTT protocol. Coordinate journeys directly over Nostr, without a
+  central dispatch company or platform commission. Riders and drivers
+  agree payment between themselves, including cash, M-Pesa or Lightning.
+
+  There is no central DonkeyRide fleet or guaranteed ride availability.
+  The app provides the protocol and tools for communities and independent
+  operators to coordinate their own service.
 repository: https://github.com/TheCryptoDonkey/DonkeyRide
 license: MIT
 tags:
@@ -29,13 +34,13 @@ tags:
 # The APK signing certificate is linked to the publisher's Nostr identity on
 # first publish (NIP-C1), so it is as permanent as the publisher key:
 #   CN=DonkeyRide, O=forgesworn, C=GB
-#   SHA-256 040dcaa92cabdc6cad349a8c08fd0ef7b2c21fc7d4bb66198539160e47f574b8
-# (An earlier 61ca1384… was recorded here for a keystore that no longer
-# exists anywhere in this repo. Nothing was ever published under it, so
-# replacing it breaks no installed app — but once a build IS published,
-# changing this certificate strands every driver who installed the old one.)
+#   SHA-256 61ca13847eddb053bc25907780a066a672947b7700f96137a6470989930e4dfc
+# This matches the configured release keystore and the public v1.0.5 APK.
+# Once a build is published, changing this certificate strands every driver
+# who installed the old one.
 release_source: ./web/android/app/build/outputs/apk/release/app-release.apk
+icon: ./web/public/icons/driver-icon-512.png
 
-# Publisher Nostr public key — REPLACE with the chosen publisher npub
-# before the first publish, and keep it stable forever after.
-# pubkey: npub1...
+# Existing Heartwood-backed ForgeSworn publisher identity. Keep this stable
+# for every future DonkeyRide Driver release.
+pubkey: npub1mgvlrnf5hm9yf0n5mf9nqmvarhvxkc6remu5ec3vf8r0txqkuk7su0e7q2

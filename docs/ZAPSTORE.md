@@ -7,21 +7,19 @@ DonkeyRide exactly — same trust model as the rest of the stack.
 
 ## One-time setup (decisions that are permanent)
 
-1. **Choose the publisher key.** The Nostr key that signs the first
-   publish is the app's identity on Zapstore forever — updates must be
-   signed by the same key or installs will not update. Recommendation: a
-   dedicated publisher key for forgesworn apps (NOT a personal key, NOT
-   the demo operator key), generated offline and stored with the Android
-   keystore backups (`~/Documents/KeystoreBackups/donkeyride/`).
+1. **Keep the publisher key.** The Nostr key that signs the first publish
+   is the app's identity on Zapstore forever. DonkeyRide uses the existing
+   Heartwood-backed ForgeSworn publisher identity also used for Cambium and
+   My Signet: `npub1mgvlrnf5hm9yf0n5mf9nqmvarhvxkc6remu5ec3vf8r0txqkuk7su0e7q2`.
+   Future updates must use the same identity.
 2. **Certificate linkage.** On first publish the APK signing certificate
    (SHA-256 `61ca13847eddb053bc25907780a066a672947b7700f96137a6470989930e4dfc`)
-   is linked to the publisher's Nostr identity (NIP-C1). Keep the
-   Android keystore and the publisher nsec together — losing either
-   strands existing installs.
+   is linked to the publisher's Nostr identity (NIP-C1). Keep the Android
+   keystore and the Heartwood publisher connection recoverable. Losing
+   either strands existing installs.
 3. **Repository visibility.** Zapstore's relay verifies `zapstore.yaml`
    in the repository against the publishing pubkey before whitelisting.
-   That requires the GitHub repo to be public (currently it is private —
-   a pending decision).
+   The GitHub repository is public, so the relay can perform that check.
 
 ## Publishing a release
 
