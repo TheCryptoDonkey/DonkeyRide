@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { expectEasyTap, expectNoSeriousA11yViolations, expectNoViewportOverflow } from './helpers';
+import { expectEasyTap, expectNoSeriousA11yViolations, expectNoViewportOverflow, skipOnboarding } from './helpers';
 
 const sha256 = 'a'.repeat(64);
 const certificateSha256 = 'b'.repeat(64);
@@ -32,6 +32,7 @@ test('the driver download is usable on a phone and never falls back to HTML for 
 
   await page.goto('/download.html');
   await expect(page.getByRole('heading', { name: 'DonkeyRide Driver for Android' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Install from Zapstore' })).toHaveAttribute('href', /^https:\/\/zapstore\.dev\/apps\/naddr1/);
   const download = page.getByRole('link', { name: 'Download APK · v1.0.3' });
   await expect(download).toHaveAttribute('href', `/downloads/donkeyride-driver-1.0.3.apk?sha256=${sha256.slice(0, 16)}`);
   await expectEasyTap(page, download);
@@ -76,6 +77,7 @@ test('the public about page explains both operating modes without requesting loc
   await expect(page.getByRole('heading', { name: 'Journeys without one gatekeeper' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Request a ride' })).toHaveAttribute('href', '/request');
   await expect(page.getByRole('link', { name: 'Drive or provide' })).toHaveAttribute('href', '/provide');
+  await expect(page.getByRole('link', { name: 'Install from Zapstore' })).toHaveAttribute('href', /^https:\/\/zapstore\.dev\/apps\/naddr1/);
   await expect(page.getByRole('heading', { name: 'Direct mode' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Managed mode' })).toBeVisible();
   await expect(page.getByText(/Relays see network metadata/)).toBeVisible();
@@ -85,4 +87,13 @@ test('the public about page explains both operating modes without requesting loc
   await expectNoViewportOverflow(page);
   await expectNoSeriousA11yViolations(page);
   expect(locationRequests).toBe(0);
+});
+
+test('the rider and driver apps link back to the DonkeyRide explainer', async ({ context, page }) => {
+  await skipOnboarding(context);
+  await page.goto('/request');
+  await expect(page.getByRole('link', { name: 'About DonkeyRide' })).toHaveAttribute('href', '/about.html');
+
+  await page.goto('/provide');
+  await expect(page.getByRole('link', { name: 'About DonkeyRide' })).toHaveAttribute('href', '/about.html');
 });

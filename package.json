@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "DonkeyRide direct rider/driver PWA with an optional reference operator",
-  "homepage": "https://ride.trotters.dev",
+  "homepage": "https://www.trotters.cc/donkeyride",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/TheCryptoDonkey/DonkeyRide.git"

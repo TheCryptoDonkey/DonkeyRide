@@ -4,6 +4,8 @@
 
 **Use it:** [learn how it works](https://ride.trotters.dev/about.html) · [request a journey](https://ride.trotters.dev/) · [drive or provide](https://ride.trotters.dev/provide) · [get the signed Android driver app](https://ride.trotters.dev/download.html) · [view the source](https://github.com/TheCryptoDonkey/DonkeyRide)
 
+**Install it:** [DonkeyRide Driver on Zapstore](https://zapstore.dev/apps/naddr1qq2kzurs9ejx7mntv4uhy6tyv5hxgunfwejhyqgcwaehxw309aex2mrp0yh85ctswd6x7un99ejx2aszyrdpnuwdxjlv5397wndykvrdn5was6mrg080jn8z93yudavczmjm6qcyqqq8uzcrde5j9) · [canonical DonkeyRide overview](https://www.trotters.cc/donkeyride)
+
 DonkeyRide is an installable rider/driver PWA for peer-to-peer journey
 coordination. The normal product is the app, not an operator business.
 

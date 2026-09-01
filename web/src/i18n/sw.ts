@@ -425,6 +425,8 @@ export const sw: Record<string, string> = {
   'rep.panics': 'ishara {n} za dharura',
 
   // Kichwa
+  'header.about': 'Kuhusu DonkeyRide',
+  'header.aboutShort': 'Kuhusu',
   'header.yourProfile': 'Wasifu wako na ufunguo wa akaunti',
   'header.recoveryNotice': 'Kitambulisho kilichohifadhiwa hakikusomeka; kipya kimeundwa. Rejesha kutoka nakala rudufu kwenye Wasifu.',
 

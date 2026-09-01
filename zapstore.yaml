@@ -20,6 +20,7 @@ description: >-
   The app provides the protocol and tools for communities and independent
   operators to coordinate their own service.
 repository: https://github.com/TheCryptoDonkey/DonkeyRide
+website: https://www.trotters.cc/donkeyride
 license: MIT
 tags:
   - ridesharing

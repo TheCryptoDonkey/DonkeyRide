@@ -89,6 +89,18 @@ export function Header({ app }: HeaderProps) {
 
         <div className="flex-1" />
 
+        {/* The product opens straight into the job at hand. Keep the public
+            explainer one obvious tap away without turning the app home into
+            a marketing screen. */}
+        <a
+          href="/about.html"
+          aria-label={t('header.about')}
+          title={t('header.about')}
+          className="shrink-0 min-w-11 h-11 px-2 rounded-lg inline-flex items-center justify-center text-xs font-bold transition-all hover:bg-white/10"
+        >
+          {t('header.aboutShort')}
+        </a>
+
         {/* Cross-app link. A word is clearer than the old suitcase/person
             glyphs, which looked like unexplained toolbar icons. */}
         <a

@@ -414,6 +414,8 @@ export const en: Record<string, string> = {
   'rep.panics': '{n} emergency signal(s)',
 
   // Header
+  'header.about': 'About DonkeyRide',
+  'header.aboutShort': 'About',
   'header.yourProfile': 'Your profile and account key',
   'header.recoveryNotice': 'Stored identity could not be read; a new one was created. Restore from backup in Profile.',
 
