@@ -20,7 +20,9 @@ describe('formatScheduledTime', () => {
   it('names the day for later in the week', () => {
     const later = new Date(Date.now() + 3 * 24 * 3600 * 1000);
     const out = formatScheduledTime(later.getTime());
-    expect(out).toMatch(/^[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2} at \d{2}:\d{2}$/);
+    // en-GB renders September as "Sept", the one short month that is not three
+    // letters, so this asserted correct output only for eleven months of the year.
+    expect(out).toMatch(/^[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2,4} at \d{2}:\d{2}$/);
   });
 });
 
