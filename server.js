@@ -8321,7 +8321,7 @@ app.get('/api/driver-app', publicRateLimiter, (req, res) => {
     });
 });
 
-app.get('*', (req, res, next) => {
+app.get('/{*splat}', (req, res, next) => {
     // Skip API routes and health checks
     if (req.path.startsWith('/api/') || req.path.startsWith('/rides/') || req.path.startsWith('/tasks/') ||
         req.path === '/info' || req.path === '/health' || req.path === '/health/live') {
